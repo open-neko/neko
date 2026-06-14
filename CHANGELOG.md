@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.7.2](https://github.com/open-neko/openneko/compare/v2.7.1...v2.7.2) (2026-06-14)
+
+
+### Bug Fixes
+
+* **docker,demo:** un-break v2.7.1 — restore agent toolchain to web/worker + demo seed/setup fixes ([9711aef](https://github.com/open-neko/openneko/commit/9711aefe9089654f88068528be666871910b7560))
+* **docker,demo:** un-break v2.7.1 — restore agent toolchain to web/worker + demo seed/setup fixes ([b5ef466](https://github.com/open-neko/openneko/commit/b5ef466ae261bbb35b631c847057cac6ae673b79))
+
 ## [2.7.1](https://github.com/open-neko/openneko/compare/v2.7.0...v2.7.1) (2026-06-14)
 
 
