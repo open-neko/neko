@@ -36,7 +36,7 @@ async function openConnection(appToken: string): Promise<string> {
   return body.url;
 }
 
-async function handleFrame(
+export async function handleFrame(
   ws: MinimalWs,
   data: unknown,
   orgId: string,

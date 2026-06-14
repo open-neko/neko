@@ -41,7 +41,7 @@ function channelFromPlugin(pluginName: string): RunChannel {
 
 // Stable per-conversation key from the channel-native recipient (+ thread),
 // so the same DM / channel thread maps to one work_thread across turns.
-function conversationKeyFor(
+export function conversationKeyFor(
   recipient: Record<string, unknown>,
   threadRef?: string,
 ): string {

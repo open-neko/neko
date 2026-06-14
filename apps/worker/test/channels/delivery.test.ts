@@ -74,6 +74,7 @@ import {
 } from "@neko/llm/workflows";
 import { getOrCreateChannelThread } from "@neko/llm/work";
 import {
+  conversationKeyFor,
   deliverChatReply,
   dispatchInboundIntent,
   ensureInboundBinding,
@@ -176,6 +177,23 @@ describe("dispatchInboundIntent — select (continuation fallback)", () => {
         channelPlugin: "@open-neko/channel-telegram",
       }),
     );
+  });
+});
+
+describe("conversationKeyFor", () => {
+  it("keys a Slack DM by channel and a thread by channel:threadRef", () => {
+    expect(conversationKeyFor({ kind: "slack", channel: "D9" })).toBe("D9");
+    expect(conversationKeyFor({ kind: "slack", channel: "C9" }, "171.5")).toBe("C9:171.5");
+  });
+
+  it("keys Telegram by chatId and WhatsApp by recipient address", () => {
+    expect(conversationKeyFor({ chatId: 7 }, "42")).toBe("7:42");
+    expect(conversationKeyFor({ to: "+15550001111" })).toBe("+15550001111");
+  });
+
+  it("returns empty when the recipient has no stable address", () => {
+    expect(conversationKeyFor({})).toBe("");
+    expect(conversationKeyFor({ foo: "bar" }, "42")).toBe("");
   });
 });
 
