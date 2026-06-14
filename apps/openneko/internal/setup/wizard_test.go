@@ -86,6 +86,10 @@ func TestHeadlessConfigure(t *testing.T) {
 	if !outcome.Configured || outcome.Skipped {
 		t.Fatalf("want Configured, got %+v", outcome)
 	}
+	// The rotated password is surfaced so the CLI can reconnect the gateway.
+	if outcome.PasswordSet != "supersecret" {
+		t.Errorf("PasswordSet = %q, want supersecret", outcome.PasswordSet)
+	}
 
 	if _, ok := findWhere(recs, "POST", "/api/admin/change-password", func(b map[string]any) bool {
 		return b["password"] == "supersecret"
@@ -129,8 +133,14 @@ func TestHeadlessClaudeAgentLocksAnthropic(t *testing.T) {
 		Mode: "prod", BaseURL: srv.URL, Headless: true,
 		Backend: "claude-agent", Provider: "openai", ProviderKey: "sk", DataURL: "http://x:8080", NoResearch: true,
 	}
-	if _, err := Run(context.Background(), NewClient(srv.URL), &bytes.Buffer{}, cfg); err != nil {
+	outcome, err := Run(context.Background(), NewClient(srv.URL), &bytes.Buffer{}, cfg)
+	if err != nil {
 		t.Fatalf("Run: %v", err)
+	}
+	// Password was already changed → no rotation this run, so nothing to
+	// reconnect for.
+	if outcome.PasswordSet != "" {
+		t.Errorf("PasswordSet = %q, want empty (password already set)", outcome.PasswordSet)
 	}
 	// Even though Provider=openai was passed, claude-agent forces anthropic.
 	if _, ok := findWhere(recs, "PUT", "/api/settings/provider", func(b map[string]any) bool {

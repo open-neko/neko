@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/open-neko/neko/apps/openneko/internal/compose"
+	"github.com/open-neko/neko/apps/openneko/internal/config"
 	"github.com/open-neko/neko/apps/openneko/internal/plugin/marketplace"
 	"github.com/open-neko/neko/apps/openneko/internal/preflight"
 	"github.com/open-neko/neko/apps/openneko/internal/prompt"
@@ -131,6 +132,27 @@ at the prompt) to finish at the web UI. Credential flags
 			if err != nil {
 				return err
 			}
+
+			// Rotating the DB password mid-setup strands the already-running
+			// openshell-gateway: it baked the old password into OPENSHELL_DB_URL
+			// at bring-up, so it can no longer reach neko-db and every agent
+			// sandbox (chat/Ask) fails to provision. Persist the new password to
+			// the host config (the source `openneko start` reads) and recreate
+			// the gateway so it reconnects. The web self-restarts and the worker
+			// reconnects via the change-password route; the gateway is the gap.
+			if outcome.PasswordSet != "" {
+				if err := config.WriteLocalPgPassword("", outcome.PasswordSet); err != nil {
+					ui.Info(out, "warning: couldn't persist the DB password to the host config: %v", err)
+				}
+				if err := ui.Spin("Reconnecting the agent gateway", func() error {
+					return recreateOpenShellGateway(ctx, m)
+				}); err != nil {
+					ui.Info(out, "warning: agent gateway reconnect failed (%v) — run `openneko start` to retry", err)
+				} else {
+					ui.Success(out, "agent gateway reconnected")
+				}
+			}
+
 			if outcome.Configured {
 				if !skipPlugins {
 					if err := offerPluginInstall(ctx, out, pluginsCSV, interactive && !cfg.Headless); err != nil {

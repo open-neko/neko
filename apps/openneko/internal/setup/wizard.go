@@ -36,6 +36,10 @@ type Config struct {
 type Outcome struct {
 	Configured bool // ran through Finish in the terminal
 	Skipped    bool // deferred to the browser (chosen, or no TTY + no flags)
+	// PasswordSet is the new DB password when this run rotated it (empty
+	// otherwise). The caller persists it to the host config and reconnects the
+	// agent gateway, which baked the old password at bring-up.
+	PasswordSet string
 }
 
 // errBrowser is returned by any step when the operator aborts to the browser.
@@ -79,20 +83,26 @@ func runInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config) (
 		return browserHandoff(out, cfg), nil
 	}
 
-	err := stepsInteractive(ctx, c, out, cfg)
+	pw, err := stepsInteractive(ctx, c, out, cfg)
 	if errors.Is(err, errBrowser) {
-		return browserHandoff(out, cfg), nil
+		// A password set before bailing still needs the gateway reconnect, so
+		// carry it onto the browser-handoff outcome.
+		o := browserHandoff(out, cfg)
+		o.PasswordSet = pw
+		return o, nil
 	}
 	if err != nil {
 		return Outcome{}, err
 	}
-	return Outcome{Configured: true}, nil
+	return Outcome{Configured: true, PasswordSet: pw}, nil
 }
 
-func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config) error {
+// stepsInteractive runs the terminal onboarding steps, returning the new DB
+// password when it rotated one this run (empty otherwise) alongside any error.
+func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config) (passwordSet string, err error) {
 	changed, err := c.PasswordChanged(ctx)
 	if err != nil {
-		return err
+		return passwordSet, err
 	}
 
 	total := 3
@@ -120,18 +130,19 @@ func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config)
 				}),
 		))
 		if err := runForm(form); err != nil {
-			return err
+			return passwordSet, err
 		}
 		if err := ui.Spin("Setting database password", func() error { return c.ChangePassword(ctx, pw) }); err != nil {
-			return err
+			return passwordSet, err
 		}
+		passwordSet = pw
 		ui.Success(out, "password set")
 	}
 
 	// 2. Data source (re-prompts until the connectivity test passes).
 	ds, err := c.GetDataSource(ctx)
 	if err != nil {
-		return err
+		return passwordSet, err
 	}
 	next("Connect your data", "GraphJin base URL — OpenNeko adds the GraphQL & MCP paths.")
 	root := defaultDataURL(cfg, ds)
@@ -140,7 +151,7 @@ func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config)
 			huh.NewInput().Title("GraphJin URL").Value(&root).Validate(nonEmpty),
 		))
 		if err := runForm(form); err != nil {
-			return err
+			return passwordSet, err
 		}
 		gql, mcp := DeriveEndpoints(root)
 		var mcpOK bool
@@ -167,18 +178,18 @@ func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config)
 	// 3. Agent backend + primary provider (re-prompts until the key validates).
 	agent, err := c.GetAgent(ctx)
 	if err != nil {
-		return err
+		return passwordSet, err
 	}
 	prov, err := c.GetProvider(ctx)
 	if err != nil {
-		return err
+		return passwordSet, err
 	}
 	next("Agent & model provider", "The model that runs your metric queries.")
 	backend := agent.Agent.Backend
 	if err := runForm(huh.NewForm(huh.NewGroup(
 		huh.NewSelect[string]().Title("Agent backend").Options(backendOptions(agent.Options)...).Value(&backend),
 	))); err != nil {
-		return err
+		return passwordSet, err
 	}
 	var provider string
 	if backend == "claude-agent" {
@@ -189,7 +200,7 @@ func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config)
 		if err := runForm(huh.NewForm(huh.NewGroup(
 			huh.NewSelect[string]().Title("Model provider").Options(providerOptions(prov.Options.Primary)...).Value(&provider),
 		))); err != nil {
-			return err
+			return passwordSet, err
 		}
 	}
 	capJobs := agent.Agent.GlobalCap
@@ -199,7 +210,7 @@ func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config)
 	for {
 		model, config, secrets, err := providerForm(modelDefault(prov.Defaults.Primary, provider, prov.Primary), prov.Fields.Primary[provider])
 		if err != nil {
-			return err
+			return passwordSet, err
 		}
 		draft := ProviderDraft{Scope: "primary", Provider: provider, Model: model, Enabled: true, Config: config, Secrets: secrets}
 		if err := ui.Spin("Validating provider key", func() error { return c.TestProvider(ctx, draft) }); err != nil {
@@ -212,7 +223,7 @@ func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config)
 			}
 			return c.SaveProvider(ctx, draft)
 		}); err != nil {
-			return err
+			return passwordSet, err
 		}
 		ui.Success(out, "agent + provider saved")
 		break
@@ -224,7 +235,7 @@ func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config)
 	if err := runForm(huh.NewForm(huh.NewGroup(
 		huh.NewConfirm().Title("Enable industry research?").Affirmative("Yes").Negative("No, skip").Value(&enable),
 	))); err != nil {
-		return err
+		return passwordSet, err
 	}
 	if enable {
 		for {
@@ -233,11 +244,11 @@ func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config)
 				huh.NewSelect[string]().Title("Research provider").
 					Options(providerOptions(filterOut(prov.Options.Research, "disabled"))...).Value(&rprovider),
 			))); err != nil {
-				return err
+				return passwordSet, err
 			}
 			model, config, secrets, err := providerForm(prov.Defaults.Research[rprovider], prov.Fields.Research[rprovider])
 			if err != nil {
-				return err
+				return passwordSet, err
 			}
 			rdraft := ProviderDraft{Scope: "research", Provider: rprovider, Model: model, Enabled: true, Config: config, Secrets: secrets}
 			if err := ui.Spin("Validating research key", func() error { return c.TestProvider(ctx, rdraft) }); err != nil {
@@ -245,17 +256,17 @@ func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config)
 				continue
 			}
 			if err := ui.Spin("Enabling research", func() error { return c.SaveProvider(ctx, rdraft) }); err != nil {
-				return err
+				return passwordSet, err
 			}
 			ui.Success(out, "research enabled")
 			break
 		}
 	} else if err := ui.Spin("Saving", func() error { return c.SaveProvider(ctx, disabledResearch()) }); err != nil {
-		return err
+		return passwordSet, err
 	}
 
 	// 5. Finish.
-	return ui.Spin("Finishing setup", func() error { return c.Finish(ctx) })
+	return passwordSet, ui.Spin("Finishing setup", func() error { return c.Finish(ctx) })
 }
 
 // runForm runs a huh form with the shared theme. A user abort (ctrl-c / esc) is
@@ -340,6 +351,7 @@ func nonEmpty(s string) error {
 // ----- headless -----
 
 func runHeadless(ctx context.Context, c *Client, cfg Config) (Outcome, error) {
+	passwordSet := ""
 	changed, err := c.PasswordChanged(ctx)
 	if err != nil {
 		return Outcome{}, err
@@ -354,6 +366,7 @@ func runHeadless(ctx context.Context, c *Client, cfg Config) (Outcome, error) {
 		if err := c.ChangePassword(ctx, cfg.AdminPassword); err != nil {
 			return Outcome{}, err
 		}
+		passwordSet = cfg.AdminPassword
 	}
 
 	ds, err := c.GetDataSource(ctx)
@@ -433,7 +446,7 @@ func runHeadless(ctx context.Context, c *Client, cfg Config) (Outcome, error) {
 	if err := c.Finish(ctx); err != nil {
 		return Outcome{}, err
 	}
-	return Outcome{Configured: true}, nil
+	return Outcome{Configured: true, PasswordSet: passwordSet}, nil
 }
 
 // ----- shared helpers -----

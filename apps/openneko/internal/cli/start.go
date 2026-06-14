@@ -204,9 +204,19 @@ func configureOpenShellDBURL() {
 	if os.Getenv("OPENSHELL_DB_URL") != "" {
 		return
 	}
+	if u, ok := deriveOpenShellDBURL(); ok {
+		_ = os.Setenv("OPENSHELL_DB_URL", u)
+	}
+}
+
+// deriveOpenShellDBURL builds the gateway's neko-db URL from the rotated
+// password in the host config. ok is false on a fresh install (no rotated
+// password yet — the compose default still matches the initial DB), so the
+// caller leaves OPENSHELL_DB_URL at the compose default.
+func deriveOpenShellDBURL() (string, bool) {
 	lc, _ := config.ReadLocal("")
 	if lc.Pg == nil || lc.Pg.Password == "" {
-		return // fresh install — the compose default matches the initial DB
+		return "", false
 	}
 	user := lc.Pg.User
 	if user == "" {
@@ -225,7 +235,49 @@ func configureOpenShellDBURL() {
 		Host:   "neko-db:5432",
 		Path:   "/" + database,
 	}
-	_ = os.Setenv("OPENSHELL_DB_URL", u.String())
+	return u.String(), true
+}
+
+// recreateOpenShellGateway force-recreates just the gateway container so it
+// reconnects to neko-db with the freshly rotated password. The web wizard
+// rotates the `neko` role mid-setup, but the gateway baked the old password
+// into OPENSHELL_DB_URL at bring-up — leaving it stranded ("password
+// authentication failed"), which kills every agent sandbox (chat/Ask). The web
+// self-restarts and the worker reconnects via the change-password route; the
+// gateway is the only piece whose creds come from an env var fixed at container
+// creation, so it must be replaced.
+//
+// --no-deps keeps web/worker and the one-shot certgen/reg untouched; the
+// gateway's PKI and registration live in persistent volumes, so its identity
+// survives the swap. No agent runs happen during setup, so the brief gateway
+// restart is safe.
+func recreateOpenShellGateway(ctx context.Context, mode compose.Mode) error {
+	if err := configureOpenShellStateDir(); err != nil {
+		return err
+	}
+	// Re-derive with the rotated password, bypassing configureOpenShellDBURL's
+	// "already set" guard — the bring-up earlier this run set the default.
+	if u, ok := deriveOpenShellDBURL(); ok {
+		_ = os.Setenv("OPENSHELL_DB_URL", u)
+	}
+	if os.Getenv("OPENNEKO_VERSION") == "" {
+		_ = os.Setenv("OPENNEKO_VERSION", "v"+version.Version)
+	}
+
+	sup := compose.New(assets.ComposeFS)
+	files, err := sup.Materialize(mode)
+	if err != nil {
+		return err
+	}
+	// "" reads the persisted project marker — the project that's actually
+	// running — rather than rewriting it.
+	project, err := sup.ProjectName("")
+	if err != nil {
+		return err
+	}
+	args := []string{"up", "-d", "--no-deps", "--force-recreate", "openshell-gateway"}
+	_, err = sup.Run(ctx, project, files, args, os.Stdout, os.Stderr)
+	return err
 }
 
 func waitDBHealthy(ctx context.Context, timeout time.Duration) error {
