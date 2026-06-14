@@ -21,43 +21,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl tini \
     && rm -rf /var/lib/apt/lists/*
 
-# ─── 2. runtime-base: lean base for web/worker ─────────────────────────
-# web/worker share this; the heavy agent toolchain (graphjin/hermes/claude/
-# libreoffice) lives one layer up in `cli` so only the agent image carries it.
+# ─── 2. runtime-base: node + agent-orchestration toolchain ─────────────
+# web, worker AND agent all run agent turns in-process (runChatTurn /
+# runWorkflowTurn / profiler / metric-agent in @neko/llm), which shell out to
+# the `graphjin` CLI and the hermes/claude backend — so all three need this
+# layer. Only the doc-skill toolchain (LibreOffice/python) is agent-exclusive
+# and lives one layer up in `cli`.
 FROM base AS runtime-base
+ARG GRAPHJIN_VERSION=3.18.37
+ARG HERMES_AGENT_REF=a91a57fa5a13d516c38b07a141a9ce8a3daabeb0
 ARG OPENSHELL_VERSION=0.0.54
 # TARGETARCH is auto-supplied by buildx (amd64 or arm64).
 ARG TARGETARCH
-# unzip + postgresql-client are needed by db/load-adventureworks-baked.sh
-# (demo seeder, runs inside the worker container with no apt-get available
-# at runtime since the container runs as the `neko` user, not root).
-# git: git-URL skill installs shallow-clone. openssh-client: `openshell sandbox
-# exec` relays over ssh (unix:/run/openshell/ssh.sock), so the worker — which
-# shells out to it for the agent sandbox — needs an ssh client.
+# unzip + postgresql-client: db/load-adventureworks-baked.sh (demo seed, runs in
+# the worker). git: git-URL skill installs. openssh-client: `openshell sandbox
+# exec` relays over ssh, so web/worker — which run agent turns and spawn
+# sandboxes — need an ssh client.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git unzip postgresql-client openssh-client \
     && rm -rf /var/lib/apt/lists/*
-# openshell: CLI driver the worker uses to spawn + relay to agent sandboxes.
-# Static musl binary, no runtime deps.
-RUN OS_ARCH="$(case "${TARGETARCH}" in amd64) echo x86_64 ;; arm64) echo aarch64 ;; *) echo "${TARGETARCH}" ;; esac)" \
-    && curl -fsSL -o /tmp/openshell.tgz \
-      "https://github.com/NVIDIA/OpenShell/releases/download/v${OPENSHELL_VERSION}/openshell-${OS_ARCH}-unknown-linux-musl.tar.gz" \
-    && tar -xzf /tmp/openshell.tgz -C /usr/local/bin openshell \
-    && rm /tmp/openshell.tgz \
-    && openshell --version
-
-# ─── 2b. cli: agent toolchain (only the `agent` image builds from this) ──
-# graphjin: metric agent uses `graphjin cli`. hermes: default Hermes backend.
-# claude: claude-agent backend (Anthropic SDK spawns it).
-FROM runtime-base AS cli
-ARG GRAPHJIN_VERSION=3.18.37
-ARG HERMES_AGENT_REF=a91a57fa5a13d516c38b07a141a9ce8a3daabeb0
-ARG TARGETARCH
+# graphjin: every in-process agent turn queries the data source via `graphjin cli`.
 RUN curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/graphjin.tgz \
       "https://github.com/dosco/graphjin/releases/download/v${GRAPHJIN_VERSION}/graphjin_${GRAPHJIN_VERSION}_linux_${TARGETARCH}.tar.gz" \
     && tar -xzf /tmp/graphjin.tgz -C /usr/local/bin graphjin \
     && rm /tmp/graphjin.tgz \
     && graphjin version
+# hermes: default agent backend (any provider). claude: claude-agent backend.
 RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv/install.sh \
       | env UV_INSTALL_DIR=/usr/local/bin sh -s -- --no-modify-path \
     && UV_TOOL_DIR=/usr/local/uv/tools \
@@ -72,10 +61,19 @@ RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv
     && /usr/local/uv/tools/hermes-agent/bin/python -c "import mcp, websockets" \
     && echo "hermes MCP SDK present"
 RUN npm install -g @anthropic-ai/claude-code
+# openshell: CLI to spawn + relay to agent sandboxes. Static musl, no deps.
+RUN OS_ARCH="$(case "${TARGETARCH}" in amd64) echo x86_64 ;; arm64) echo aarch64 ;; *) echo "${TARGETARCH}" ;; esac)" \
+    && curl -fsSL -o /tmp/openshell.tgz \
+      "https://github.com/NVIDIA/OpenShell/releases/download/v${OPENSHELL_VERSION}/openshell-${OS_ARCH}-unknown-linux-musl.tar.gz" \
+    && tar -xzf /tmp/openshell.tgz -C /usr/local/bin openshell \
+    && rm /tmp/openshell.tgz \
+    && openshell --version
 
-# Bundled skills (xlsx / pptx / docx / pdf / skill-creator) shell out to
-# Python + LibreOffice + Poppler / qpdf. Mirror packages/llm/src/work/skill-deps.ts
-# so a fresh image has what they need at runtime.
+# ─── 2b. cli: + doc-skill toolchain (agent image only) ─────────────────
+# Bundled skills (xlsx / pptx / docx / pdf) shell out to Python + LibreOffice +
+# Poppler / qpdf via the agent's Bash inside the OpenShell sandbox — web/worker
+# never run these, so the ~1GB toolchain stays out of their images.
+FROM runtime-base AS cli
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip libreoffice poppler-utils qpdf \
     && rm -rf /var/lib/apt/lists/* \
@@ -142,7 +140,9 @@ RUN mkdir -p /app/.transformers-cache && \
     cd /app/packages/llm && node scripts/prewarm-embedding.mjs
 
 # ─── 5a. web runtime ───────────────────────────────────────────────────
-FROM base AS web
+# FROM runtime-base (not base): web runs agent turns in-process (runChatTurn /
+# runWorkflowTurn) which shell out to graphjin + the hermes/claude backend.
+FROM runtime-base AS web
 WORKDIR /app
 # Writable HOME under /tmp so the entrypoint can materialize config on
 # read-only container filesystems. PORT=8080 matches the common PaaS

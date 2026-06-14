@@ -231,42 +231,76 @@ func (c *Client) Finish(ctx context.Context) error {
 
 // do issues a JSON request and decodes a JSON response. Non-2xx responses
 // carry a {"error": "..."} body which is surfaced verbatim.
+//
+// It retries transient transport errors (EOF / connection refused) and 502-504
+// for a short window: changing the admin password makes the web container
+// restart (OPENNEKO_RESTART_WEB_ON_PASSWORD_CHANGE), so a request issued right
+// after — e.g. the live provider-key test — can land mid-restart. Every endpoint
+// here is idempotent, so retrying is safe.
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
-	var rdr io.Reader
+	var bodyBytes []byte
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
 			return err
 		}
-		rdr = bytes.NewReader(b)
+		bodyBytes = b
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, rdr)
-	if err != nil {
-		return err
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var e struct {
-			Error string `json:"error"`
+	deadline := time.Now().Add(45 * time.Second)
+	for attempt := 0; ; attempt++ {
+		var rdr io.Reader
+		if bodyBytes != nil {
+			rdr = bytes.NewReader(bodyBytes)
 		}
-		_ = json.Unmarshal(data, &e)
-		if e.Error != "" {
-			return errors.New(e.Error)
+		req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, rdr)
+		if err != nil {
+			return err
 		}
-		return fmt.Errorf("%s %s: HTTP %d", method, path, resp.StatusCode)
+		if bodyBytes != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			if time.Now().Before(deadline) && ctx.Err() == nil {
+				if waitErr := sleepCtx(ctx, time.Second); waitErr != nil {
+					return waitErr
+				}
+				continue // transport error (web likely restarting) — retry
+			}
+			return err
+		}
+		data, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode >= 502 && resp.StatusCode <= 504 && time.Now().Before(deadline) {
+			if waitErr := sleepCtx(ctx, time.Second); waitErr != nil {
+				return waitErr
+			}
+			continue // transient gateway error during restart — retry
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			var e struct {
+				Error string `json:"error"`
+			}
+			_ = json.Unmarshal(data, &e)
+			if e.Error != "" {
+				return errors.New(e.Error)
+			}
+			return fmt.Errorf("%s %s: HTTP %d", method, path, resp.StatusCode)
+		}
+		if out != nil && len(data) > 0 {
+			return json.Unmarshal(data, out)
+		}
+		return nil
 	}
-	if out != nil && len(data) > 0 {
-		return json.Unmarshal(data, out)
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
 	}
-	return nil
 }
 
 // ----- endpoint derivation (ported from SetupWizard.tsx deriveRoot/Endpoints) -----
