@@ -108,7 +108,7 @@ services:
       NEKO_PG_DATABASE: neko
     volumes:
       - openneko-config:/config/openneko
-    command: ["node", "packages/db/src/seed-adventureworks.mjs"]
+    command: ["node", "node_modules/@neko/db/src/seed-adventureworks.mjs"]
     restart: "no"
 
   adventureworks-simulator:

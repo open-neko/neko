@@ -174,7 +174,7 @@ services:
       no_proxy: localhost,127.0.0.1,::1,neko-db,worker,web,graphjin,adventureworks-db,host.docker.internal,host.internal
     volumes:
       - openneko-config:/config/openneko
-    command: ["node", "packages/db/src/seed-adventureworks.mjs"]
+    command: ["node", "node_modules/@neko/db/src/seed-adventureworks.mjs"]
     restart: "no"
 
   web:
