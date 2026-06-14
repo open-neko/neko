@@ -12,6 +12,7 @@ import {
   work_thread,
   workflow_run,
 } from "@neko/db";
+import { createHash } from "node:crypto";
 import type { AgentBackendId } from "../agent-backend";
 import type { AgentEvent } from "../agent-backend";
 
@@ -104,6 +105,55 @@ export async function createWorkThread(
     })
     .returning();
   return rows[0];
+}
+
+// Deterministic thread id per channel conversation, so repeated inbound messages
+// reuse one work_thread (and its history) instead of spawning a new one each turn.
+const CHANNEL_THREAD_NS = "8b9d2e7a-1c34-4f56-9a78-b0c1d2e3f405";
+
+function uuidv5(name: string, namespaceUuid: string): string {
+  const ns = Buffer.from(namespaceUuid.replace(/-/g, ""), "hex");
+  const bytes = createHash("sha1").update(ns).update(name).digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const h = bytes.toString("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+export function channelThreadId(
+  orgId: string,
+  channel: string,
+  conversationKey: string,
+): string {
+  return uuidv5(`${orgId}:${channel}:${conversationKey}`, CHANNEL_THREAD_NS);
+}
+
+export async function getOrCreateChannelThread(args: {
+  orgId: string;
+  channel: string;
+  conversationKey: string;
+  title?: string;
+  createdByUserId?: string | null;
+}) {
+  const id = channelThreadId(args.orgId, args.channel, args.conversationKey);
+  const inserted = await db()
+    .insert(work_thread)
+    .values({
+      id,
+      org_id: args.orgId,
+      title: args.title ?? "",
+      channel: args.channel,
+      created_by_user_id: args.createdByUserId ?? null,
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (inserted[0]) return inserted[0];
+  const [existing] = await db()
+    .select()
+    .from(work_thread)
+    .where(eq(work_thread.id, id))
+    .limit(1);
+  return existing;
 }
 
 export async function deleteWorkThread(orgId: string, threadId: string): Promise<boolean> {

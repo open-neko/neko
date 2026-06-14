@@ -48,7 +48,9 @@ vi.mock("@neko/db", () => ({
 vi.mock("@neko/llm", () => ({ resolveAgentBackend: vi.fn(async () => ({ id: "hermes" })) }));
 vi.mock("@neko/llm/work", () => ({
   createWorkThread: vi.fn(async () => ({ id: "thread-1" })),
+  getOrCreateChannelThread: vi.fn(async () => ({ id: "thread-1" })),
   createWorkRun: vi.fn(async () => ({ id: "run-1" })),
+  createWorkMessage: vi.fn(async () => ({ id: "msg-1" })),
 }));
 vi.mock("@neko/llm/interaction", () => ({
   outputRowToInteractionEvent: (r: unknown) => ({ kind: "inform", ...(r as object) }),
@@ -70,7 +72,7 @@ import {
   rejectActionRequest,
   setWorkflowOutputDeliveryHook,
 } from "@neko/llm/workflows";
-import { createWorkThread } from "@neko/llm/work";
+import { getOrCreateChannelThread } from "@neko/llm/work";
 import {
   deliverChatReply,
   dispatchInboundIntent,
@@ -142,7 +144,7 @@ describe("dispatchInboundIntent — utterance", () => {
       "@open-neko/channel-telegram",
       { chatId: 7 },
     );
-    expect(createWorkThread).toHaveBeenCalled();
+    expect(getOrCreateChannelThread).toHaveBeenCalled();
     expect(enqueue).toHaveBeenCalledWith(
       "work_run",
       expect.objectContaining({
@@ -153,6 +155,25 @@ describe("dispatchInboundIntent — utterance", () => {
         channel: "telegram",
         channelPlugin: "@open-neko/channel-telegram",
         recipient: { chatId: 7 },
+      }),
+    );
+  });
+});
+
+describe("dispatchInboundIntent — select (continuation fallback)", () => {
+  it("continues the conversation with the chosen option", async () => {
+    await dispatchInboundIntent(
+      "org-1",
+      { kind: "select", ref: "ar-9", optionId: "Option B" },
+      "@open-neko/channel-telegram",
+      { chatId: 7 },
+    );
+    expect(getOrCreateChannelThread).toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledWith(
+      "work_run",
+      expect.objectContaining({
+        message: "Option B",
+        channelPlugin: "@open-neko/channel-telegram",
       }),
     );
   });

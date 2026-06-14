@@ -21,6 +21,7 @@ import {
   savePollCursor,
 } from "./inbound-store.js";
 import { pollBackoffMs, shouldLogPollFailure } from "./poll-backoff.js";
+import { runSlackSocketLoop } from "./socket-loop.js";
 
 const DEDUP_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -84,6 +85,14 @@ export function startChannelInbound(orgId: string): { stop: () => void } {
       console.log(
         `[channel-inbound] ${provider.pluginName}: webhook ingress at ${process.env.OPENNEKO_PUBLIC_URL}/channels/${encodeURIComponent(provider.pluginName)}/inbound`,
       );
+      continue;
+    }
+    if (provider.ingress === "socket") {
+      void runSlackSocketLoop({
+        orgId,
+        pluginName: provider.pluginName,
+        isStopped: () => stopped,
+      });
       continue;
     }
     void pollLoop(provider.pluginName);

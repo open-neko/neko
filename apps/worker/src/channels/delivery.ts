@@ -16,8 +16,10 @@ import {
   type WorkflowOutputDeliveryHook,
 } from "@neko/llm/workflows";
 import {
+  createWorkMessage,
   createWorkRun,
   createWorkThread,
+  getOrCreateChannelThread,
   type RunChannel,
 } from "@neko/llm/work";
 import { getPluginRegistryInstance } from "../plugins/registry-instance.js";
@@ -35,6 +37,21 @@ function channelFromPlugin(pluginName: string): RunChannel {
   // action plugin (@open-neko/plugin-slack), so plugin- maps too.
   const m = pluginName.match(/(?:channel|plugin)-([a-z0-9-]+)$/i);
   return (m ? m[1].toLowerCase() : pluginName) as RunChannel;
+}
+
+// Stable per-conversation key from the channel-native recipient (+ thread),
+// so the same DM / channel thread maps to one work_thread across turns.
+function conversationKeyFor(
+  recipient: Record<string, unknown>,
+  threadRef?: string,
+): string {
+  const base =
+    (typeof recipient.channel === "string" && recipient.channel) ||
+    (recipient.chatId != null && String(recipient.chatId)) ||
+    (typeof recipient.to === "string" && recipient.to) ||
+    "";
+  if (!base) return "";
+  return threadRef ? `${base}:${threadRef}` : base;
 }
 
 type IntentEvent =
@@ -288,8 +305,17 @@ export async function dispatchInboundIntent(
     );
     return;
   }
-  console.log(
-    `[channel-inbound] select ${intent.ref}=${intent.optionId} (no handler wired)`,
+  // Other channels may still emit a raw select; continue the conversation with
+  // the chosen option instead of dropping it (Slack sends the label as text).
+  await startChatRun(
+    orgId,
+    intent.optionId,
+    channelFromPlugin(channelPlugin),
+    channelPlugin,
+    recipient,
+    undefined,
+    sender,
+    actor,
   );
 }
 
@@ -307,16 +333,29 @@ async function startChatRun(
   },
 ): Promise<void> {
   const channelLabel = channel.charAt(0).toUpperCase() + channel.slice(1);
-  const thread = await createWorkThread(
-    orgId,
-    threadRef ? `${channelLabel} ${threadRef}` : channelLabel,
-    channel,
-    actor.userId ?? undefined,
-  );
+  const title = threadRef ? `${channelLabel} ${threadRef}` : channelLabel;
+  const conversationKey = recipient ? conversationKeyFor(recipient, threadRef) : "";
+  const thread = conversationKey
+    ? await getOrCreateChannelThread({
+        orgId,
+        channel,
+        conversationKey,
+        title,
+        createdByUserId: actor.userId ?? undefined,
+      })
+    : await createWorkThread(orgId, title, channel, actor.userId ?? undefined);
   const backend = await resolveAgentBackend(orgId);
   // K1: the CH3-resolved actor is the run's acting principal — a linked
   // sender gets their personal layer and role, unlinked stays anonymous.
   const run = await createWorkRun(orgId, thread.id, backend.id, actor);
+  // Record the user turn so reused threads build real conversation history.
+  await createWorkMessage({
+    orgId,
+    threadId: thread.id,
+    runId: run.id,
+    role: "user",
+    content: message,
+  });
   const inserted = await db()
     .insert(processing_job)
     .values({
