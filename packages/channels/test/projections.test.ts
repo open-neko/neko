@@ -4,14 +4,12 @@ import {
   SLACK_PROFILE,
   VOICE_PROFILE,
   WEB_PROFILE,
-  WHATSAPP_PROFILE,
   type InteractionEvent,
 } from "@neko/interaction";
 import {
   slackProjection,
   voiceProjection,
   webProjection,
-  whatsappProjection,
   type SlackBlock,
 } from "../src/index.js";
 
@@ -65,14 +63,6 @@ describe("one inform, every substrate (degradation by profile)", () => {
     expect(JSON.stringify(blocks)).not.toContain("Tue");
   });
 
-  it("whatsapp collapses to clamped text with the metric inline", () => {
-    const { body } = whatsappProjection([inform], WHATSAPP_PROFILE);
-    expect(body).toContain("*Q3 revenue landed*");
-    expect(body).toContain("Revenue MTD: $4.7M");
-    expect(body.length).toBeLessThanOrEqual(WHATSAPP_PROFILE.constraints.maxOutboundChars!);
-    expect(body).not.toContain("Mon");
-  });
-
   it("voice speaks the headline and metric, no chart", () => {
     const { ssml } = voiceProjection([inform], VOICE_PROFILE);
     expect(ssml.startsWith("<speak>")).toBe(true);
@@ -100,12 +90,6 @@ describe("one highlight, every substrate renders the figures its own way", () =>
     expect(json).toContain("down from 53%");
   });
 
-  it("whatsapp renders the figures as plain lines", () => {
-    const { body } = whatsappProjection([highlight], WHATSAPP_PROFILE);
-    expect(body).toContain("Top-10 share: 48% (down from 53%)");
-    expect(body).toContain("YoY revenue: +14%");
-  });
-
   it("voice reads the figures aloud, no sub when absent", () => {
     const { ssml } = voiceProjection([highlight], VOICE_PROFILE);
     expect(ssml).toContain("Top-10 share is 48%, down from 53%.");
@@ -124,14 +108,6 @@ describe("ask negotiation branches on profile, never on channel identity", () =>
     const { blocks } = slackProjection([ask], EMAIL_DIGEST_PROFILE);
     expect(blockTypes(blocks)).not.toContain("actions");
     expect(JSON.stringify(blocks)).toContain("Open the web dashboard");
-  });
-
-  it("whatsapp renders quick-reply buttons", () => {
-    const { buttons } = whatsappProjection([ask], WHATSAPP_PROFILE);
-    expect(buttons).toEqual([
-      { id: "approve:ar-123", title: "Approve" },
-      { id: "reject:ar-123", title: "Reject" },
-    ]);
   });
 
   it("web surfaces the ask to its native approval UI", () => {

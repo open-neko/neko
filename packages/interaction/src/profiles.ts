@@ -16,15 +16,7 @@ export const SLACK_PROFILE: CapabilityProfile = {
   fidelity: "summary",
 };
 
-export const WHATSAPP_PROFILE: CapabilityProfile = {
-  modalities: ["text"],
-  richMedia: { markdown: false, cards: false, charts: false, images: true, interactiveControls: true },
-  interaction: { turnTaking: "async", canApproveInline: true, quickReplies: true },
-  constraints: { maxOutboundChars: 1024, latencyClass: "interactive", attentionModel: "push" },
-  fidelity: "summary",
-};
-
-/** Richer than WhatsApp (Markdown, 4096 chars, inline buttons), leaner than web (no cards/charts). */
+/** Markdown, 4096 chars, inline buttons; leaner than web (no cards/charts). */
 export const TELEGRAM_PROFILE: CapabilityProfile = {
   modalities: ["text"],
   richMedia: { markdown: true, cards: false, charts: false, images: true, interactiveControls: true },

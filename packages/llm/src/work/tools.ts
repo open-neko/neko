@@ -373,7 +373,7 @@ export function buildChannelManagerServer(opts: {
   const listChannels = tool(
     "list_channels",
     [
-      "List the org's channel workspaces (Slack team / WhatsApp account /",
+      "List the org's channel workspaces (Slack team /",
       "Telegram bot bindings) and every channel identity seen, with link",
       "status (linked|unverified|blocked) and the app_user it acts as.",
       "Use before proposing any change, and to answer 'who can reach the",

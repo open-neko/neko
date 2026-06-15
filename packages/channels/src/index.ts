@@ -3,8 +3,6 @@ export * from "./channel-registry";
 export * from "./built-in-channels";
 export * from "./projections/web";
 export * from "./projections/slack";
-export * from "./projections/whatsapp";
 export * from "./projections/voice";
 export * from "./inbound/slack";
-export * from "./inbound/whatsapp";
 export { intentFromButtonId } from "./inbound/button-id";

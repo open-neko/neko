@@ -73,7 +73,7 @@ the right workspace.
 
 | Feature | What it does for you | Shipped in |
 |---|---|---|
-| Slack, WhatsApp & Telegram | Talk to your assistant from the tools your team already uses — replies are formatted natively for each app. | #68, #96 |
+| Slack & Telegram | Talk to your assistant from the tools your team already uses — replies are formatted natively for each app. | #68, #96 |
 | Channels are plugins | Each chat tool is a plugin behind one modality-free interface, so new channels arrive without core changes — and install through the same CLI as everything else. | #68, #70 |
 | Zero-config inbound | Install a channel and it just starts listening — inbound polling auto-enables and the first contact auto-binds to your workspace. No env flags. | #72 |
 | It knows who's asking | Every inbound message is tied to the actual sender, so permissions and personalisation follow the person, not the channel. | #96 |

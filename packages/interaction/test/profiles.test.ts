@@ -6,14 +6,12 @@ import {
   TELEGRAM_PROFILE,
   VOICE_PROFILE,
   WEB_PROFILE,
-  WHATSAPP_PROFILE,
   type CapabilityProfile,
 } from "../src/index.js";
 
 const ALL: Array<[string, CapabilityProfile]> = [
   ["web", WEB_PROFILE],
   ["slack", SLACK_PROFILE],
-  ["whatsapp", WHATSAPP_PROFILE],
   ["telegram", TELEGRAM_PROFILE],
   ["voice", VOICE_PROFILE],
   ["email", EMAIL_DIGEST_PROFILE],
@@ -34,13 +32,7 @@ describe("capability profiles", () => {
     expect(SLACK_PROFILE.interaction.canApproveInline).toBe(true);
   });
 
-  it("whatsapp is text-only with an outbound length budget", () => {
-    expect(WHATSAPP_PROFILE.modalities).toEqual(["text"]);
-    expect(WHATSAPP_PROFILE.richMedia.cards).toBe(false);
-    expect(WHATSAPP_PROFILE.constraints.maxOutboundChars).toBe(1024);
-  });
-
-  it("telegram is text + markdown + inline buttons — richer than whatsapp, leaner than web", () => {
+  it("telegram is text + markdown + inline buttons, leaner than web", () => {
     expect(TELEGRAM_PROFILE.modalities).toEqual(["text"]);
     expect(TELEGRAM_PROFILE.richMedia.markdown).toBe(true);
     expect(TELEGRAM_PROFILE.richMedia.cards).toBe(false);

@@ -51,7 +51,7 @@ export type WorkRunPayload = ProcessingJobPayload & {
   channelPlugin?: string;
   recipient?: Record<string, unknown>;
   /** CH1: channel-native identity of the human who sent the message
-   *  (Telegram from.id, Slack event.user+team, WhatsApp from). K1 resolves
+   *  (Telegram from.id, Slack event.user+team). K1 resolves
    *  it to an actor; CH3 links it to an app_user. */
   sender?: { id: string; displayName?: string; workspaceId?: string };
 };

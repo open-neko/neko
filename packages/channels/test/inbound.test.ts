@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { intentFromButtonId, parseSlackInbound, parseWhatsappInbound } from "../src/index.js";
+import { intentFromButtonId, parseSlackInbound } from "../src/index.js";
 
 describe("parseSlackInbound", () => {
   it("maps an Approve tap to a decision", () => {
@@ -30,27 +30,6 @@ describe("parseSlackInbound", () => {
   it("returns nothing for unrelated payloads", () => {
     expect(parseSlackInbound({ type: "url_verification" })).toEqual([]);
     expect(parseSlackInbound(null)).toEqual([]);
-  });
-});
-
-describe("parseWhatsappInbound", () => {
-  const envelope = (message: unknown) => ({
-    entry: [{ changes: [{ value: { messages: [message] } }] }],
-  });
-
-  it("maps a text message to an utterance", () => {
-    expect(parseWhatsappInbound(envelope({ type: "text", text: { body: "approve it" } }))).toEqual([
-      { kind: "utterance", text: "approve it" },
-    ]);
-  });
-
-  it("maps an interactive button reply to a decision", () => {
-    const raw = envelope({ type: "interactive", interactive: { button_reply: { id: "approve:ar-55" } } });
-    expect(parseWhatsappInbound(raw)).toEqual([{ kind: "decision", decisionRef: "ar-55", choice: "approve" }]);
-  });
-
-  it("returns nothing for an empty webhook", () => {
-    expect(parseWhatsappInbound({ entry: [] })).toEqual([]);
   });
 });
 

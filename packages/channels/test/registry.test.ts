@@ -5,7 +5,6 @@ import {
   createSlackChannel,
   createVoiceChannel,
   createWebChannel,
-  createWhatsappChannel,
   type VoiceProjectionResult,
 } from "../src/index.js";
 
@@ -24,7 +23,6 @@ const build = (): ChannelRegistry => {
   const registry = new ChannelRegistry();
   registry.register(createWebChannel());
   registry.register(createSlackChannel());
-  registry.register(createWhatsappChannel());
   registry.register(createVoiceChannel());
   return registry;
 };
@@ -32,7 +30,7 @@ const build = (): ChannelRegistry => {
 describe("ChannelRegistry routing", () => {
   it("lists every registered provider and marks web built-in", () => {
     const providers = build().getChannelProviders();
-    expect(providers).toHaveLength(4);
+    expect(providers).toHaveLength(3);
     expect(providers.find((p) => p.pluginName === "web")?.builtIn).toBe(true);
     expect(providers.find((p) => p.pluginName === "@open-neko/plugin-slack")?.builtIn).toBe(false);
   });
@@ -40,11 +38,10 @@ describe("ChannelRegistry routing", () => {
   it("fans one inform out to web (implicit) + every bound channel", async () => {
     const registry = build();
     registry.bind({ audience: "coo", channelPlugin: "@open-neko/plugin-slack", recipient: { kind: "slack", channel: "#exec" } });
-    registry.bind({ audience: "coo", channelPlugin: "@open-neko/channel-whatsapp", recipient: { kind: "whatsapp", to: "+15550000" } });
 
     const report = await registry.deliver("coo", [inform]);
     const reached = report.deliveries.map((d) => d.channelPlugin).sort();
-    expect(reached).toEqual(["@open-neko/channel-whatsapp", "@open-neko/plugin-slack", "web"]);
+    expect(reached).toEqual(["@open-neko/plugin-slack", "web"]);
     expect(report.deliveries.every((d) => d.result.delivered)).toBe(true);
   });
 
