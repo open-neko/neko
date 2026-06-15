@@ -1,9 +1,13 @@
 package cli
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/open-neko/neko/apps/openneko/internal/config"
 )
 
 func TestAgentImageRef(t *testing.T) {
@@ -32,34 +36,58 @@ func TestOpenShellStateDirOverride(t *testing.T) {
 
 func TestConfigureOpenShellDBURL(t *testing.T) {
 	// Operator-set URL always wins.
-	t.Setenv("OPENSHELL_DB_URL", "postgres://op:set@elsewhere:5432/db")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("OPENSHELL_DB_URL", "postgres://op:set@elsewhere:5432/db")
 	configureOpenShellDBURL()
 	if got := os.Getenv("OPENSHELL_DB_URL"); got != "postgres://op:set@elsewhere:5432/db" {
 		t.Fatalf("operator value must win: got %q", got)
 	}
 
-	// No local config -> leave unset so the compose default applies.
-	t.Setenv("OPENSHELL_DB_URL", "")
-	configureOpenShellDBURL()
-	if got := os.Getenv("OPENSHELL_DB_URL"); got != "" {
-		t.Fatalf("fresh install should not set the URL: got %q", got)
-	}
-
-	// Rotated password in config.json -> URL derived from it, host pinned to
-	// the compose network, special characters escaped.
+	// No operator override -> URL derived for the dedicated `openshell` role
+	// with the per-install secret-key password (NOT the neko password), host
+	// pinned to the compose network, database defaulting to neko.
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
-	if err := os.MkdirAll(filepath.Join(dir, "openneko"), 0o755); err != nil {
+	t.Setenv("OPENSHELL_DB_URL", "")
+	configureOpenShellDBURL()
+	got := os.Getenv("OPENSHELL_DB_URL")
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("derived URL not parseable: %q (%v)", got, err)
+	}
+	if u.User.Username() != "openshell" {
+		t.Fatalf("role should be openshell, got %q (url %q)", u.User.Username(), got)
+	}
+	if u.Host != "neko-db:5432" || u.Path != "/neko" {
+		t.Fatalf("host/db wrong: %q", got)
+	}
+	pw, _ := u.User.Password()
+	want, _ := config.OpenShellDBPassword("")
+	if pw != want || len(pw) != 64 { // sha256 hex
+		t.Fatalf("password should be the derived secret-key value (64 hex): got %d chars", len(pw))
+	}
+
+	// A rotated neko password in config.json must NOT leak into the gateway URL
+	// (the role is decoupled), and a custom database name is honored.
+	dir2 := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir2)
+	if err := os.MkdirAll(filepath.Join(dir2, "openneko"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := `{"pg":{"user":"neko","password":"p@ss:w/rd","database":"neko"}}`
-	if err := os.WriteFile(filepath.Join(dir, "openneko", "config.json"), []byte(cfg), 0o600); err != nil {
+	cfg := `{"pg":{"user":"neko","password":"p@ss:w/rd","database":"customdb"}}`
+	if err := os.WriteFile(filepath.Join(dir2, "openneko", "config.json"), []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("OPENSHELL_DB_URL", "")
 	configureOpenShellDBURL()
-	if got := os.Getenv("OPENSHELL_DB_URL"); got != "postgres://neko:p%40ss%3Aw%2Frd@neko-db:5432/neko" {
-		t.Fatalf("derived URL wrong: got %q", got)
+	got = os.Getenv("OPENSHELL_DB_URL")
+	if !strings.Contains(got, "@neko-db:5432/customdb") {
+		t.Fatalf("custom database not honored: %q", got)
+	}
+	if strings.Contains(got, "p%40ss") || strings.Contains(got, "neko:") {
+		t.Fatalf("neko password leaked into the gateway URL: %q", got)
+	}
+	if u2, _ := url.Parse(got); u2.User.Username() != "openshell" {
+		t.Fatalf("role should be openshell, got url %q", got)
 	}
 }

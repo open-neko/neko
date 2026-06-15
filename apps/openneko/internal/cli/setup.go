@@ -133,23 +133,17 @@ at the prompt) to finish at the web UI. Credential flags
 				return err
 			}
 
-			// Rotating the DB password mid-setup strands the already-running
-			// openshell-gateway: it baked the old password into OPENSHELL_DB_URL
-			// at bring-up, so it can no longer reach neko-db and every agent
-			// sandbox (chat/Ask) fails to provision. Persist the new password to
-			// the host config (the source `openneko start` reads) and recreate
-			// the gateway so it reconnects. The web self-restarts and the worker
-			// reconnects via the change-password route; the gateway is the gap.
+			// Persist the rotated password to the host config (the source the
+			// CLI's own `neko` connection reads on later `start`/`migrate`
+			// runs). The web wizard writes it only to the in-container config
+			// volume, so without this the next host-side `neko` connection would
+			// fall back to the stale bootstrap default. The gateway itself is
+			// unaffected by the rotation — it runs on its dedicated `openshell`
+			// role (see ensureOpenShellGatewayRole), so no gateway restart is
+			// needed.
 			if outcome.PasswordSet != "" {
 				if err := config.WriteLocalPgPassword("", outcome.PasswordSet); err != nil {
 					ui.Info(out, "warning: couldn't persist the DB password to the host config: %v", err)
-				}
-				if err := ui.Spin("Reconnecting the agent gateway", func() error {
-					return recreateOpenShellGateway(ctx, m)
-				}); err != nil {
-					ui.Info(out, "warning: agent gateway reconnect failed (%v) — run `openneko start` to retry", err)
-				} else {
-					ui.Success(out, "agent gateway reconnected")
 				}
 			}
 
