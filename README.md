@@ -1,6 +1,6 @@
 # OpenNeko
 
-[![License](https://img.shields.io/badge/license-Apache_2.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-Elastic_2.0-0B64A0)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/open-neko/openneko)](https://github.com/open-neko/openneko/releases/latest)
 [![Self-hosted · Docker](https://img.shields.io/badge/self--hosted-Docker-2496ED?logo=docker&logoColor=white)](INSTALL.md)
 [![openneko.app](https://img.shields.io/badge/openneko.app-website-111111)](https://openneko.app)
@@ -58,7 +58,7 @@ The memory layer runs on your own Postgres, on your own infrastructure:
 - **Action policies** — your rules for what auto-fires, what queues, what's blocked.
 - **Decision history** — every approval, rejection, and execution receipt.
 
-Apache 2.0, self-hosted, single Postgres. Take a backup, take it with you.
+Source-available (Elastic License 2.0), self-hosted, single Postgres. Take a backup, take it with you.
 
 ## Plugins
 
@@ -79,7 +79,7 @@ openneko install @open-neko/plugin-parallel-search
 - **Bring your own LLM.** Hermes runs against Anthropic, OpenAI, Google, Ollama, and others; Claude Agent runs Anthropic in-process. Pick per task, swap any time.
 - **Plugins in OpenShell sandboxes.** Outbound network is allowlisted per manifest, not blanket-open.
 - **Agent in a sandbox by default.** The agent loop itself runs inside an OpenShell policy sandbox — default-deny egress, and the model API key never enters the box (the gateway proxy injects it on the wire). See [OPENSHELL.md](OPENSHELL.md).
-- **Apache 2.0.** Inspect everything. Fork it. Take your data with you.
+- **Source-available (Elastic License 2.0).** Read the source, self-host, take your data with you. Enterprise features are separately licensed — see [LICENSING.md](LICENSING.md).
 
 ## Docs
 
@@ -95,11 +95,11 @@ Please file bugs and feature requests at [github.com/open-neko/openneko/issues](
 
 ## Contributing
 
-Pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the developer setup, repository layout, and the checks to run before opening a PR.
+Pull requests are welcome — on your first PR a bot will ask you to sign a quick [Contributor License Agreement](CLA.md). See [CONTRIBUTING.md](CONTRIBUTING.md) for the developer setup, repository layout, and the checks to run before opening a PR.
 
 ## License
 
-OpenNeko is licensed under the [Apache License 2.0](LICENSE).
+OpenNeko's core is **source-available** under the [Elastic License 2.0](LICENSE): self-host and use it freely, but you may not offer it to third parties as a hosted or managed service. Some enterprise features are separately licensed under the [OpenNeko Commercial License](LICENSE-COMMERCIAL.md). See **[LICENSING.md](LICENSING.md)** for the full model.
 
 ## Author
 

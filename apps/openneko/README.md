@@ -117,4 +117,4 @@ go test -tags=integration -count=1 -timeout 10m ./internal/db/...
 
 ## License
 
-Apache 2.0. See [LICENSE](./LICENSE).
+Elastic License 2.0 (source-available). See [LICENSE](./LICENSE), and [LICENSING.md](../../LICENSING.md) for the full open-core model.
