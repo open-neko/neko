@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.8.0](https://github.com/open-neko/openneko/compare/v2.7.3...v2.8.0) (2026-06-15)
+
+
+### Features
+
+* **channels:** Slack conversational ingress (Socket Mode) + thread continuity ([6968080](https://github.com/open-neko/openneko/commit/69680806b98658901f0c8836233d5845b5f60141))
+* **channels:** W3.2 — continue channel threads without re-mention ([0985a13](https://github.com/open-neko/openneko/commit/0985a135178d98f5c8ed07d943c57b859120fb60))
+* Slack conversational channel (worker) — Socket Mode, thread continuity, compaction ([68e9027](https://github.com/open-neko/openneko/commit/68e90278ce6ec35b1b69811ea6ec7337f333e8d0))
+* **work:** Claude-Code-style transcript compaction for long threads ([34faef7](https://github.com/open-neko/openneko/commit/34faef7a4e8f8d61f66aa44b40345a6d4bdbf903))
+
 ## [2.7.3](https://github.com/open-neko/openneko/compare/v2.7.2...v2.7.3) (2026-06-15)
 
 
