@@ -42,6 +42,7 @@ import {
   getWorkRunActor,
 } from "./personas";
 import { buildWorkPrompt } from "./prompt";
+import { compactIfNeeded, type ThreadCompaction } from "./compact-transcript";
 import {
   finishWorkRun,
   getWorkThreadBundle,
@@ -234,8 +235,29 @@ export async function runChatTurn(
     const supportsMemoryTool = backend.capabilities.mcpTools;
     const supportsWorkflowTool = backend.capabilities.mcpTools;
     const supportsPolicyTool = backend.capabilities.mcpTools;
+    const inlineTranscript = !backend.capabilities.sessionResume;
 
-    const messages: AgentChatMessage[] = bundle.messages.map((row) => ({
+    // Inline-transcript backends grow unbounded on long threads — fold older
+    // turns into a rolling summary, keeping the recent tail verbatim.
+    let priorSummary: string | undefined;
+    let transcriptRows: typeof bundle.messages = bundle.messages;
+    let newCompaction: ThreadCompaction | undefined;
+    if (inlineTranscript) {
+      const prior = (
+        bundle.thread.backendState as { compaction?: ThreadCompaction }
+      ).compaction;
+      const compacted = await compactIfNeeded({
+        messages: bundle.messages,
+        prior,
+        orgId,
+        now: new Date().toISOString(),
+      });
+      priorSummary = compacted.summary;
+      transcriptRows = compacted.kept;
+      newCompaction = compacted.newCompaction;
+    }
+
+    const messages: AgentChatMessage[] = transcriptRows.map((row) => ({
       id: row.id,
       role: row.role,
       content: row.content,
@@ -266,6 +288,7 @@ export async function runChatTurn(
       knowledge,
       messages,
       currentUserMessage: message,
+      priorSummary,
       memoryContext,
       operatorProfile,
       installedSkills,
@@ -275,7 +298,7 @@ export async function runChatTurn(
       supportsMemoryTool,
       supportsWorkflowTool,
       supportsPolicyTool,
-      inlineTranscript: !backend.capabilities.sessionResume,
+      inlineTranscript,
       pluginActions: opts.pluginActions ?? [],
     });
 
@@ -295,11 +318,16 @@ export async function runChatTurn(
       signal,
     });
 
-    if (
-      result.backendState &&
-      result.backendState !== bundle.thread.backendState
-    ) {
-      await setWorkThreadBackendState(threadId, result.backendState);
+    const backendStateChanged =
+      result.backendState && result.backendState !== bundle.thread.backendState;
+    if (backendStateChanged || newCompaction) {
+      const base = (
+        backendStateChanged ? result.backendState : bundle.thread.backendState
+      ) as Record<string, unknown>;
+      await setWorkThreadBackendState(
+        threadId,
+        newCompaction ? { ...base, compaction: newCompaction } : base,
+      );
     }
 
     await finishWorkRun(runId, result.status, result.error ?? null);

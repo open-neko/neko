@@ -425,6 +425,8 @@ export function buildWorkPrompt(args: {
   knowledge: KnowledgePackContents;
   messages: AgentChatMessage[];
   currentUserMessage: string;
+  /** Rolling summary of older turns folded out of `messages` (compaction). */
+  priorSummary?: string;
   memoryContext?: string;
   /** CV3: compiled <operator-profile> block (already wrapped). */
   operatorProfile?: string;
@@ -449,6 +451,7 @@ export function buildWorkPrompt(args: {
     knowledge,
     messages,
     currentUserMessage,
+    priorSummary,
     memoryContext,
     operatorProfile,
     installedSkills,
@@ -495,9 +498,12 @@ that flags churn risk every Monday."
   ].filter((s) => s.length > 0);
 
   if (inlineTranscript) {
+    const summaryBlock = priorSummary
+      ? `[Earlier conversation summary]\n${priorSummary}\n\n`
+      : "";
     sections.push(
       `<conversation_so_far>
-${formatTranscript(messages)}
+${summaryBlock}${formatTranscript(messages)}
 </conversation_so_far>
 
 <current_user_message>
