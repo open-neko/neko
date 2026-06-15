@@ -48,7 +48,11 @@ vi.mock("@neko/db", () => ({
 vi.mock("@neko/llm", () => ({ resolveAgentBackend: vi.fn(async () => ({ id: "hermes" })) }));
 vi.mock("@neko/llm/work", () => ({
   createWorkThread: vi.fn(async () => ({ id: "thread-1" })),
+  getOrCreateChannelThread: vi.fn(async () => ({ id: "thread-1" })),
   createWorkRun: vi.fn(async () => ({ id: "run-1" })),
+  createWorkMessage: vi.fn(async () => ({ id: "msg-1" })),
+  channelThreadId: vi.fn(() => "tid-1"),
+  getWorkThread: vi.fn(async () => null),
 }));
 vi.mock("@neko/llm/interaction", () => ({
   outputRowToInteractionEvent: (r: unknown) => ({ kind: "inform", ...(r as object) }),
@@ -70,8 +74,9 @@ import {
   rejectActionRequest,
   setWorkflowOutputDeliveryHook,
 } from "@neko/llm/workflows";
-import { createWorkThread } from "@neko/llm/work";
+import { getOrCreateChannelThread, getWorkThread } from "@neko/llm/work";
 import {
+  conversationKeyFor,
   deliverChatReply,
   dispatchInboundIntent,
   ensureInboundBinding,
@@ -142,7 +147,7 @@ describe("dispatchInboundIntent — utterance", () => {
       "@open-neko/channel-telegram",
       { chatId: 7 },
     );
-    expect(createWorkThread).toHaveBeenCalled();
+    expect(getOrCreateChannelThread).toHaveBeenCalled();
     expect(enqueue).toHaveBeenCalledWith(
       "work_run",
       expect.objectContaining({
@@ -155,6 +160,71 @@ describe("dispatchInboundIntent — utterance", () => {
         recipient: { chatId: 7 },
       }),
     );
+  });
+});
+
+describe("dispatchInboundIntent — select (continuation fallback)", () => {
+  it("continues the conversation with the chosen option", async () => {
+    await dispatchInboundIntent(
+      "org-1",
+      { kind: "select", ref: "ar-9", optionId: "Option B" },
+      "@open-neko/channel-telegram",
+      { chatId: 7 },
+    );
+    expect(getOrCreateChannelThread).toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledWith(
+      "work_run",
+      expect.objectContaining({
+        message: "Option B",
+        channelPlugin: "@open-neko/channel-telegram",
+      }),
+    );
+  });
+});
+
+describe("dispatchInboundIntent — channel thread-reply gate (W3.2)", () => {
+  it("drops a requireThread reply when no matching thread exists", async () => {
+    vi.mocked(getWorkThread).mockResolvedValueOnce(null);
+    await dispatchInboundIntent(
+      "org-1",
+      { kind: "utterance", text: "and last quarter?", threadRef: "171.5" },
+      "@open-neko/plugin-slack",
+      { kind: "slack", channel: "C9", thread_ts: "171.5", requireThread: true },
+    );
+    expect(getOrCreateChannelThread).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("continues a requireThread reply when the thread already exists", async () => {
+    vi.mocked(getWorkThread).mockResolvedValueOnce({ id: "thread-1" } as never);
+    await dispatchInboundIntent(
+      "org-1",
+      { kind: "utterance", text: "and last quarter?", threadRef: "171.5" },
+      "@open-neko/plugin-slack",
+      { kind: "slack", channel: "C9", thread_ts: "171.5", requireThread: true },
+    );
+    expect(getOrCreateChannelThread).toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledWith(
+      "work_run",
+      expect.objectContaining({ message: "and last quarter?" }),
+    );
+  });
+});
+
+describe("conversationKeyFor", () => {
+  it("keys a Slack DM by channel and a thread by channel:threadRef", () => {
+    expect(conversationKeyFor({ kind: "slack", channel: "D9" })).toBe("D9");
+    expect(conversationKeyFor({ kind: "slack", channel: "C9" }, "171.5")).toBe("C9:171.5");
+  });
+
+  it("keys Telegram by chatId and WhatsApp by recipient address", () => {
+    expect(conversationKeyFor({ chatId: 7 }, "42")).toBe("7:42");
+    expect(conversationKeyFor({ to: "+15550001111" })).toBe("+15550001111");
+  });
+
+  it("returns empty when the recipient has no stable address", () => {
+    expect(conversationKeyFor({})).toBe("");
+    expect(conversationKeyFor({ foo: "bar" }, "42")).toBe("");
   });
 });
 
