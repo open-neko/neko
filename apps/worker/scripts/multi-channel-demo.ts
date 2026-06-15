@@ -4,7 +4,6 @@ import {
   createSlackChannel,
   createVoiceChannel,
   createWebChannel,
-  createWhatsappChannel,
   type ChannelDelivery,
   type DeliveryReport,
 } from "@neko/channels";
@@ -55,10 +54,6 @@ const agentStream: AgentEvent[] = [
   },
 ];
 
-const whatsappTextEnvelope = (text: string) => ({
-  entry: [{ changes: [{ value: { messages: [{ type: "text", text: { body: text } }] } }] }],
-});
-
 const slackApproveEnvelope = (decisionRef: string) => ({
   type: "block_actions",
   actions: [{ action_id: "approve", value: decisionRef }],
@@ -67,7 +62,7 @@ const slackApproveEnvelope = (decisionRef: string) => ({
 export interface DemoResult {
   interactionEvents: InteractionEvent[];
   outbound: DeliveryReport;
-  inbound: { slack: IntentEvent[]; whatsapp: IntentEvent[] };
+  inbound: { slack: IntentEvent[] };
 }
 
 /** One agent stream → the modality-free waist → every bound membrane, then back. */
@@ -77,11 +72,9 @@ export const runMultiChannelDemo = async (): Promise<DemoResult> => {
   const registry = new ChannelRegistry();
   registry.register(createWebChannel()); // built-in, always-on
   registry.register(createSlackChannel());
-  registry.register(createWhatsappChannel());
   registry.register(createVoiceChannel());
 
   registry.bind({ audience: "coo", channelPlugin: "@open-neko/plugin-slack", recipient: { kind: "slack", channel: "#exec" } });
-  registry.bind({ audience: "coo", channelPlugin: "@open-neko/channel-whatsapp", recipient: { kind: "whatsapp", to: "+15550000" } });
   registry.bind({ audience: "coo", channelPlugin: "@open-neko/channel-voice", recipient: { kind: "voice", to: "+15551111" } });
 
   const outbound = await registry.deliver("coo", interactionEvents);
@@ -91,7 +84,6 @@ export const runMultiChannelDemo = async (): Promise<DemoResult> => {
     outbound,
     inbound: {
       slack: registry.parseInbound("@open-neko/plugin-slack", slackApproveEnvelope("ar-501")),
-      whatsapp: registry.parseInbound("@open-neko/channel-whatsapp", whatsappTextEnvelope("what's our churn rate?")),
     },
   };
 };
@@ -119,7 +111,7 @@ const printDemo = (result: DemoResult): void => {
   for (const delivery of result.outbound.deliveries) printDelivery(delivery);
 
   console.log(rule("INBOUND — native payloads normalized back to intent"));
-  for (const intent of [...result.inbound.slack, ...result.inbound.whatsapp]) {
+  for (const intent of [...result.inbound.slack]) {
     console.log(`${JSON.stringify(intent)}\n  ${routeOf(intent)}`);
   }
   console.log("");

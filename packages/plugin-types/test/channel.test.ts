@@ -13,15 +13,15 @@ const profile: CapabilityProfile = {
 };
 
 const plugin = definePlugin({
-  name: "@open-neko/channel-whatsapp",
+  name: "@open-neko/channel-telegram",
   version: "0.1.0",
   capabilities: {
     channel: {
-      providerLabel: "WhatsApp",
+      providerLabel: "Telegram",
       profile,
       directions: ["inbound", "outbound"],
       ingress: "webhook",
-      deliver: (p) => ({ delivered: true, ref: `wamid.${p.events.length}` }),
+      deliver: (p) => ({ delivered: true, ref: `msg.${p.events.length}` }),
       parseInbound: (p) => ({ intents: [{ kind: "utterance", text: String((p.raw as { text?: string }).text ?? "") }] }),
       verifyInbound: (p) => ({ ok: p.headers["x-hub-signature-256"] === "sha256=valid" }),
     },
@@ -36,15 +36,15 @@ describe("channel capability over the plugin RPC", () => {
     const res = await dispatchPluginRpc(plugin, { method: "register", paramsJson: "{}" });
     expect(res.ok).toBe(true);
     const caps = (resultOf(res).capabilities as { channel: Record<string, unknown> }).channel;
-    expect(caps.providerLabel).toBe("WhatsApp");
+    expect(caps.providerLabel).toBe("Telegram");
     expect(caps.directions).toEqual(["inbound", "outbound"]);
     expect(caps.ingress).toBe("webhook");
   });
 
   it("deliver projects and returns a delivery ref", async () => {
-    const params: DeliverParams = { recipient: { kind: "whatsapp", to: "+15550000" }, events: [{}, {}], profile };
+    const params: DeliverParams = { recipient: { kind: "telegram", chatId: 7 }, events: [{}, {}], profile };
     const res = await dispatchPluginRpc(plugin, { method: "deliver", paramsJson: JSON.stringify(params) });
-    expect(res).toMatchObject({ ok: true, result: { delivered: true, ref: "wamid.2" } });
+    expect(res).toMatchObject({ ok: true, result: { delivered: true, ref: "msg.2" } });
   });
 
   it("parse_inbound normalizes a raw payload to intents", async () => {
@@ -70,15 +70,15 @@ describe("channel capability over the plugin RPC", () => {
 
   it("a manifest entry may declare capabilities.channel", () => {
     const parsed = PluginManifestEntry.safeParse({
-      name: "@open-neko/channel-whatsapp",
+      name: "@open-neko/channel-telegram",
       version: "0.1.0",
       integrity: `sha512-${"A".repeat(8)}`,
       permissions: {
-        network: ["graph.facebook.com"],
-        env: [{ key: "WHATSAPP_TOKEN", description: "WhatsApp Cloud API token" }],
+        network: ["api.telegram.org"],
+        env: [{ key: "TELEGRAM_TOKEN", description: "Telegram Bot API token" }],
       },
       capabilities: {
-        channel: { providerLabel: "WhatsApp", profile, directions: ["outbound"], ingress: "webhook" },
+        channel: { providerLabel: "Telegram", profile, directions: ["outbound"], ingress: "webhook" },
       },
     });
     expect(parsed.success).toBe(true);

@@ -217,7 +217,7 @@ describe("conversationKeyFor", () => {
     expect(conversationKeyFor({ kind: "slack", channel: "C9" }, "171.5")).toBe("C9:171.5");
   });
 
-  it("keys Telegram by chatId and WhatsApp by recipient address", () => {
+  it("keys Telegram by chatId and falls back to recipient address", () => {
     expect(conversationKeyFor({ chatId: 7 }, "42")).toBe("7:42");
     expect(conversationKeyFor({ to: "+15550001111" })).toBe("+15550001111");
   });
