@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.7.3](https://github.com/open-neko/openneko/compare/v2.7.2...v2.7.3) (2026-06-15)
+
+
+### Bug Fixes
+
+* **setup:** give the agent gateway its own DB role (rotation-proof) ([cc1d3b8](https://github.com/open-neko/openneko/commit/cc1d3b87e3ceb967636366bc35259d8cde68b8aa))
+* **setup:** reconnect the agent gateway after password rotation ([f9337eb](https://github.com/open-neko/openneko/commit/f9337ebc63ff0b7bacd1ac01648bdc3e2bfd1954))
+* **setup:** reconnect the agent gateway after password rotation ([828e4be](https://github.com/open-neko/openneko/commit/828e4be9414e48737810ba49a9f1253e9e50748c))
+
 ## [2.7.2](https://github.com/open-neko/openneko/compare/v2.7.1...v2.7.2) (2026-06-14)
 
 
