@@ -53,6 +53,8 @@ go test -tags=integration -count=1 -timeout 10m ./internal/db/...
 
 Keep PRs focused — one change per PR makes review tractable. Include a short description of the user-visible behavior change, and link the issue it closes if there is one.
 
-## License
+## Contributor License Agreement
 
-By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).
+Before your first pull request can be merged, you'll need to sign the OpenNeko [Contributor License Agreement](CLA.md). A bot prompts you automatically on your first PR — it's a single comment to sign.
+
+The CLA lets you keep the copyright in your contribution while granting the project the rights it needs to license OpenNeko under the [Elastic License 2.0](LICENSE) and a separate commercial license, and to relicense if ever necessary. See [LICENSING.md](LICENSING.md) for how OpenNeko is licensed.

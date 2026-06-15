@@ -1,6 +1,6 @@
 # Third-party software shipped with OpenNeko
 
-OpenNeko is distributed under the [Apache License 2.0](LICENSE). The Apache-2.0 grant covers OpenNeko's own source code. This file lists third-party software that is **shipped alongside** OpenNeko (bundled in npm dependencies, Docker images, or release artifacts) and the additional license obligations those carry.
+OpenNeko is distributed under the [Elastic License 2.0](LICENSE) — some enterprise components are instead under a separate commercial license (see [LICENSING.md](LICENSING.md)). That grant covers OpenNeko's own source code. This file lists third-party software that is **shipped alongside** OpenNeko (bundled in npm dependencies, Docker images, or release artifacts) and the additional license obligations those carry.
 
 This file is the canonical NOTICE. Operators who redistribute OpenNeko in any form must ship this file alongside.
 
