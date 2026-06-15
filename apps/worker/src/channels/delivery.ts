@@ -16,10 +16,12 @@ import {
   type WorkflowOutputDeliveryHook,
 } from "@neko/llm/workflows";
 import {
+  channelThreadId,
   createWorkMessage,
   createWorkRun,
   createWorkThread,
   getOrCreateChannelThread,
+  getWorkThread,
   type RunChannel,
 } from "@neko/llm/work";
 import { getPluginRegistryInstance } from "../plugins/registry-instance.js";
@@ -335,6 +337,15 @@ async function startChatRun(
   const channelLabel = channel.charAt(0).toUpperCase() + channel.slice(1);
   const title = threadRef ? `${channelLabel} ${threadRef}` : channelLabel;
   const conversationKey = recipient ? conversationKeyFor(recipient, threadRef) : "";
+  // W3.2: a bare in-thread channel reply only continues a thread the bot already
+  // owns — drop it when no matching work_thread exists (DMs and @-mentions still
+  // create one).
+  if (recipient?.requireThread) {
+    const existing = conversationKey
+      ? await getWorkThread(orgId, channelThreadId(orgId, channel, conversationKey))
+      : null;
+    if (!existing) return;
+  }
   const thread = conversationKey
     ? await getOrCreateChannelThread({
         orgId,

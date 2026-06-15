@@ -51,6 +51,8 @@ vi.mock("@neko/llm/work", () => ({
   getOrCreateChannelThread: vi.fn(async () => ({ id: "thread-1" })),
   createWorkRun: vi.fn(async () => ({ id: "run-1" })),
   createWorkMessage: vi.fn(async () => ({ id: "msg-1" })),
+  channelThreadId: vi.fn(() => "tid-1"),
+  getWorkThread: vi.fn(async () => null),
 }));
 vi.mock("@neko/llm/interaction", () => ({
   outputRowToInteractionEvent: (r: unknown) => ({ kind: "inform", ...(r as object) }),
@@ -72,7 +74,7 @@ import {
   rejectActionRequest,
   setWorkflowOutputDeliveryHook,
 } from "@neko/llm/workflows";
-import { getOrCreateChannelThread } from "@neko/llm/work";
+import { getOrCreateChannelThread, getWorkThread } from "@neko/llm/work";
 import {
   conversationKeyFor,
   deliverChatReply,
@@ -176,6 +178,35 @@ describe("dispatchInboundIntent — select (continuation fallback)", () => {
         message: "Option B",
         channelPlugin: "@open-neko/channel-telegram",
       }),
+    );
+  });
+});
+
+describe("dispatchInboundIntent — channel thread-reply gate (W3.2)", () => {
+  it("drops a requireThread reply when no matching thread exists", async () => {
+    vi.mocked(getWorkThread).mockResolvedValueOnce(null);
+    await dispatchInboundIntent(
+      "org-1",
+      { kind: "utterance", text: "and last quarter?", threadRef: "171.5" },
+      "@open-neko/plugin-slack",
+      { kind: "slack", channel: "C9", thread_ts: "171.5", requireThread: true },
+    );
+    expect(getOrCreateChannelThread).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("continues a requireThread reply when the thread already exists", async () => {
+    vi.mocked(getWorkThread).mockResolvedValueOnce({ id: "thread-1" } as never);
+    await dispatchInboundIntent(
+      "org-1",
+      { kind: "utterance", text: "and last quarter?", threadRef: "171.5" },
+      "@open-neko/plugin-slack",
+      { kind: "slack", channel: "C9", thread_ts: "171.5", requireThread: true },
+    );
+    expect(getOrCreateChannelThread).toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledWith(
+      "work_run",
+      expect.objectContaining({ message: "and last quarter?" }),
     );
   });
 });
