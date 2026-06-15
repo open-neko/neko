@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -127,4 +128,20 @@ func MaybeDecryptValue(overrideDir, value string) (string, error) {
 // IsEncrypted reports whether a value is in the enc:v1 wire format.
 func IsEncrypted(value string) bool {
 	return strings.HasPrefix(value, encPrefix)
+}
+
+// OpenShellDBPassword derives the openshell-gateway's dedicated DB-role
+// password from the host secret-key. It is deterministic, per-install, and
+// stable — the same value on every run, derived independently of the `neko`
+// admin password the operator rotates. That decoupling is the point: rotating
+// the admin password never strands the gateway, so no gateway restart is
+// needed. Hex output (no quotes/backslashes/specials) is safe both in a SQL
+// password literal and in a connection URL.
+func OpenShellDBPassword(overrideDir string) (string, error) {
+	key, err := loadOrCreateKey(overrideDir)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(append(key, []byte("openneko:openshell-db:v1")...))
+	return hex.EncodeToString(sum[:]), nil
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/open-neko/neko/apps/openneko/internal/compose"
+	"github.com/open-neko/neko/apps/openneko/internal/config"
 	"github.com/open-neko/neko/apps/openneko/internal/plugin/marketplace"
 	"github.com/open-neko/neko/apps/openneko/internal/preflight"
 	"github.com/open-neko/neko/apps/openneko/internal/prompt"
@@ -131,6 +132,21 @@ at the prompt) to finish at the web UI. Credential flags
 			if err != nil {
 				return err
 			}
+
+			// Persist the rotated password to the host config (the source the
+			// CLI's own `neko` connection reads on later `start`/`migrate`
+			// runs). The web wizard writes it only to the in-container config
+			// volume, so without this the next host-side `neko` connection would
+			// fall back to the stale bootstrap default. The gateway itself is
+			// unaffected by the rotation — it runs on its dedicated `openshell`
+			// role (see ensureOpenShellGatewayRole), so no gateway restart is
+			// needed.
+			if outcome.PasswordSet != "" {
+				if err := config.WriteLocalPgPassword("", outcome.PasswordSet); err != nil {
+					ui.Info(out, "warning: couldn't persist the DB password to the host config: %v", err)
+				}
+			}
+
 			if outcome.Configured {
 				if !skipPlugins {
 					if err := offerPluginInstall(ctx, out, pluginsCSV, interactive && !cfg.Headless); err != nil {

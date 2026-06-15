@@ -61,3 +61,40 @@ func ReadLocal(override string) (Local, string) {
 	}
 	return Local{}, ""
 }
+
+// WriteLocalPgPassword persists the rotated DB password into the host config
+// (~/.config/openneko/config.json), encrypted at rest (enc:v1) with the host
+// secret-key — the single source ReadLocal and configureOpenShellDBURL read.
+//
+// The web /setup wizard writes the same field, but it runs in a container and
+// can only reach the in-container config volume, never the host file. The CLI
+// is the one component that both holds the plaintext password and can write the
+// host path, so it bridges the gap here. Existing fields are preserved.
+func WriteLocalPgPassword(override, password string) error {
+	enc, err := EncryptValue(override, password)
+	if err != nil {
+		return err
+	}
+	dir := Dir(override)
+	path := filepath.Join(dir, "config.json")
+
+	// Merge over whatever is on disk so we only touch pg.password (read the
+	// raw bytes, not ReadLocal, to avoid round-tripping through decryption).
+	var lc Local
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &lc)
+	}
+	if lc.Pg == nil {
+		lc.Pg = &LocalPg{}
+	}
+	lc.Pg.Password = enc
+
+	out, err := json.MarshalIndent(lc, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0o600)
+}

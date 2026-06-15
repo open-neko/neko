@@ -82,7 +82,6 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 	if err := configureOpenShellStateDir(); err != nil {
 		return err
 	}
-	configureOpenShellDBURL()
 
 	sup := compose.New(assets.ComposeFS)
 	files, err := sup.Materialize(m)
@@ -108,21 +107,31 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 		quietPull = []string{"--quiet-pull"}
 	}
 
-	// Stage 1: bring up neko-db only, wait healthy, run migrations.
+	// Stage 1: bring up neko-db, wait healthy, migrate, then provision the
+	// gateway's dedicated DB role. neko-db comes up regardless of
+	// --skip-migrate because the role provisioning + OPENSHELL_DB_URL
+	// derivation below need a reachable DB before stage 2 starts the gateway.
+	up1 := append([]string{"up", "-d"}, pullFlag...)
+	up1 = append(up1, quietPull...)
+	up1 = append(up1, "neko-db")
+	if _, err := sup.Run(ctx, project, files, up1, os.Stdout, os.Stderr); err != nil {
+		return err
+	}
+	if err := waitDBHealthy(ctx, time.Minute); err != nil {
+		return err
+	}
 	if !opts.skipMigrate {
-		up1 := append([]string{"up", "-d"}, pullFlag...)
-		up1 = append(up1, quietPull...)
-		up1 = append(up1, "neko-db")
-		if _, err := sup.Run(ctx, project, files, up1, os.Stdout, os.Stderr); err != nil {
-			return err
-		}
-		if err := waitDBHealthy(ctx, time.Minute); err != nil {
-			return err
-		}
 		if err := runMigrations(ctx, cmd); err != nil {
 			return err
 		}
 	}
+	// The gateway dials neko-db with its OWN role, not the rotatable `neko`
+	// admin role — so a later password rotation never strands it. Ensure the
+	// role exists, then point OPENSHELL_DB_URL at it for stage 2.
+	if err := ensureOpenShellGatewayRole(ctx); err != nil {
+		return err
+	}
+	configureOpenShellDBURL()
 
 	// Pre-pull the agent sandbox image at install time so the gateway's first
 	// sandbox-create (the user's first chat) never blocks on a large pull.
@@ -200,32 +209,82 @@ func configureOpenShellStateDir() error {
 // config is the single source of the rotated password (ReadLocal decrypts
 // it), so build the URL from it on every start. An operator-set
 // OPENSHELL_DB_URL always wins.
+// openShellDBRole is the gateway's dedicated neko-db login role. It exists so
+// the gateway's DB credential is independent of the `neko` admin password the
+// operator rotates during setup — rotating that password never strands the
+// gateway, so it needs no restart.
+const openShellDBRole = "openshell"
+
 func configureOpenShellDBURL() {
 	if os.Getenv("OPENSHELL_DB_URL") != "" {
 		return
 	}
-	lc, _ := config.ReadLocal("")
-	if lc.Pg == nil || lc.Pg.Password == "" {
-		return // fresh install — the compose default matches the initial DB
+	if u, ok := deriveOpenShellDBURL(); ok {
+		_ = os.Setenv("OPENSHELL_DB_URL", u)
 	}
-	user := lc.Pg.User
-	if user == "" {
-		user = "neko"
+}
+
+// deriveOpenShellDBURL builds the gateway's neko-db URL for its dedicated role,
+// with the stable per-install password derived from the host secret-key. ok is
+// false only if that derivation fails (then the caller leaves the compose
+// default in place).
+func deriveOpenShellDBURL() (string, bool) {
+	pw, err := config.OpenShellDBPassword("")
+	if err != nil {
+		return "", false
 	}
-	database := lc.Pg.Database
-	if database == "" {
-		database = "neko"
+	database := "neko"
+	if lc, _ := config.ReadLocal(""); lc.Pg != nil && lc.Pg.Database != "" {
+		database = lc.Pg.Database
 	}
 	// Host/port are the compose network's, not the local config's: the
 	// gateway dials neko-db inside the project network regardless of how
 	// host-side tools reach the DB.
 	u := url.URL{
 		Scheme: "postgres",
-		User:   url.UserPassword(user, lc.Pg.Password),
+		User:   url.UserPassword(openShellDBRole, pw),
 		Host:   "neko-db:5432",
 		Path:   "/" + database,
 	}
-	_ = os.Setenv("OPENSHELL_DB_URL", u.String())
+	return u.String(), true
+}
+
+// ensureOpenShellGatewayRole provisions the gateway's dedicated DB login role
+// (idempotent — safe on every bring-up). The gateway shares the app's `public`
+// schema, so the role is a member of the app role and inherits its privileges
+// (it runs its own sqlx migrations and reads/writes without owning every
+// table); its password is the stable per-install value from the host
+// secret-key. Runs as the app superuser over the same connection migrations
+// use — which is reachable by the time this is called (stage 1 waited on it).
+func ensureOpenShellGatewayRole(ctx context.Context) error {
+	pw, err := config.OpenShellDBPassword("")
+	if err != nil {
+		return fmt.Errorf("derive gateway DB password: %w", err)
+	}
+	cc := defaultConn()
+	conn, err := pgx.Connect(ctx, cc.DSN())
+	if err != nil {
+		return fmt.Errorf("connect to provision gateway DB role: %w", err)
+	}
+	defer conn.Close(ctx)
+
+	appRole := cc.User
+	if appRole == "" {
+		appRole = "neko"
+	}
+	// pw is hex (no quotes/backslashes), so the literal is safe; the role names
+	// are fixed/operator-owned identifiers, not request input.
+	stmts := []string{
+		fmt.Sprintf(`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '%s') THEN CREATE ROLE %s LOGIN; END IF; END $$`, openShellDBRole, openShellDBRole),
+		fmt.Sprintf(`ALTER ROLE %s WITH LOGIN PASSWORD '%s'`, openShellDBRole, pw),
+		fmt.Sprintf(`GRANT %s TO %s`, appRole, openShellDBRole),
+	}
+	for _, s := range stmts {
+		if _, err := conn.Exec(ctx, s); err != nil {
+			return fmt.Errorf("provision gateway DB role: %w", err)
+		}
+	}
+	return nil
 }
 
 func waitDBHealthy(ctx context.Context, timeout time.Duration) error {
