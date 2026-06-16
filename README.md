@@ -86,6 +86,7 @@ openneko install @open-neko/plugin-parallel-search
 - [INSTALL.md](INSTALL.md) — install, [upgrade](INSTALL.md#upgrade), requirements, troubleshooting, connecting your data, full demo trial
 - [PLUGINS.md](PLUGINS.md) — plugin capabilities, sandbox/security model, marketplaces, install policy, host support
 - [OPENSHELL.md](OPENSHELL.md) — preview: running the agent itself in an OpenShell policy sandbox (architecture, security, how to enable)
+- [SECRETS.md](SECRETS.md) — secrets at rest and the optional Infisical vault (enterprise)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup, repo layout, pre-PR checks
 - [CHANGELOG.md](CHANGELOG.md) — releases
 
