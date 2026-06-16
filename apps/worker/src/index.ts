@@ -18,8 +18,10 @@ import {
   db,
   desc,
   eq,
+  FEATURE,
   getOrgId,
   metric,
+  orgHasFeature,
   processing_job,
 } from "@neko/db";
 import {
@@ -196,17 +198,25 @@ async function runMetricRefreshSweep() {
 // admin handler can lazily reach a freshly-installed auth plugin
 // without a server restart.
 let pluginRegistry: PluginRegistry | null = null;
+const ssoEnabled = await orgHasFeature(ADMIN_ORG_ID, FEATURE.sso);
 const server = createServer(
   createAdminHandler({
     auth: {
-      getAuthProvider: () => pluginRegistry?.getAuthProvider() ?? null,
+      getAuthProvider: () =>
+        ssoEnabled ? (pluginRegistry?.getAuthProvider() ?? null) : null,
       beginAuth: (params) => {
+        if (!ssoEnabled) {
+          throw new Error("SSO is not enabled on this deployment");
+        }
         if (!pluginRegistry) {
           throw new Error("plugin registry not initialised");
         }
         return pluginRegistry.beginAuth(params);
       },
       completeAuth: (params) => {
+        if (!ssoEnabled) {
+          throw new Error("SSO is not enabled on this deployment");
+        }
         if (!pluginRegistry) {
           throw new Error("plugin registry not initialised");
         }
@@ -299,7 +309,9 @@ registerBuiltinAdapters();
   registerUserAdminAdapter();
   registerChannelAdminAdapter();
   registerDataSourceAdminAdapter();
-  registerSourceConfigAdminAdapter();
+  if (await orgHasFeature(ADMIN_ORG_ID, FEATURE.dataAccessGovernance)) {
+    registerSourceConfigAdminAdapter();
+  }
   registerPluginManagementAdapters({
     repoRoot: process.cwd(),
     getInstallPolicy: async () => {
