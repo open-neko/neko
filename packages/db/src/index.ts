@@ -31,6 +31,13 @@ export {
   type InstallPolicy,
 } from "./install-policy";
 export {
+  FEATURE,
+  parseFeatures,
+  hasFeature,
+  orgHasFeature,
+  type FeatureKey,
+} from "./features";
+export {
   and,
   asc,
   desc,
