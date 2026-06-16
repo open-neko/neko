@@ -313,9 +313,15 @@ console.log("[worker] action policies seeded and built-in adapters registered");
 // SEC3: pick the secret residency from local config — Infisical-backed
 // env bags when configured, the enc:v1 local file otherwise.
 const secretsResolver = await (async () => {
-  const { readLocalConfig } = await import("@neko/db");
+  const { readLocalConfig, orgHasFeature, FEATURE } = await import("@neko/db");
   const cfg = readLocalConfig().secrets;
   if (cfg?.backend === "infisical" && cfg.infisical) {
+    if (!(await orgHasFeature(ADMIN_ORG_ID, FEATURE.vault))) {
+      console.warn(
+        "[worker] Infisical secrets backend is configured but the 'vault' feature is not enabled; using the local file resolver",
+      );
+      return undefined;
+    }
     const { InfisicalSecretsResolver } = await import(
       "@open-neko/plugin-install"
     );
