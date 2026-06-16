@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getOrgId } from "@/lib/db";
+import { getOrgId, orgHasFeature, FEATURE } from "@/lib/db";
 import {
   getInstallPolicyPayload,
   saveInstallPolicyDraft,
@@ -27,6 +27,9 @@ export async function GET() {
   const denied = await requireSignedIn();
   if (denied) return denied;
   const orgId = await getOrgId();
+  if (!(await orgHasFeature(orgId, FEATURE.installPolicy))) {
+    return NextResponse.json({ error: "feature not enabled" }, { status: 404 });
+  }
   const payload = await getInstallPolicyPayload(orgId);
   return NextResponse.json(payload);
 }
@@ -37,6 +40,9 @@ export async function PATCH(request: NextRequest) {
   try {
     const body = (await request.json()) as InstallPolicyDraft;
     const orgId = await getOrgId();
+    if (!(await orgHasFeature(orgId, FEATURE.installPolicy))) {
+      return NextResponse.json({ error: "feature not enabled" }, { status: 404 });
+    }
     const saved = await saveInstallPolicyDraft(orgId, {
       allowUnverified: typeof body.allowUnverified === "boolean" ? body.allowUnverified : undefined,
       allowGitUrlInstalls:
