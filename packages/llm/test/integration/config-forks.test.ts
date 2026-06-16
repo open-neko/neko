@@ -166,6 +166,7 @@ describeIfDb("CV4 forks (DB-backed)", () => {
   let root: string;
 
   beforeAll(async () => {
+    vi.stubEnv("OPENNEKO_FEATURES", "context_versioning");
     await createTestOrg(orgId);
     ada = `${orgId}-ada`;
     await db().insert(app_user).values({
@@ -181,6 +182,7 @@ describeIfDb("CV4 forks (DB-backed)", () => {
     await deleteTestOrg(orgId);
     await rm(root, { recursive: true, force: true }).catch(() => {});
     await pool().end();
+    vi.unstubAllEnvs();
   });
 
   it("main memory snapshot excludes user-layer rows; user snapshot carries them", async () => {

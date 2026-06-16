@@ -33,7 +33,7 @@ import {
 } from "./graphjin-guard";
 import {
   formatWorkMemoryPromptContext as defaultFormatWorkMemoryPromptContext,
-  memoryLayerForActor,
+  effectiveMemoryLayer,
   rememberWorkMemory,
 } from "./memory";
 import {
@@ -271,7 +271,7 @@ export async function runChatTurn(
     });
 
     const memoryContext = await formatWorkMemoryPromptContext(
-      { orgId, threadId, runId, userId: memoryLayerForActor(actor) },
+      { orgId, threadId, runId, userId: await effectiveMemoryLayer(orgId, actor) },
       // Use the latest user message as the retrieval query so we pull
       // memories semantically close to what the operator just asked.
       { contextQuery: message, contextLimit: 5 },

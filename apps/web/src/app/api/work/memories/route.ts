@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listWorkMemories, memoryLayerForActor } from "@neko/llm/work";
+import { listWorkMemories, effectiveMemoryLayer } from "@neko/llm/work";
 import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
 
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const actor = await getCurrentActor();
   const memories = await listWorkMemories(orgId, {
     includeArchived,
-    userId: memoryLayerForActor(actor),
+    userId: await effectiveMemoryLayer(orgId, actor),
   });
   return NextResponse.json({ memories });
 }

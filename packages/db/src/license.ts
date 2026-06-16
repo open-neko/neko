@@ -15,7 +15,10 @@ export type License = {
 };
 
 /** Replace with your Ed25519 public key (SPKI PEM), or set OPENNEKO_LICENSE_PUBKEY. */
-export const EMBEDDED_LICENSE_PUBKEY = "";
+export const EMBEDDED_LICENSE_PUBKEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAXKeJVuIQjUYPUbwtxYyKTBvvuJKvZdLdkcd0gGefpfU=
+-----END PUBLIC KEY-----
+`;
 
 export function licensePublicKey(): string {
   return process.env.OPENNEKO_LICENSE_PUBKEY || EMBEDDED_LICENSE_PUBKEY;

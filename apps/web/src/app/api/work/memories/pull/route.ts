@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applyMemoryPull, listMemoryPullUpdates } from "@neko/llm/work";
 import { getCurrentActor } from "@/lib/actor";
-import { getOrgId } from "@/lib/db";
+import { getOrgId, orgHasFeature, FEATURE } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +15,9 @@ export async function GET() {
     return NextResponse.json({ updates: [] });
   }
   const orgId = await getOrgId();
+  if (!(await orgHasFeature(orgId, FEATURE.contextVersioning))) {
+    return NextResponse.json({ updates: [] });
+  }
   const updates = await listMemoryPullUpdates(orgId, actor.userId);
   return NextResponse.json({ updates });
 }
@@ -36,6 +39,12 @@ export async function POST(request: NextRequest) {
       )
     : [];
   const orgId = await getOrgId();
+  if (!(await orgHasFeature(orgId, FEATURE.contextVersioning))) {
+    return NextResponse.json(
+      { error: "context versioning not enabled" },
+      { status: 403 },
+    );
+  }
   const result = await applyMemoryPull({
     orgId,
     userId: actor.userId,
