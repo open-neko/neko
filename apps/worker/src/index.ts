@@ -561,10 +561,13 @@ await b.work(QUEUE.WORKFLOW_CRON_SWEEP, async () => {
   // SEC7: behavioral thresholds ride the minute tick so a runaway agent
   // alerts within its window, not at the nightly sweep.
   try {
-    const { profileBehaviorThresholds, runBehaviorSweep } = await import(
-      "@neko/llm/work"
-    );
-    await runBehaviorSweep(ADMIN_ORG_ID, profileBehaviorThresholds());
+    const { orgHasFeature, FEATURE } = await import("@neko/db");
+    if (await orgHasFeature(ADMIN_ORG_ID, FEATURE.behavioralAlarms)) {
+      const { profileBehaviorThresholds, runBehaviorSweep } = await import(
+        "@neko/llm/work"
+      );
+      await runBehaviorSweep(ADMIN_ORG_ID, profileBehaviorThresholds());
+    }
   } catch (e) {
     console.warn(
       `[worker] behavior sweep failed: ${e instanceof Error ? e.message : e}`,
