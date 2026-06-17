@@ -52,6 +52,7 @@ import {
   setWorkThreadBackendState,
 } from "./store";
 import type { PluginActionDescriptor } from "./tools";
+import { recordToolResult } from "./tool-output/metrics";
 import { runAgentBackend } from "./agent-core";
 import type { AgentControlPlane } from "./control-plane";
 import {
@@ -164,9 +165,21 @@ export async function runChatTurn(
   );
 
   let assistantText = "";
+  // tool_end events carry only an id; correlate back to the tool name from the
+  // matching tool_start so the token-instrumentation line is legible. Flag-gated
+  // (OPENNEKO_TOOL_OUTPUT_METRICS) — see work/tool-output/metrics.ts.
+  const toolNamesById = new Map<string, string>();
   const wrappedEmit = async (event: AgentEvent): Promise<void> => {
     if (event.type === "message" && event.role === "assistant") {
       assistantText += event.content;
+    } else if (event.type === "tool_start") {
+      toolNamesById.set(event.id, event.name);
+    } else if (event.type === "tool_end" && event.result !== undefined) {
+      recordToolResult({
+        tool: toolNamesById.get(event.id) ?? "unknown",
+        result: event.result,
+      });
+      toolNamesById.delete(event.id);
     }
     await emit(event);
   };
