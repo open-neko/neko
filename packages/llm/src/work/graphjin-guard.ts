@@ -3,11 +3,13 @@ import { constants as fsConstants } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The stdin->stdout compactor the wrapper pipes GraphJin output through. Copied
-// next to the wrapper at setup so it resolves under plain `node` in the sandbox.
-const COMPACT_CLI_SOURCE = fileURLToPath(
-  new URL("./tool-output/compact-cli.mjs", import.meta.url),
-);
+// Path to the stdin->stdout compactor the wrapper pipes GraphJin output
+// through. Resolved lazily (NOT at module load): importing @neko/llm/work in a
+// bundler — e.g. the Next.js build collecting page data — would otherwise
+// evaluate import.meta.url + fileURLToPath at eval time, which throws there.
+function compactCliSource(): string {
+  return fileURLToPath(new URL("./tool-output/compact-cli.mjs", import.meta.url));
+}
 
 /**
  * GraphJin write-path subcommands. Even when the agent goes through
@@ -149,7 +151,7 @@ export async function ensureGraphjinGuard(
     'exit "$status"',
     "",
   ].join("\n");
-  await writeFile(compactCliPath, await readFile(COMPACT_CLI_SOURCE), { mode: 0o755 });
+  await writeFile(compactCliPath, await readFile(compactCliSource()), { mode: 0o755 });
   await writeFile(wrapperPath, script, { encoding: "utf8", mode: 0o755 });
   return wrapperPath;
 }
