@@ -1,7 +1,13 @@
-import { writeFile } from "node:fs/promises";
+import { writeFile, readFile, access } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
-import { access } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// The stdin->stdout compactor the wrapper pipes GraphJin output through. Copied
+// next to the wrapper at setup so it resolves under plain `node` in the sandbox.
+const COMPACT_CLI_SOURCE = fileURLToPath(
+  new URL("./tool-output/compact-cli.mjs", import.meta.url),
+);
 
 /**
  * GraphJin write-path subcommands. Even when the agent goes through
@@ -83,6 +89,7 @@ export async function ensureGraphjinGuard(
   } = {},
 ): Promise<string> {
   const wrapperPath = join(binRoot, "graphjin");
+  const compactCliPath = join(binRoot, "compact-cli.mjs");
   const granted = sanitizeGrants(opts.allowSubcommands);
   const denied = WRITE_SUBCOMMANDS.filter((s) => !granted.includes(s));
   const writeAlt = denied.join("|");
@@ -124,9 +131,25 @@ export async function ensureGraphjinGuard(
     "    ;;",
     "esac",
     "",
-    `exec "${graphjinBinary}" "$@"`,
+    "# Run GraphJin, then compact large JSON results to columnar tables before",
+    "# the model sees them (OPENNEKO_GRAPHJIN_COMPACT=0 disables). Any failure",
+    "# falls back to the raw output — never corrupts a tool result.",
+    "status=0",
+    `out=$("${graphjinBinary}" "$@") || status=$?`,
+    `cli=${shellQuote(compactCliPath)}`,
+    'if [[ "${OPENNEKO_GRAPHJIN_COMPACT:-1}" != "0" && "$status" -eq 0 && "${#out}" -gt 2048 ]]; then',
+    '  if compacted=$(printf "%s" "$out" | node "$cli" 2>/dev/null); then',
+    '    printf "%s" "$compacted"',
+    "  else",
+    '    printf "%s" "$out"',
+    "  fi",
+    "else",
+    '  printf "%s" "$out"',
+    "fi",
+    'exit "$status"',
     "",
   ].join("\n");
+  await writeFile(compactCliPath, await readFile(COMPACT_CLI_SOURCE), { mode: 0o755 });
   await writeFile(wrapperPath, script, { encoding: "utf8", mode: 0o755 });
   return wrapperPath;
 }

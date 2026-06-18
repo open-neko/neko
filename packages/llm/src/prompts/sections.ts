@@ -34,6 +34,17 @@ export const GRAPHJIN_AGGREGATE_RULE = `- Make the database do the math. When th
   themselves (e.g. "list the orders"); then page with \`limit\`/\`offset\`
   and take the smallest set that answers the question.`;
 
+// Tells the agent how to read the columnar form the graphjin wrapper emits for
+// large result sets (see ensureGraphjinGuard's compaction step). Must name the
+// same marker the wrapper writes.
+export const GRAPHJIN_COLUMNAR_RULE = `- Large result sets arrive compacted: in place of an array of row
+  objects you'll get a columnar table —
+  \`{"__neko_cols__":{"cols":["productid","quantity"],"rows":[[1,408],[2,427]]}}\`.
+  Read each row positionally: \`rows[i][k]\` is the value for \`cols[k]\`.
+  It's the same data with the column names stated once. Smaller results
+  stay as ordinary JSON, so handle either shape and never assume a bare
+  array of objects.`;
+
 export type MemorySaveMode = "tool" | "fence" | "none";
 
 export type MemorySectionOptions = {
@@ -230,6 +241,8 @@ For date/range filters: ${GRAPHJIN_DATE_RULE.replace(/^- /, "")}
 ${GRAPHJIN_FANOUT_RULE.replace(/^- /, "")}
 
 ${GRAPHJIN_AGGREGATE_RULE.replace(/^- /, "")}
+
+${GRAPHJIN_COLUMNAR_RULE.replace(/^- /, "")}
 
 Never invent or interpolate. If a query returned no rows, the answer
 is "no data", not a guess.
@@ -432,6 +445,8 @@ For date/range filters: ${GRAPHJIN_DATE_RULE.replace(/^- /, "")}
 ${GRAPHJIN_FANOUT_RULE.replace(/^- /, "")}
 
 ${GRAPHJIN_AGGREGATE_RULE.replace(/^- /, "")}
+
+${GRAPHJIN_COLUMNAR_RULE.replace(/^- /, "")}
 
 Never invent or interpolate. If a query returned no rows, the answer
 is "no data", not a guess.
