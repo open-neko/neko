@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.9.0](https://github.com/open-neko/openneko/compare/v2.8.0...v2.9.0) (2026-06-18)
+
+
+### Features
+
+* **db:** add hasFeature() entitlement gate over organization.features ([e119a98](https://github.com/open-neko/openneko/commit/e119a98f62192bb53d8a1b8c4d64ff35434de743))
+* gate the personal memory layer (CV4) + embed the license public key ([301597e](https://github.com/open-neko/openneko/commit/301597ef705889e2a78a515468c3455c96597628))
+* **llm:** gate audit chain and dual-identity audit behind entitlements ([329bb57](https://github.com/open-neko/openneko/commit/329bb57d0c7db9ba536c095f29b58e73fca8adf4))
+* **llm:** gate auto-approval behind the 'approvals_policy' entitlement ([cb40a22](https://github.com/open-neko/openneko/commit/cb40a221aa1f1c405dedfa2c6f53b096ef24ed21))
+* **llm:** gate org/hardened security profiles behind 'security_profiles' ([f6c1573](https://github.com/open-neko/openneko/commit/f6c1573c1d461c72a98eda7b458a7a1bea7b536c))
+* **llm:** gate per-user personas behind 'context_versioning' ([b8e79b3](https://github.com/open-neko/openneko/commit/b8e79b3af4b8cae6f01bf96230bbcc095c6be7be))
+* offline signed license keys (Ed25519) as a third entitlement source ([26611a0](https://github.com/open-neko/openneko/commit/26611a0ef71fb5456b2dc67b41df98188d0e6ad4))
+* open-core entitlement gating (SPDX, hasFeature, per-feature gates, offline license) ([c261307](https://github.com/open-neko/openneko/commit/c2613073536745435e094321a10c2a6b6f0e8903))
+* **web:** gate install-policy configuration behind 'install_policy' ([97d93fa](https://github.com/open-neko/openneko/commit/97d93fa1e5c1ca008610c851b269a203ee8e32e8))
+* **worker:** gate behavioral alarms behind the 'behavioral_alarms' entitlement ([e840c8f](https://github.com/open-neko/openneko/commit/e840c8f689369519027ef26aab572649b673f963))
+* **worker:** gate SSO and source-config governance behind entitlements ([9ae1171](https://github.com/open-neko/openneko/commit/9ae1171e195a03d05d4d888d09a23bcb3cbd45ac))
+* **worker:** gate the Infisical vault behind the 'vault' entitlement ([f4bc584](https://github.com/open-neko/openneko/commit/f4bc5841c9745b52ffe8e50dfb186ee0ee1c8839))
+
 ## [2.8.0](https://github.com/open-neko/openneko/compare/v2.7.3...v2.8.0) (2026-06-15)
 
 
