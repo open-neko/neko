@@ -46,6 +46,22 @@ export {
   type Scrubber,
 } from "./secret-scrubber";
 export { KNOWN_SKILL_DEPS, aggregateSkillDeps, type SkillDeps } from "./skill-deps";
+export {
+  COLUMNAR_MARKER,
+  TOOL_OUTPUT_METRICS_ENABLED,
+  compactJson,
+  createToolOutputRecorder,
+  estimateTokens,
+  expandJson,
+  measureToolResult,
+  metricsEnabled,
+  recordToolResult,
+  toolResultToText,
+  type CompactionFormat,
+  type CompactionResult,
+  type ToolOutputRecorder,
+  type ToolResultMetric,
+} from "./tool-output";
 // Last so its module load sees all the above already-evaluated barrel exports,
 // which means run-chat-turn.ts can safely import its in-package dependencies
 // from "./index" — that's what makes vi.mock("@neko/llm/work") in tests

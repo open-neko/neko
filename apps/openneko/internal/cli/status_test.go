@@ -30,11 +30,22 @@ func TestClassifyStack(t *testing.T) {
 		{"starting is degraded", []composeService{
 			{Service: "worker", State: "running", Health: "starting"},
 		}, degraded},
-		{"exited non-zero is down", []composeService{
+		{"a long-running service exited non-zero is down", []composeService{
 			{Service: "worker", State: "exited", ExitCode: 1},
 		}, down},
 		{"down outranks degraded", []composeService{
 			{Service: "web", State: "running", Health: "starting"},
+			{Service: "worker", State: "exited", ExitCode: 1},
+		}, down},
+		{"a failed one-shot setup job is degraded, not down", []composeService{
+			{Service: "web", State: "running", Health: "healthy"},
+			{Service: "worker", State: "running", Health: "healthy"},
+			{Service: "neko-graphjin", State: "running", Health: "healthy"},
+			{Service: "neko-db", State: "running", Health: "healthy"},
+			{Service: "neko-adventureworks-seed", State: "exited", ExitCode: 1},
+		}, degraded},
+		{"a downed long-running service still outranks a failed one-shot job", []composeService{
+			{Service: "neko-adventureworks-seed", State: "exited", ExitCode: 1},
 			{Service: "worker", State: "exited", ExitCode: 1},
 		}, down},
 	}

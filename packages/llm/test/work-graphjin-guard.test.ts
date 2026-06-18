@@ -253,3 +253,48 @@ describe("ensureGraphjinGuard wrapper script", () => {
     expect(r.stdout.trim()).toBe(pinned);
   });
 });
+
+describe("ensureGraphjinGuard output compaction", () => {
+  let dir: string;
+  let wrapper: string;
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "neko-guard-compact-"));
+    // A fake graphjin that ignores its args and prints a large uniform row set.
+    const fakeBin = join(dir, "fake-graphjin");
+    await writeFile(
+      fakeBin,
+      [
+        "#!/usr/bin/env node",
+        'const rows = Array.from({ length: 100 }, (_, i) => ({ productid: i + 1, locationid: (i % 3) * 5 + 1, shelf: ["A","B","C"][i % 3], bin: i % 30, quantity: 100 + i, modifieddate: "2025-08-08T00:00:00" }));',
+        'process.stdout.write(JSON.stringify({ data: { productinventory: rows } }));',
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    wrapper = await ensureGraphjinGuard(dir, fakeBin);
+  });
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const query = ["cli", "execute_graphql", "--args", '{"query":"{ productinventory { productid } }"}'];
+
+  it("compacts a large row set to a columnar table by default", () => {
+    const r = spawnSync(wrapper, query, { encoding: "utf8" });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("__neko_cols__");
+    // Same data: the columnar form re-expands to the original rows.
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.data.productinventory.__neko_cols__.rows.length).toBe(100);
+  });
+
+  it("passes raw JSON through when OPENNEKO_GRAPHJIN_COMPACT=0", () => {
+    const r = spawnSync(wrapper, query, {
+      encoding: "utf8",
+      env: { ...process.env, OPENNEKO_GRAPHJIN_COMPACT: "0" },
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout).not.toContain("__neko_cols__");
+    expect(JSON.parse(r.stdout).data.productinventory).toHaveLength(100);
+  });
+});

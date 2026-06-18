@@ -35,6 +35,21 @@ const (
 	down                   // a required service is not running
 )
 
+// oneShotJobs are the run-to-completion services in the embedded compose files
+// (those with `restart: "no"`). They exit by design, so a non-zero exit is a
+// failed setup step — degraded, not a downed stack. A genuinely fatal one (e.g.
+// neko-migrate) still surfaces as down: its dependents never start, and those
+// missing long-running services drive the verdict. Keep in sync with the
+// `restart: "no"` services in assets/compose/{core,demo,openshell}.yml.
+var oneShotJobs = map[string]bool{
+	"neko-migrate":             true,
+	"adventureworks-init":      true,
+	"graphjin-config-init":     true,
+	"neko-adventureworks-seed": true,
+	"openshell-certgen":        true,
+	"openshell-reg":            true,
+}
+
 func newStatusCmd() *cobra.Command {
 	var verbose bool
 	cmd := &cobra.Command{
@@ -147,6 +162,11 @@ func classifyStack(services []composeService) (health, []string) {
 			}
 		case state == "exited" && s.ExitCode == 0:
 			lines = append(lines, fmt.Sprintf("  ✅ %s — completed", s.Service))
+		case state == "exited" && oneShotJobs[s.Service]:
+			lines = append(lines, fmt.Sprintf("  ⚠️  %s — setup step failed (exit %d); the core stack is still up — see `openneko logs %s`", s.Service, s.ExitCode, s.Service))
+			if worst < degraded {
+				worst = degraded
+			}
 		default:
 			lines = append(lines, fmt.Sprintf("  ❌ %s — %s", s.Service, describeState(s)))
 			worst = down

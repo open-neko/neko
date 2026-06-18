@@ -174,7 +174,9 @@ services:
       no_proxy: localhost,127.0.0.1,::1,neko-db,worker,web,graphjin,adventureworks-db,host.docker.internal,host.internal
     volumes:
       - openneko-config:/config/openneko
-    command: ["node", "node_modules/@neko/db/src/seed-adventureworks.mjs"]
+    # --import tsx/esm so the seed's `import("@neko/secret-crypt")` (raw .ts
+    # under node_modules) transpiles; plain node refuses to strip those types.
+    command: ["node", "--import", "tsx/esm", "node_modules/@neko/db/src/seed-adventureworks.mjs"]
     restart: "no"
 
   web:

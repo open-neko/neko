@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  GRAPHJIN_AGGREGATE_RULE,
+  GRAPHJIN_COLUMNAR_RULE,
   GRAPHJIN_DATE_RULE,
   GRAPHJIN_FANOUT_RULE,
   buildDataAccessSection,
@@ -126,6 +128,45 @@ describe("buildDataAccessSection", () => {
     expect(section).toContain("distinct: [parent_id]");
   });
 
+  it("tells the agent to aggregate server-side (query-shaping) in both knowledge modes", () => {
+    const legacy = buildDataAccessSection({
+      shellTool: "Bash",
+      workspace: fakeWorkspace,
+      knowledge: fakeKnowledge,
+      inlineKnowledge: "syntax",
+    });
+    const agentic = buildDataAccessSection({
+      shellTool: "Bash",
+      workspace: fakeWorkspace,
+      knowledge: { ...fakeKnowledge, mode: "agentic" },
+      inlineKnowledge: "syntax",
+    });
+    for (const section of [legacy, agentic]) {
+      expect(section).toContain("Make the database do the math");
+      expect(section).toContain("limit");
+    }
+  });
+
+  it("teaches the agent to read the columnar table form in both modes", () => {
+    const legacy = buildDataAccessSection({
+      shellTool: "Bash",
+      workspace: fakeWorkspace,
+      knowledge: fakeKnowledge,
+      inlineKnowledge: "syntax",
+    });
+    const agentic = buildDataAccessSection({
+      shellTool: "Bash",
+      workspace: fakeWorkspace,
+      knowledge: { ...fakeKnowledge, mode: "agentic" },
+      inlineKnowledge: "syntax",
+    });
+    for (const section of [legacy, agentic]) {
+      // Must name the same marker the guard wrapper emits.
+      expect(section).toContain("__neko_cols__");
+      expect(section).toContain("positionally");
+    }
+  });
+
   it("uses the configured shell tool name", () => {
     const bash = buildDataAccessSection({
       shellTool: "Bash",
@@ -199,5 +240,17 @@ describe("constants stay shaped right (consumed verbatim by other prompts)", () 
     expect(GRAPHJIN_FANOUT_RULE).toContain("(a)");
     expect(GRAPHJIN_FANOUT_RULE).toContain("(b)");
     expect(GRAPHJIN_FANOUT_RULE).toContain("(c)");
+  });
+
+  it("GRAPHJIN_AGGREGATE_RULE starts as a bullet and pushes server-side aggregation", () => {
+    expect(GRAPHJIN_AGGREGATE_RULE.startsWith("- ")).toBe(true);
+    expect(GRAPHJIN_AGGREGATE_RULE).toContain("aggregate");
+    expect(GRAPHJIN_AGGREGATE_RULE).toContain("limit");
+  });
+
+  it("GRAPHJIN_COLUMNAR_RULE starts as a bullet and names the wrapper's marker", () => {
+    expect(GRAPHJIN_COLUMNAR_RULE.startsWith("- ")).toBe(true);
+    expect(GRAPHJIN_COLUMNAR_RULE).toContain("__neko_cols__");
+    expect(GRAPHJIN_COLUMNAR_RULE).toContain("cols");
   });
 });

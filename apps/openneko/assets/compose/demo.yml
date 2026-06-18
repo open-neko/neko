@@ -108,7 +108,9 @@ services:
       NEKO_PG_DATABASE: neko
     volumes:
       - openneko-config:/config/openneko
-    command: ["node", "node_modules/@neko/db/src/seed-adventureworks.mjs"]
+    # --import tsx/esm so the seed's `import("@neko/secret-crypt")` (raw .ts
+    # under node_modules) transpiles; plain node refuses to strip those types.
+    command: ["node", "--import", "tsx/esm", "node_modules/@neko/db/src/seed-adventureworks.mjs"]
     restart: "no"
 
   adventureworks-simulator:
