@@ -11,10 +11,14 @@
 
 import { compactJson } from "./compact-json";
 
-/** Flag-gate. Set OPENNEKO_TOOL_OUTPUT_METRICS=1 to emit per-tool-result lines. */
-export const TOOL_OUTPUT_METRICS_ENABLED =
-  !!process.env.OPENNEKO_TOOL_OUTPUT_METRICS &&
-  process.env.OPENNEKO_TOOL_OUTPUT_METRICS !== "0";
+/** Live flag check — read at call time so the gate is togglable (and testable). */
+export function metricsEnabled(): boolean {
+  const v = process.env.OPENNEKO_TOOL_OUTPUT_METRICS;
+  return !!v && v !== "0";
+}
+
+/** Load-time snapshot of {@link metricsEnabled} for callers that want a constant. */
+export const TOOL_OUTPUT_METRICS_ENABLED = metricsEnabled();
 
 export interface ToolResultMetric {
   tool: string;
@@ -94,7 +98,7 @@ export function measureToolResult(args: {
  * line. NEVER throws — instrumentation must not be able to break a run.
  */
 export function recordToolResult(args: { tool: string; result: unknown }): void {
-  if (!TOOL_OUTPUT_METRICS_ENABLED) return;
+  if (!metricsEnabled()) return;
   try {
     const metric = measureToolResult(args);
     if (!metric) return;
@@ -102,4 +106,35 @@ export function recordToolResult(args: { tool: string; result: unknown }): void 
   } catch {
     // swallow — a measurement failure must never affect the agent turn.
   }
+}
+
+export interface ToolOutputRecorder {
+  /** Feed every agent event; tool_start/tool_end are handled, the rest ignored. */
+  observe(event: unknown): void;
+}
+
+/**
+ * Stateful observer over an agent event stream. A tool_end carries only an id,
+ * so we remember each tool_start's name and correlate it back when the result
+ * lands, then record the output's size metrics. Extracted from run-chat-turn's
+ * wrappedEmit so the correlation is unit-testable without standing up a full
+ * run; `record` is injectable for tests (defaults to {@link recordToolResult}).
+ */
+export function createToolOutputRecorder(
+  record: (args: { tool: string; result: unknown }) => void = recordToolResult,
+): ToolOutputRecorder {
+  const namesById = new Map<string, string>();
+  return {
+    observe(event: unknown): void {
+      if (!event || typeof event !== "object") return;
+      const e = event as { type?: unknown; id?: unknown; name?: unknown; result?: unknown };
+      if (e.type === "tool_start" && typeof e.id === "string") {
+        namesById.set(e.id, typeof e.name === "string" ? e.name : "unknown");
+      } else if (e.type === "tool_end" && e.result !== undefined) {
+        const id = typeof e.id === "string" ? e.id : "";
+        record({ tool: namesById.get(id) ?? "unknown", result: e.result });
+        if (id) namesById.delete(id);
+      }
+    },
+  };
 }

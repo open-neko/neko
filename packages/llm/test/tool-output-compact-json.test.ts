@@ -130,3 +130,71 @@ describe("compactJson — never regresses or corrupts", () => {
     expect(restored.data.rows).toEqual(rows);
   });
 });
+
+// Locks in the behaviors observed against real AdventureWorks GraphJin output:
+// flat row arrays columnarize for a large win; rows carrying a nested object
+// fall back to minify-only (the documented limitation); date strings survive.
+describe("compactJson — real GraphJin shapes (regression)", () => {
+  // Mirrors `query { productinventory { productid locationid shelf bin quantity modifieddate } }`.
+  const flatInventory = JSON.stringify({
+    data: {
+      productinventory: Array.from({ length: 60 }, (_, i) => ({
+        productid: i + 1,
+        locationid: (i % 3) * 5 + 1,
+        shelf: ["A", "B", "C"][i % 3],
+        bin: i % 30,
+        quantity: 100 + i,
+        modifieddate: "2025-08-08T00:00:00",
+      })),
+    },
+  });
+
+  // Mirrors the nested join: each row carries a `product` object.
+  const nestedInventory = JSON.stringify({
+    data: {
+      productinventory: Array.from({ length: 60 }, (_, i) => ({
+        productid: i + 1,
+        quantity: 100 + i,
+        product: {
+          name: `Product ${i + 1}`,
+          productnumber: `PN-${1000 + i}`,
+          reorderpoint: 750,
+          safetystocklevel: 1000,
+        },
+      })),
+    },
+  });
+
+  it("flat inventory rows columnarize with a >50% reduction, losslessly", () => {
+    const r = compactJson(flatInventory);
+    expect(r.format).toBe("columnar");
+    expect(r.compactedBytes / r.originalBytes).toBeLessThan(0.5);
+    expect(expandJson(JSON.parse(r.text))).toEqual(JSON.parse(flatInventory));
+  });
+
+  it("nested-object rows never columnarize, and round-trip losslessly", () => {
+    const r = compactJson(nestedInventory);
+    expect(r.format).not.toBe("columnar");
+    expect(r.text).not.toContain(COLUMNAR_MARKER);
+    expect(expandJson(JSON.parse(r.text))).toEqual(JSON.parse(nestedInventory));
+  });
+
+  it("nested output with whitespace falls back to minify-only (no columnar)", () => {
+    // GraphJin/`graphjin cli` stdout that is pretty-printed: the only win is
+    // whitespace removal — the nested `product` object blocks columnarization.
+    const pretty = JSON.stringify(JSON.parse(nestedInventory), null, 2);
+    const r = compactJson(pretty);
+    expect(r.format).toBe("minified");
+    expect(r.text).not.toContain(COLUMNAR_MARKER);
+    expect(r.compactedBytes).toBeLessThan(r.originalBytes);
+    expect(expandJson(JSON.parse(r.text))).toEqual(JSON.parse(nestedInventory));
+  });
+
+  it("preserves ISO date strings exactly through the columnar round-trip", () => {
+    const r = compactJson(flatInventory);
+    const restored = expandJson(JSON.parse(r.text)) as {
+      data: { productinventory: Array<{ modifieddate: string }> };
+    };
+    expect(restored.data.productinventory[0].modifieddate).toBe("2025-08-08T00:00:00");
+  });
+});

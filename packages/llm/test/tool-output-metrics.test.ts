@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   estimateTokens,
   measureToolResult,
+  metricsEnabled,
+  recordToolResult,
   toolResultToText,
 } from "../src/work/tool-output/metrics";
 
@@ -71,5 +73,70 @@ describe("measureToolResult", () => {
   it("returns null for empty output", () => {
     expect(measureToolResult({ tool: "Bash", result: "" })).toBeNull();
     expect(measureToolResult({ tool: "Bash", result: null })).toBeNull();
+  });
+});
+
+describe("metricsEnabled — flag parsing", () => {
+  afterEach(() => {
+    delete process.env.OPENNEKO_TOOL_OUTPUT_METRICS;
+  });
+
+  it("off when unset", () => {
+    delete process.env.OPENNEKO_TOOL_OUTPUT_METRICS;
+    expect(metricsEnabled()).toBe(false);
+  });
+
+  it('off when "0"', () => {
+    process.env.OPENNEKO_TOOL_OUTPUT_METRICS = "0";
+    expect(metricsEnabled()).toBe(false);
+  });
+
+  it('on for "1" or any other non-empty value', () => {
+    process.env.OPENNEKO_TOOL_OUTPUT_METRICS = "1";
+    expect(metricsEnabled()).toBe(true);
+    process.env.OPENNEKO_TOOL_OUTPUT_METRICS = "true";
+    expect(metricsEnabled()).toBe(true);
+  });
+});
+
+describe("recordToolResult — flag-gated logging", () => {
+  afterEach(() => {
+    delete process.env.OPENNEKO_TOOL_OUTPUT_METRICS;
+    vi.restoreAllMocks();
+  });
+
+  it("emits nothing when the flag is off", () => {
+    delete process.env.OPENNEKO_TOOL_OUTPUT_METRICS;
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    recordToolResult({ tool: "Bash", result: '{"a":[1,2,3]}' });
+    expect(info).not.toHaveBeenCalled();
+  });
+
+  it("logs one structured line when the flag is on", () => {
+    process.env.OPENNEKO_TOOL_OUTPUT_METRICS = "1";
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const products = Array.from({ length: 5 }, (_, i) => ({ id: i, name: `p${i}` }));
+    recordToolResult({ tool: "graphjin", result: JSON.stringify({ data: { products } }) });
+    expect(info).toHaveBeenCalledTimes(1);
+    const line = info.mock.calls[0][0] as string;
+    expect(line.startsWith("[tool-output-metrics] ")).toBe(true);
+    const metric = JSON.parse(line.replace("[tool-output-metrics] ", ""));
+    expect(metric.tool).toBe("graphjin");
+    expect(metric.estTokens).toBeGreaterThan(0);
+  });
+
+  it("skips empty results even when enabled", () => {
+    process.env.OPENNEKO_TOOL_OUTPUT_METRICS = "1";
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    recordToolResult({ tool: "Bash", result: "" });
+    expect(info).not.toHaveBeenCalled();
+  });
+
+  it("never throws, even if measurement would blow up", () => {
+    process.env.OPENNEKO_TOOL_OUTPUT_METRICS = "1";
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const circular: Record<string, unknown> = {};
+    circular.self = circular; // pathological input must not break the run
+    expect(() => recordToolResult({ tool: "Bash", result: circular })).not.toThrow();
   });
 });
