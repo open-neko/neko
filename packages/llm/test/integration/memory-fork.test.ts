@@ -54,6 +54,7 @@ describeIfDb("CV2 memory fork overlay", () => {
   let bob: string;
 
   beforeAll(async () => {
+    vi.stubEnv("OPENNEKO_FEATURES", "context_versioning");
     await createTestOrg(orgId);
     ada = `${orgId}-ada`;
     bob = `${orgId}-bob`;
@@ -68,6 +69,7 @@ describeIfDb("CV2 memory fork overlay", () => {
   afterAll(async () => {
     await deleteTestOrg(orgId);
     await pool().end();
+    vi.unstubAllEnvs();
   });
 
   it("memoryLayerForActor maps members to their layer, everyone else to team", () => {

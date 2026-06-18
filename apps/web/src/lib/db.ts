@@ -6,7 +6,7 @@
  * one) organization row, creating it on first call if none exists.
  */
 
-export { getOrgId } from "@neko/db";
+export { getOrgId, orgHasFeature, FEATURE } from "@neko/db";
 
 export type StageKind =
   | "business_profile_build"

@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { hasCustomPassword } from "@neko/db";
 import AppHeader from "@/components/AppHeader";
 import SectionNav from "@/components/SectionNav";
-import { getOrgId } from "@/lib/db";
+import { getOrgId, orgHasFeature, FEATURE } from "@/lib/db";
 import { getSetupCompleteAt } from "@/lib/org-state";
 import {
   getDataSourceSettings,
@@ -62,6 +62,11 @@ export default async function SettingsPage() {
     getAgentBackendSettings(orgId),
   ]);
 
+  const [approvalsOn, installPolicyOn] = await Promise.all([
+    orgHasFeature(orgId, FEATURE.approvalsPolicy),
+    orgHasFeature(orgId, FEATURE.installPolicy),
+  ]);
+
   const cards: {
     href: string;
     title: string;
@@ -93,17 +98,21 @@ export default async function SettingsPage() {
       status: researchStatus === "enabled" ? "Enabled" : "Disabled",
       statusOk: true,
     },
-    {
+  ];
+  if (approvalsOn) {
+    cards.push({
       href: "/settings/rules",
       title: "Rules",
       copy: "Decide what OpenNeko can act on its own, what queues for review, and what's never allowed. Create and edit via Ask.",
-    },
-    {
+    });
+  }
+  if (installPolicyOn) {
+    cards.push({
       href: "/settings/security",
       title: "Security",
       copy: "Trust floor for plugin and skill installs — which marketplaces are allowed, whether unverified or community installs are permitted.",
-    },
-  ];
+    });
+  }
 
   return (
     <div className="root">

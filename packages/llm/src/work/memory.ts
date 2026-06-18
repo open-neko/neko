@@ -173,14 +173,32 @@ export function memoryLayerForActor(actor: {
   return actor.role === "member" && actor.userId ? actor.userId : null;
 }
 
+/**
+ * The active memory layer, gated by context_versioning. Without the
+ * entitlement everyone resolves to the team layer (null) — the per-user
+ * personal memory layer is enterprise.
+ */
+export async function effectiveMemoryLayer(
+  orgId: string,
+  actor: { userId: string | null; role: string | null },
+): Promise<string | null> {
+  const { orgHasFeature, FEATURE } = await import("@neko/db");
+  if (!(await orgHasFeature(orgId, FEATURE.contextVersioning))) return null;
+  return memoryLayerForActor(actor);
+}
+
 async function resolveRunMemoryLayer(runId: string | null): Promise<string | null> {
   if (!runId) return null;
   const [run] = await db()
-    .select({ userId: work_run.actor_user_id, role: work_run.actor_role })
+    .select({
+      orgId: work_run.org_id,
+      userId: work_run.actor_user_id,
+      role: work_run.actor_role,
+    })
     .from(work_run)
     .where(eq(work_run.id, runId))
     .limit(1);
-  return run ? memoryLayerForActor(run) : null;
+  return run ? effectiveMemoryLayer(run.orgId, run) : null;
 }
 
 // Layered visibility (CV2). Team context sees only team rows. A member
@@ -671,6 +689,10 @@ export async function overrideWorkMemoryForUser(input: {
   runId?: string | null;
   threadId?: string | null;
 }): Promise<WorkMemory> {
+  const { orgHasFeature, FEATURE } = await import("@neko/db");
+  if (!(await orgHasFeature(input.orgId, FEATURE.contextVersioning))) {
+    throw new Error("context versioning is not enabled");
+  }
   const target = await getWorkMemory(input.orgId, input.memoryId);
   if (!target || target.archivedAt) {
     throw new Error(`Memory not found: ${input.memoryId}`);

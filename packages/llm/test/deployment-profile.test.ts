@@ -2,7 +2,7 @@
 // behavior envelopes shrink with it and org/hardened postures demand an
 // ADMIN approver for chat-driven plugin management.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   profileBehaviorThresholds,
   profilePolicyDefaults,
@@ -12,12 +12,20 @@ import {
 
 const prevProfile = process.env.OPENNEKO_PROFILE;
 const prevHosts = process.env.OPENNEKO_AGENT_MODEL_HOST;
+const prevFeatures = process.env.OPENNEKO_FEATURES;
+
+beforeEach(() => {
+  // SEC8 org/hardened postures are gated by the security_profiles entitlement.
+  process.env.OPENNEKO_FEATURES = "security_profiles";
+});
 
 afterEach(() => {
   if (prevProfile === undefined) delete process.env.OPENNEKO_PROFILE;
   else process.env.OPENNEKO_PROFILE = prevProfile;
   if (prevHosts === undefined) delete process.env.OPENNEKO_AGENT_MODEL_HOST;
   else process.env.OPENNEKO_AGENT_MODEL_HOST = prevHosts;
+  if (prevFeatures === undefined) delete process.env.OPENNEKO_FEATURES;
+  else process.env.OPENNEKO_FEATURES = prevFeatures;
 });
 
 describe("SEC8 deployment profiles", () => {

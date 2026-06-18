@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   createTestOrg,
   dbReachable,
@@ -23,12 +23,14 @@ describeIfDb("operator personas (CV3)", () => {
   const orgId = uniqueOrgId("persona");
 
   beforeAll(async () => {
+    vi.stubEnv("OPENNEKO_FEATURES", "context_versioning");
     await createTestOrg(orgId);
   });
 
   afterAll(async () => {
     await deleteTestOrg(orgId);
     await pool().end();
+    vi.unstubAllEnvs();
   });
 
   it("upserts and falls back: user row wins, org-default ('') backs it", async () => {

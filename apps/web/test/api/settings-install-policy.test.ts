@@ -77,11 +77,13 @@ describeIfDb("/api/settings/install-policy", () => {
     orgId = uniqueOrgId("api-install-policy");
     await createTestOrg(orgId);
     mockGetOrgId.mockResolvedValue(orgId);
+    vi.stubEnv("OPENNEKO_FEATURES", "install_policy");
   });
 
   afterEach(async () => {
     await deleteTestOrg(orgId);
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   afterAll(async () => {

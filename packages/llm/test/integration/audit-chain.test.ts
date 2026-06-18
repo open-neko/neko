@@ -2,7 +2,7 @@
 // verification walks them, and any retroactive edit, deletion, or
 // reorder breaks the chain at the exact spot.
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { audit_chain, and, db, eq, pool } from "@neko/db";
 import {
   createTestOrg,
@@ -37,12 +37,14 @@ describeIfDb("SEC10 audit chain", () => {
   const orgId = uniqueOrgId("sec10");
 
   beforeAll(async () => {
+    vi.stubEnv("OPENNEKO_FEATURES", "audit_chain");
     await createTestOrg(orgId);
   });
 
   afterAll(async () => {
     await deleteTestOrg(orgId);
     await pool().end();
+    vi.unstubAllEnvs();
   });
 
   it("links append in sequence and verify, even under concurrency", async () => {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-OpenNeko-Commercial
 import {
   action_request,
   and,
