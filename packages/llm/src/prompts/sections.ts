@@ -23,6 +23,17 @@ export const GRAPHJIN_FANOUT_RULE = `- A nested GraphJin response is flattened �
   \`distinct: [parent_id]\` to deduplicate first, or (c) split into two
   queries — one parent-side aggregate and one child-side aggregate.`;
 
+// Cost + correctness rule: make GraphJin do the math. Pulling raw rows to
+// count/sum them yourself burns tokens (thousands of rows in context) and
+// invites the fanout error above. Shared by both data-access variants.
+export const GRAPHJIN_AGGREGATE_RULE = `- Make the database do the math. When the answer is a count, sum,
+  average, min/max, or a per-group breakdown, ask GraphJin for the
+  aggregate (lift a \`patterns\` template) instead of fetching the raw
+  rows and tallying them yourself — that returns a few numbers, not
+  thousands of rows. Only pull raw rows when the user needs the rows
+  themselves (e.g. "list the orders"); then page with \`limit\`/\`offset\`
+  and take the smallest set that answers the question.`;
+
 export type MemorySaveMode = "tool" | "fence" | "none";
 
 export type MemorySectionOptions = {
@@ -217,6 +228,8 @@ at the tool gate regardless.
 For date/range filters: ${GRAPHJIN_DATE_RULE.replace(/^- /, "")}
 
 ${GRAPHJIN_FANOUT_RULE.replace(/^- /, "")}
+
+${GRAPHJIN_AGGREGATE_RULE.replace(/^- /, "")}
 
 Never invent or interpolate. If a query returned no rows, the answer
 is "no data", not a guess.
@@ -417,6 +430,8 @@ at the tool gate regardless.
 For date/range filters: ${GRAPHJIN_DATE_RULE.replace(/^- /, "")}
 
 ${GRAPHJIN_FANOUT_RULE.replace(/^- /, "")}
+
+${GRAPHJIN_AGGREGATE_RULE.replace(/^- /, "")}
 
 Never invent or interpolate. If a query returned no rows, the answer
 is "no data", not a guess.
