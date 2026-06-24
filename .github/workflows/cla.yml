@@ -26,6 +26,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_SIGNATURES_TOKEN }}
         with:
+          # Don't lock PR conversations after merge — it blocks release-please
+          # from commenting on its (now-locked) release PR, failing the job.
+          lock-pullrequest-aftermerge: false
           path-to-signatures: signatures/version1/cla.json
           path-to-document: https://github.com/open-neko/openneko/blob/main/CLA.md
           branch: cla-signatures
