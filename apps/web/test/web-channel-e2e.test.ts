@@ -137,4 +137,31 @@ describe("web channel — rendered HTML through the real React renderers", () =>
     const html = renderHtml(markdown, surface);
     expect(html).toContain("Want me to post the Q3 summary to #exec?");
   });
+
+  it("renders the briefing body even when the root omits children (regression: blank card, work c8073aae)", () => {
+    let surfaces = new Map<string, SurfaceState>();
+    const messages: A2UIMessage[] = [
+      { version: "v0.9", createSurface: { surfaceId: "s1", catalogId: CATALOG_ID } },
+      {
+        version: "v0.9",
+        updateComponents: {
+          surfaceId: "s1",
+          components: [
+            // root WITHOUT `children` — the shape that rendered a blank body in prod
+            { id: "root", component: "Briefing", greeting: "SLA Watch", subtitle: "Pending orders", role: "Operations Specialist" },
+            { id: "intro", component: "Markdown", text: "The Slow-Ship workflow flags pending orders." },
+            { id: "card1", component: "BriefingCard", mood: "act", text: "SLA breaches", metric: "10,878", label: "Breaching Orders", detail: "98% of the queue.", chartType: "kpi", chartData: [] },
+            { id: "details", component: "Markdown", text: "How it works: runs daily at 8:30 AM UTC." },
+          ],
+        },
+      },
+    ];
+    for (const m of messages) surfaces = applyMessage(surfaces, m);
+    const surface = surfaces.get("s1")!;
+    const html = renderHtml(surface.components.get("root")!, surface);
+    expect(html).toContain("SLA Watch"); // header still renders
+    expect(html).toContain("The Slow-Ship workflow flags pending orders."); // intro body
+    expect(html).toContain("How it works"); // details body
+    expect(html).toContain("Breaching Orders"); // the KPI card body
+  });
 });

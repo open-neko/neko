@@ -15,6 +15,7 @@ import {
   linkifyWorkspacePaths,
 } from "@/lib/linkify-workspace-paths";
 import { registerComponent, renderChildren } from "./renderer";
+import { bodyChildIds } from "./surface";
 import type { RenderContext } from "./renderer";
 import type { A2UIComponent } from "./types";
 import type {
@@ -31,6 +32,7 @@ import BriefingCard from "@/components/BriefingCard";
 // dashboard's eyebrow + display-title language at card proportions instead.
 registerComponent("Briefing", (comp: A2UIComponent, ctx: RenderContext) => {
   const props = comp as unknown as BriefingProps & { id: string };
+  const childIds = bodyChildIds(ctx.surface, comp);
   return (
     <div key={props.id} className="work-surface">
       <div className="work-surface-eyebrow" style={{ animation: "fadeUp 0.5s ease both" }}>
@@ -45,7 +47,7 @@ registerComponent("Briefing", (comp: A2UIComponent, ctx: RenderContext) => {
           {props.subtitle}
         </div>
       ) : null}
-      {props.children && renderChildren(props.children, ctx)}
+      {childIds.length > 0 ? renderChildren(childIds, ctx) : null}
     </div>
   );
 });
