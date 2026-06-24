@@ -19,6 +19,7 @@ import { bodyChildIds } from "./surface";
 import type { RenderContext } from "./renderer";
 import type { A2UIComponent } from "./types";
 import type {
+  AnswerProps,
   BriefingCardProps,
   BriefingProps,
   CalloutProps,
@@ -31,29 +32,52 @@ import type {
 } from "./catalog";
 import BriefingCard from "@/components/BriefingCard";
 
-// ─── Briefing ───
-// Rendered INSIDE a conversation, so the header is thread-scale — the
-// dashboard's hero classes (.greet, 52px) overwhelm an answer. Mirrors the
-// dashboard's eyebrow + display-title language at card proportions instead.
-registerComponent("Briefing", (comp: A2UIComponent, ctx: RenderContext) => {
-  const props = comp as unknown as BriefingProps & { id: string };
-  const childIds = bodyChildIds(ctx.surface, comp);
+// ─── Answer / Briefing root ───
+// The card frame for a conversational answer (Answer) and the dashboard's daily
+// briefing (Briefing). Thread-scale header — the dashboard's hero classes
+// (.greet, 52px) would overwhelm an answer, so this mirrors the eyebrow +
+// display-title language at card proportions. `eyebrow` is optional: the
+// dashboard passes "Briefing", an Answer passes its own kicker or none.
+function surfaceFrame(
+  opts: { id: string; eyebrow?: string; title?: string; subtitle?: string; childIds: string[] },
+  ctx: RenderContext,
+) {
   return (
-    <div key={props.id} className="work-surface">
-      <div className="work-surface-eyebrow" style={{ animation: "fadeUp 0.5s ease both" }}>
-        <span className="work-surface-eyebrow-rule" aria-hidden="true" />
-        Briefing
-      </div>
-      <div className="work-surface-title" style={{ animation: "fadeUp 0.5s ease 0.04s both" }}>
-        {props.greeting}
-      </div>
-      {props.subtitle ? (
-        <div className="work-surface-sub" style={{ animation: "fadeUp 0.5s ease 0.08s both" }}>
-          {props.subtitle}
+    <div key={opts.id} className="work-surface">
+      {opts.eyebrow ? (
+        <div className="work-surface-eyebrow" style={{ animation: "fadeUp 0.5s ease both" }}>
+          <span className="work-surface-eyebrow-rule" aria-hidden="true" />
+          {opts.eyebrow}
         </div>
       ) : null}
-      {childIds.length > 0 ? renderChildren(childIds, ctx) : null}
+      {opts.title ? (
+        <div className="work-surface-title" style={{ animation: "fadeUp 0.5s ease 0.04s both" }}>
+          {opts.title}
+        </div>
+      ) : null}
+      {opts.subtitle ? (
+        <div className="work-surface-sub" style={{ animation: "fadeUp 0.5s ease 0.08s both" }}>
+          {opts.subtitle}
+        </div>
+      ) : null}
+      {opts.childIds.length > 0 ? renderChildren(opts.childIds, ctx) : null}
     </div>
+  );
+}
+
+registerComponent("Answer", (comp: A2UIComponent, ctx: RenderContext) => {
+  const props = comp as unknown as AnswerProps & { id: string };
+  return surfaceFrame(
+    { id: props.id, eyebrow: props.eyebrow, title: props.title, subtitle: props.subtitle, childIds: bodyChildIds(ctx.surface, comp) },
+    ctx,
+  );
+});
+
+registerComponent("Briefing", (comp: A2UIComponent, ctx: RenderContext) => {
+  const props = comp as unknown as BriefingProps & { id: string };
+  return surfaceFrame(
+    { id: props.id, eyebrow: "Briefing", title: props.greeting, subtitle: props.subtitle, childIds: bodyChildIds(ctx.surface, comp) },
+    ctx,
   );
 });
 
@@ -97,8 +121,10 @@ registerComponent("Markdown", (comp: A2UIComponent) => {
   );
 });
 
-// ─── BriefingCard ───
-registerComponent("BriefingCard", (comp: A2UIComponent, ctx: RenderContext) => {
+// ─── MetricCard / BriefingCard ───
+// One KPI card, two names: MetricCard in a work/Ask Answer, BriefingCard on the
+// dashboard (and in already-stored surfaces). Same renderer.
+const renderMetricCard = (comp: A2UIComponent, ctx: RenderContext) => {
   const props = comp as unknown as BriefingCardProps & { id: string };
   const extras = ctx.extras as {
     onDismiss?: (id: string) => void;
@@ -128,7 +154,9 @@ registerComponent("BriefingCard", (comp: A2UIComponent, ctx: RenderContext) => {
       onDismiss={extras?.onDismiss ? () => extras.onDismiss?.(props.id) : undefined}
     />
   );
-});
+};
+registerComponent("MetricCard", renderMetricCard);
+registerComponent("BriefingCard", renderMetricCard);
 
 // ─── Table ───
 // Structured tabular data. Tables used to only exist as Markdown GFM, which

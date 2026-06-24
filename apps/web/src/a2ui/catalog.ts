@@ -12,10 +12,13 @@
 
 export const CATALOG_ID = "urn:app:catalog:briefing:v1";
 
-// Component type names agents can reference
+// Component type names agents can reference. "Briefing" is the dashboard's
+// daily-briefing root; the conversational work/Ask surface uses "Answer". Both
+// render the same frame, so MetricCard is the neutral name for the KPI card in
+// an Answer (BriefingCard stays for the dashboard + already-stored surfaces).
 export const ComponentTypes = {
-  Briefing: "Briefing",
-  BriefingCard: "BriefingCard",
+  Answer: "Answer",
+  MetricCard: "MetricCard",
   Confirmation: "Confirmation",
   Markdown: "Markdown",
   Table: "Table",
@@ -23,6 +26,9 @@ export const ComponentTypes = {
   Callout: "Callout",
   Choice: "Choice",
   Divider: "Divider",
+  // Dashboard / back-compat aliases (same renderers):
+  Briefing: "Briefing",
+  BriefingCard: "BriefingCard",
 } as const;
 
 // Mood enum shared across components
@@ -47,6 +53,16 @@ export interface BriefingProps {
   role: string;
   isExample?: boolean; // true when cards are the legacy ROLE_DATA mock
   children: string[]; // IDs of BriefingCard components
+}
+
+// The conversational answer root (work/Ask). Same frame as Briefing, but no
+// dashboard "Briefing" framing — an optional `eyebrow` kicker instead.
+export interface AnswerProps {
+  component: "Answer";
+  title: string;
+  subtitle?: string;
+  eyebrow?: string;
+  children: string[]; // ids of body components, in display order
 }
 
 export interface MarkdownProps {
@@ -122,9 +138,17 @@ export interface BriefingCardProps {
   chartData: ChartDataPoint[];
 }
 
+// The KPI card as named in a work/Ask Answer — identical shape to BriefingCard,
+// which stays the dashboard's name and renders through the same component.
+export type MetricCardProps = Omit<BriefingCardProps, "component"> & {
+  component: "MetricCard";
+};
+
 // Union of all component props
 export type ComponentProps =
+  | AnswerProps
   | BriefingProps
+  | MetricCardProps
   | BriefingCardProps
   | ConfirmationProps
   | MarkdownProps

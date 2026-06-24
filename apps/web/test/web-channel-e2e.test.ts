@@ -75,13 +75,13 @@ describe("web channel — end to end through the real A2UI surface pipeline", ()
     expect(create.createSurface.catalogId).toBe(CATALOG_ID);
   });
 
-  it("renders a BriefingCard the web reducer resolves, carrying the agent's numbers", () => {
+  it("renders a MetricCard the web reducer resolves, carrying the agent's numbers", () => {
     const { surfaces } = buildSurface();
     const surface = surfaces.get("s1");
     expect(surface).toBeDefined();
 
     const resolved = getResolvedComponents(surface!);
-    const card = resolved.find((c) => c.component === ComponentTypes.BriefingCard) as A2UIComponent;
+    const card = resolved.find((c) => c.component === ComponentTypes.MetricCard) as A2UIComponent;
     expect(card).toMatchObject({
       mood: "good",
       text: "Q3 revenue landed at $4.7M",
@@ -121,10 +121,10 @@ const renderHtml = (component: A2UIComponent, surface: SurfaceState): string =>
   renderToStaticMarkup(renderComponent(component, { surface, extras: {} }) as ReactElement);
 
 describe("web channel — rendered HTML through the real React renderers", () => {
-  it("the BriefingCard renders the agent's metric and label", () => {
+  it("the MetricCard renders the agent's metric and label", () => {
     const { surfaces } = buildSurface();
     const surface = surfaces.get("s1")!;
-    const card = getResolvedComponents(surface).find((c) => c.component === ComponentTypes.BriefingCard)!;
+    const card = getResolvedComponents(surface).find((c) => c.component === ComponentTypes.MetricCard)!;
     const html = renderHtml(card, surface);
     expect(html).toContain("$4.7M");
     expect(html).toContain("Revenue MTD");
@@ -260,5 +260,73 @@ describe("web channel — expanded A2UI catalog (Table / Callout / Section / Cho
       prompt: "Break down Q3 revenue by product.",
       value: "Drill in",
     });
+  });
+});
+
+describe("web channel — Answer root (work/Ask vocabulary, not 'Briefing')", () => {
+  const answerSurface = (root: Record<string, unknown>, body: A2UIComponent[]): SurfaceState => {
+    let surfaces = new Map<string, SurfaceState>();
+    surfaces = applyMessage(surfaces, {
+      version: "v0.9",
+      createSurface: { surfaceId: "s1", catalogId: CATALOG_ID },
+    });
+    surfaces = applyMessage(surfaces, {
+      version: "v0.9",
+      updateComponents: {
+        surfaceId: "s1",
+        components: [{ id: "root", component: "Answer", ...root }, ...body] as A2UIComponent[],
+      },
+    });
+    return surfaces.get("s1")!;
+  };
+
+  it("renders the title and body, with no dashboard 'Briefing' eyebrow", () => {
+    const surface = answerSurface({ title: "Revenue Summary", children: ["m"] }, [
+      { id: "m", component: "Markdown", text: "Up 12% MoM." } as A2UIComponent,
+    ]);
+    const html = renderHtml(surface.components.get("root")!, surface);
+    expect(html).toContain("Revenue Summary");
+    expect(html).toContain("Up 12% MoM.");
+    expect(html).not.toContain("Briefing");
+  });
+
+  it("renders an optional eyebrow kicker when provided", () => {
+    const surface = answerSurface({ title: "Revenue Summary", eyebrow: "SALES", children: ["m"] }, [
+      { id: "m", component: "Markdown", text: "Body." } as A2UIComponent,
+    ]);
+    const html = renderHtml(surface.components.get("root")!, surface);
+    expect(html).toContain("SALES");
+    expect(html).toContain("work-surface-eyebrow");
+  });
+
+  it("falls back to all body components when the Answer root omits children", () => {
+    const surface = answerSurface({ title: "Revenue Summary" }, [
+      { id: "m1", component: "Markdown", text: "First line." } as A2UIComponent,
+      { id: "m2", component: "Markdown", text: "Second line." } as A2UIComponent,
+    ]);
+    const html = renderHtml(surface.components.get("root")!, surface);
+    expect(html).toContain("First line.");
+    expect(html).toContain("Second line.");
+  });
+
+  it("MetricCard renders the same KPI chrome as BriefingCard", () => {
+    const surface = answerSurface({ title: "Q3", children: ["c"] }, [
+      {
+        id: "c",
+        component: "MetricCard",
+        metricId: "chat-1",
+        source: "chat",
+        mood: "good",
+        text: "Revenue up",
+        metric: "$4.7M",
+        label: "Revenue MTD",
+        detail: "Up 12% MoM.",
+        chartType: "kpi",
+        chartData: [],
+      } as A2UIComponent,
+    ]);
+    const html = renderHtml(surface.components.get("root")!, surface);
+    expect(html).toContain("$4.7M");
+    expect(html).toContain("Revenue MTD");
   });
 });

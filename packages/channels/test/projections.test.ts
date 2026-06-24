@@ -48,7 +48,7 @@ describe("one inform, every substrate (degradation by profile)", () => {
     const { surfaces, pendingAsks } = webProjection([inform], WEB_PROFILE);
     const update = surfaces[1] as { updateComponents: { components: Array<Record<string, unknown>> } };
     const card = update.updateComponents.components[0]!;
-    expect(card.component).toBe("BriefingCard");
+    expect(card.component).toBe("MetricCard");
     expect(card.metric).toBe("$4.7M");
     expect((card.chartData as unknown[]).length).toBe(2);
     expect(pendingAsks).toHaveLength(0);

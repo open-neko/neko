@@ -15,8 +15,8 @@ describe("A2UI catalog", () => {
 
   it("includes the components the answer surface can render", () => {
     expect(ComponentTypes).toMatchObject({
-      Briefing: "Briefing",
-      BriefingCard: "BriefingCard",
+      Answer: "Answer",
+      MetricCard: "MetricCard",
       Confirmation: "Confirmation",
       Markdown: "Markdown",
       Table: "Table",
@@ -24,6 +24,13 @@ describe("A2UI catalog", () => {
       Callout: "Callout",
       Choice: "Choice",
       Divider: "Divider",
+    });
+  });
+
+  it("keeps Briefing/BriefingCard as dashboard + back-compat aliases", () => {
+    expect(ComponentTypes).toMatchObject({
+      Briefing: "Briefing",
+      BriefingCard: "BriefingCard",
     });
   });
 });
