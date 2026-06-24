@@ -13,12 +13,24 @@ describe("A2UI catalog", () => {
     }
   });
 
-  it("includes the four core component types the briefing flow uses", () => {
+  it("includes the components the answer surface can render", () => {
+    expect(ComponentTypes).toMatchObject({
+      Answer: "Answer",
+      MetricCard: "MetricCard",
+      Confirmation: "Confirmation",
+      Markdown: "Markdown",
+      Table: "Table",
+      Section: "Section",
+      Callout: "Callout",
+      Choice: "Choice",
+      Divider: "Divider",
+    });
+  });
+
+  it("keeps Briefing/BriefingCard as dashboard + back-compat aliases", () => {
     expect(ComponentTypes).toMatchObject({
       Briefing: "Briefing",
       BriefingCard: "BriefingCard",
-      MetricCard: "MetricCard",
-      ChatResponse: "ChatResponse",
     });
   });
 });

@@ -153,3 +153,14 @@ export function getResolvedComponents(surface: SurfaceState): A2UIComponent[] {
 export function getRootComponent(surface: SurfaceState): A2UIComponent | undefined {
   return surface.components.get("root");
 }
+
+/**
+ * Body child ids for a surface root: the ids it declares, or — when a payload
+ * omits `children` — every other component in document order, so the body
+ * never renders blank. Only the surface root absorbs orphans this way.
+ */
+export function bodyChildIds(surface: SurfaceState, root: A2UIComponent): string[] {
+  const declared = Array.isArray(root.children) ? (root.children as string[]) : [];
+  if (declared.length > 0 || root.id !== "root") return declared;
+  return Array.from(surface.components.keys()).filter((id) => id !== root.id);
+}

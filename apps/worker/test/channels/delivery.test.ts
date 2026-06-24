@@ -415,3 +415,44 @@ describe("ensureInboundBinding (auto-bind on first inbound)", () => {
     expect(h.binds).toHaveLength(0);
   });
 });
+
+describe("deliverChatReply threads the a2ui surface as converse.enrichment", () => {
+  const deliveredEvent = (): Record<string, unknown> => {
+    const call = vi.mocked(enqueue).mock.calls.find(([q]) => q === "channel_deliver");
+    expect(call).toBeDefined();
+    const payload = call![1] as { events: Array<Record<string, unknown>> };
+    return payload.events[0]!;
+  };
+
+  it("attaches the agent's surface so a rich channel can render it", async () => {
+    vi.mocked(enqueue).mockClear();
+    const surfaces = [{ version: "v0.9", createSurface: { surfaceId: "s1", catalogId: "x" } }];
+    await deliverChatReply("org-1", "@open-neko/channel-telegram", { chatId: 1 }, "run-1", "hi", surfaces);
+    const ev = deliveredEvent();
+    expect(ev.kind).toBe("converse");
+    expect(ev.text).toBe("hi");
+    expect((ev.enrichment as { surfaces: unknown[] }).surfaces).toEqual(surfaces);
+  });
+
+  it("delivers plain text with no enrichment when there is no surface", async () => {
+    vi.mocked(enqueue).mockClear();
+    await deliverChatReply("org-1", "p", { chatId: 1 }, "run-2", "just text");
+    const ev = deliveredEvent();
+    expect(ev.kind).toBe("converse");
+    expect(ev.text).toBe("just text");
+    expect(ev.enrichment).toBeUndefined();
+  });
+
+  it("delivers a surface-only reply even when the text body is empty", async () => {
+    vi.mocked(enqueue).mockClear();
+    const surfaces = [{ version: "v0.9", updateComponents: { surfaceId: "s1", components: [] } }];
+    await deliverChatReply("org-1", "p", { chatId: 1 }, "run-3", "", surfaces);
+    expect(vi.mocked(enqueue).mock.calls.some(([q]) => q === "channel_deliver")).toBe(true);
+  });
+
+  it("drops an empty reply with no surface", async () => {
+    vi.mocked(enqueue).mockClear();
+    await deliverChatReply("org-1", "p", { chatId: 1 }, "run-4", "   ");
+    expect(vi.mocked(enqueue).mock.calls.some(([q]) => q === "channel_deliver")).toBe(false);
+  });
+});

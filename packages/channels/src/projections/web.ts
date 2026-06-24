@@ -30,7 +30,7 @@ const toComponent = (event: InteractionEvent): Component | null => {
   if (event.kind === "inform") {
     return {
       id: `card-${event.id}`,
-      component: "BriefingCard",
+      component: "MetricCard",
       metricId: event.id,
       source: "chat",
       state: "ok",

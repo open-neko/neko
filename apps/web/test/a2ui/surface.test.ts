@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyMessage,
+  bodyChildIds,
   createSurface,
   getResolvedComponents,
   getRootComponent,
@@ -172,6 +173,50 @@ describe("applyMessage", () => {
       updateComponents: { surfaceId: "missing", components: [] },
     });
     expect(s.size).toBe(0);
+  });
+});
+
+describe("bodyChildIds", () => {
+  const build = (rootExtra: Record<string, unknown>, bodyIds: string[]): SurfaceState => {
+    let s = applyMessage(new Map(), {
+      version: "v0.9",
+      createSurface: { surfaceId: "s1", catalogId: "cat:1" },
+    });
+    s = applyMessage(s, {
+      version: "v0.9",
+      updateComponents: {
+        surfaceId: "s1",
+        components: [
+          { id: "root", component: "Briefing", ...rootExtra },
+          ...bodyIds.map((id) => ({ id, component: "Markdown", text: id })),
+        ],
+      },
+    });
+    return s.get("s1")!;
+  };
+
+  it("returns declared children verbatim (does not add orphans)", () => {
+    const surface = build({ children: ["intro", "card1"] }, ["intro", "card1", "extra"]);
+    expect(bodyChildIds(surface, getRootComponent(surface)!)).toEqual(["intro", "card1"]);
+  });
+
+  it("falls back to every non-root component in document order when children is missing", () => {
+    const surface = build({}, ["intro", "card1", "details"]);
+    expect(bodyChildIds(surface, getRootComponent(surface)!)).toEqual([
+      "intro",
+      "card1",
+      "details",
+    ]);
+  });
+
+  it("falls back when children is an empty array", () => {
+    const surface = build({ children: [] }, ["intro", "details"]);
+    expect(bodyChildIds(surface, getRootComponent(surface)!)).toEqual(["intro", "details"]);
+  });
+
+  it("does not absorb orphans for a non-root container", () => {
+    const surface = build({}, ["intro", "extra"]);
+    expect(bodyChildIds(surface, surface.components.get("intro")!)).toEqual([]);
   });
 });
 

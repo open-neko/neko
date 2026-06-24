@@ -7,7 +7,7 @@ import { and, db, delivery_binding, eq, processing_job } from "@neko/db";
 import { enqueue, QUEUE, type ChannelDeliverPayload } from "@neko/db/jobs";
 import { resolveAgentBackend } from "@neko/llm";
 import { outputRowToInteractionEvent, type OutputRow } from "@neko/llm/interaction";
-import type { InteractionEvent } from "@neko/interaction";
+import type { InteractionEvent, SurfaceMessage } from "@neko/interaction";
 import {
   approveActionRequest,
   getActionRequest,
@@ -151,15 +151,22 @@ export async function deliverChatReply(
   recipient: Record<string, unknown>,
   runId: string,
   body: string,
+  surfaces?: unknown[],
 ): Promise<void> {
-  if (!body.trim()) return;
+  const hasSurfaces = Array.isArray(surfaces) && surfaces.length > 0;
+  // A rendering run (web/telegram) puts its answer in the a2ui surface, so the
+  // text body can be thin or empty — deliver as long as either is present.
+  if (!body.trim() && !hasSurfaces) return;
   // A chat reply is the assistant's message, not a workflow-output card — use
   // `converse` so channels render the full text, not a summarized headline.
+  // The agent's a2ui surface rides as enrichment; a channel that can render it
+  // (Telegram) shows the rich answer, a thin one falls back to the text.
   const event: InteractionEvent = {
     kind: "converse",
     id: runId,
     role: "assistant",
     text: body,
+    ...(hasSurfaces ? { enrichment: { surfaces: surfaces as SurfaceMessage[] } } : {}),
   };
   await enqueueChannelDelivery(orgId, channelPlugin, recipient, [event], `reply-${runId}`);
 }
