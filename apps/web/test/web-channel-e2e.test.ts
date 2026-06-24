@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { applyMessage, getResolvedComponents } from "@/a2ui/surface";
@@ -163,5 +163,102 @@ describe("web channel — rendered HTML through the real React renderers", () =>
     expect(html).toContain("The Slow-Ship workflow flags pending orders."); // intro body
     expect(html).toContain("How it works"); // details body
     expect(html).toContain("Breaching Orders"); // the KPI card body
+  });
+});
+
+describe("web channel — expanded A2UI catalog (Table / Callout / Section / Choice / Divider)", () => {
+  const surfaceWith = (components: A2UIComponent[]): SurfaceState => {
+    let surfaces = new Map<string, SurfaceState>();
+    surfaces = applyMessage(surfaces, {
+      version: "v0.9",
+      createSurface: { surfaceId: "s1", catalogId: CATALOG_ID },
+    });
+    surfaces = applyMessage(surfaces, {
+      version: "v0.9",
+      updateComponents: { surfaceId: "s1", components },
+    });
+    return surfaces.get("s1")!;
+  };
+
+  it("Table renders columns, rows, and column alignment", () => {
+    const surface = surfaceWith([
+      {
+        id: "t",
+        component: "Table",
+        columns: [
+          { key: "region", label: "Region" },
+          { key: "rev", label: "Revenue", align: "right" },
+        ],
+        rows: [
+          { region: "Southwest", rev: "$4.7M" },
+          { region: "Canada", rev: "$3.1M" },
+        ],
+      },
+    ] as A2UIComponent[]);
+    const html = renderHtml(surface.components.get("t")!, surface);
+    expect(html).toContain("Region");
+    expect(html).toContain("Revenue");
+    expect(html).toContain("Southwest");
+    expect(html).toContain("$3.1M");
+    expect(html).toContain("text-align:right");
+  });
+
+  it("Callout renders its mood class, title, and markdown body", () => {
+    const surface = surfaceWith([
+      { id: "c", component: "Callout", mood: "act", title: "Takeaway", text: "Revenue is **down** 12%." },
+    ] as A2UIComponent[]);
+    const html = renderHtml(surface.components.get("c")!, surface);
+    expect(html).toContain("work-callout-act");
+    expect(html).toContain("Takeaway");
+    expect(html).toContain("<strong>down</strong>");
+  });
+
+  it("Section (collapsible) renders a details/summary disclosure with its body", () => {
+    const surface = surfaceWith([
+      { id: "sec", component: "Section", title: "Supporting detail", collapsible: true, children: ["m"] },
+      { id: "m", component: "Markdown", text: "Inner body line." },
+    ] as A2UIComponent[]);
+    const html = renderHtml(surface.components.get("sec")!, surface);
+    expect(html).toContain("<details");
+    expect(html).toContain("<summary");
+    expect(html).toContain("Supporting detail");
+    expect(html).toContain("Inner body line.");
+  });
+
+  it("Choice renders one button per option with its label", () => {
+    const surface = surfaceWith([
+      {
+        id: "ch",
+        component: "Choice",
+        options: [
+          { label: "Drill into Q3", prompt: "Break down Q3 revenue by product." },
+          { label: "Show the trend", prompt: "Show the 12-month revenue trend." },
+        ],
+      },
+    ] as A2UIComponent[]);
+    const html = renderHtml(surface.components.get("ch")!, surface);
+    expect(html).toContain("Drill into Q3");
+    expect(html).toContain("Show the trend");
+    expect((html.match(/<button/g) ?? []).length).toBe(2);
+  });
+
+  it("Choice fires an action carrying the option's prompt (the follow-up loop)", () => {
+    const surface = surfaceWith([
+      {
+        id: "ch",
+        component: "Choice",
+        options: [{ label: "Drill in", prompt: "Break down Q3 revenue by product." }],
+      },
+    ] as A2UIComponent[]);
+    const onAction = vi.fn();
+    type ButtonEl = ReactElement<{ onClick: () => void }>;
+    const el = renderComponent(surface.components.get("ch")!, { surface, onAction }) as ReactElement<{
+      children: ButtonEl[];
+    }>;
+    el.props.children[0].props.onClick();
+    expect(onAction).toHaveBeenCalledWith("ch", "select", {
+      prompt: "Break down Q3 revenue by product.",
+      value: "Drill in",
+    });
   });
 });

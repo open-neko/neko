@@ -318,6 +318,7 @@ export default function WorkScreen() {
     setRailArtifacts,
     setRailContext,
     insertComposerRef,
+    submitFollowUpRef,
   } = useWorkShell();
   const [gateChecked, setGateChecked] = useState(false);
   const [gateError, setGateError] = useState<string | null>(null);
@@ -446,6 +447,17 @@ export default function WorkScreen() {
       insertComposerRef.current = null;
     };
   }, [insertComposerRef]);
+
+  // Register the handle an interactive A2UI Choice calls to submit a follow-up
+  // turn. Re-registered each render so the closure sees the latest thread/state.
+  useEffect(() => {
+    submitFollowUpRef.current = (prompt: string) => {
+      void sendText(prompt);
+    };
+    return () => {
+      submitFollowUpRef.current = null;
+    };
+  });
 
   // Derive this thread's rail context from the run's own output. Vitals and
   // follow-ups are channel-agnostic CONTENT the agent emits (the web channel
@@ -783,6 +795,32 @@ export default function WorkScreen() {
     setMention(null);
 
     await postAndStreamRun(threadId, message);
+  }
+
+  // Submit a follow-up turn directly (no composer round-trip) — the landing
+  // for an interactive A2UI Choice click. Mirrors sendMessage's tail.
+  async function sendText(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || sending) return;
+    setSending(true);
+    setStreamError(null);
+    let threadId = activeThreadId;
+    if (!threadId) threadId = await createThread();
+    if (!threadId) {
+      setSending(false);
+      return;
+    }
+    const tempMessage: MessageRecord = {
+      id: `temp-${Date.now()}`,
+      runId: null,
+      role: "user",
+      content: trimmed,
+      createdAt: new Date().toISOString(),
+    };
+    setBundle((prev) =>
+      prev ? { ...prev, messages: [...prev.messages, tempMessage] } : prev,
+    );
+    await postAndStreamRun(threadId, trimmed);
   }
 
   async function copyUserMessage(text: string) {
@@ -2331,9 +2369,23 @@ function SurfaceBlock({ messages }: { messages: A2UIMessage[] }) {
     return next;
   }, [messages]);
 
+  const { submitFollowUp } = useWorkShell();
+  const onAction = (
+    _componentId: string,
+    eventName: string,
+    context?: Record<string, unknown>,
+  ) => {
+    if (
+      (eventName === "select" || eventName === "submit") &&
+      typeof context?.prompt === "string"
+    ) {
+      submitFollowUp(context.prompt);
+    }
+  };
+
   const nodes: React.ReactNode[] = [];
   for (const [, surface] of surfaces) {
-    const ctx = { surface };
+    const ctx = { surface, onAction };
     const root = getRootComponent(surface);
     if (root) {
       nodes.push(

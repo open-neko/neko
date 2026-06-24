@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useMemo,
   useRef,
@@ -37,6 +38,12 @@ type WorkShellContextValue = {
   // question into the CURRENT thread's composer (for the operator to edit),
   // without the rail reaching into WorkScreen's draft state.
   insertComposerRef: MutableRefObject<((q: string) => void) | null>;
+  // Imperative handle WorkScreen registers so an interactive A2UI component
+  // (e.g. a Choice button inside an answer) can submit a follow-up turn
+  // directly — the action loop, distinct from the editable "Ask next" drop.
+  submitFollowUpRef: MutableRefObject<((prompt: string) => void) | null>;
+  // Stable wrapper consumers call; reads the ref in a callback (not render).
+  submitFollowUp: (prompt: string) => void;
 };
 
 const WorkShellContext = createContext<WorkShellContextValue>({
@@ -47,6 +54,8 @@ const WorkShellContext = createContext<WorkShellContextValue>({
   railContext: EMPTY_RAIL,
   setRailContext: () => {},
   insertComposerRef: { current: null },
+  submitFollowUpRef: { current: null },
+  submitFollowUp: () => {},
 });
 
 export function WorkShellProvider({ children }: { children: React.ReactNode }) {
@@ -54,6 +63,10 @@ export function WorkShellProvider({ children }: { children: React.ReactNode }) {
   const [railArtifacts, setRailArtifacts] = useState<RailArtifact[]>([]);
   const [railContext, setRailContext] = useState<RailContext>(EMPTY_RAIL);
   const insertComposerRef = useRef<((q: string) => void) | null>(null);
+  const submitFollowUpRef = useRef<((prompt: string) => void) | null>(null);
+  const submitFollowUp = useCallback((prompt: string) => {
+    submitFollowUpRef.current?.(prompt);
+  }, []);
   const value = useMemo(
     () => ({
       activeRunId,
@@ -63,8 +76,10 @@ export function WorkShellProvider({ children }: { children: React.ReactNode }) {
       railContext,
       setRailContext,
       insertComposerRef,
+      submitFollowUpRef,
+      submitFollowUp,
     }),
-    [activeRunId, railArtifacts, railContext],
+    [activeRunId, railArtifacts, railContext, submitFollowUp],
   );
   return (
     <WorkShellContext.Provider value={value}>
