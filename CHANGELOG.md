@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.10.0](https://github.com/open-neko/openneko/compare/v2.9.0...v2.10.0) (2026-06-24)
+
+
+### Features
+
+* **llm:** compact GraphJin output to columnar tables (default-on, ~67% fewer tokens) + query-shaping; demo operability fixes ([f10bad1](https://github.com/open-neko/openneko/commit/f10bad1cc9961e2198b02384cf7ef35bad82852b))
+
+
+### Bug Fixes
+
+* **web:** restore answer list markers and tidy briefing rendering ([674fcad](https://github.com/open-neko/openneko/commit/674fcadaf04e21b5a8303106fc0183ed9145b286))
+* **web:** restore answer list markers and tidy briefing rendering ([9b1ca4b](https://github.com/open-neko/openneko/commit/9b1ca4b14a40109fbe9318c36870a37ae76aa1c2))
+
 ## [2.9.0](https://github.com/open-neko/openneko/compare/v2.8.0...v2.9.0) (2026-06-18)
 
 
