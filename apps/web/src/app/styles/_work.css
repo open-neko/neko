@@ -357,6 +357,20 @@
 .work-markdown ol {
   padding-left: 22px;
 }
+/* Tailwind's preflight resets ul/ol to list-style:none; restore real markers
+   so lists read as lists, with disc → circle → square cueing the nesting. */
+.work-markdown ul {
+  list-style: disc outside;
+}
+.work-markdown ol {
+  list-style: decimal outside;
+}
+.work-markdown ul ul {
+  list-style-type: circle;
+}
+.work-markdown ul ul ul {
+  list-style-type: square;
+}
 .work-markdown li + li {
   margin-top: 4px;
 }
@@ -650,11 +664,12 @@
   background: rgba(255,255,255,0.7);
   border-radius: 18px;
 }
-/* Synthetic Markdown surface (assistant prose wrapped in a fallback Markdown
-   surface) — when it sits inside a chat timeline, render it as the prominent
-   answer card. KPI cards / Briefing roots aren't styled here because they
-   bring their own card chrome. */
-.work-timeline .work-surface-frame:has(> .work-markdown) {
+/* The prominent answer card. Applies both to a synthetic Markdown surface
+   (assistant prose wrapped in a fallback Markdown surface) and to a Briefing
+   root — neither carries its own chrome, so the frame supplies it and the two
+   read as one cohesive answer instead of an unpadded translucent slab. */
+.work-timeline .work-surface-frame:has(> .work-markdown),
+.work-timeline .work-surface-frame:has(> .work-surface) {
   position: relative;
   background: linear-gradient(
     180deg,
@@ -760,4 +775,40 @@
 .work-surface-title + :not(.work-surface-sub),
 .work-surface-sub + * {
   margin-top: 14px;
+}
+/* Even rhythm between a briefing's prose and any inline KPI callouts. */
+.work-surface > .work-markdown + .work-markdown,
+.work-surface > .work-markdown + .icard,
+.work-surface > .icard + .work-markdown,
+.work-surface > .icard + .icard {
+  margin-top: 14px;
+}
+
+/* In-thread KPI card. The dashboard's .icard is a standalone grid tile —
+   heavy border, shadow, hover-lift, big "01" ordinal — which reads as a
+   box-in-a-box once it sits inside an answer card. Re-skin it as a flat
+   mood-tinted callout that belongs to the briefing around it. */
+.work-timeline .icard {
+  margin: 0;
+  cursor: default;
+  padding: 18px 20px 18px 24px;
+  background: color-mix(in srgb, var(--mood-tint, var(--card)) 45%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--mood-color, var(--border)) 16%, transparent);
+  box-shadow: none;
+}
+.work-timeline .icard:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--mood-color, var(--border)) 16%, transparent);
+}
+.work-timeline .icard .inum {
+  display: none;
+}
+/* Headline/metric are flush-left once the ordinal is gone, so drop the
+   indent that kept the detail aligned under it. */
+.work-timeline .icard .dtext {
+  padding-left: 0;
+}
+.work-timeline .icard .dchart {
+  margin-left: 0;
 }
