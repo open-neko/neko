@@ -1,6 +1,11 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { RpcResponse } from "@open-neko/plugin-types";
 import {
+  buildEnvFile,
   buildExecCommand,
   type PluginRuntime,
   type PluginVmSpec,
@@ -19,6 +24,9 @@ import {
  * a shell wrapper (OpenShell exec has no --env), produced by buildExecCommand.
  */
 const PLUGIN_RUNNER_PATH = "/sandbox/run.js";
+// Secret env is uploaded here (out of band) and sourced at exec — never inlined
+// into the exec command, which the OpenShell gateway logs.
+const PLUGIN_ENV_FILE_PATH = "/sandbox/.plugin-env";
 const DEFAULT_RPC_TIMEOUT_MS = 30_000;
 const CREATE_TIMEOUT_MS = 180_000;
 const UPLOAD_TIMEOUT_MS = 60_000;
@@ -50,6 +58,8 @@ export interface OpenShellRuntimeOptions {
 
 interface Entry {
   spec: PluginVmSpec;
+  /** sha256 of the last env file uploaded to this sandbox — skip re-upload when unchanged. */
+  envHash?: string;
 }
 
 export class OpenShellRuntime implements PluginRuntime {
@@ -117,12 +127,15 @@ export class OpenShellRuntime implements PluginRuntime {
       throw new Error(`OpenShellRuntime: plugin not started: ${pluginId}`);
     }
     const timeoutMs = options.timeoutMs ?? DEFAULT_RPC_TIMEOUT_MS;
-    const { cmd, args } = buildExecCommand(
-      method,
-      paramsJson,
-      options.env ?? {},
-      PLUGIN_RUNNER_PATH,
-    );
+    const env = options.env ?? {};
+    const hasEnv = Object.keys(env).length > 0;
+    // Upload the plugin's secrets as a file (cached by hash) so they're sourced
+    // in-box rather than inlined into the exec command (which the gateway logs).
+    if (hasEnv) await this.ensureEnvFile(pluginId, env);
+    const { cmd, args } = buildExecCommand(method, paramsJson, {
+      runnerPath: PLUGIN_RUNNER_PATH,
+      ...(hasEnv ? { envFilePath: PLUGIN_ENV_FILE_PATH } : {}),
+    });
     const timeoutSec = Math.max(1, Math.ceil(timeoutMs / 1000));
     // Gateway-side --timeout bounds the remote command; the host-side
     // spawn timeout is a slightly longer backstop for a hung CLI.
@@ -142,6 +155,32 @@ export class OpenShellRuntime implements PluginRuntime {
       timeoutMs + 5_000,
     );
     return parseRpcLastLine(stdout, pluginId, method);
+  }
+
+  /**
+   * Write the plugin's secret env to a host temp file (mode 0600), upload it to
+   * the sandbox, and remember its hash so an unchanged env skips the round-trip.
+   * The upload command carries the temp PATH + dest path, never the values, so
+   * the secret never reaches the gateway's command log.
+   */
+  private async ensureEnvFile(pluginId: string, env: Record<string, string>): Promise<void> {
+    const entry = this.entries.get(pluginId);
+    if (!entry) return;
+    const content = buildEnvFile(env);
+    const hash = createHash("sha256").update(content).digest("hex");
+    if (entry.envHash === hash) return;
+    const dir = await mkdtemp(path.join(tmpdir(), "oss-plugin-env-"));
+    try {
+      const file = path.join(dir, "plugin-env");
+      await writeFile(file, content, { mode: 0o600 });
+      await this.run(
+        ["sandbox", "upload", pluginId, file, PLUGIN_ENV_FILE_PATH],
+        UPLOAD_TIMEOUT_MS,
+      );
+      entry.envHash = hash;
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 
   async stop(pluginId: string): Promise<void> {

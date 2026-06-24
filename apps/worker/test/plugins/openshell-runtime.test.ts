@@ -86,7 +86,7 @@ describe("OpenShellRuntime", () => {
 
   function make(opts?: { gatewayEndpoint?: string; gatewayName?: string }) {
     return new OpenShellRuntime({
-      image: "ghcr.io/open-neko/plugin-base:node20",
+      image: "ghcr.io/open-neko/plugin-base:node24",
       bundleDir: "/tmp/bundles",
       ...opts,
     });
@@ -107,7 +107,7 @@ describe("OpenShellRuntime", () => {
       "--name",
       "p1",
       "--from",
-      "ghcr.io/open-neko/plugin-base:node20",
+      "ghcr.io/open-neko/plugin-base:node24",
       "--no-tty",
       "--no-auto-providers",
       "--",
@@ -231,7 +231,7 @@ describe("OpenShellRuntime", () => {
     expect(res).toEqual({ ok: true, result: { hello: "world" } });
   });
 
-  it("callRpc with env wraps in sh -c with quoted exports", async () => {
+  it("callRpc with env uploads a sourced env file — the secret never enters the exec command", async () => {
     const rt = make();
     await rt.start({
       id: "p1",
@@ -247,21 +247,40 @@ describe("OpenShellRuntime", () => {
       env: { SLACK_BOT_TOKEN: "xoxb-1" },
     });
 
+    // The secret rode an out-of-band upload to the env file (the upload argv is
+    // the host temp PATH + dest path, never the value) — not the exec command.
+    const upload = h.calls.find(
+      (c) =>
+        c.args[0] === "sandbox" &&
+        c.args[1] === "upload" &&
+        c.args.includes("/sandbox/.plugin-env"),
+    );
+    expect(upload).toBeDefined();
+
     const args = execCall()?.args ?? [];
-    expect(args.slice(0, 8)).toEqual([
-      "sandbox",
-      "exec",
-      "-n",
-      "p1",
-      "--no-tty",
-      "--timeout",
-      "30",
-      "--",
-    ]);
     expect(args[8]).toBe("sh");
     expect(args[9]).toBe("-c");
-    expect(args[10]).toContain("export SLACK_BOT_TOKEN='xoxb-1'");
+    expect(args[10]).toContain(". '/sandbox/.plugin-env';");
     expect(args[10]).toContain("exec node /sandbox/run.js");
+    // The token value appears in NO spawned command's argv (gateway-log safe).
+    expect(h.calls.some((c) => c.args.some((a) => a.includes("xoxb-1")))).toBe(false);
+  });
+
+  it("re-uses the uploaded env file across calls with unchanged env (no re-upload)", async () => {
+    const rt = make();
+    await rt.start({
+      id: "p1",
+      hostWorkspacePath: "/tmp/bundles/p1",
+      network: "none",
+      hosts: [],
+    });
+    h.state.respond = (args) =>
+      args.includes("exec") ? { stdout: OK_JSON } : { stdout: "", code: 0 };
+    const env = { SLACK_BOT_TOKEN: "xoxb-1" };
+    await rt.callRpc("p1", "m1", "{}", { env });
+    h.calls.length = 0;
+    await rt.callRpc("p1", "m2", "{}", { env });
+    expect(h.calls.some((c) => c.args[1] === "upload")).toBe(false);
   });
 
   it("parses the LAST stdout line when logs precede the JSON", async () => {

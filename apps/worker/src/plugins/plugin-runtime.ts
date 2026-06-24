@@ -29,8 +29,9 @@ export interface PluginRuntime {
   /**
    * Invokes the plugin's runner with `node /workspace/run.js <method>
    * <paramsJson>` and parses the single JSON response from stdout.
-   * If `env` is provided, values are injected into the VM at exec time
-   * via a shell wrapper.
+   * If `env` is provided, the runtime makes those values available to the
+   * plugin process WITHOUT placing secret values on the exec command line
+   * (OpenShell sources an uploaded env file; the dev subprocess sets process env).
    */
   callRpc(
     pluginId: string,
@@ -64,44 +65,45 @@ function shellQuote(value: string): string {
 const ENV_KEY_RX = /^[A-Z][A-Z0-9_]*$/;
 
 /**
+ * Build a POSIX-shell-sourceable env file holding a plugin's secrets
+ * (`export KEY='value'` lines). The runtime uploads this into the sandbox
+ * out-of-band and the exec sources it — so secret VALUES never land in the
+ * exec command line (which the OpenShell gateway logs) nor in the box's
+ * process args. Keys are validated to UPPER_SNAKE_CASE so a bad manifest
+ * entry can't smuggle shell syntax; values are POSIX single-quote-escaped.
+ */
+export function buildEnvFile(env: Record<string, string>): string {
+  return Object.keys(env)
+    .map((k) => {
+      if (!ENV_KEY_RX.test(k)) {
+        throw new Error(`plugin env key "${k}" is not a valid UPPER_SNAKE_CASE name`);
+      }
+      return `export ${k}=${shellQuote(env[k] ?? "")}`;
+    })
+    .join("\n");
+}
+
+/**
  * Returns the command + argv the runtime will invoke inside the VM.
- * Without env: a plain `node` exec, fastest path. With env: wrap in
- * `sh -c '<exports>; exec node ...'` so the env is bound for the
- * plugin process.
+ * Without an env file: a plain `node` exec, fastest path. With one: wrap in
+ * `sh -c '. <file>; exec node ...'` so the plugin's secrets (in the uploaded
+ * file) are bound for the process — the command itself carries only the file
+ * PATH, never a secret value.
  *
- * Why `sh` not `bash`: the default plugin VM image ships `ash` at
- * `/bin/sh` and no `bash`. POSIX `sh` is enough for our needs (export +
- * exec + single-quote-escaped values).
- *
- * Env keys are validated to UPPER_SNAKE_CASE before they reach the
- * shell so a bad manifest entry can't smuggle a command-injection
- * substring like `FOO; rm -rf /`. Values are POSIX-quoted.
+ * Why `sh` not `bash`: the default plugin VM image ships `ash` at `/bin/sh`
+ * and no `bash`. POSIX `sh` is enough (source + exec + quoted args).
  */
 export function buildExecCommand(
   method: string,
   paramsJson: string,
-  env: Record<string, string>,
-  runnerPath = "/workspace/run.js",
+  opts: { envFilePath?: string; runnerPath?: string } = {},
 ): { cmd: string; args: string[] } {
-  const keys = Object.keys(env);
-  if (keys.length === 0) {
-    return {
-      cmd: "node",
-      args: [runnerPath, method, paramsJson],
-    };
+  const runnerPath = opts.runnerPath ?? "/workspace/run.js";
+  if (!opts.envFilePath) {
+    return { cmd: "node", args: [runnerPath, method, paramsJson] };
   }
-  for (const k of keys) {
-    if (!ENV_KEY_RX.test(k)) {
-      throw new Error(
-        `plugin env key "${k}" is not a valid UPPER_SNAKE_CASE name`,
-      );
-    }
-  }
-  const exports = keys
-    .map((k) => `export ${k}=${shellQuote(env[k] ?? "")}`)
-    .join("; ");
   const inner =
-    `${exports}; exec node ${runnerPath} ` +
+    `. ${shellQuote(opts.envFilePath)}; exec node ${runnerPath} ` +
     `${shellQuote(method)} ${shellQuote(paramsJson)}`;
   return { cmd: "sh", args: ["-c", inner] };
 }
