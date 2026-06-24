@@ -42,13 +42,16 @@ export async function runWorkRun(
   // values; mid-run rotation is documented as out-of-scope.
   const scrubber = getCurrentScrubber();
 
+  // A channel-initiated run has no SSE stream, so the agent's a2ui surface(s)
+  // would be lost. Collect the (scrubbed) surface messages here so the reply
+  // can carry them to channels that render rich content (e.g. Telegram).
+  const surfaces: unknown[] = [];
   const emit = async (event: AgentEvent): Promise<void> => {
-    await appendWorkRunEvent({
-      orgId,
-      threadId,
-      runId,
-      event: scrubAgentEvent(scrubber, event),
-    });
+    const scrubbed = scrubAgentEvent(scrubber, event);
+    if (scrubbed.type === "surface" && Array.isArray(scrubbed.messages)) {
+      surfaces.push(...scrubbed.messages);
+    }
+    await appendWorkRunEvent({ orgId, threadId, runId, event: scrubbed });
   };
 
   const pluginActions =
@@ -72,6 +75,6 @@ export async function runWorkRun(
   // Channel-initiated runs have no other return path — send the reply back to
   // the sender. Web runs (no channelPlugin) stream over SSE instead.
   if (channelPlugin && recipient && result.status === "completed") {
-    await deliverChatReply(orgId, channelPlugin, recipient, runId, result.finalText);
+    await deliverChatReply(orgId, channelPlugin, recipient, runId, result.finalText, surfaces);
   }
 }

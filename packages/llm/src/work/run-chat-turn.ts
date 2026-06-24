@@ -232,10 +232,12 @@ export async function runChatTurn(
       message: `Starting ${backendLabel(backend.id)}…`,
     });
 
-    // Rendering is a per-channel capability: only web turns get a2ui cards
-    // (via the render tool for claude, the fence for hermes). Other channels
-    // answer in plain markdown — no rendering vocabulary in their prompt.
-    const wantsCards = (opts.channel ?? "web") === "web";
+    // Rendering is a per-channel capability: a channel that can render the
+    // a2ui surface gets it (web as cards, telegram as HTML via its plugin
+    // projection). Thin channels answer in plain markdown — no rendering
+    // vocabulary in their prompt. See docs/PER_CHANNEL_RENDERING.md.
+    const RENDERING_CHANNELS = new Set(["web", "telegram"]);
+    const wantsCards = RENDERING_CHANNELS.has(opts.channel ?? "web");
     const supportsCardTool = backend.capabilities.mcpTools;
     const supportsSkillTool = backend.capabilities.mcpTools;
     const supportsMemoryTool = backend.capabilities.mcpTools;
