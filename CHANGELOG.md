@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.11.0](https://github.com/open-neko/openneko/compare/v2.10.0...v2.11.0) (2026-06-24)
+
+
+### Features
+
+* **channels:** Telegram projection with rich HTML formatting + inline keyboards ([ea5d422](https://github.com/open-neko/openneko/commit/ea5d4224e9321b2afed6f997857793d43c72d2b1))
+* **web:** expand the A2UI answer catalog and wire the action loop ([58af020](https://github.com/open-neko/openneko/commit/58af020f018a2c614b59ec89d6027d739ffb6164))
+* **worker:** thread the agent's A2UI surface to channel chat replies ([c92907c](https://github.com/open-neko/openneko/commit/c92907c0d5627de4814f2e7a993fc4e1124c3cbb))
+
+
+### Bug Fixes
+
+* **web:** render briefing card body when A2UI root omits children ([b6e621e](https://github.com/open-neko/openneko/commit/b6e621ecc382db45d31d1f395957c25c5c02f952))
+
 ## [2.10.0](https://github.com/open-neko/openneko/compare/v2.9.0...v2.10.0) (2026-06-24)
 
 
