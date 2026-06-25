@@ -66,7 +66,7 @@ describe("buildPolicyUpdateArgs", () => {
       "--add-endpoint",
       "api.slack.com:443:read-write:rest:enforce",
       "--binary",
-      "node",
+      "/usr/local/bin/node",
       "--add-allow",
       "slack.com:443:*:/**",
       "--add-allow",

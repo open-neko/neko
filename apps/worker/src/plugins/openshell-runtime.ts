@@ -71,6 +71,10 @@ const UPLOAD_TIMEOUT_MS = 60_000;
 const DELETE_TIMEOUT_MS = 60_000;
 const POLICY_LOAD_TIMEOUT_S = 60;
 const EGRESS_PORT = 443;
+// The plugin's node interpreter opens the egress connection; OpenShell's proxy
+// authorizes by ABSOLUTE binary path, and the plugin-base image (node:24-slim)
+// ships node here. Bare "node" does not match → the CONNECT is denied (403).
+const PLUGIN_NODE_BINARY = "/usr/local/bin/node";
 
 export interface OpenShellRuntimeOptions {
   /** Shared lean base image: node + iproute2/nftables + a `sandbox` user. */
@@ -332,9 +336,10 @@ export class OpenShellRuntime implements PluginRuntime {
 }
 
 /**
- * Per-host egress, scoped to the `node` binary (the plugin's interpreter —
- * the process that actually opens the connection). Empty host list → no
- * rules added, leaving the sandbox's inherited default-deny in place.
+ * Per-host egress, scoped to the plugin's node interpreter (the process that
+ * actually opens the connection) by ABSOLUTE path — the proxy matches the full
+ * binary path, so bare "node" is denied. Empty host list → no rules added,
+ * leaving the sandbox's inherited default-deny in place.
  */
 export function buildPolicyUpdateArgs(
   id: string,
@@ -345,7 +350,7 @@ export function buildPolicyUpdateArgs(
   for (const host of hosts) {
     args.push("--add-endpoint", `${host}:${EGRESS_PORT}:read-write:rest:enforce`);
   }
-  args.push("--binary", "node");
+  args.push("--binary", PLUGIN_NODE_BINARY);
   for (const host of hosts) {
     args.push("--add-allow", `${host}:${EGRESS_PORT}:*:/**`);
   }
