@@ -46,10 +46,17 @@ export async function runWorkRun(
   // would be lost. Collect the (scrubbed) surface messages here so the reply
   // can carry them to channels that render rich content (e.g. Telegram).
   const surfaces: unknown[] = [];
+  // The agent reliably emits a `vitals` fence (mandatory) but not always an a2ui
+  // surface; collect the vitals so the reply can render them as cards on a
+  // channel even when no surface was produced.
+  let vitals: { label: string; value: string; sub?: string }[] = [];
   const emit = async (event: AgentEvent): Promise<void> => {
     const scrubbed = scrubAgentEvent(scrubber, event);
     if (scrubbed.type === "surface" && Array.isArray(scrubbed.messages)) {
       surfaces.push(...scrubbed.messages);
+    }
+    if (scrubbed.type === "vitals" && Array.isArray(scrubbed.items)) {
+      vitals = scrubbed.items;
     }
     await appendWorkRunEvent({ orgId, threadId, runId, event: scrubbed });
   };
@@ -75,6 +82,6 @@ export async function runWorkRun(
   // Channel-initiated runs have no other return path — send the reply back to
   // the sender. Web runs (no channelPlugin) stream over SSE instead.
   if (channelPlugin && recipient && result.status === "completed") {
-    await deliverChatReply(orgId, channelPlugin, recipient, runId, result.finalText, surfaces);
+    await deliverChatReply(orgId, channelPlugin, recipient, runId, result.finalText, surfaces, vitals);
   }
 }

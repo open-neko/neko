@@ -152,23 +152,64 @@ export async function deliverChatReply(
   runId: string,
   body: string,
   surfaces?: unknown[],
+  vitals?: { label: string; value: string; sub?: string }[],
 ): Promise<void> {
-  const hasSurfaces = Array.isArray(surfaces) && surfaces.length > 0;
+  const agentSurfaces =
+    Array.isArray(surfaces) && surfaces.length > 0 ? (surfaces as SurfaceMessage[]) : undefined;
+  // When the agent emitted no a2ui surface (common on channel runs — it answers
+  // in prose plus the mandatory vitals fence), synthesize one from the answer +
+  // vitals so a rendering channel shows the metric *cards* web shows, not prose.
+  const enrichmentSurfaces =
+    agentSurfaces ??
+    (vitals && vitals.length > 0 ? buildReplySurface(body, vitals) : undefined);
   // A rendering run (web/telegram) puts its answer in the a2ui surface, so the
   // text body can be thin or empty — deliver as long as either is present.
-  if (!body.trim() && !hasSurfaces) return;
+  if (!body.trim() && !enrichmentSurfaces) return;
   // A chat reply is the assistant's message, not a workflow-output card — use
   // `converse` so channels render the full text, not a summarized headline.
-  // The agent's a2ui surface rides as enrichment; a channel that can render it
-  // (Telegram) shows the rich answer, a thin one falls back to the text.
+  // The a2ui surface rides as enrichment; a channel that can render it (Telegram)
+  // shows the rich answer, a thin one falls back to the text.
   const event: InteractionEvent = {
     kind: "converse",
     id: runId,
     role: "assistant",
     text: body,
-    ...(hasSurfaces ? { enrichment: { surfaces: surfaces as SurfaceMessage[] } } : {}),
+    ...(enrichmentSurfaces ? { enrichment: { surfaces: enrichmentSurfaces } } : {}),
   };
   await enqueueChannelDelivery(orgId, channelPlugin, recipient, [event], `reply-${runId}`);
+}
+
+/**
+ * Synthesize a minimal a2ui surface — the answer prose as Markdown plus one
+ * MetricCard per vital — so a channel that renders surfaces shows the vitals as
+ * cards even when the agent produced no surface of its own. Web is unaffected
+ * (it renders from the event stream, not this channel-reply path).
+ */
+function buildReplySurface(
+  body: string,
+  vitals: { label: string; value: string; sub?: string }[],
+): SurfaceMessage[] {
+  const cards = vitals.map((v, i) => ({
+    id: `vital-${i}`,
+    component: "MetricCard",
+    metric: v.value,
+    label: v.label,
+    ...(v.sub ? { detail: v.sub } : {}),
+  }));
+  const hasBody = body.trim().length > 0;
+  const components: Record<string, unknown>[] = [
+    {
+      id: "root",
+      component: "Answer",
+      children: [...(hasBody ? ["answer-body"] : []), ...cards.map((c) => c.id)],
+    },
+    ...(hasBody ? [{ id: "answer-body", component: "Markdown", text: body }] : []),
+    ...cards,
+  ];
+  return [
+    { version: "v0.9", createSurface: { surfaceId: "reply", catalogId: "urn:app:catalog:answer:v1" } },
+    { version: "v0.9", updateComponents: { surfaceId: "reply", components } },
+  ];
 }
 
 /**
