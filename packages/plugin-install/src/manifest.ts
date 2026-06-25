@@ -25,6 +25,14 @@ export interface ManifestEnvRequirement {
   required?: boolean;
   secret?: boolean;
   description: string;
+  /**
+   * How a `secret` value reaches the plugin VM. "egress": the value is held
+   * gateway-side and the proxy substitutes it onto outbound requests — the box
+   * holds only a placeholder (use for credentials sent to an external API, e.g.
+   * a bot token). "box" (default): the value lives in the VM, for secrets the
+   * plugin compares locally and never sends out (e.g. a webhook signing secret).
+   */
+  inject?: "egress" | "box";
 }
 
 /** What the plugin needs from the runtime — sandbox network + operator-supplied env. */

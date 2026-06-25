@@ -35,6 +35,14 @@ export const PluginEnvRequirement = z.object({
   /** Hide the value at prompt + never echo it back. */
   secret: z.boolean().default(true),
   description: z.string().min(1).max(280),
+  /**
+   * How a secret reaches the plugin VM. "egress": held gateway-side and
+   * substituted by the proxy onto outbound requests — the box sees only a
+   * placeholder (for credentials sent to an external API, e.g. a bot token).
+   * "box" (default): the value lives in the VM, for secrets compared locally
+   * and never sent out (e.g. a webhook signing secret).
+   */
+  inject: z.enum(["egress", "box"]).optional(),
 });
 
 export type PluginEnvRequirement = z.infer<typeof PluginEnvRequirement>;

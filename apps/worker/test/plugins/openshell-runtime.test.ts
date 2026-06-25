@@ -283,6 +283,131 @@ describe("OpenShellRuntime", () => {
     expect(h.calls.some((c) => c.args[1] === "upload")).toBe(false);
   });
 
+  it("egress secret: registers a provider, creates with --provider, and keeps the value out of the box", async () => {
+    const rt = make({ gatewayName: "openneko" });
+    await rt.start({
+      id: "p1",
+      hostWorkspacePath: "/tmp/bundles/p1",
+      network: "public",
+      hosts: ["api.telegram.org"],
+      egressSecrets: [{ key: "TELEGRAM_BOT_TOKEN", value: "12345:SEKRIT" }],
+    });
+
+    // The real value is registered gateway-side (host → gateway, never a sandbox)…
+    expect(
+      h.calls.some((c) => c.args.includes("provider") && c.args.includes("create")),
+    ).toBe(true);
+    // …and the sandbox is created attached to that provider.
+    const create = h.calls.find(
+      (c) => c.args.includes("sandbox") && c.args.includes("create"),
+    );
+    expect(create?.args).toContain("--provider");
+    expect(create?.args).toContain("plugin-p1");
+
+    // A call aliases the placeholder to the key, uploads NO env file for it, and
+    // the value never appears in any box-bound command (exec / upload).
+    h.calls.length = 0;
+    h.state.respond = (args) =>
+      args.includes("exec") ? { stdout: OK_JSON } : { stdout: "", code: 0 };
+    await rt.callRpc("p1", "deliver", "{}", {
+      env: { TELEGRAM_BOT_TOKEN: "12345:SEKRIT" },
+    });
+
+    expect(h.calls.some((c) => c.args[1] === "upload")).toBe(false);
+    const inner = (execCall()?.args ?? []).at(-1) ?? "";
+    expect(inner).toContain('export TELEGRAM_BOT_TOKEN="$c0"');
+    expect(inner).toContain("exec node /sandbox/run.js");
+    expect(inner).not.toContain("SEKRIT");
+    const boxCalls = h.calls.filter(
+      (c) => c.args.includes("exec") || c.args[1] === "upload",
+    );
+    expect(boxCalls.some((c) => c.args.some((a) => a.includes("SEKRIT")))).toBe(false);
+  });
+
+  it("rotates the gateway-side provider when the egress value changes — no VM restart", async () => {
+    const rt = make({ gatewayName: "openneko" });
+    await rt.start({
+      id: "p1",
+      hostWorkspacePath: "/tmp/bundles/p1",
+      network: "public",
+      hosts: ["api.telegram.org"],
+      egressSecrets: [{ key: "TELEGRAM_BOT_TOKEN", value: "tok-v1" }],
+    });
+    h.state.respond = (args) =>
+      args.includes("exec") ? { stdout: OK_JSON } : { stdout: "", code: 0 };
+
+    // Unchanged value → no provider round-trip.
+    h.calls.length = 0;
+    await rt.callRpc("p1", "deliver", "{}", { env: { TELEGRAM_BOT_TOKEN: "tok-v1" } });
+    expect(h.calls.some((c) => c.args.includes("provider"))).toBe(false);
+
+    // Rotated value → provider refreshed, sandbox NOT re-created, value not in the box.
+    h.calls.length = 0;
+    await rt.callRpc("p1", "deliver", "{}", { env: { TELEGRAM_BOT_TOKEN: "tok-v2" } });
+    expect(h.calls.some((c) => c.args.includes("provider"))).toBe(true);
+    expect(
+      h.calls.some((c) => c.args.includes("sandbox") && c.args.includes("create")),
+    ).toBe(false);
+    const boxCalls = h.calls.filter(
+      (c) => c.args.includes("exec") || c.args[1] === "upload",
+    );
+    expect(boxCalls.some((c) => c.args.some((a) => a.includes("tok-v2")))).toBe(false);
+  });
+
+  it("supports multiple egress secrets — one credential slot each, distinct aliases, no value in the box", async () => {
+    const rt = make({ gatewayName: "openneko" });
+    await rt.start({
+      id: "p1",
+      hostWorkspacePath: "/tmp/bundles/p1",
+      network: "public",
+      hosts: ["slack.com"],
+      egressSecrets: [
+        { key: "SLACK_BOT_TOKEN", value: "xoxb-SEKRIT0" },
+        { key: "SLACK_APP_TOKEN", value: "xapp-SEKRIT1" },
+      ],
+    });
+
+    // The provider was created with both credential slots (host → gateway).
+    const create = h.calls.find((c) => c.args.includes("provider") && c.args.includes("create"));
+    expect(create?.args).toContain("c0=xoxb-SEKRIT0");
+    expect(create?.args).toContain("c1=xapp-SEKRIT1");
+
+    h.calls.length = 0;
+    h.state.respond = (args) =>
+      args.includes("exec") ? { stdout: OK_JSON } : { stdout: "", code: 0 };
+    await rt.callRpc("p1", "deliver", "{}", {
+      env: { SLACK_BOT_TOKEN: "xoxb-SEKRIT0", SLACK_APP_TOKEN: "xapp-SEKRIT1" },
+    });
+
+    const inner = (execCall()?.args ?? []).at(-1) ?? "";
+    expect(inner).toContain('export SLACK_BOT_TOKEN="$c0"');
+    expect(inner).toContain('export SLACK_APP_TOKEN="$c1"');
+    expect(h.calls.some((c) => c.args[1] === "upload")).toBe(false);
+    const boxCalls = h.calls.filter((c) => c.args.includes("exec") || c.args[1] === "upload");
+    expect(boxCalls.some((c) => c.args.some((a) => a.includes("SEKRIT")))).toBe(false);
+  });
+
+  it("stop deletes the egress-secret provider too", async () => {
+    const rt = make({ gatewayName: "openneko" });
+    await rt.start({
+      id: "p1",
+      hostWorkspacePath: "/tmp/bundles/p1",
+      network: "public",
+      hosts: ["api.telegram.org"],
+      egressSecrets: [{ key: "TELEGRAM_BOT_TOKEN", value: "v" }],
+    });
+    h.calls.length = 0;
+    await rt.stop("p1");
+    expect(
+      h.calls.some(
+        (c) =>
+          c.args.includes("provider") &&
+          c.args.includes("delete") &&
+          c.args.includes("plugin-p1"),
+      ),
+    ).toBe(true);
+  });
+
   it("parses the LAST stdout line when logs precede the JSON", async () => {
     const rt = make();
     await rt.start({

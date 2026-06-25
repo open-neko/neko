@@ -22,6 +22,13 @@ export interface PluginVmSpec {
    * for per-host egress.
    */
   hosts?: readonly string[];
+  /**
+   * Secrets the plugin sends to its external API (manifest `inject: "egress"`).
+   * Held gateway-side as an OpenShell provider; the box receives only a
+   * placeholder aliased to `key`, and the egress proxy substitutes the real
+   * value on outbound requests. The value never enters the sandbox.
+   */
+  egressSecrets?: ReadonlyArray<{ key: string; value: string }>;
 }
 
 export interface PluginRuntime {
@@ -83,27 +90,43 @@ export function buildEnvFile(env: Record<string, string>): string {
     .join("\n");
 }
 
+const SHELL_VARNAME_RX = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 /**
  * Returns the command + argv the runtime will invoke inside the VM.
- * Without an env file: a plain `node` exec, fastest path. With one: wrap in
- * `sh -c '. <file>; exec node ...'` so the plugin's secrets (in the uploaded
- * file) are bound for the process — the command itself carries only the file
- * PATH, never a secret value.
+ * With neither aliases nor an env file: a plain `node` exec, fastest path.
+ * Otherwise wrap in `sh -c`: first re-export each provider-injected placeholder
+ * to the env var the plugin reads (`export KEY="$from"` — a value reference, not
+ * a value), then source the box-secret env file, then exec. The command carries
+ * only var names + the file PATH, never a secret value.
  *
  * Why `sh` not `bash`: the default plugin VM image ships `ash` at `/bin/sh`
- * and no `bash`. POSIX `sh` is enough (source + exec + quoted args).
+ * and no `bash`. POSIX `sh` is enough (export + source + exec + quoted args).
  */
 export function buildExecCommand(
   method: string,
   paramsJson: string,
-  opts: { envFilePath?: string; runnerPath?: string } = {},
+  opts: {
+    envFilePath?: string;
+    runnerPath?: string;
+    aliases?: ReadonlyArray<{ from: string; to: string }>;
+  } = {},
 ): { cmd: string; args: string[] } {
   const runnerPath = opts.runnerPath ?? "/workspace/run.js";
-  if (!opts.envFilePath) {
+  const aliases = opts.aliases ?? [];
+  if (!opts.envFilePath && aliases.length === 0) {
     return { cmd: "node", args: [runnerPath, method, paramsJson] };
   }
-  const inner =
-    `. ${shellQuote(opts.envFilePath)}; exec node ${runnerPath} ` +
-    `${shellQuote(method)} ${shellQuote(paramsJson)}`;
+  const aliasExports = aliases.map(({ from, to }) => {
+    if (!SHELL_VARNAME_RX.test(from) || !SHELL_VARNAME_RX.test(to)) {
+      throw new Error(`plugin env alias "${from}"->"${to}" is not a valid shell var name`);
+    }
+    return `export ${to}="$${from}"`;
+  });
+  const inner = [
+    ...aliasExports,
+    ...(opts.envFilePath ? [`. ${shellQuote(opts.envFilePath)}`] : []),
+    `exec node ${runnerPath} ${shellQuote(method)} ${shellQuote(paramsJson)}`,
+  ].join("; ");
   return { cmd: "sh", args: ["-c", inner] };
 }

@@ -1161,11 +1161,24 @@ export class PluginRegistry {
     await mkdir(hostWorkspacePath, { recursive: true });
     await copyFile(runnerPath, path.join(hostWorkspacePath, "run.js"));
 
+    // Secrets the plugin sends to its external API (manifest `inject:"egress"`)
+    // are held gateway-side and proxy-injected — the runtime registers a provider
+    // and the box only ever sees a placeholder. Only pass values actually supplied.
+    const resolvedEnv = mergeEnv(entry, this.secrets);
+    const egressSecrets = (entry.permissions.env ?? [])
+      .filter((e) => e.inject === "egress")
+      .map((e) => ({ key: e.key, value: resolvedEnv[e.key] }))
+      .filter(
+        (e): e is { key: string; value: string } =>
+          typeof e.value === "string" && e.value.length > 0,
+      );
+
     await this.runtime.start({
       id: pluginId,
       hostWorkspacePath,
       network: networkModeFor(entry.permissions.network),
       hosts: entry.permissions.network,
+      ...(egressSecrets.length > 0 ? { egressSecrets } : {}),
     });
 
     // Sanity-check: the VM's register() must match the manifest's

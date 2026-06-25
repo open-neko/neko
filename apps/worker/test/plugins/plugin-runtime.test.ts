@@ -62,4 +62,32 @@ describe("buildExecCommand", () => {
       `. '/sandbox/.plugin-env'; exec node /sandbox/run.js 'execute_action' '{"x":1}'`,
     );
   });
+
+  it("with aliases (no env file), re-exports the placeholder to the plugin's key — a reference, not a value", () => {
+    const out = buildExecCommand("deliver", "{}", {
+      runnerPath: "/sandbox/run.js",
+      aliases: [{ from: "api_key", to: "TELEGRAM_BOT_TOKEN" }],
+    });
+    expect(out.cmd).toBe("sh");
+    expect(out.args[1]).toBe(
+      `export TELEGRAM_BOT_TOKEN="$api_key"; exec node /sandbox/run.js 'deliver' '{}'`,
+    );
+  });
+
+  it("with aliases AND an env file: alias first, then source the box-secret file, then exec", () => {
+    const out = buildExecCommand("m", "{}", {
+      envFilePath: "/sandbox/.plugin-env",
+      runnerPath: "/sandbox/run.js",
+      aliases: [{ from: "api_key", to: "TELEGRAM_BOT_TOKEN" }],
+    });
+    expect(out.args[1]).toBe(
+      `export TELEGRAM_BOT_TOKEN="$api_key"; . '/sandbox/.plugin-env'; exec node /sandbox/run.js 'm' '{}'`,
+    );
+  });
+
+  it("rejects an alias with a non-shell-safe var name", () => {
+    expect(() =>
+      buildExecCommand("m", "{}", { aliases: [{ from: "api_key", to: "X; rm -rf /" }] }),
+    ).toThrow(/valid shell var name/);
+  });
 });
