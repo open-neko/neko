@@ -559,7 +559,11 @@ export async function runChatTurn(
 
     return {
       status: result.status,
-      finalText: result.finalText,
+      // The cleaned display text (machine fences — neko_value/neko_vitals,
+      // action/workflow/rule/followups/memory — stripped), never the raw source.
+      // Channels deliver this as the converse body; leaking fences render as raw
+      // JSON (and break Telegram's HTML parser) on a channel that shows the text.
+      finalText: persistedText,
       error: result.error,
     };
   } catch (error) {
