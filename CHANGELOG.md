@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.12.0](https://github.com/open-neko/openneko/compare/v2.11.0...v2.12.0) (2026-06-26)
+
+
+### Features
+
+* **channels:** render agent vitals as cards on channel replies ([4c1d75f](https://github.com/open-neko/openneko/commit/4c1d75f95183b181499c2bb7f1c7af3df117de92))
+* **plugins:** proxy-inject plugin egress secrets — no token in the box ([f7e59be](https://github.com/open-neko/openneko/commit/f7e59be3d9f46712c6d4c70169d6d29e4fc55fbc))
+
+
+### Bug Fixes
+
+* **agent-sandbox:** pull run artifacts back from the box before deleting it ([7fca9de](https://github.com/open-neko/openneko/commit/7fca9de18892ab11b4a30715479932e8d47460e5))
+* **agent:** shadow /usr/local/bin/graphjin with the guard wrapper ([6015231](https://github.com/open-neko/openneko/commit/6015231e28ae75ca548836a5e43d0915a2c669aa))
+* **plugins:** scope plugin egress to the absolute node path ([27c634e](https://github.com/open-neko/openneko/commit/27c634e6a87e55762821a773bf72682e749a4d82))
+* **sandbox:** node 24 for proxy egress + keep plugin secrets off the exec command ([ce7d64c](https://github.com/open-neko/openneko/commit/ce7d64c689c067db19f53ca5395fc9f35f53c867))
+* **work:** never deliver a dangling tool-call as the reply text ([1c8f250](https://github.com/open-neko/openneko/commit/1c8f25038375526b4e68e5d86cd046cfe58c9326))
+* **work:** strip machine fences from the channel-delivered reply text ([0f43b13](https://github.com/open-neko/openneko/commit/0f43b138311fdae49e0dbfa18c6b3ba2a30cb295))
+
 ## [2.11.0](https://github.com/open-neko/openneko/compare/v2.10.0...v2.11.0) (2026-06-24)
 
 
