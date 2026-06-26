@@ -15,7 +15,7 @@ import { OpenShellRuntime } from "../../src/plugins/openshell-runtime";
  *
  * Opt-in (creates Docker containers): set OPENNEKO_OPENSHELL_E2E=1 with a
  * running gateway and the base image built:
- *   docker build -f docker/plugin-base.Dockerfile -t ghcr.io/open-neko/plugin-base:node20 .
+ *   docker build -f docker/plugin-base.Dockerfile -t ghcr.io/open-neko/plugin-base:node24 .
  *   pnpm -C ../../plugins/packages/slack build
  *   OPENNEKO_OPENSHELL_E2E=1 pnpm --filter @neko/worker test openshell-runtime-e2e
  */
@@ -24,7 +24,7 @@ const SLACK_BUNDLE = path.resolve(
   "../../../../../plugins/packages/slack/dist/run.js",
 );
 const BASE_IMAGE =
-  process.env.OPENNEKO_PLUGIN_BASE_IMAGE ?? "ghcr.io/open-neko/plugin-base:node20";
+  process.env.OPENNEKO_PLUGIN_BASE_IMAGE ?? "ghcr.io/open-neko/plugin-base:node24";
 
 function cmdOk(cmd: string, args: string[]): boolean {
   try {

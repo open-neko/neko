@@ -119,6 +119,20 @@ function backendLabel(id: string): string {
   return id === "claude-agent" ? "Claude Agent" : "Hermes";
 }
 
+/**
+ * Strip any unexecuted ACP/hermes tool-call left in display text — e.g.
+ * `call:default_api:read_file{limit:100,path:analyze.py}`. A turn cut short
+ * mid-step (step budget, loop) can leave one dangling in finalText; it must
+ * never reach a user on any channel. Matches `call:<ns>:<tool>{…}` (closed or
+ * truncated at end-of-text). Returns the remaining prose, trimmed.
+ */
+function stripDanglingToolCalls(text: string): string {
+  return text
+    .replace(/\bcall:[A-Za-z0-9_.:-]+\s*\{[^{}]*(?:\}|$)/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
 export async function runChatTurn(
   opts: RunChatTurnOptions,
   deps: Partial<RunChatTurnDeps> = {},
@@ -543,6 +557,11 @@ export async function runChatTurn(
     persistedText = extractFollowupsFence(persistedText).text;
     persistedText = extractVitalsFence(persistedText).text;
     persistedText = extractMemoryFences(persistedText).text;
+    // A turn cut short mid-step (budget/loop) can end with an unexecuted
+    // tool-call like `call:default_api:read_file{…}` left in the text. Never
+    // surface that — strip it so a broken turn degrades to its prose (or empty,
+    // which delivery + persistence then skip) instead of leaking a raw call.
+    persistedText = stripDanglingToolCalls(persistedText);
     if (persistedText) {
       await saveAssistantWorkMessage({
         orgId,
@@ -559,7 +578,11 @@ export async function runChatTurn(
 
     return {
       status: result.status,
-      finalText: result.finalText,
+      // The cleaned display text (machine fences — neko_value/neko_vitals,
+      // action/workflow/rule/followups/memory — stripped), never the raw source.
+      // Channels deliver this as the converse body; leaking fences render as raw
+      // JSON (and break Telegram's HTML parser) on a channel that shows the text.
+      finalText: persistedText,
       error: result.error,
     };
   } catch (error) {

@@ -11,7 +11,7 @@
 # the app. See entrypoint.sh for the env var contract.
 
 # ─── 1. base: node + system tooling ────────────────────────────────────
-FROM node:22-bookworm-slim AS base
+FROM node:24-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 # Retry transient apt mirror hiccups instead of hard-failing the image build.
@@ -314,7 +314,7 @@ CMD ["--help"]
 # requires `docker compose restart neko-graphjin`. Built on the slim
 # node base so we have node + curl available for the templating script
 # and a real healthcheck.
-FROM node:22-bookworm-slim AS neko-graphjin
+FROM node:24-bookworm-slim AS neko-graphjin
 ARG GRAPHJIN_VERSION=3.18.37
 ARG TARGETARCH
 ENV NODE_ENV=production

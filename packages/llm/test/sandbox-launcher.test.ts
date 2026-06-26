@@ -183,8 +183,11 @@ describe("makeSandboxRunCore", () => {
 
     const result = await runCore(fakeInput(async (e) => void events.push(e)));
 
-    const verbs = h.calls.map((c) => c.args.find((a) => ["create", "update", "upload", "exec", "delete"].includes(a)));
-    expect(verbs).toEqual(["create", "update", "upload", "upload", "exec", "delete"]);
+    const verbs = h.calls.map((c) => c.args.find((a) => ["create", "update", "upload", "exec", "download", "delete"].includes(a)));
+    // artifacts are pulled back from the box (download) before it's deleted
+    expect(verbs).toEqual(["create", "update", "upload", "upload", "exec", "download", "delete"]);
+    const download = h.calls.find((c) => c.args.includes("download"));
+    expect(download?.args.at(-1)).toBe(fakeInput().workspace.artifactRoot);
     // streamed event reached emit:
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: "message", content: "hi" });

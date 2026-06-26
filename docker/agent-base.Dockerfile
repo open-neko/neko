@@ -8,8 +8,11 @@
 # @neko/llm bundle + the claude/hermes/graphjin binaries + agent-sandbox/entry.ts
 # — which is produced by composing the main Dockerfile's `cli`/`build` stages.
 # See docs/OPENSHELL_MIGRATION_PLAN.md (Phase 2c) for the full image + launcher.
-#   docker build -f docker/agent-base.Dockerfile -t ghcr.io/open-neko/agent-base:node20 .
-FROM node:20-bookworm-slim
+#   docker build -f docker/agent-base.Dockerfile -t ghcr.io/open-neko/agent-base:node24 .
+# Node 24: the injected NODE_USE_ENV_PROXY only routes node fetch through the
+# egress proxy on 24+ — needed for the claude CLI's API egress (and any
+# node-fetch egress) to reach the model through the proxy instead of failing DNS.
+FROM node:24-bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates iproute2 nftables \

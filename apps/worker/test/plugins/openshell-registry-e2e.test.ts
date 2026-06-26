@@ -17,7 +17,7 @@ import { OpenShellRuntime } from "../../src/plugins/openshell-runtime";
  *
  * Opt-in (creates Docker sandboxes via the gateway): a reachable OpenShell
  * gateway (brew service or compose) + the base image built + the bundle:
- *   docker build -f docker/plugin-base.Dockerfile -t ghcr.io/open-neko/plugin-base:node20 .
+ *   docker build -f docker/plugin-base.Dockerfile -t ghcr.io/open-neko/plugin-base:node24 .
  *   pnpm -C ../../plugins/packages/parallel-search build
  *   OPENNEKO_OPENSHELL_E2E=1 pnpm --filter @neko/worker test openshell-registry-e2e
  */
@@ -26,7 +26,7 @@ const PARALLEL_BUNDLE_PATH = path.resolve(
   "../../../../../plugins/packages/parallel-search/dist/run.js",
 );
 const BASE_IMAGE =
-  process.env.OPENNEKO_PLUGIN_BASE_IMAGE ?? "ghcr.io/open-neko/plugin-base:node20";
+  process.env.OPENNEKO_PLUGIN_BASE_IMAGE ?? "ghcr.io/open-neko/plugin-base:node24";
 const FAKE_INTEGRITY = "sha512-" + "a".repeat(86) + "==";
 
 const MANIFEST_JSON = JSON.stringify({

@@ -17,6 +17,9 @@ export interface MarketplaceEnvRequirement {
   required?: boolean;
   secret?: boolean;
   description: string;
+  /** "egress" → proxy-injected onto outbound requests (box sees a placeholder);
+   *  "box" (default) → value lives in the VM for local comparison. */
+  inject?: "egress" | "box";
 }
 
 export interface MarketplacePermissions {

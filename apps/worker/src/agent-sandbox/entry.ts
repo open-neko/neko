@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, rename, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -143,12 +143,36 @@ export async function main(): Promise<void> {
       hasRunAuth = true;
     }
     await mkdir(job.workspace.binRoot, { recursive: true });
-    await ensureGraphjinGuard(job.workspace.binRoot, graphjinBinary, {
+    // Defense-in-depth: the model sometimes ignores the "query only via the
+    // shell tool" contract and shells out to `graphjin` from execute_code (a
+    // Python subprocess with a minimal PATH), hitting the raw binary at
+    // /usr/local/bin/graphjin with the wrong auth — which fails and sends it
+    // into a retry loop, and would bypass the mutation gate. Move the real
+    // binary aside and shadow the standard PATH entry with the guard wrapper, so
+    // ANY `graphjin` invocation (any PATH) gets the guarded, correctly-authed
+    // CLI (the wrapper exports the run's XDG_CONFIG_HOME regardless of caller).
+    let realBinary = graphjinBinary;
+    if (graphjinBinary === "/usr/local/bin/graphjin") {
+      try {
+        await rename("/usr/local/bin/graphjin", "/usr/local/bin/graphjin.real");
+        realBinary = "/usr/local/bin/graphjin.real";
+      } catch {
+        /* not writable / already shadowed — fall back to binRoot-only guard */
+      }
+    }
+    await ensureGraphjinGuard(job.workspace.binRoot, realBinary, {
       ...(hasRunAuth ? { xdgConfigHome: gjAuth } : {}),
       ...(job.graphjinWriteGrants?.length
         ? { allowSubcommands: job.graphjinWriteGrants }
         : {}),
     });
+    if (realBinary === "/usr/local/bin/graphjin.real") {
+      // The move vacated /usr/local/bin/graphjin — point it at the guard wrapper.
+      await symlink(
+        join(job.workspace.binRoot, "graphjin"),
+        "/usr/local/bin/graphjin",
+      ).catch(() => {});
+    }
     // The backend prepends binRoot to PATH for its children, but hermes'
     // terminal tool spawns LOGIN shells (`bash -lic`) and /etc/profile resets
     // PATH — silently un-guarding `graphjin`. Login shells re-source these

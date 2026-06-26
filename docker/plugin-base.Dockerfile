@@ -1,7 +1,10 @@
 # Shared OpenShell sandbox base for all @open-neko plugins. Each plugin's
 # self-contained dist/run.js is uploaded to /sandbox/run.js at start, not baked.
-#   docker build -f docker/plugin-base.Dockerfile -t ghcr.io/open-neko/plugin-base:node20 .
-FROM node:20-bookworm-slim
+#   docker build -f docker/plugin-base.Dockerfile -t ghcr.io/open-neko/plugin-base:node24 .
+# Node 24: OpenShell injects NODE_USE_ENV_PROXY into every sandbox, but node only
+# honors it (routing fetch through the egress proxy) on 24+. On older node the
+# plugin's fetch dials direct, and DNS fails (proxy-only egress) → EAI_AGAIN.
+FROM node:24-bookworm-slim
 
 # iproute2 + nftables: required by the supervisor's egress setup (without them
 # the sandbox hangs at "waiting for supervisor relay").
