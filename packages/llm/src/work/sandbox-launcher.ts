@@ -249,6 +249,16 @@ export function makeSandboxRunCore(opts: SandboxLauncherOptions): RunCore {
       );
     } finally {
       opts.brokerRelease?.(input.runId);
+      // Pull artifacts the agent wrote in the box back to the host run dir
+      // before deleting the box — otherwise the file-serving endpoint reads an
+      // empty host dir and 404s the download. Best-effort, and runs even when
+      // the turn errored or timed out (the box is still alive here), so a
+      // partial artifact from a long run isn't lost.
+      await mkdir(input.workspace.artifactRoot, { recursive: true }).catch(() => {});
+      await run(
+        ["sandbox", "download", name, boxWorkspace.artifactRoot, input.workspace.artifactRoot],
+        120_000,
+      ).catch((e) => log(`artifact pull-back skipped: ${(e as Error).message}`));
       await run(["sandbox", "delete", name], 60_000).catch(() => {});
       await rm(stageDir, { recursive: true, force: true });
     }
