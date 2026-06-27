@@ -130,6 +130,23 @@ describeIfDb("/api/briefing GET", () => {
       mood: "good",
     });
     expect(dataValue.insights["revenue-mtd"]).toMatchObject({ state: "ok" });
+
+    const card = componentsMsg.updateComponents.components.find(
+      (c) => c.id === "revenue-mtd",
+    );
+    expect(card).toMatchObject({
+      component: "BriefingCard",
+      metricId,
+      source: "bootstrap",
+      state: "ok",
+      mood: "good",
+      text: "Revenue this month",
+      metric: "$5.20M",
+      label: "Revenue MTD",
+      chartType: "kpi",
+    });
+    expect((card as { detail?: string }).detail).toContain("Up vs last month.");
+    expect((card as { chartData?: unknown[] }).chartData).toHaveLength(1);
   });
 
   it("renders state='pending' when a metric has no snapshot yet", async () => {

@@ -128,7 +128,7 @@ const chartDataForInsight = (ins: InsightLike): Array<{ d: string; v: number; t?
   return genChartData(ins.chartType, ins.metric);
 };
 
-function briefingCardsViaChannel(insights: InsightLike[]): A2UIComponent[] {
+export function briefingCardsViaChannel(insights: InsightLike[]): A2UIComponent[] {
   return insights.map((ins) => {
     const inform = outputRowToInteractionEvent({
       id: ins.id,
@@ -141,7 +141,10 @@ function briefingCardsViaChannel(insights: InsightLike[]): A2UIComponent[] {
     const update = webProjection([inform], WEB_PROFILE).surfaces.find(
       (m) => "updateComponents" in m,
     ) as { updateComponents: { components: Array<Record<string, unknown>> } } | undefined;
-    const card = update?.updateComponents.components.find((c) => c.component === "BriefingCard") ?? {};
+    const card =
+      update?.updateComponents.components.find(
+        (c) => c.component === "MetricCard" || c.component === "BriefingCard",
+      ) ?? {};
     // Restamp dashboard identity + render-state (web affordances, not waist concepts).
     return {
       ...card,
