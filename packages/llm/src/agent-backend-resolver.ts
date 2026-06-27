@@ -9,7 +9,7 @@
  * Anthropic API key + model. Throws AgentBackendConfigError if the primary
  * provider isn't Anthropic or the key is missing — the worker job catches
  * that and writes it to processing_job.error so the user sees a "go fix
- * /settings" message instead of a stack trace.
+ * /admin/settings" message instead of a stack trace.
  */
 
 import { and, db, eq, llm_provider_config } from "@neko/db";
@@ -93,7 +93,7 @@ function readPositiveInt(
 /**
  * Resolves the agent's concurrency caps for this worker boot.
  *
- * Read order: DB (scope='agent') → default. The /settings/agent UI is
+ * Read order: DB (scope='agent') → default. The /admin/settings/agent UI is
  * the only source of truth.
  *
  * Note: pg-boss `batchSize` is fixed at `b.work()` time, so changes to
@@ -134,22 +134,22 @@ export async function resolveAgentBackend(orgId: string): Promise<AgentBackend> 
 
   // claude-agent: pull Anthropic key + model from the primary provider row.
   // We deliberately couple to the primary scope here so users have a single
-  // place to manage their Anthropic credentials. /settings/agent enforces
+  // place to manage their Anthropic credentials. /admin/settings/agent enforces
   // primary=anthropic when backend=claude-agent; this is the runtime check.
   const primary = await loadRow(orgId, "primary");
   if (!primary) {
     throw new AgentBackendConfigError(
-      "claude-agent backend selected but no primary provider is configured. Open /settings/agent and add an Anthropic API key.",
+      "claude-agent backend selected but no primary provider is configured. Open /admin/settings/agent and add an Anthropic API key.",
     );
   }
   if (primary.provider !== "anthropic") {
     throw new AgentBackendConfigError(
-      `claude-agent backend requires primary provider 'anthropic' (current: '${primary.provider}'). Open /settings/agent to switch.`,
+      `claude-agent backend requires primary provider 'anthropic' (current: '${primary.provider}'). Open /admin/settings/agent to switch.`,
     );
   }
   if (!primary.enabled) {
     throw new AgentBackendConfigError(
-      "claude-agent backend selected but primary provider is disabled. Open /settings/agent to re-enable.",
+      "claude-agent backend selected but primary provider is disabled. Open /admin/settings/agent to re-enable.",
     );
   }
 

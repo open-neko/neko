@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 export default function SectionNav({
@@ -12,9 +13,9 @@ export default function SectionNav({
     | "workflows"
     | "work"
     | "actions"
-    | "settings"
+    | "admin"
     | "business-profile";
-  children?: React.ReactNode;
+  children?: ReactNode;
 }) {
   const [pendingApprovals, setPendingApprovals] = useState<number>(0);
 
@@ -59,6 +60,12 @@ export default function SectionNav({
         Ask
       </Link>
       <Link
+        href="/workflows"
+        className={`topbar-nav-link${current === "workflows" ? " is-active" : ""}`}
+      >
+        Workflows
+      </Link>
+      <Link
         href="/actions"
         className={`topbar-nav-link${current === "actions" ? " is-active" : ""}`}
       >
@@ -74,10 +81,10 @@ export default function SectionNav({
         Business Profile
       </Link>
       <Link
-        href="/settings"
-        className={`topbar-nav-link${current === "settings" ? " is-active" : ""}`}
+        href="/admin"
+        className={`topbar-nav-link${current === "admin" ? " is-active" : ""}`}
       >
-        Settings
+        Admin
       </Link>
       {children}
     </nav>

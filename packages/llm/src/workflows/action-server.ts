@@ -234,7 +234,7 @@ export async function handleWorkActionRequest(
       ok: false,
       decision: "denied",
       reason:
-        "no policy matches this scope/kind — refuse for safety. Operator must define a rule in /settings/rules.",
+        "no policy matches this scope/kind — refuse for safety. Operator must define a rule in /admin/rules.",
     };
   }
 

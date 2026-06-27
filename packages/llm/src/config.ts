@@ -213,7 +213,7 @@ export function maskSecret(value: string | undefined): string {
 
 // Provider config is read from llm_provider_config in the DB only.
 // Env-based fallbacks were removed — admins configure providers via /setup
-// and /settings/agent. The functions below remain as no-ops so legacy
+// and /admin/settings/agent. The functions below remain as no-ops so legacy
 // callers compile, but they always return null. Remove on next refactor.
 //
 // Underscores prevent unused-param TS warnings while keeping the legacy

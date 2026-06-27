@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { provisionHostConfig } from "@neko/llm";
+import { isDenied, requireAdminActor } from "@/lib/admin-auth";
 import { getOrgId } from "@/lib/db";
 import {
   getProviderSettingsPayload,
@@ -7,11 +8,15 @@ import {
 } from "@/lib/provider-settings";
 
 export async function GET() {
+  const allowed = await requireAdminActor();
+  if (isDenied(allowed)) return allowed;
   const payload = await getProviderSettingsPayload((await getOrgId()));
   return NextResponse.json(payload);
 }
 
 export async function PUT(request: NextRequest) {
+  const allowed = await requireAdminActor();
+  if (isDenied(allowed)) return allowed;
   try {
     const body = await request.json();
     const saved = await saveProviderDraft((await getOrgId()), body);

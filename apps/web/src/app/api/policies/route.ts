@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { action_policy, asc, db, eq } from "@neko/db";
 import { getOrgId } from "@/lib/db";
+import { isDenied, requireAdminActor } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const allowed = await requireAdminActor();
+  if (isDenied(allowed)) return allowed;
   const orgId = await getOrgId();
   const rows = await db()
     .select()

@@ -88,7 +88,7 @@ export default function DataSourceForm({ initial }: { initial: DataSourcePayload
 
   return (
     <div className="root">
-      <AppHeader back={{ href: "/settings", label: "All settings" }} />
+      <AppHeader back={{ href: "/admin/settings", label: "All settings" }} />
       <div className="greet">Data source.</div>
       <div className="greet-sub mb-6">Graphjin server endpoint OpenNeko should connect to.</div>
 

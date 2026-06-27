@@ -22,6 +22,7 @@
  *                               Body: { code, redirectUri, state }
  *                               Proxies to the installed auth plugin's
  *                               complete_auth RPC.
+ *   GET  /admin/plugins/status → 200 + registry health/status summary.
  *
  * Extracted from index.ts so the handler can be unit-tested without
  * booting pg-boss / the agent stack.
@@ -124,6 +125,7 @@ export interface InstallPolicyHandlerSurface {
 }
 
 export interface PluginsHandlerSurface {
+  status(): PluginRegistryStatus;
   /**
    * Flat list of every plugin's declared action kinds + seeded
    * default approval mode. Consumed by the web process's /work
@@ -145,6 +147,29 @@ export interface PluginsHandlerSurface {
     example?: Record<string, unknown>;
   }>;
 }
+
+export interface PluginRegistryStatus {
+  loaded: string[];
+  skipped: Array<{ name: string; reason: string }>;
+  flagged: Array<{ pluginName: string; reason: string }>;
+  kinds: string[];
+  vmsRunning: number;
+  authProvider?: string | null;
+  channels: Array<{
+    pluginId: string;
+    providerLabel: string;
+  }>;
+}
+
+const EMPTY_PLUGIN_STATUS: PluginRegistryStatus = {
+  loaded: [],
+  skipped: [],
+  flagged: [],
+  kinds: [],
+  vmsRunning: 0,
+  authProvider: null,
+  channels: [],
+};
 
 export type AdminHandlerOptions = {
   /**
@@ -247,6 +272,10 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
       handlePluginActionDescriptors(res, plugins);
       return;
     }
+    if (req.method === "GET" && req.url === "/admin/plugins/status") {
+      handlePluginStatus(res, plugins);
+      return;
+    }
     if (req.method === "GET" && req.url === "/admin/connect/providers") {
       handleConnectProviders(res, connect);
       return;
@@ -336,6 +365,13 @@ function handlePluginActionDescriptors(
 ) {
   const descriptors = plugins?.getRegisteredActionDescriptors() ?? [];
   json(res, 200, { descriptors });
+}
+
+function handlePluginStatus(
+  res: ServerResponse,
+  plugins: PluginsHandlerSurface | null,
+) {
+  json(res, 200, { status: plugins?.status() ?? EMPTY_PLUGIN_STATUS });
 }
 
 function handleAuthStatus(res: ServerResponse, auth: AuthHandlerSurface | null) {

@@ -39,7 +39,13 @@ describe("per-run GraphJin client auth (GJ4)", () => {
     expect(cfg.server).toBe("http://localhost:8080/api/v1/mcp");
     expect(cfg.token).toBe(auth.token);
     const claims = verifyGraphjinToken(auth.token, "org-1");
-    expect(claims).toMatchObject({ sub: "u-1", role: "member", org_id: "org-1" });
+	    expect(claims).toMatchObject({
+	      sub: "u-1",
+	      role: "member",
+	      roles: ["member"],
+	      account_id: "org-1",
+	      org_id: "org-1",
+	    });
   });
 
   it("the guard pins the per-run XDG dir so the CLI sees the token", async () => {

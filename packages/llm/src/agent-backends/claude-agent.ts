@@ -66,7 +66,7 @@ export class ClaudeAgentBackend implements AgentBackend {
     }
     if (!claudeBinaryAvailable()) {
       throw new AgentBackendConfigError(
-        "claude-agent backend requires the `claude` CLI on PATH. The npm package @anthropic-ai/claude-agent-sdk spawns it as a subprocess. Install Claude Code (https://claude.com/claude-code) or switch /settings/agent to Hermes.",
+        "claude-agent backend requires the `claude` CLI on PATH. The npm package @anthropic-ai/claude-agent-sdk spawns it as a subprocess. Install Claude Code (https://claude.com/claude-code) or switch /admin/settings/agent to Hermes.",
       );
     }
   }

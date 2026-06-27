@@ -88,6 +88,79 @@ describe("worker admin HTTP handler", () => {
   });
 });
 
+describe("worker admin /admin/plugins/*", () => {
+  it("GET /admin/plugins/status returns the registry status", async () => {
+    const srv = await startServer(
+      createAdminHandler({
+        plugins: {
+          status: () => ({
+            loaded: ["@open-neko/plugin-slack"],
+            skipped: [{ name: "@open-neko/plugin-dupe", reason: "duplicate" }],
+            flagged: [
+              {
+                pluginName: "@open-neko/plugin-unverified",
+                reason: "unverified install",
+              },
+            ],
+            kinds: ["send_slack_message"],
+            vmsRunning: 1,
+            authProvider: null,
+            channels: [{ pluginId: "slack", providerLabel: "Slack" }],
+          }),
+          getRegisteredActionDescriptors: () => [],
+        },
+      }),
+    );
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/plugins/status`,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        status: {
+          loaded: ["@open-neko/plugin-slack"],
+          skipped: [{ name: "@open-neko/plugin-dupe", reason: "duplicate" }],
+          flagged: [
+            {
+              pluginName: "@open-neko/plugin-unverified",
+              reason: "unverified install",
+            },
+          ],
+          kinds: ["send_slack_message"],
+          vmsRunning: 1,
+          authProvider: null,
+          channels: [{ pluginId: "slack", providerLabel: "Slack" }],
+        },
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("GET /admin/plugins/status returns an empty status when no surface is wired", async () => {
+    const srv = await startServer(createAdminHandler());
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/plugins/status`,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        status: {
+          loaded: [],
+          skipped: [],
+          flagged: [],
+          kinds: [],
+          vmsRunning: 0,
+          authProvider: null,
+          channels: [],
+        },
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+});
+
 describe("worker admin /admin/auth/*", () => {
   it("GET /admin/auth/status returns { provider: null } when no auth surface is wired", async () => {
     const srv = await startServer(createAdminHandler());

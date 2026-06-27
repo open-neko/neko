@@ -50,3 +50,38 @@ func TestConvertOpennekoCapabilities_Channel(t *testing.T) {
 		t.Fatalf("channel capability not passed through: %+v", out.Channel)
 	}
 }
+
+func TestConvertCapabilities_Connect(t *testing.T) {
+	out := convertCapabilities(marketplace.Capabilities{
+		Connect: &marketplace.ConnectCapability{
+			ProviderLabel: "Google Workspace",
+			Scopes:        []string{"gmail.send", "calendar"},
+			Flow:          "oauth2-pkce",
+		},
+	})
+	if out.Connect == nil {
+		t.Fatal("connect capability dropped by convertCapabilities")
+	}
+	if out.Connect.ProviderLabel != "Google Workspace" {
+		t.Fatalf("providerLabel: got %q", out.Connect.ProviderLabel)
+	}
+	if out.Connect.Flow != "oauth2-pkce" {
+		t.Fatalf("flow: got %q", out.Connect.Flow)
+	}
+	if len(out.Connect.Scopes) != 2 || out.Connect.Scopes[0] != "gmail.send" {
+		t.Fatalf("scopes: got %v", out.Connect.Scopes)
+	}
+}
+
+func TestConvertOpennekoCapabilities_Connect(t *testing.T) {
+	out := convertOpennekoCapabilities(&pkgCapabilities{
+		Connect: &manifest.ConnectCapability{
+			ProviderLabel: "Google Workspace",
+			Scopes:        []string{"gmail.send"},
+			Flow:          "oauth2-pkce",
+		},
+	})
+	if out.Connect == nil || out.Connect.ProviderLabel != "Google Workspace" {
+		t.Fatalf("connect capability not passed through: %+v", out.Connect)
+	}
+}

@@ -34,6 +34,7 @@ function build(
     supportsMemoryTool?: boolean;
     supportsWorkflowTool?: boolean;
     supportsPolicyTool?: boolean;
+    supportsSourceConfigTool?: boolean;
   } = {},
 ): string {
   return buildWorkPrompt({
@@ -48,6 +49,7 @@ function build(
     supportsMemoryTool: overrides.supportsMemoryTool ?? false,
     supportsWorkflowTool: overrides.supportsWorkflowTool ?? false,
     supportsPolicyTool: overrides.supportsPolicyTool ?? false,
+    supportsSourceConfigTool: overrides.supportsSourceConfigTool ?? false,
     inlineTranscript: false,
   });
 }
@@ -143,6 +145,17 @@ describe("buildWorkPrompt workflow + policy management", () => {
     const prompt = build("hermes", { supportsPolicyTool: false });
     expect(prompt).toContain("neko_rule_save");
     expect(prompt).not.toContain("mcp__neko_rule_builder__");
+  });
+
+  it("advertises GraphJin source-config tools only when enabled", () => {
+    const enabled = build("claude-agent", { supportsSourceConfigTool: true });
+    expect(enabled).toContain("graphjin-config");
+    expect(enabled).toContain(`${workspace.skillsRoot}/graphjin-config/SKILL.md`);
+    expect(enabled).toContain("mcp__neko_source_config_manager__describe_source_graph");
+    expect(enabled).toContain("source_config_admin");
+
+    const disabled = build("claude-agent", { supportsSourceConfigTool: false });
+    expect(disabled).not.toContain("mcp__neko_source_config_manager__");
   });
 
   it("frames /work as the single chat surface for everything", () => {

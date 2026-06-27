@@ -1,7 +1,8 @@
 /**
  * /api/settings/install-policy contract tests.
  *
- * Covers: signed-out → 401, non-admin → 403, admin → 200 read + write,
+ * Covers: solo/userless admin => 200, non-admin => 403,
+ * admin => 200 read + write,
  * partial PATCH semantics, validation error on http: marketplace URL,
  * official marketplace is always preserved.
  */
@@ -17,13 +18,12 @@ import {
   vi,
 } from "vitest";
 import {
-  clearProvider,
   createTestOrg,
   dbReachable,
   deleteTestOrg,
   uniqueOrgId,
 } from "@neko/db/test-helpers";
-import { and, app_user, db, eq, pool } from "@neko/db";
+import { app_user, db, pool } from "@neko/db";
 import { callRoute } from "../_helpers/route";
 
 const { mockGetOrgId, mockGetCurrentUser } = vi.hoisted(() => ({
@@ -90,15 +90,8 @@ describeIfDb("/api/settings/install-policy", () => {
     await pool().end();
   });
 
-  it("GET returns 401 when signed out", async () => {
+  it("GET returns DEFAULT_POLICY in solo/userless admin mode", async () => {
     mockGetCurrentUser.mockResolvedValue(null);
-    const res = await callRoute(GET);
-    expect(res.status).toBe(401);
-  });
-
-  it("GET returns DEFAULT_POLICY when signed in but no row exists", async () => {
-    const userId = await seedUser("member");
-    mockGetCurrentUser.mockResolvedValue({ id: userId, email: "x@y.com", name: null });
     const res = await callRoute(GET);
     expect(res.status).toBe(200);
     const body = res.body as {
@@ -117,42 +110,71 @@ describeIfDb("/api/settings/install-policy", () => {
     expect(body.policy.allowedMarketplaces).toEqual([OFFICIAL]);
   });
 
-  it("PATCH returns 401 when signed out", async () => {
-    mockGetCurrentUser.mockResolvedValue(null);
+  it("GET returns 403 for signed-in non-admin users", async () => {
+    const userId = await seedUser("member");
+    mockGetCurrentUser.mockResolvedValue({
+      id: userId,
+      email: "member@example.com",
+      name: null,
+    });
+    const res = await callRoute(GET);
+    expect(res.status).toBe(403);
+  });
+
+  it("PATCH returns 403 for signed-in non-admin users", async () => {
+    const userId = await seedUser("member");
+    mockGetCurrentUser.mockResolvedValue({
+      id: userId,
+      email: "member@example.com",
+      name: null,
+    });
     const res = await callRoute(PATCH, {
       method: "PATCH",
       body: { allowUnverified: true },
     });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
   });
 
-  // OpenNeko has no admin/member role separation today — any signed-
-  // in operator can change install policy, matching the rest of
-  // /settings. When a real role gate ships, restore an "only admin
-  // PATCHes" test here.
-  it("PATCH as any signed-in operator persists the policy", async () => {
-    const userId = await seedUser("member");
-    mockGetCurrentUser.mockResolvedValue({ id: userId, email: "x@y.com", name: null });
+  it("PATCH as admin persists the policy", async () => {
+    const userId = await seedUser("admin");
+    mockGetCurrentUser.mockResolvedValue({
+      id: userId,
+      email: "admin@example.com",
+      name: null,
+    });
     const res = await callRoute(PATCH, {
       method: "PATCH",
       body: { allowUnverified: true, allowGitUrlInstalls: true },
     });
     expect(res.status).toBe(200);
-    const body = res.body as { policy: { allowUnverified: boolean; allowGitUrlInstalls: boolean } };
+    const body = res.body as {
+      policy: { allowUnverified: boolean; allowGitUrlInstalls: boolean };
+    };
     expect(body.policy.allowUnverified).toBe(true);
     expect(body.policy.allowGitUrlInstalls).toBe(true);
 
-    // GET back should reflect the new state.
     const readBack = await callRoute(GET);
-    const readBody = readBack.body as { policy: { allowUnverified: boolean } };
+    const readBody = readBack.body as {
+      policy: { allowUnverified: boolean };
+    };
     expect(readBody.policy.allowUnverified).toBe(true);
   });
 
-  it("PATCH is partial — omitted keys don't clobber existing values", async () => {
-    const userId = await seedUser("member");
-    mockGetCurrentUser.mockResolvedValue({ id: userId, email: "x@y.com", name: null });
-    await callRoute(PATCH, { method: "PATCH", body: { allowUnverified: true } });
-    await callRoute(PATCH, { method: "PATCH", body: { allowSandboxedSkillEscape: true } });
+  it("PATCH is partial; omitted keys do not clobber existing values", async () => {
+    const userId = await seedUser("admin");
+    mockGetCurrentUser.mockResolvedValue({
+      id: userId,
+      email: "admin@example.com",
+      name: null,
+    });
+    await callRoute(PATCH, {
+      method: "PATCH",
+      body: { allowUnverified: true },
+    });
+    await callRoute(PATCH, {
+      method: "PATCH",
+      body: { allowSandboxedSkillEscape: true },
+    });
     const res = await callRoute(GET);
     const body = res.body as {
       policy: { allowUnverified: boolean; allowSandboxedSkillEscape: boolean };
@@ -162,8 +184,12 @@ describeIfDb("/api/settings/install-policy", () => {
   });
 
   it("PATCH rejects http: marketplace URLs with 400", async () => {
-    const userId = await seedUser("member");
-    mockGetCurrentUser.mockResolvedValue({ id: userId, email: "x@y.com", name: null });
+    const userId = await seedUser("admin");
+    mockGetCurrentUser.mockResolvedValue({
+      id: userId,
+      email: "admin@example.com",
+      name: null,
+    });
     const res = await callRoute(PATCH, {
       method: "PATCH",
       body: { allowedMarketplaces: ["http://example.com/m.json"] },
@@ -173,8 +199,12 @@ describeIfDb("/api/settings/install-policy", () => {
   });
 
   it("PATCH adding a community marketplace preserves the official one", async () => {
-    const userId = await seedUser("member");
-    mockGetCurrentUser.mockResolvedValue({ id: userId, email: "x@y.com", name: null });
+    const userId = await seedUser("admin");
+    mockGetCurrentUser.mockResolvedValue({
+      id: userId,
+      email: "admin@example.com",
+      name: null,
+    });
     const community = "https://example.com/marketplace.json";
     const res = await callRoute(PATCH, {
       method: "PATCH",
@@ -187,15 +217,18 @@ describeIfDb("/api/settings/install-policy", () => {
   });
 
   it("PATCH ignores non-boolean values for boolean fields", async () => {
-    const userId = await seedUser("member");
-    mockGetCurrentUser.mockResolvedValue({ id: userId, email: "x@y.com", name: null });
+    const userId = await seedUser("admin");
+    mockGetCurrentUser.mockResolvedValue({
+      id: userId,
+      email: "admin@example.com",
+      name: null,
+    });
     await callRoute(PATCH, {
       method: "PATCH",
       body: { allowUnverified: "yes" as unknown as boolean },
     });
     const res = await callRoute(GET);
     const body = res.body as { policy: { allowUnverified: boolean } };
-    // Stays at default false because string was rejected at the API layer.
     expect(body.policy.allowUnverified).toBe(false);
   });
 });

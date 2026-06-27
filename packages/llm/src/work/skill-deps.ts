@@ -127,6 +127,13 @@ export const KNOWN_SKILL_DEPS: Record<string, SkillDeps> = {
     apt: [],
     brew: [],
   },
+  "graphjin-config": {
+    python: [],
+    pip: [],
+    binaries: [],
+    apt: [],
+    brew: [],
+  },
 };
 
 // Union of all pip / apt / brew deps across the manifest. Used by the

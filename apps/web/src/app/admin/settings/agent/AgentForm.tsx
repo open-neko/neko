@@ -150,7 +150,7 @@ export default function AgentForm({
 
   return (
     <div className="root">
-      <AppHeader back={{ href: "/settings", label: "All settings" }} />
+      <AppHeader back={{ href: "/admin/settings", label: "All settings" }} />
       <div className="greet">Agent.</div>
       <div className="greet-sub mb-6">
         Pick the runtime that drives the metric agent and the model it uses.

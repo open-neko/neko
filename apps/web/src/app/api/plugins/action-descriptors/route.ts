@@ -1,7 +1,7 @@
 /**
  * GET /api/plugins/action-descriptors — the operator-facing snapshot
  * of every installed plugin's declared action kinds + seeded default
- * mode. Used by /settings/rules to render an "Installed plugins"
+ * mode. Used by /admin/rules to render an "Installed plugins"
  * section that surfaces what kinds the agent can call.
  *
  * Thin proxy over the worker admin endpoint
@@ -11,9 +11,12 @@
  */
 
 import { NextResponse } from "next/server";
+import { isDenied, requireAdminActor } from "@/lib/admin-auth";
 import { getPluginActionDescriptors } from "@/lib/auth";
 
 export async function GET() {
+  const allowed = await requireAdminActor();
+  if (isDenied(allowed)) return allowed;
   const descriptors = await getPluginActionDescriptors();
   return NextResponse.json({ descriptors });
 }

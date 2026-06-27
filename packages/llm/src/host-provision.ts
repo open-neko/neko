@@ -274,7 +274,7 @@ async function provisionHermes(orgId: string): Promise<void> {
   if (baseUrl) yamlLines.push(`  base_url: "${escapeYamlString(baseUrl)}"`);
   if (provider === "custom" && needsBaseUrl && !baseUrl) {
     console.warn(
-      `[host-provision] hermes: provider=custom but no base_url for ${row.provider}; user must add it in /settings/agent`,
+      `[host-provision] hermes: provider=custom but no base_url for ${row.provider}; user must add it in /admin/settings/agent`,
     );
   }
   yamlLines.push("");

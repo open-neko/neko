@@ -209,6 +209,33 @@ rule 'NAME'."
 </rules>`;
 }
 
+function buildSourceConfigSection(
+  supportsSourceConfigTool: boolean,
+  workspace: AgentWorkspace,
+): string {
+  if (!supportsSourceConfigTool) return "";
+  const graphjinSkill = `${workspace.skillsRoot}/graphjin-config/SKILL.md`;
+  return `<source_config>
+Admins can inspect and propose guarded GraphJin source-mode config changes
+from chat. Use these tools only for GraphJin sources, roles, and access:
+
+Before viewing, editing, creating, or explaining GraphJin config, read and
+apply the \`graphjin-config\` skill at \`${graphjinSkill}\`.
+
+- \`mcp__neko_source_config_manager__describe_source_graph\` — read the live
+  GraphJin source graph from gj_catalog. Use it before proposing any source,
+  access, or RBAC role change.
+- \`mcp__neko_source_config_manager__list_source_secret_names\` — list only
+  stored connection secret NAMES. Never ask for or print secret values.
+- \`mcp__neko_source_config_manager__request_source_config_change\` — file an
+  approval-gated \`source_config_admin\` request. It never applies directly.
+
+For new sources, collect only non-secret fields plus a \`secretRef\` name
+from the stored secret list. For access changes, confirm the GraphJin source
+name and desired read/write/delete policy before filing the request.
+</source_config>`;
+}
+
 function buildSkillsSection(
   supportsSkillTool: boolean,
   workspace: AgentWorkspace,
@@ -439,6 +466,7 @@ export function buildWorkPrompt(args: {
   supportsMemoryTool: boolean;
   supportsWorkflowTool: boolean;
   supportsPolicyTool: boolean;
+  supportsSourceConfigTool: boolean;
   // True when prior turns must be inlined into the system prompt because the
   // backend can't reload them out-of-band (i.e. no session resume).
   inlineTranscript: boolean;
@@ -461,6 +489,7 @@ export function buildWorkPrompt(args: {
     supportsMemoryTool,
     supportsWorkflowTool,
     supportsPolicyTool,
+    supportsSourceConfigTool,
     inlineTranscript,
     pluginActions,
   } = args;
@@ -485,6 +514,7 @@ that flags churn risk every Monday."
     }),
     buildWorkflowToolsSection(supportsWorkflowTool, shellTool),
     buildPoliciesSection(supportsPolicyTool),
+    buildSourceConfigSection(supportsSourceConfigTool, workspace),
     buildDataAccessSection({
       shellTool,
       workspace,

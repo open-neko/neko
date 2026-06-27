@@ -111,7 +111,7 @@ export default function ResearchForm({ initial }: { initial: SettingsPayload }) 
 
   return (
     <div className="root">
-      <AppHeader back={{ href: "/settings", label: "All settings" }} />
+      <AppHeader back={{ href: "/admin/settings", label: "All settings" }} />
       <div className="greet">Industry research.</div>
       <div className="greet-sub mb-6">
         Optional. When enabled, OpenNeko enriches the business profile with industry context during onboarding.

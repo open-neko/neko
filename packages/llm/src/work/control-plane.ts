@@ -49,6 +49,46 @@ function toWire<T>(value: T): Wire<T> {
   return JSON.parse(JSON.stringify(value ?? null)) as Wire<T>;
 }
 
+async function requireSourceConfigAccess(input: {
+  orgId: string;
+  runId?: string | null;
+  actorRole?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const {
+    db,
+    eq,
+    getGraphjinConfigSettingsForOrg,
+    work_run,
+  } = await import("@neko/db");
+  const settings = await getGraphjinConfigSettingsForOrg(input.orgId);
+  if (!settings.sourceConfigEnabled) {
+    return {
+      ok: false,
+      error: "GraphJin config capability is disabled.",
+    };
+  }
+
+  let role: string | null = null;
+  if (input.runId) {
+    const [run] = await db()
+      .select({ role: work_run.actor_role })
+      .from(work_run)
+      .where(eq(work_run.id, input.runId))
+      .limit(1);
+    role = run?.role ?? null;
+  } else {
+    role = input.actorRole ?? null;
+  }
+  if (role !== "admin") {
+    return {
+      ok: false,
+      error: "GraphJin config tools are admin-only.",
+    };
+  }
+
+  return { ok: true };
+}
+
 export type WorkflowListEntry = Wire<WorkflowRecord> & {
   /** Enabled source_change trigger filter, if any. */
   when: Record<string, unknown> | null;
@@ -135,8 +175,13 @@ export interface AgentControlPlane {
    * internal GraphJin. `reachable: false` with `error` when the engine
    * is down or not in sources mode.
    */
-  describeSourceGraph(input: { orgId: string }): Promise<{
+  describeSourceGraph(input: {
+    orgId: string;
+    runId?: string | null;
+    actorRole?: string | null;
+  }): Promise<{
     reachable: boolean;
+    denied?: boolean;
     error?: string;
     sourceName?: string;
     host?: string | null;
@@ -149,7 +194,13 @@ export interface AgentControlPlane {
    * values). The agent references these as `secretRef` when proposing a
    * source registration; the worker resolves the value at apply.
    */
-  listSourceSecretNames(input: { orgId: string }): Promise<{
+  listSourceSecretNames(input: {
+    orgId: string;
+    runId?: string | null;
+    actorRole?: string | null;
+  }): Promise<{
+    denied?: boolean;
+    error?: string;
     names: Array<{ name: string; description: string | null; updatedAt: string }>;
   }>;
   /**
@@ -239,6 +290,16 @@ export class InProcessControlPlane implements AgentControlPlane {
   async createActionRequest(
     input: CreateActionRequestInput,
   ): Promise<{ id: string }> {
+    if (input.kind === "source_config_admin") {
+      const gate = await requireSourceConfigAccess({
+        orgId: input.orgId,
+        runId: input.workRunId ?? null,
+        actorRole: input.actorRole ?? null,
+      });
+      if (!gate.ok) {
+        throw new Error(`source_config_admin: ${gate.error}`);
+      }
+    }
     const request = await createActionRequest(input);
     return { id: request.id };
   }
@@ -396,7 +457,16 @@ export class InProcessControlPlane implements AgentControlPlane {
     };
   }
 
-  async describeSourceGraph(input: { orgId: string }) {
+  async describeSourceGraph(input: {
+    orgId: string;
+    runId?: string | null;
+    actorRole?: string | null;
+  }) {
+    const gate = await requireSourceConfigAccess(input);
+    if (!gate.ok) {
+      return { reachable: false, denied: true, error: gate.error };
+    }
+
     const { data_source, db, desc, eq } = await import("@neko/db");
     const [src] = await db()
       .select({ name: data_source.name, graphqlUrl: data_source.graphql_url })
@@ -455,7 +525,16 @@ export class InProcessControlPlane implements AgentControlPlane {
     };
   }
 
-  async listSourceSecretNames(input: { orgId: string }) {
+  async listSourceSecretNames(input: {
+    orgId: string;
+    runId?: string | null;
+    actorRole?: string | null;
+  }) {
+    const gate = await requireSourceConfigAccess(input);
+    if (!gate.ok) {
+      return { denied: true, error: gate.error, names: [] };
+    }
+
     const { data_source_secret, db, desc, eq } = await import("@neko/db");
     const rows = await db()
       .select({

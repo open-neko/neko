@@ -101,14 +101,14 @@ export default function SecurityForm({ initial }: { initial: InstallPolicyPayloa
         style={{ "--page-width": "min(1000px, 100%)" } as React.CSSProperties}
       >
         <AppHeader>
-          <SectionNav current="settings" />
+          <SectionNav current="admin" />
         </AppHeader>
 
         <div className="mt-1 mb-3.5 font-mono text-[12.5px] text-text3 flex items-center gap-2">
           <button
             type="button"
             className="bg-transparent border-0 text-text3 cursor-pointer font-[inherit] p-0 hover:text-accent"
-            onClick={() => router.push("/settings")}
+            onClick={() => router.push("/admin/settings")}
           >
             ← Settings
           </button>

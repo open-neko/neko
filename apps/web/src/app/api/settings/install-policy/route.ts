@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth";
+import { isDenied, requireAdminActor } from "@/lib/admin-auth";
 import { getOrgId, orgHasFeature, FEATURE } from "@/lib/db";
 import {
   getInstallPolicyPayload,
@@ -7,25 +7,9 @@ import {
   type InstallPolicyDraft,
 } from "@/lib/install-policy-settings";
 
-// OpenNeko has no admin/member role separation today — `app_user.role`
-// only gets populated when an SSO plugin maps IdP groups. For the
-// common deployment (no SSO, one or a small team of operators), the
-// concept of "admin-only" would lock everyone out. Treating any signed-
-// in operator as eligible to change install policy is consistent with
-// every other /settings route. When a true role model lands, gate at
-// the same shared helper used by /settings/agent, /settings/data-source,
-// etc. — don't reintroduce a one-off role check just here.
-async function requireSignedIn(): Promise<NextResponse | null> {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: "not signed in" }, { status: 401 });
-  }
-  return null;
-}
-
 export async function GET() {
-  const denied = await requireSignedIn();
-  if (denied) return denied;
+  const allowed = await requireAdminActor();
+  if (isDenied(allowed)) return allowed;
   const orgId = await getOrgId();
   if (!(await orgHasFeature(orgId, FEATURE.installPolicy))) {
     return NextResponse.json({ error: "feature not enabled" }, { status: 404 });
@@ -35,8 +19,8 @@ export async function GET() {
 }
 
 export async function PATCH(request: NextRequest) {
-  const denied = await requireSignedIn();
-  if (denied) return denied;
+  const allowed = await requireAdminActor();
+  if (isDenied(allowed)) return allowed;
   try {
     const body = (await request.json()) as InstallPolicyDraft;
     const orgId = await getOrgId();

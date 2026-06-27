@@ -64,8 +64,12 @@ export type ProfilePolicyDefaults = {
 export function profilePolicyDefaults(
   profile: DeploymentProfile = resolveDeploymentProfile(),
 ): ProfilePolicyDefaults {
+  void profile;
   return {
-    pluginApproverRole: profile === "org" || profile === "hardened" ? "admin" : null,
+    // Solo deployments resolve their operator as admin, so this also preserves
+    // userless administration while making multi-user/plugin-auth deployments
+    // admin-only by default.
+    pluginApproverRole: "admin",
   };
 }
 
