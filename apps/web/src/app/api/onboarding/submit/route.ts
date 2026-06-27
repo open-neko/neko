@@ -68,10 +68,16 @@ export async function POST(request: NextRequest) {
     );
   }
   try {
-    await enqueue(QUEUE.BUSINESS_PROFILE_BUILD, {
-      processingJobId: jobId,
-      orgId,
-    });
+    // The UI already waits through the profiler's bounded agent attempt.
+    // Hidden queue retries make onboarding look stuck after a known failure.
+    await enqueue(
+      QUEUE.BUSINESS_PROFILE_BUILD,
+      {
+        processingJobId: jobId,
+        orgId,
+      },
+      { retryLimit: 0 },
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     await db()
