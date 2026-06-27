@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.13.0](https://github.com/open-neko/openneko/compare/v2.12.0...v2.13.0) (2026-06-27)
+
+
+### Features
+
+* add admin configuration surface ([af6b144](https://github.com/open-neko/openneko/commit/af6b144d93a8b48dd450c360d4ca4181c7b4abee))
+
+
+### Bug Fixes
+
+* add workflow runs index ([5362c9e](https://github.com/open-neko/openneko/commit/5362c9e7030b5b310d75dbc0040f425c5281708b))
+* align ci assertions with admin settings ([b73e2b6](https://github.com/open-neko/openneko/commit/b73e2b660e9556ad7af52acef6a847715c001511))
+* align graphjin source-mode auth and tools ([ca9c29d](https://github.com/open-neko/openneko/commit/ca9c29d5b9002bd36723e5ef46089e1b5d411b5e))
+* avoid hidden onboarding queue retries ([4a6b679](https://github.com/open-neko/openneko/commit/4a6b6795a4d06fe9742a2c7d2da5128c8114f0d0))
+* bound onboarding profiler failures ([84b15df](https://github.com/open-neko/openneko/commit/84b15df98da5095346fbdc015e66b9caa0cc4da8))
+* extend onboarding profiler timeout ([2641a9e](https://github.com/open-neko/openneko/commit/2641a9e9ae5020363643b8890666b6d4f35bb871))
+* render dashboard metric cards ([b0d39e8](https://github.com/open-neko/openneko/commit/b0d39e80c04be7fe4ddcfd53985f3d39db32baff))
+
 ## [2.12.0](https://github.com/open-neko/openneko/compare/v2.11.0...v2.12.0) (2026-06-26)
 
 
