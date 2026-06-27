@@ -188,7 +188,7 @@ export type ProfilerResult = {
   businessProfile: string;
 };
 
-const DEFAULT_PROFILER_TIMEOUT_MS = 3 * 60_000;
+const DEFAULT_PROFILER_TIMEOUT_MS = 6 * 60_000;
 
 export function profilerTimeoutMs(): number {
   const env = Number(process.env.OPENNEKO_PROFILER_TIMEOUT_MS);
@@ -252,7 +252,7 @@ export async function runProfiler(args: {
     shellTool: shellToolName(backend.id),
   });
 
-  if (onProgress) onProgress("Running profiler agent (up to 3 minutes)…");
+  if (onProgress) onProgress("Running profiler agent (up to 6 minutes)…");
   const startedAt = Date.now();
   // GJ2: iterative validation loop — a profile missing required sections
   // (or containing failure text) goes back to the agent for a corrective

@@ -37,7 +37,7 @@ afterEach(() => {
 describe("profilerTimeoutMs", () => {
   it("defaults to a bounded onboarding timeout", () => {
     vi.stubEnv("OPENNEKO_PROFILER_TIMEOUT_MS", "");
-    expect(profilerTimeoutMs()).toBe(3 * 60_000);
+    expect(profilerTimeoutMs()).toBe(6 * 60_000);
   });
 
   it("allows an explicit override", () => {
