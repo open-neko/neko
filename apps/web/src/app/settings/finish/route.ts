@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { db, eq, organization } from "@neko/db";
+import { isDenied, requireAdminActor } from "@/lib/admin-auth";
 import { getOrgId } from "@/lib/db";
 import { hasDataSourceSetup } from "@/lib/data-source-settings";
 import { hasPrimaryProviderSetup } from "@/lib/provider-settings";
@@ -12,9 +13,13 @@ import { hasPrimaryProviderSetup } from "@/lib/provider-settings";
  * required: it's optional and admins can skip it.
  */
 export async function POST() {
+  const allowed = await requireAdminActor();
+  if (isDenied(allowed)) return allowed;
+
+  const orgId = await getOrgId();
   const [dataReady, primaryReady] = await Promise.all([
-    hasDataSourceSetup((await getOrgId())),
-    hasPrimaryProviderSetup((await getOrgId())),
+    hasDataSourceSetup(orgId),
+    hasPrimaryProviderSetup(orgId),
   ]);
   if (!dataReady) {
     return NextResponse.json(
@@ -32,7 +37,7 @@ export async function POST() {
   await db()
     .update(organization)
     .set({ setup_complete_at: new Date(), updated_at: new Date() })
-    .where(eq(organization.id, (await getOrgId())));
+    .where(eq(organization.id, orgId));
 
   // Invalidate cached RSC payloads on the gates so the next navigation
   // sees the fresh setup_complete_at value. Wrapped because tests call
@@ -41,6 +46,7 @@ export async function POST() {
   try {
     revalidatePath("/onboarding");
     revalidatePath("/settings");
+    revalidatePath("/admin/settings");
   } catch {}
 
   return NextResponse.json({ ok: true });

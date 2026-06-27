@@ -740,7 +740,7 @@ function WorkflowDetail({
             ))}
           </ul>
         )}
-        <a className="inline-block mt-1 text-xs text-accent no-underline hover:underline hover:underline-offset-2" href="/settings/rules">
+        <a className="inline-block mt-1 text-xs text-accent no-underline hover:underline hover:underline-offset-2" href="/admin/rules">
           see all rules →
         </a>
       </Section>

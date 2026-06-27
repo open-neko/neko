@@ -169,13 +169,19 @@ async function handle(
       return send(
         res,
         200,
-        await cp.describeSourceGraph({ orgId: binding.orgId }),
+        await cp.describeSourceGraph({
+          orgId: binding.orgId,
+          runId: binding.runId,
+        }),
       );
     case "/v1/source-secrets/names":
       return send(
         res,
         200,
-        await cp.listSourceSecretNames({ orgId: binding.orgId }),
+        await cp.listSourceSecretNames({
+          orgId: binding.orgId,
+          runId: binding.runId,
+        }),
       );
     case "/v1/audit/list":
       // ADM4: the admin gate runs on the BOUND run's actor — the

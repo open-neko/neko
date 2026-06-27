@@ -44,9 +44,9 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: var(--neutral);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--text2);
 }
 .settings-source strong::before {
@@ -58,11 +58,9 @@
   opacity: 0.55;
 }
 .settings-source strong.is-ok {
-  background: var(--success-soft);
   color: var(--success-ink);
 }
 .settings-source strong.is-warn {
-  background: var(--danger-soft);
   color: var(--danger);
 }
 .settings-grid {

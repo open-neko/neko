@@ -155,6 +155,29 @@ export interface PluginActionDescriptor {
   example?: Record<string, unknown>;
 }
 
+export interface PluginStatus {
+  loaded: string[];
+  skipped: Array<{ name: string; reason: string }>;
+  flagged: Array<{ pluginName: string; reason: string }>;
+  kinds: string[];
+  vmsRunning: number;
+  authProvider?: string | null;
+  channels: Array<{
+    pluginId: string;
+    providerLabel: string;
+  }>;
+}
+
+const EMPTY_PLUGIN_STATUS: PluginStatus = {
+  loaded: [],
+  skipped: [],
+  flagged: [],
+  kinds: [],
+  vmsRunning: 0,
+  authProvider: null,
+  channels: [],
+};
+
 export async function getPluginActionDescriptors(): Promise<
   PluginActionDescriptor[]
 > {
@@ -174,6 +197,23 @@ export async function getPluginActionDescriptors(): Promise<
     return body.descriptors ?? [];
   } catch {
     return [];
+  }
+}
+
+export async function getPluginStatus(): Promise<PluginStatus> {
+  try {
+    const res = await fetch(`${workerAdminBase()}/admin/plugins/status`, {
+      method: "GET",
+      cache: "no-store",
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!res.ok) return EMPTY_PLUGIN_STATUS;
+    const body = (await res.json()) as {
+      status?: PluginStatus;
+    };
+    return body.status ?? EMPTY_PLUGIN_STATUS;
+  } catch {
+    return EMPTY_PLUGIN_STATUS;
   }
 }
 
@@ -281,8 +321,13 @@ export async function upsertUserFromIdentity(
       `app_user.email ${identity.email} is already bound to a different SSO subject; remove the row or update sub manually before re-attempting`,
     );
   }
-  // Brand new user.
+  // Brand new user. Bootstrap the first active admin so installing an SSO
+  // plugin cannot leave an org with no administrator.
   const newId = `usr_${randomBytes(9).toString("base64url")}`;
+  const role =
+    (await orgHasActiveAdmin(orgId))
+      ? defaultRoleForGroups(identity.groups ?? [])
+      : "admin";
   await db()
     .insert(app_user)
     .values({
@@ -291,7 +336,7 @@ export async function upsertUserFromIdentity(
       email: identity.email,
       name: identity.name ?? null,
       org_id: orgId,
-      role: defaultRoleForGroups(identity.groups ?? []),
+      role,
       last_login_at: new Date(),
     });
   return {
@@ -299,6 +344,21 @@ export async function upsertUserFromIdentity(
     email: identity.email,
     name: identity.name ?? null,
   };
+}
+
+async function orgHasActiveAdmin(orgId: string): Promise<boolean> {
+  const [admin] = await db()
+    .select({ id: app_user.id })
+    .from(app_user)
+    .where(
+      and(
+        eq(app_user.org_id, orgId),
+        eq(app_user.role, "admin"),
+        isNull(app_user.disabled_at),
+      ),
+    )
+    .limit(1);
+  return Boolean(admin);
 }
 
 /**
@@ -461,4 +521,3 @@ export function buildRedirectUri(requestUrl: string): string {
   const u = new URL(requestUrl);
   return `${u.protocol}//${u.host}/api/auth/callback`;
 }
-

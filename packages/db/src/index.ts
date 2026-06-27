@@ -4,6 +4,7 @@
  */
 
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { createHash } from "node:crypto";
 import pg from "pg";
 import { buildPoolConfig } from "./connection";
 import * as schema from "./schema";
@@ -30,6 +31,13 @@ export {
   policyFromConfig,
   type InstallPolicy,
 } from "./install-policy";
+export {
+  DEFAULT_GRAPHJIN_CONFIG_SETTINGS,
+  GRAPHJIN_CONFIG_SCOPE,
+  getGraphjinConfigSettingsForOrg,
+  graphjinConfigSettingsFromConfig,
+  type GraphjinConfigSettings,
+} from "./graphjin-config";
 export {
   FEATURE,
   parseFeatures,
@@ -63,6 +71,13 @@ export {
 
 let _pool: pg.Pool | null = null;
 let _db: NodePgDatabase<typeof schema> | null = null;
+let _poolConfigSignature: string | null = null;
+
+function configSignature(config: pg.PoolConfig): string {
+  return createHash("sha256")
+    .update(JSON.stringify(config, (_key, value) => (typeof value === "function" ? "[function]" : value)))
+    .digest("hex");
+}
 
 // Self-heal after .end() — vitest singleFork shares this singleton across
 // every test file in a workspace; once one file's afterAll calls
@@ -74,8 +89,18 @@ function isPoolUsable(p: pg.Pool | null): p is pg.Pool {
 }
 
 export function pool(): pg.Pool {
-  if (isPoolUsable(_pool)) return _pool;
-  _pool = new pg.Pool(buildPoolConfig());
+  const config = buildPoolConfig();
+  const signature = configSignature(config);
+  if (isPoolUsable(_pool) && _poolConfigSignature === signature) return _pool;
+
+  if (_pool) {
+    void _pool.end().catch(() => {
+      // Pool already closing or closed — fine.
+    });
+  }
+
+  _pool = new pg.Pool(config);
+  _poolConfigSignature = signature;
   _db = null;
   return _pool;
 }
@@ -106,4 +131,5 @@ export async function reconnectPool(): Promise<void> {
   }
   _pool = null;
   _db = null;
+  _poolConfigSignature = null;
 }

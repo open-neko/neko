@@ -88,7 +88,8 @@ describeIfDb("/api/onboarding/submit", () => {
       },
     });
     expect(res.status).toBe(200);
-    expect((res.body as { jobId: string }).jobId).toBeTruthy();
+    const jobId = (res.body as { jobId: string }).jobId;
+    expect(jobId).toBeTruthy();
 
     // organization.name updated
     const orgs = await db()
@@ -124,7 +125,8 @@ describeIfDb("/api/onboarding/submit", () => {
     expect(jobs[0].status).toBe("queued");
     expect(mockEnqueue).toHaveBeenCalledWith(
       "business_profile_build",
-      expect.objectContaining({ orgId }),
+      expect.objectContaining({ orgId, processingJobId: jobId }),
+      { retryLimit: 0 },
     );
   });
 

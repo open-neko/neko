@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getActionPolicy } from "@neko/llm/workflows";
 import { getOrgId } from "@/lib/db";
+import { isDenied, requireAdminActor } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +11,8 @@ type RouteContext = {
 };
 
 export async function GET(_: Request, context: RouteContext) {
+  const allowed = await requireAdminActor();
+  if (isDenied(allowed)) return allowed;
   const { policyId } = await context.params;
   const orgId = await getOrgId();
   const policy = await getActionPolicy(orgId, policyId);

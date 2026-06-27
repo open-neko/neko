@@ -36,11 +36,13 @@ describe("GraphJin actor tokens (GJ4)", () => {
       nowMs: t0,
     });
     const claims = verifyGraphjinToken(token, "org-1", t0 + 1000);
-    expect(claims).toMatchObject({
-      sub: "u-1",
-      role: "member",
-      org_id: "org-1",
-    });
+	    expect(claims).toMatchObject({
+	      sub: "u-1",
+	      role: "member",
+	      roles: ["member"],
+	      account_id: "org-1",
+	      org_id: "org-1",
+	    });
     expect(claims!.exp - claims!.iat).toBe(300);
   });
 

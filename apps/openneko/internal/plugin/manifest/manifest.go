@@ -42,6 +42,12 @@ type AuthCapability struct {
 	ProviderLabel string `json:"providerLabel,omitempty"`
 }
 
+type ConnectCapability struct {
+	ProviderLabel string   `json:"providerLabel"`
+	Scopes        []string `json:"scopes"`
+	Flow          string   `json:"flow,omitempty"`
+}
+
 // ChannelCapability — the plugin is a frontend (Slack, Telegram, voice, …).
 // Profile is round-tripped as raw JSON: the CLI doesn't interpret the
 // capability profile, it just carries it into the installed manifest for the
@@ -56,6 +62,7 @@ type ChannelCapability struct {
 type Capabilities struct {
 	Action  *ActionCapability  `json:"action,omitempty"`
 	Auth    *AuthCapability    `json:"auth,omitempty"`
+	Connect *ConnectCapability `json:"connect,omitempty"`
 	Channel *ChannelCapability `json:"channel,omitempty"`
 }
 

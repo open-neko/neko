@@ -83,8 +83,10 @@ A workflow can run on a schedule, when the data changes, or both:
   the low-stock details"); \`triggers.when\` is the condition.
 
   Before setting \`triggers.when\`, introspect the data source with the
-  GraphJin MCP — \`list_tables\` to find the table, \`describe_table\` to
-  confirm columns + the primary key, \`get_table_sample\` for real values.
+  available GraphJin discovery surface. In source-mode, query \`gj_catalog\`
+  through \`graphjin cli execute_graphql\` for table cards, columns, and
+  relationship edges. Only use MCP dev tools such as \`list_tables\`,
+  \`describe_table\`, or \`get_table_sample\` when the server exposes them.
 
   \`triggers.when\` shape:
   \`\`\`json
@@ -148,8 +150,10 @@ both:
   manual workflow.
 
 Before writing \`triggers.when\`, introspect the data source with your
-\`${shellTool}\` tool (graphjin CLI: \`list_tables\`, \`describe_table\`) to
-confirm the table, columns, and \`primary_key\`. \`primary_key\` is
+\`${shellTool}\` tool. In source-mode, query \`gj_catalog\` through
+\`graphjin cli execute_graphql\`; in legacy/tool deployments, use available
+GraphJin CLI discovery commands. Confirm the table, columns, and
+\`primary_key\`. \`primary_key\` is
 required and drives idempotency. If the workflow's steps write back to
 the watched table, add \`triggers.when.idempotency_key_template\` (e.g.
 \`"reorder-{primary_key}"\`).
@@ -207,6 +211,33 @@ Rules: emit at most once per turn; valid JSON; \`mode\` is one of
 \`never\`; before the fence, write a one-sentence summary like "Saved
 rule 'NAME'."
 </rules>`;
+}
+
+function buildSourceConfigSection(
+  supportsSourceConfigTool: boolean,
+  workspace: AgentWorkspace,
+): string {
+  if (!supportsSourceConfigTool) return "";
+  const graphjinSkill = `${workspace.skillsRoot}/graphjin-config/SKILL.md`;
+  return `<source_config>
+Admins can inspect and propose guarded GraphJin source-mode config changes
+from chat. Use these tools only for GraphJin sources, roles, and access:
+
+Before viewing, editing, creating, or explaining GraphJin config, read and
+apply the \`graphjin-config\` skill at \`${graphjinSkill}\`.
+
+- \`mcp__neko_source_config_manager__describe_source_graph\` — read the live
+  GraphJin source graph from gj_catalog. Use it before proposing any source,
+  access, or RBAC role change.
+- \`mcp__neko_source_config_manager__list_source_secret_names\` — list only
+  stored connection secret NAMES. Never ask for or print secret values.
+- \`mcp__neko_source_config_manager__request_source_config_change\` — file an
+  approval-gated \`source_config_admin\` request. It never applies directly.
+
+For new sources, collect only non-secret fields plus a \`secretRef\` name
+from the stored secret list. For access changes, confirm the GraphJin source
+name and desired read/write/delete policy before filing the request.
+</source_config>`;
 }
 
 function buildSkillsSection(
@@ -439,6 +470,7 @@ export function buildWorkPrompt(args: {
   supportsMemoryTool: boolean;
   supportsWorkflowTool: boolean;
   supportsPolicyTool: boolean;
+  supportsSourceConfigTool: boolean;
   // True when prior turns must be inlined into the system prompt because the
   // backend can't reload them out-of-band (i.e. no session resume).
   inlineTranscript: boolean;
@@ -461,6 +493,7 @@ export function buildWorkPrompt(args: {
     supportsMemoryTool,
     supportsWorkflowTool,
     supportsPolicyTool,
+    supportsSourceConfigTool,
     inlineTranscript,
     pluginActions,
   } = args;
@@ -485,6 +518,7 @@ that flags churn risk every Monday."
     }),
     buildWorkflowToolsSection(supportsWorkflowTool, shellTool),
     buildPoliciesSection(supportsPolicyTool),
+    buildSourceConfigSection(supportsSourceConfigTool, workspace),
     buildDataAccessSection({
       shellTool,
       workspace,

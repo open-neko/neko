@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { testPrimaryProvider, testResearchProvider } from "@neko/llm";
+import { isDenied, requireAdminActor } from "@/lib/admin-auth";
 import { getOrgId } from "@/lib/db";
 
 /**
@@ -10,6 +11,8 @@ import { getOrgId } from "@/lib/db";
  * hop to the worker before the LLM-package extraction.
  */
 export async function POST(request: NextRequest) {
+  const allowed = await requireAdminActor();
+  if (isDenied(allowed)) return allowed;
   try {
     const draft = await request.json();
     if (!draft?.scope) {

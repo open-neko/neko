@@ -31,6 +31,8 @@ export interface RunAgentBackendInput {
   workspace: AgentWorkspace;
   backendState?: Record<string, unknown>;
   pluginActions: readonly PluginActionDescriptor[];
+  /** Mount the GraphJin source-config MCP server for this admin run. */
+  sourceConfigEnabled?: boolean;
   /** In-process on the host; broker-backed inside the agent sandbox. */
   controlPlane?: AgentControlPlane;
   /** Whether this channel renders a2ui cards (web). Default true. Gates the
@@ -64,6 +66,7 @@ export async function runAgentBackend(
     workspace,
     backendState,
     pluginActions,
+    sourceConfigEnabled = false,
     controlPlane,
     wantsCards = true,
     emit,
@@ -126,12 +129,16 @@ export async function runAgentBackend(
           emit,
           controlPlane,
         }),
-        neko_source_config_manager: buildSourceConfigManagerServer({
-          orgId,
-          runId,
-          emit,
-          controlPlane,
-        }),
+        ...(sourceConfigEnabled
+          ? {
+              neko_source_config_manager: buildSourceConfigManagerServer({
+                orgId,
+                runId,
+                emit,
+                controlPlane,
+              }),
+            }
+          : {}),
         neko_audit: buildAuditViewerServer({ orgId, runId, controlPlane }),
         ...(pluginActionServer ? { neko_plugin_actions: pluginActionServer } : {}),
       }

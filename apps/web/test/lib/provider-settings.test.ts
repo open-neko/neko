@@ -140,7 +140,7 @@ describeIfDb("provider-settings", () => {
           model: "gpt-4.1-mini",
           secrets: { apiKey: "sk-openai" },
         }),
-      ).rejects.toThrow(/Switch the backend in \/settings\/agent first/);
+      ).rejects.toThrow(/Switch the backend in \/admin\/settings\/agent first/);
     });
 
     it("allows primary=anthropic while agent=claude-agent", async () => {

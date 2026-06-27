@@ -36,7 +36,7 @@ const PATTERNS: ReadonlyArray<{
 function headingFor(kind: UpstreamProviderErrorKind, provider?: string): string {
   const providerLabel = provider ? ` (${provider})` : "";
   if (kind === "auth") {
-    return `Provider authentication failed${providerLabel} — re-check the API key in /settings/agent`;
+    return `Provider authentication failed${providerLabel} — re-check the API key in /admin/settings/agent`;
   }
   return `Upstream provider unavailable${providerLabel}`;
 }

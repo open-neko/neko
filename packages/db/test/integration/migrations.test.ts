@@ -30,6 +30,8 @@ const M_0004 = join(REPO_ROOT, "db", "migrations", "0004_drop_organization_plan.
 const M_0005 = join(REPO_ROOT, "db", "migrations", "0005_metric_refresh_status.sql");
 const M_0006 = join(REPO_ROOT, "db", "migrations", "0006_work_runtime.sql");
 const M_0007 = join(REPO_ROOT, "db", "migrations", "0007_work_memory.sql");
+const M_0019 = join(REPO_ROOT, "db", "migrations", "0019_install_policy_scope.sql");
+const M_0048 = join(REPO_ROOT, "db", "migrations", "0048_graphjin_config_scope.sql");
 
 function uniqueDbName(): string {
   return `vitest_migrations_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -189,6 +191,29 @@ describeIfDb("schema migrations", () => {
         await client.query(
           `insert into llm_provider_config (org_id, scope, provider) values ($1, $2, 'anthropic')`,
           ["chk2", scope],
+        );
+      }
+    });
+  });
+
+  it("0048 extends the scope check for GraphJin config settings", async () => {
+    await withTempDb(async (client) => {
+      await applyFile(client, M_0001);
+      await applyFile(client, M_0002);
+      await applyFile(client, M_0019);
+      await applyFile(client, M_0048);
+
+      await client.query(`insert into organization (id, name) values ('chk48', 'Check Test 48')`);
+      for (const scope of [
+        "primary",
+        "research",
+        "agent",
+        "install-policy",
+        "graphjin-config",
+      ]) {
+        await client.query(
+          `insert into llm_provider_config (org_id, scope, provider) values ($1, $2, 'settings')`,
+          ["chk48", scope],
         );
       }
     });

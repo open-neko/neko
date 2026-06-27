@@ -42,6 +42,7 @@ interface SandboxJob {
   model?: string;
   backendState?: Record<string, unknown>;
   pluginActions?: RunAgentBackendInput["pluginActions"];
+  sourceConfigEnabled?: boolean;
   wantsCards?: boolean;
   workspace: AgentWorkspace;
   /** GJ5: policy write grants resolved host-side (the box has no DB). */
@@ -193,6 +194,7 @@ export async function main(): Promise<void> {
     workspace: job.workspace,
     backendState: job.backendState,
     pluginActions: job.pluginActions ?? [],
+    sourceConfigEnabled: job.sourceConfigEnabled ?? false,
     wantsCards: job.wantsCards ?? true,
     controlPlane,
     emit,

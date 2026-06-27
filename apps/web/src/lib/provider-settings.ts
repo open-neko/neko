@@ -399,7 +399,7 @@ export async function saveProviderDraft(
     const agent = await getAgentBackendSettings(orgId);
     if (agent.backend === "claude-agent") {
       throw new Error(
-        "Primary provider must be Anthropic while agent backend = Claude Agent. Switch the backend in /settings/agent first.",
+        "Primary provider must be Anthropic while agent backend = Claude Agent. Switch the backend in /admin/settings/agent first.",
       );
     }
   }
@@ -433,4 +433,3 @@ export async function hasPrimaryProviderSetup(orgId: string): Promise<boolean> {
 
   return false;
 }
-

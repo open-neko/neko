@@ -144,7 +144,7 @@ export function policySavedCard(args: {
       "",
       args.policy.description || "_No description._",
       "",
-      `[Open detail](/settings/rules/${args.policy.id})`,
+      `[Open detail](/admin/rules/${args.policy.id})`,
     ].join("\n"),
   });
 }

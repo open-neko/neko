@@ -26,12 +26,16 @@ export default function WorkShellLayout({
   // other surfaces (workflows/skills/memory) that share this shell.
   const pathname = usePathname();
   const showRail = pathname === "/work" || pathname?.startsWith("/work/");
+  const currentSection =
+    pathname === "/workflows" || pathname?.startsWith("/workflows/")
+      ? "workflows"
+      : "work";
 
   return (
     <WorkShellProvider>
       <div className="root">
         <AppHeader>
-          <SectionNav current="work" />
+          <SectionNav current={currentSection} />
         </AppHeader>
 
         <div className={`work-layout${showRail ? " has-rail" : ""}`}>

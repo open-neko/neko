@@ -419,20 +419,19 @@ where to look, pull \`gj_catalog(id: "help:discovery")\`.
 Discover before you query: pull the table card (and column rows for
 filter literals) before writing a non-trivial query — guessing column
 names or string literals returns zero rows silently. For join planning,
-\`find_path\` and \`explore_relationships\` remain available:
-
-  graphjin cli find_path --args '{"from_table":"<table>","to_table":"<table>"}'
-  graphjin cli explore_relationships --args '{"table":"<name>"}'
+use relationship catalog rows plus table-card \`details_json\`,
+\`examples_json\`, and \`edges_json\`. Source-mode deployments may disable
+GraphJin dev tools, so do not call \`find_path\`, \`explore_relationships\`,
+\`get_table_sample\`, \`list_tables\`, \`describe_table\`, or \`health\`.
 
 Run data queries the same way:
 
   graphjin cli execute_graphql --args '{"query":"<your read-only graphql>"}'
 
 If a response contains an \`errors\` array, check
-\`errors[].extensions.graphjin_repair\` first (it often contains the
-corrected query), else run:
-
-  graphjin cli fix_query_error --args '{"query":"<failing>","error":"<msg>"}'
+\`errors[].extensions.graphjin_repair\` first, then correct the query
+yourself. Do not call \`fix_query_error\` in source-mode; that MCP dev
+tool may be disabled.
 
 Talk to GraphJin only through \`${shellTool}\` running \`graphjin cli\`.
 \`execute_code\`, Python, raw HTTP, or any other path bypasses the tool

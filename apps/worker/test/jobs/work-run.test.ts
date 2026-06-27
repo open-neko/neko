@@ -490,7 +490,7 @@ describeIfDb("runChatTurn", () => {
     expect(root?.title).toBe("slack_revenue_alerts_autoapprove");
     const body = components.find((c) => c.id === "body");
     expect(body?.text).toContain("auto_approve");
-    expect(body?.text).toContain("[Open detail](/settings/rules/");
+    expect(body?.text).toContain("[Open detail](/admin/rules/");
   });
 
   it("retry resumption: new events land after existing ones in id order", async () => {

@@ -1,4 +1,10 @@
-import { data_source, db, desc, eq } from "@neko/db";
+import {
+  data_source,
+  db,
+  desc,
+  eq,
+  getGraphjinConfigSettingsForOrg,
+} from "@neko/db";
 import type { AgentChatMessage, AgentEvent } from "../agent-backend";
 import { resolveAgentBackend as defaultResolveAgentBackend } from "../agent-backend-resolver";
 import { extractMemoryFences } from "../agent-backends/memory-fence";
@@ -257,6 +263,11 @@ export async function runChatTurn(
     const supportsMemoryTool = backend.capabilities.mcpTools;
     const supportsWorkflowTool = backend.capabilities.mcpTools;
     const supportsPolicyTool = backend.capabilities.mcpTools;
+    const sourceConfigSettings = await getGraphjinConfigSettingsForOrg(orgId);
+    const supportsSourceConfigTool =
+      backend.capabilities.mcpTools &&
+      actor.role === "admin" &&
+      sourceConfigSettings.sourceConfigEnabled;
     const inlineTranscript = !backend.capabilities.sessionResume;
 
     // Inline-transcript backends grow unbounded on long threads — fold older
@@ -320,6 +331,7 @@ export async function runChatTurn(
       supportsMemoryTool,
       supportsWorkflowTool,
       supportsPolicyTool,
+      supportsSourceConfigTool,
       inlineTranscript,
       pluginActions: opts.pluginActions ?? [],
     });
@@ -334,6 +346,7 @@ export async function runChatTurn(
       workspace,
       backendState: bundle.thread.backendState,
       pluginActions: opts.pluginActions ?? [],
+      sourceConfigEnabled: supportsSourceConfigTool,
       controlPlane: opts.controlPlane,
       wantsCards,
       emit: wrappedEmit,

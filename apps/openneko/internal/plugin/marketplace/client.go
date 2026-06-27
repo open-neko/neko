@@ -40,6 +40,12 @@ type AuthCapability struct {
 	ProviderLabel string `json:"providerLabel,omitempty"`
 }
 
+type ConnectCapability struct {
+	ProviderLabel string   `json:"providerLabel"`
+	Scopes        []string `json:"scopes"`
+	Flow          string   `json:"flow,omitempty"`
+}
+
 // ChannelCapability — a frontend (Slack, Telegram, voice, …). Profile is
 // carried as raw JSON; the worker validates it.
 type ChannelCapability struct {
@@ -52,6 +58,7 @@ type ChannelCapability struct {
 type Capabilities struct {
 	Action  *ActionCapability  `json:"action,omitempty"`
 	Auth    *AuthCapability    `json:"auth,omitempty"`
+	Connect *ConnectCapability `json:"connect,omitempty"`
 	Channel *ChannelCapability `json:"channel,omitempty"`
 }
 

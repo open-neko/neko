@@ -10,7 +10,7 @@
  * Hermes is a subprocess per run and is no-op here; pg-boss alone bounds it.
  *
  * Cap source: DB scope='agent'.config.globalCap → default. Source of truth
- * is /settings/agent. Changes require a worker restart.
+ * is /admin/settings/agent. Changes require a worker restart.
  */
 
 import { getOrgId } from "@neko/db";

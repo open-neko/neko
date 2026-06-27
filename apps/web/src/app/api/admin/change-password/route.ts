@@ -22,6 +22,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db, reconnectPool, sql, writeLocalConfig } from "@neko/db";
+import { isDenied, requireAdminActor } from "@/lib/admin-auth";
 
 const MIN_LENGTH = 8;
 const FORBIDDEN = new Set(["secret", "password", "postgres"]);
@@ -35,6 +36,8 @@ function isPlainPasswordSafe(password: string): boolean {
 }
 
 export async function POST(request: NextRequest) {
+  const allowed = await requireAdminActor();
+  if (isDenied(allowed)) return allowed;
   try {
     const body = (await request.json().catch(() => ({}))) as { password?: unknown };
     const password = typeof body.password === "string" ? body.password.trim() : "";
@@ -98,6 +101,8 @@ export async function POST(request: NextRequest) {
  * has pg.password) without leaking the value.
  */
 export async function GET() {
+  const allowed = await requireAdminActor();
+  if (isDenied(allowed)) return allowed;
   const { hasCustomPassword } = await import("@neko/db");
   return NextResponse.json({ changed: hasCustomPassword() });
 }

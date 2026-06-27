@@ -5,6 +5,7 @@
 // customer engine, the hard boundary against the OpenNeko internal GraphJin,
 // and that connection secrets stay value-blind to the agent/payload/audit.
 
+import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   createTestOrg,
@@ -12,7 +13,17 @@ import {
   deleteTestOrg,
   uniqueOrgId,
 } from "@neko/db/test-helpers";
-import { data_source, data_source_secret, db, eq, pool } from "@neko/db";
+import {
+  data_source,
+  data_source_secret,
+  db,
+  eq,
+  GRAPHJIN_CONFIG_SCOPE,
+  llm_provider_config,
+  pool,
+  work_run,
+  work_thread,
+} from "@neko/db";
 import {
   createActionRequest,
   executeApprovedActionRequest,
@@ -73,6 +84,14 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
     registerSourceConfigAdminAdapter();
     process.env.OPENNEKO_GRAPHJIN_URL = INTERNAL;
     await createTestOrg(orgId);
+    await db().insert(llm_provider_config).values({
+      org_id: orgId,
+      scope: GRAPHJIN_CONFIG_SCOPE,
+      provider: "graphjin-config",
+      enabled: true,
+      config: { sourceConfigEnabled: true },
+      secrets: {},
+    });
     await db().insert(data_source).values({
       org_id: orgId,
       kind: "graphjin",
@@ -98,20 +117,82 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
       .where(eq(data_source.org_id, orgId));
   }
 
+  async function setSourceConfigEnabled(enabled: boolean) {
+    await db()
+      .update(llm_provider_config)
+      .set({
+        enabled,
+        config: { sourceConfigEnabled: enabled },
+        updated_at: new Date(),
+      })
+      .where(eq(llm_provider_config.org_id, orgId));
+  }
+
   async function runAction(payload: Record<string, unknown>) {
     const request = await createActionRequest({
       orgId,
       scope: "internal",
       kind: "source_config_admin",
       target: String(payload.action ?? ""),
-      payload,
-      riskLevel: "high",
-      status: "approved",
-      summary: "test",
-    });
+	      payload,
+	      riskLevel: "high",
+	      status: "approved",
+	      summary: "test",
+	      actorUserId: "admin-user",
+	      actorRole: "admin",
+	    });
     const result = await executeApprovedActionRequest(orgId, request.id);
     return { request, result };
   }
+
+  it("refuses execution when the GraphJin config capability is disabled", async () => {
+    await setEndpoint(CUSTOMER);
+    await setSourceConfigEnabled(false);
+    const { calls } = installFetchMock();
+    const { result } = await runAction({
+      action: "set_source_access",
+      source: "adventureworks",
+      read: "authenticated",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/capability is disabled/i);
+    expect(calls).toHaveLength(0);
+    await setSourceConfigEnabled(true);
+  });
+
+  it("control plane ignores a spoofed admin role when the bound run is not admin", async () => {
+    await setSourceConfigEnabled(true);
+    const threadId = randomUUID();
+    const runId = randomUUID();
+    await db().insert(work_thread).values({
+      id: threadId,
+      org_id: orgId,
+      title: "member run",
+    });
+    await db().insert(work_run).values({
+      id: runId,
+      org_id: orgId,
+      thread_id: threadId,
+      backend: "hermes",
+      status: "running",
+      actor_role: "member",
+    });
+
+    await expect(
+      inProcessControlPlane.createActionRequest({
+        orgId,
+        scope: "internal",
+        kind: "source_config_admin",
+        target: "access:adventureworks",
+        payload: { action: "set_source_access", source: "adventureworks" },
+        riskLevel: "high",
+        status: "pending_approval",
+        summary: "spoof",
+        workRunId: runId,
+        actorRole: "admin",
+      }),
+    ).rejects.toThrow(/admin-only/i);
+  });
 
   it("set_source_access runs the two-phase preview→apply with the right shape", async () => {
     await setEndpoint(CUSTOMER);
@@ -216,7 +297,10 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
   it("describeSourceGraph summarizes gj_catalog rows for the customer engine", async () => {
     await setEndpoint(CUSTOMER);
     installFetchMock();
-    const graph = await inProcessControlPlane.describeSourceGraph({ orgId });
+    const graph = await inProcessControlPlane.describeSourceGraph({
+      orgId,
+      actorRole: "admin",
+    });
     expect(graph.reachable).toBe(true);
     expect(graph.host).toBe("customer-gj");
     expect(graph.databases?.[0]?.id).toBe("database-1");

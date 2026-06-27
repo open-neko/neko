@@ -7,16 +7,51 @@ import { getOrgId } from "@/lib/db";
 import { getCurrentActor } from "@/lib/actor";
 import { getSetupCompleteAt } from "@/lib/org-state";
 import OnboardingWizard, { type WizardInitial } from "./OnboardingWizard";
+import OnboardingUnavailable from "./OnboardingUnavailable";
 import PersonaStep from "./PersonaStep";
 
 const ORG_NAME_STUB = "My Workspace";
 
+type OnboardingLoadResult =
+  | { kind: "settings" }
+  | { kind: "persona"; initialRoleTemplate: string }
+  | { kind: "wizard"; initial: WizardInitial };
+
 export default async function OnboardingPage() {
   await connection();
+  const result = await loadOnboarding().catch((error) => {
+    console.error("[onboarding] failed to load", error);
+    return { kind: "error" as const };
+  });
+
+  if (result.kind === "settings") {
+    redirect("/admin/settings");
+  }
+
+  if (result.kind === "error") {
+    return <OnboardingUnavailable />;
+  }
+
+  if (result.kind === "persona") {
+    return (
+      <Suspense fallback={null}>
+        <PersonaStep initialRoleTemplate={result.initialRoleTemplate} />
+      </Suspense>
+    );
+  }
+
+  return (
+    <Suspense fallback={null}>
+      <OnboardingWizard initial={result.initial} />
+    </Suspense>
+  );
+}
+
+async function loadOnboarding(): Promise<OnboardingLoadResult> {
   const orgId = await getOrgId();
   const setupCompleteAt = await getSetupCompleteAt(orgId);
   if (!setupCompleteAt) {
-    redirect("/settings");
+    return { kind: "settings" };
   }
 
   // CV3: onboarding is mode-aware. The ORG wizard below is the admin's
@@ -26,11 +61,7 @@ export default async function OnboardingPage() {
   const actor = await getCurrentActor();
   if (actor.role === "member" && actor.userId) {
     const profile = await getOperatorProfile(orgId, actor.userId);
-    return (
-      <Suspense fallback={null}>
-        <PersonaStep initialRoleTemplate={profile?.roleTemplate ?? ""} />
-      </Suspense>
-    );
+    return { kind: "persona", initialRoleTemplate: profile?.roleTemplate ?? "" };
   }
 
   const [wizardRows, orgRows] = await Promise.all([
@@ -61,9 +92,5 @@ export default async function OnboardingPage() {
     priorities: row?.priorities ?? [],
   };
 
-  return (
-    <Suspense fallback={null}>
-      <OnboardingWizard initial={initial} />
-    </Suspense>
-  );
+  return { kind: "wizard", initial };
 }

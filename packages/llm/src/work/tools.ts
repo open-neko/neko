@@ -561,7 +561,10 @@ export function buildSourceConfigManagerServer(opts: {
         {
           type: "text" as const,
           text: JSON.stringify(
-            await controlPlane.describeSourceGraph({ orgId: opts.orgId }),
+            await controlPlane.describeSourceGraph({
+              orgId: opts.orgId,
+              runId: opts.runId ?? null,
+            }),
           ),
         },
       ],
@@ -574,8 +577,8 @@ export function buildSourceConfigManagerServer(opts: {
       "List the NAMES of connection secrets the operator has stored for",
       "data sources (never the values). Use these names as the `secretRef`",
       "when proposing register_source, and offer them to the operator. If a",
-      "needed secret isn't listed, tell the operator to add it in Settings —",
-      "never ask for the value in chat.",
+      "needed secret isn't listed, tell the operator to add it on the",
+      "GraphJin Config page — never ask for the value in chat.",
     ].join(" "),
     {},
     async () => ({
@@ -583,7 +586,10 @@ export function buildSourceConfigManagerServer(opts: {
         {
           type: "text" as const,
           text: JSON.stringify(
-            await controlPlane.listSourceSecretNames({ orgId: opts.orgId }),
+            await controlPlane.listSourceSecretNames({
+              orgId: opts.orgId,
+              runId: opts.runId ?? null,
+            }),
           ),
         },
       ],
@@ -596,7 +602,7 @@ export function buildSourceConfigManagerServer(opts: {
       "Propose a configuration change to the CUSTOMER data engine:",
       "- add_role { name, match }: a GraphJin role selected by a JWT match expression.",
       "- set_source_access { source, read, write, delete }: access mode per source (one of public|authenticated|account|owner|admin|blocked; write/delete also accept blocked).",
-      "- register_source { name, kind, host?, port?, dbname?, user?, secretRef? }: add a source. For a database, pass connection fields and a secretRef — the NAME of a stored secret holding the password/connection string. NEVER pass the secret value itself; the operator stores it via Settings and the system resolves it on apply.",
+      "- register_source { name, kind, host?, port?, dbname?, user?, secretRef? }: add a source. For a database, pass connection fields and a secretRef — the NAME of a stored secret holding the password/connection string. NEVER pass the secret value itself; the operator stores it via GraphJin Config and the system resolves it on apply.",
       "NEVER applies directly — files an action request that an ADMIN must",
       "approve. After proposing, tell the operator what you proposed and end",
       "your turn. This never touches OpenNeko's own internal database.",
@@ -1017,7 +1023,7 @@ export function buildPluginActionServer(
         ? "Approval policy decided per-call."
         : typeof d.default_mode === "string"
           ? d.default_mode === "auto"
-            ? "Auto-approved by default — runs without user confirmation. Operators can override via /settings/rules."
+            ? "Auto-approved by default — runs without user confirmation. Operators can override via /admin/rules."
             : "Asks the user for approval before running. You MUST set `intent` to a clear one-sentence explanation."
           : [
               externalMode ? `external: ${externalMode}` : null,
@@ -1069,7 +1075,7 @@ export function buildPluginActionServer(
                   ok: false,
                   decision: "denied",
                   reason:
-                    "no policy matches this scope/kind — refuse for safety. Operator must define a policy in /settings/rules first.",
+                    "no policy matches this scope/kind — refuse for safety. Operator must define a policy in /admin/rules first.",
                 }),
               },
             ],

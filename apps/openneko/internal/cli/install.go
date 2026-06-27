@@ -39,7 +39,7 @@ func newInstallCmd() *cobra.Command {
 
 			// Fetch the deployment-wide install policy. Privileged install
 			// paths (--unverified, git-URL skills) need an admin to have
-			// opted in via /settings/security. If the worker is
+			// opted in via /admin/settings/security. If the worker is
 			// unreachable, the fetch falls back to the secure default —
 			// operators can't turn off the policy by killing the worker.
 			pol, source, fetchErr := policy.Fetch(context.Background())
@@ -49,9 +49,9 @@ func newInstallCmd() *cobra.Command {
 
 			if isGitURLSpec(spec) {
 				if !pol.Allows(policy.SourceGitURL) {
-					hint := "ask an admin to enable Git-URL skill installs at /settings/security"
+					hint := "ask an admin to enable Git-URL skill installs at /admin/settings/security"
 					if source == "unreachable" {
-						hint = "start the worker so the policy can be read, or ask an admin to enable Git-URL skill installs at /settings/security"
+						hint = "start the worker so the policy can be read, or ask an admin to enable Git-URL skill installs at /admin/settings/security"
 					}
 					return WithExit(2, fmt.Errorf("install: Git-URL skill installs are disabled by deployment policy. %s", hint))
 				}
@@ -89,9 +89,9 @@ func newInstallCmd() *cobra.Command {
 			}
 
 			if unverified && !pol.Allows(policy.SourceUnverified) {
-				hint := "ask an admin to enable it at /settings/security"
+				hint := "ask an admin to enable it at /admin/settings/security"
 				if source == "unreachable" {
-					hint = "start the worker so the policy can be read, or ask an admin to enable --unverified at /settings/security"
+					hint = "start the worker so the policy can be read, or ask an admin to enable --unverified at /admin/settings/security"
 				}
 				return WithExit(2, fmt.Errorf("install: --unverified is disabled by deployment policy. %s", hint))
 			}

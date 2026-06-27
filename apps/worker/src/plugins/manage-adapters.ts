@@ -371,13 +371,26 @@ function gqlValue(v: unknown): string {
  */
 export function registerSourceConfigAdminAdapter(): void {
   registerActionAdapter("source_config_admin", async ({ request }) => {
-    const { data_source, data_source_secret, and, db, desc, eq } = await import(
-      "@neko/db"
-    );
+    const {
+      data_source,
+      data_source_secret,
+      and,
+      db,
+      desc,
+      eq,
+      getGraphjinConfigSettingsForOrg,
+    } = await import("@neko/db");
     const { graphjinQuery, mintGraphjinToken } = await import("@neko/llm/graphjin");
     const payload = request.payload as Record<string, unknown>;
     const action = String(payload.action ?? "");
     const orgId = request.orgId;
+
+    const settings = await getGraphjinConfigSettingsForOrg(orgId);
+    if (!settings.sourceConfigEnabled) {
+      throw new Error(
+        "source_config_admin: GraphJin config capability is disabled",
+      );
+    }
 
     const [src] = await db()
       .select({ graphqlUrl: data_source.graphql_url })
@@ -461,7 +474,7 @@ export function registerSourceConfigAdminAdapter(): void {
             .limit(1);
           if (!row) {
             throw new Error(
-              `register_source: no stored secret named "${ref}" — add it in Settings first`,
+              `register_source: no stored secret named "${ref}" — add it in GraphJin Config first`,
             );
           }
           const { maybeDecryptSecret } = await import("@neko/llm/secrets");
@@ -475,11 +488,14 @@ export function registerSourceConfigAdminAdapter(): void {
       throw new Error(`source_config_admin: unknown action "${action}"`);
     }
 
+    if (!request.approvedByUserId && request.actorRole !== "admin") {
+      throw new Error(
+        "source_config_admin: missing trusted admin approval provenance",
+      );
+    }
     const adminToken = mintGraphjinToken({
       orgId,
-      userId: request.payload && (payload.actorUserId as string)
-        ? (payload.actorUserId as string)
-        : "admin",
+      userId: request.approvedByUserId ?? request.actorUserId ?? null,
       role: "admin",
       ttlSeconds: 120,
     });

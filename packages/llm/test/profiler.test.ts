@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { buildProfilerPrompt, validateBusinessProfile } from "../src/profiler";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  buildProfilerPrompt,
+  profilerAgentRunControls,
+  profilerTimeoutMs,
+  validateBusinessProfile,
+} from "../src/profiler";
 
 const VALID_PROFILE = `# AdventureWorks Cycles — Business Profile
 
@@ -24,6 +29,30 @@ Manufacturing, sales, fulfillment, and finance.
 - Bikes and accessories are the core offer.
 - Wholesale and DTC both matter.
 - Europe is a growth priority.`;
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("profilerTimeoutMs", () => {
+  it("defaults to a bounded onboarding timeout", () => {
+    vi.stubEnv("OPENNEKO_PROFILER_TIMEOUT_MS", "");
+    expect(profilerTimeoutMs()).toBe(6 * 60_000);
+  });
+
+  it("allows an explicit override", () => {
+    vi.stubEnv("OPENNEKO_PROFILER_TIMEOUT_MS", "45000");
+    expect(profilerTimeoutMs()).toBe(45_000);
+  });
+
+  it("disables hidden backend retries for onboarding profiler runs", () => {
+    vi.stubEnv("OPENNEKO_PROFILER_TIMEOUT_MS", "45000");
+    expect(profilerAgentRunControls()).toEqual({
+      retries: 0,
+      timeoutMs: 45_000,
+    });
+  });
+});
 
 describe("validateBusinessProfile", () => {
   it("accepts a profile that matches the required markdown contract", () => {
@@ -106,6 +135,10 @@ describe("buildProfilerPrompt knowledge inlining", () => {
     expect(prompt).not.toContain(bigInsights);
     expect(prompt).toContain("join: public.hub_0.col_0 -> public.other_0.id");
     expect(prompt).toContain("- help:topic0");
+    expect(prompt).toContain("Only use `graphjin cli execute_graphql`");
+    expect(prompt).not.toContain("graphjin cli health");
+    expect(prompt).not.toContain("graphjin cli find_path");
+    expect(prompt).not.toContain("graphjin cli explore_relationships");
     // Raw agentic packs run 50KB+; the whole prompt must stay well under
     // the size that hangs the hermes first stream.
     expect(prompt.length).toBeLessThan(25_000);

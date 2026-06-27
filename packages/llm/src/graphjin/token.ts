@@ -52,6 +52,8 @@ export function mintGraphjinToken(input: GraphjinTokenInput): string {
     JSON.stringify({
       sub: input.userId ?? "service",
       role: input.role,
+      roles: [input.role],
+      account_id: input.orgId,
       org_id: input.orgId,
       iat: now,
       exp: now + (input.ttlSeconds ?? GRAPHJIN_TOKEN_TTL_SECONDS),
@@ -66,6 +68,8 @@ export function mintGraphjinToken(input: GraphjinTokenInput): string {
 export type GraphjinTokenClaims = {
   sub: string;
   role: string;
+  roles?: string[];
+  account_id?: string;
   org_id: string;
   iat: number;
   exp: number;
@@ -95,6 +99,7 @@ export function verifyGraphjinToken(
     return null;
   }
   if (claims.org_id !== orgId) return null;
+  if (claims.account_id !== undefined && claims.account_id !== orgId) return null;
   if (claims.exp * 1000 <= nowMs) return null;
   return claims;
 }

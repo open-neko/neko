@@ -122,7 +122,7 @@ describe("maskSecret", () => {
 });
 
 // Env-based provider inference was removed (provider config lives in the
-// llm_provider_config table only, populated by /setup or /settings/agent).
+// llm_provider_config table only, populated by /setup or /admin/settings/agent).
 // The legacy readPrimaryProviderConfigFromEnv / readResearchProviderConfigFromEnv
 // are now no-ops that always return null — covered by their integration paths
 // in the resolver / settings tests.

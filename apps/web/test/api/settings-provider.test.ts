@@ -145,7 +145,7 @@ describeIfDb("/api/settings/provider", () => {
     });
     expect(res.status).toBe(400);
     expect((res.body as { error: string }).error).toMatch(
-      /Switch the backend in \/settings\/agent first/,
+      /Switch the backend in \/admin\/settings\/agent first/,
     );
     expect(mockProvisionHostConfig).not.toHaveBeenCalled();
   });

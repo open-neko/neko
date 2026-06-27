@@ -224,6 +224,16 @@ const server = createServer(
       },
     },
     plugins: {
+      status: () =>
+        pluginRegistry?.status() ?? {
+          loaded: [],
+          skipped: [],
+          flagged: [],
+          kinds: [],
+          vmsRunning: 0,
+          authProvider: null,
+          channels: [],
+        },
       getRegisteredActionDescriptors: () =>
         pluginRegistry?.getRegisteredActionDescriptors() ?? [],
     },
@@ -309,9 +319,7 @@ registerBuiltinAdapters();
   registerUserAdminAdapter();
   registerChannelAdminAdapter();
   registerDataSourceAdminAdapter();
-  if (await orgHasFeature(ADMIN_ORG_ID, FEATURE.dataAccessGovernance)) {
-    registerSourceConfigAdminAdapter();
-  }
+  registerSourceConfigAdminAdapter();
   registerPluginManagementAdapters({
     repoRoot: process.cwd(),
     getInstallPolicy: async () => {
@@ -430,7 +438,7 @@ registerChannelOutputDelivery();
 
 const concurrency = await resolveAgentConcurrency(ADMIN_ORG_ID);
 console.log(
-  `[worker] concurrency: globalCap=${concurrency.globalCap} (configure in /settings/agent; restart required)`,
+  `[worker] concurrency: globalCap=${concurrency.globalCap} (configure in /admin/settings/agent; restart required)`,
 );
 
 // GraphJin URL — the worker is a client of neko-graphjin, the OpenNeko

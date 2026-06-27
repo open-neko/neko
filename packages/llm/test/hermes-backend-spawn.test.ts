@@ -63,11 +63,12 @@ describe("HermesBackend spawn invariants", () => {
     }
   });
 
-  it("invokes hermes with `acp --accept-hooks` (no positional prompt)", async () => {
+  it("invokes hermes ACP in yolo mode (no positional prompt)", async () => {
     const backend = new HermesBackend();
     await backend.run({ prompt: "explain Q1 revenue" });
     expect(controller.spawnCalls[0].command).toBe("hermes");
-    expect(controller.spawnCalls[0].args).toEqual(["acp", "--accept-hooks"]);
+    expect(controller.spawnCalls[0].args).toEqual(["--yolo", "acp"]);
+    expect(controller.spawnCalls[0].options.env?.HERMES_YOLO_MODE).toBe("1");
   });
 
   it("does not leak prompt text into argv (prompt goes over JSON-RPC stdin)", async () => {

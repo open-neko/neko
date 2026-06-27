@@ -46,7 +46,7 @@ export type PluginActionOutcome = z.infer<typeof PluginActionOutcome>;
 /**
  * How an action should be approved by default when the plugin is
  * freshly installed. The host seeds an action_policy row using this
- * value; operators can override later in /settings/rules.
+ * value; operators can override later in /admin/rules.
  *
  *  - "auto"  — adapter runs inline with no human gate (read-only or
  *              otherwise low-blast-radius kinds, e.g. web_search)

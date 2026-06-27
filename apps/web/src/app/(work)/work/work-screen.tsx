@@ -1921,7 +1921,7 @@ function FenceAwareBubble({
       ) : null}
       {ruleEvent ? (
         <div key={`${keyPrefix}-rule`} className="flex justify-start mt-1.5 text-left">
-          <RuleSavedCard payload={ruleEvent} href="/settings/rules" />
+          <RuleSavedCard payload={ruleEvent} href="/admin/rules" />
         </div>
       ) : null}
       {workflowEvent ? (

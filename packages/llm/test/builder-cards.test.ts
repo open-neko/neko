@@ -189,7 +189,7 @@ describe("policySavedCard", () => {
     expect(body?.text).toContain("`auto_approve`");
     expect(body?.text).toContain("external");
     expect(body?.text).toContain("`send_message`");
-    expect(body?.text).toContain("[Open detail](/settings/rules/pol-1)");
+    expect(body?.text).toContain("[Open detail](/admin/rules/pol-1)");
   });
 
   it("shows '(all kinds)' when appliesToKinds is empty", () => {

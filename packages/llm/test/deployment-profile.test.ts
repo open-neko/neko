@@ -1,6 +1,6 @@
 // SEC8 — the deployment dial: one env knob resolves the posture; the
 // behavior envelopes shrink with it and org/hardened postures demand an
-// ADMIN approver for chat-driven plugin management.
+	// ADMIN approver for chat-driven plugin management.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -51,12 +51,12 @@ describe("SEC8 deployment profiles", () => {
     expect(hardened.memoryWritesPerHour).toBeGreaterThanOrEqual(1);
   });
 
-  it("org/hardened require an admin approver for plugin management", () => {
-    expect(profilePolicyDefaults("solo").pluginApproverRole).toBeNull();
-    expect(profilePolicyDefaults("team").pluginApproverRole).toBeNull();
-    expect(profilePolicyDefaults("org").pluginApproverRole).toBe("admin");
-    expect(profilePolicyDefaults("hardened").pluginApproverRole).toBe("admin");
-  });
+	  it("requires an admin approver for plugin management in every profile", () => {
+	    expect(profilePolicyDefaults("solo").pluginApproverRole).toBe("admin");
+	    expect(profilePolicyDefaults("team").pluginApproverRole).toBe("admin");
+	    expect(profilePolicyDefaults("org").pluginApproverRole).toBe("admin");
+	    expect(profilePolicyDefaults("hardened").pluginApproverRole).toBe("admin");
+	  });
 
   it("hardened warns when the model host is a public cloud API", () => {
     process.env.OPENNEKO_PROFILE = "hardened";

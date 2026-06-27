@@ -21,16 +21,22 @@ import {
   seedProvider,
   uniqueOrgId,
 } from "@neko/db/test-helpers";
-import { db, eq, organization, pool } from "@neko/db";
+import { app_user, db, eq, organization, pool } from "@neko/db";
 import { callRoute } from "../_helpers/route";
 
-const { mockGetOrgId } = vi.hoisted(() => ({
+const { mockGetOrgId, mockGetCurrentUser } = vi.hoisted(() => ({
   mockGetOrgId: vi.fn(),
+  mockGetCurrentUser: vi.fn(),
 }));
 
 vi.mock("@/lib/db", async () => {
   const actual = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
   return { ...actual, getOrgId: mockGetOrgId };
+});
+
+vi.mock("@/lib/auth", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/auth")>("@/lib/auth");
+  return { ...actual, getCurrentUser: mockGetCurrentUser };
 });
 
 const reachable = await dbReachable();
@@ -61,6 +67,7 @@ describeIfDb("/settings/finish", () => {
     orgId = uniqueOrgId("api-finish");
     await createTestOrg(orgId);
     mockGetOrgId.mockResolvedValue(orgId);
+    mockGetCurrentUser.mockResolvedValue(null);
   });
 
   afterEach(async () => {
@@ -70,6 +77,31 @@ describeIfDb("/settings/finish", () => {
 
   afterAll(async () => {
     await pool().end();
+  });
+
+  async function seedUser(role: "admin" | "member"): Promise<string> {
+    const id = `finish-${role}-${Math.random().toString(36).slice(2, 8)}`;
+    await db().insert(app_user).values({
+      id,
+      email: `${id}@example.com`,
+      name: role,
+      org_id: orgId,
+      role,
+    });
+    return id;
+  }
+
+  it("rejects signed-in non-admin users", async () => {
+    const userId = await seedUser("member");
+    mockGetCurrentUser.mockResolvedValue({
+      id: userId,
+      email: "member@example.com",
+      name: null,
+    });
+
+    const res = await callRoute(POST, { method: "POST" });
+    expect(res.status).toBe(403);
+    expect(await readSetupCompleteAt(orgId)).toBeNull();
   });
 
   it("rejects when no data source is configured", async () => {

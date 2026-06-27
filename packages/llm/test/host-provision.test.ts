@@ -20,7 +20,11 @@ import {
   uniqueOrgId,
 } from "@neko/db/test-helpers";
 import { db, eq, data_source, pool } from "@neko/db";
-import { hermesHomeForOrg, provisionHostConfig } from "../src/host-provision";
+import {
+  hermesHomeForOrg,
+  patchGraphjinSourcesJwtSecret,
+  provisionHostConfig,
+} from "../src/host-provision";
 
 const reachable = await dbReachable();
 const describeIfDb = reachable ? describe : describe.skip;
@@ -45,6 +49,59 @@ function graphjinPath(home: string): string {
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HERMES_HOME = process.env.HERMES_HOME;
 const ORIGINAL_XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
+
+describe("patchGraphjinSourcesJwtSecret", () => {
+  it("replaces a source-mode placeholder", () => {
+    const raw = `auth:
+  type: jwt
+  jwt:
+    secret: "REPLACE_WITH_PER_ORG_SECRET_B64"
+`;
+
+    expect(patchGraphjinSourcesJwtSecret(raw, "new-secret")).toEqual({
+      changed: true,
+      content: `auth:
+  type: jwt
+  jwt:
+    secret: "new-secret"
+`,
+    });
+  });
+
+  it("repairs a stale concrete source-mode secret", () => {
+    const raw = `auth:
+  type: jwt
+  jwt:
+    # base64 of graphjinSigningSecretB64(orgId)
+    secret: "old-secret"
+    audience: ""
+`;
+
+    expect(patchGraphjinSourcesJwtSecret(raw, "new-secret")).toEqual({
+      changed: true,
+      content: `auth:
+  type: jwt
+  jwt:
+    # base64 of graphjinSigningSecretB64(orgId)
+    secret: "new-secret"
+    audience: ""
+`,
+    });
+  });
+
+  it("leaves matching source-mode secrets untouched", () => {
+    const raw = `auth:
+  type: jwt
+  jwt:
+    secret: "same-secret"
+`;
+
+    expect(patchGraphjinSourcesJwtSecret(raw, "same-secret")).toEqual({
+      changed: false,
+      content: raw,
+    });
+  });
+});
 
 describeIfDb("provisionHostConfig", () => {
   let orgId: string;

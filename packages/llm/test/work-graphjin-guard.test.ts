@@ -117,6 +117,64 @@ describe("ensureGraphjinGuard wrapper script", () => {
     expect(r.status, `bash -n stderr: ${r.stderr}`).toBe(0);
   });
 
+  it("blocks raw GraphJin HTTP probes through curl and bounds other curl calls", async () => {
+    const guardDir = await mkdtemp(join(tmpdir(), "neko-guard-http-"));
+    const fakeDir = await mkdtemp(join(tmpdir(), "neko-fake-curl-"));
+    const prevPath = process.env.PATH;
+    try {
+      const fakeCurl = join(fakeDir, "curl");
+      await writeFile(
+        fakeCurl,
+        "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\"\n",
+        { encoding: "utf8", mode: 0o755 },
+      );
+      process.env.PATH = `${fakeDir}:${prevPath ?? ""}`;
+      await ensureGraphjinGuard(guardDir, "/bin/echo");
+    } finally {
+      if (prevPath === undefined) delete process.env.PATH;
+      else process.env.PATH = prevPath;
+    }
+
+    try {
+      const curlWrapper = join(guardDir, "curl");
+      const syntax = spawnSync("bash", ["-n", curlWrapper], { encoding: "utf8" });
+      expect(syntax.status, `bash -n stderr: ${syntax.stderr}`).toBe(0);
+
+      const blocked = spawnSync(
+        curlWrapper,
+        ["-i", "http://localhost:8080/api/v1/mcp"],
+        { encoding: "utf8" },
+      );
+      expect(blocked.status).toBe(2);
+      expect(blocked.stderr).toContain("blocks raw HTTP access to GraphJin");
+
+      const bounded = spawnSync(curlWrapper, ["http://example.test"], {
+        encoding: "utf8",
+      });
+      expect(bounded.status).toBe(0);
+      expect(bounded.stdout.trim().split("\n")).toEqual([
+        "--max-time",
+        "20",
+        "http://example.test",
+      ]);
+
+      const explicitTimeout = spawnSync(
+        curlWrapper,
+        ["--max-time", "3", "http://example.test"],
+        { encoding: "utf8" },
+      );
+      expect(explicitTimeout.status).toBe(0);
+      expect(explicitTimeout.stdout.trim().split("\n")).toEqual([
+        "--max-time",
+        "3",
+        "http://example.test",
+      ]);
+    } finally {
+      await rm(guardDir, { recursive: true, force: true });
+      await rm(fakeDir, { recursive: true, force: true });
+    }
+  });
+
   it("execs the underlying binary for read queries", () => {
     const r = spawnSync(wrapper, [
       "cli",
@@ -226,14 +284,14 @@ describe("ensureGraphjinGuard wrapper script", () => {
     expect(mutation.status).toBe(2);
   });
 
-  it("pins XDG_CONFIG_HOME for the wrapped graphjin process", async () => {
+  it("pins XDG_CONFIG_HOME and HOME for the wrapped graphjin process", async () => {
     const prev = process.env.XDG_CONFIG_HOME;
     const pinned = join(dir, "pinned-config");
     process.env.XDG_CONFIG_HOME = pinned;
     const fake = join(dir, "fake-graphjin");
     const pinnedBin = join(dir, "pinned-bin");
     await mkdir(pinnedBin);
-    await writeFile(fake, "#!/usr/bin/env bash\necho \"$XDG_CONFIG_HOME\"\n", {
+    await writeFile(fake, "#!/usr/bin/env bash\necho \"$XDG_CONFIG_HOME|$HOME\"\n", {
       encoding: "utf8",
       mode: 0o755,
     });
@@ -250,7 +308,7 @@ describe("ensureGraphjinGuard wrapper script", () => {
     else process.env.XDG_CONFIG_HOME = prev;
 
     expect(r.status).toBe(0);
-    expect(r.stdout.trim()).toBe(pinned);
+    expect(r.stdout.trim()).toBe(`${pinned}|${pinned}`);
   });
 });
 
