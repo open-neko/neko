@@ -367,7 +367,13 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
   // mid-turn death message below surfaces.
   env.PYTHONFAULTHANDLER = "1";
 
-  const child = spawn("hermes", ["acp", "--accept-hooks"], {
+  // OpenNeko owns the safety boundary here: the agent runs with the per-run
+  // graphjin guard first on PATH and any MCP tools are mounted explicitly.
+  // Hermes' internal dangerous-command approval bridge is not stable across
+  // releases (v2026.5 passes allow_permanent to an older ACP callback), so
+  // bypass it instead of letting headless jobs hang on approval prompts.
+  env.HERMES_YOLO_MODE = "1";
+  const child = spawn("hermes", ["--yolo", "acp"], {
     stdio: ["pipe", "pipe", "pipe"],
     cwd,
     env,
@@ -678,4 +684,3 @@ function extractErrorText(raw: unknown): string {
   if (raw && typeof raw === "object") return JSON.stringify(raw);
   return "Tool failed";
 }
-

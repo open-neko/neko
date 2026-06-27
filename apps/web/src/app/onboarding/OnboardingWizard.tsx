@@ -53,10 +53,8 @@ export default function OnboardingWizard({ initial = EMPTY_INITIAL }: { initial?
   const [error, setError] = useState<string | null>(null);
 
   // If we landed here because the previous profile build failed, surface
-  // the error as a toast. The URL only carries a flag (?failed=1); the
-  // actual message comes from the server, so the toast text isn't
-  // attacker-controllable. If the URL flag is forged but no real failure
-  // exists, silently no-op.
+  // a safe failure toast. The URL only carries a flag (?failed=1); the
+  // server decides whether a real failure exists and returns user-safe copy.
   useEffect(() => {
     if (searchParams.get("failed") !== "1") return;
     let cancelled = false;

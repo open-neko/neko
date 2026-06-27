@@ -1,4 +1,4 @@
-import { shellToolName } from "./agent-backend";
+import { shellToolName, type AgentRunOptions } from "./agent-backend";
 import { resolveAgentBackend } from "./agent-backend-resolver";
 import { runValidatedAgentTurn } from "./agent-validate-loop";
 import {
@@ -188,6 +188,20 @@ export type ProfilerResult = {
   businessProfile: string;
 };
 
+const DEFAULT_PROFILER_TIMEOUT_MS = 3 * 60_000;
+
+export function profilerTimeoutMs(): number {
+  const env = Number(process.env.OPENNEKO_PROFILER_TIMEOUT_MS);
+  return Number.isFinite(env) && env > 0 ? env : DEFAULT_PROFILER_TIMEOUT_MS;
+}
+
+export function profilerAgentRunControls(): Pick<AgentRunOptions, "retries" | "timeoutMs"> {
+  return {
+    retries: 0,
+    timeoutMs: profilerTimeoutMs(),
+  };
+}
+
 export async function runProfiler(args: {
   orgId: string;
   mcpUrl: string;
@@ -238,7 +252,7 @@ export async function runProfiler(args: {
     shellTool: shellToolName(backend.id),
   });
 
-  if (onProgress) onProgress("Running profiler agent (1–2 minutes)…");
+  if (onProgress) onProgress("Running profiler agent (up to 3 minutes)…");
   const startedAt = Date.now();
   // GJ2: iterative validation loop — a profile missing required sections
   // (or containing failure text) goes back to the agent for a corrective
@@ -250,6 +264,7 @@ export async function runProfiler(args: {
       orgId,
       tag: jobId ?? orgId,
       workspace,
+      ...profilerAgentRunControls(),
       debug: debug === true,
     },
     label: `profiler org=${orgId}`,

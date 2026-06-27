@@ -46,6 +46,8 @@ const EXECUTOR_SUBCOMMANDS = [
   "execute_workflow",
 ] as const;
 
+const RAW_HTTP_TOOLS = ["curl", "wget"] as const;
+
 /**
  * Allowlist gate: the agent's contract is `graphjin cli <subcommand>` only.
  * Anything else (`serve`, `migrate`, `admin`, bare invocation, etc.) is
@@ -153,6 +155,7 @@ export async function ensureGraphjinGuard(
   ].join("\n");
   await writeFile(compactCliPath, await readFile(compactCliSource()), { mode: 0o755 });
   await writeFile(wrapperPath, script, { encoding: "utf8", mode: 0o755 });
+  await ensureRawHttpToolGuards(binRoot);
   return wrapperPath;
 }
 
@@ -160,10 +163,81 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-export async function resolveBinaryOnPath(name: string): Promise<string | null> {
+async function ensureRawHttpToolGuards(binRoot: string): Promise<void> {
+  await Promise.all(
+    RAW_HTTP_TOOLS.map(async (tool) => {
+      const realBinary = await resolveBinaryOnPath(tool, [binRoot]);
+      const wrapperPath = join(binRoot, tool);
+      await writeFile(wrapperPath, rawHttpToolGuardScript(tool, realBinary), {
+        encoding: "utf8",
+        mode: 0o755,
+      });
+    }),
+  );
+}
+
+function rawHttpToolGuardScript(
+  tool: (typeof RAW_HTTP_TOOLS)[number],
+  realBinary: string | null,
+): string {
+  const timeoutExec =
+    tool === "curl"
+      ? 'exec "$real_binary" --max-time "$timeout_seconds" "$@"'
+      : 'exec "$real_binary" "--timeout=$timeout_seconds" "$@"';
+  const timeoutCases =
+    tool === "curl"
+      ? "--max-time|--max-time=*|-m|-m*)"
+      : "--timeout|--timeout=*|-T|-T*)";
+
+  return [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    "",
+    "for arg in \"$@\"; do",
+    "  case \"$arg\" in",
+    "    */api/v1/mcp*|*/api/v1/graphql*)",
+    "      echo \"OpenNeko blocks raw HTTP access to GraphJin from agent shell tools. Use 'graphjin cli execute_graphql' through the terminal tool.\" >&2",
+    "      exit 2",
+    "      ;;",
+    "  esac",
+    "done",
+    "",
+    realBinary
+      ? `real_binary=${shellQuote(realBinary)}`
+      : "real_binary=",
+    "if [[ -z \"$real_binary\" || ! -x \"$real_binary\" ]]; then",
+    `  echo "OpenNeko could not find a real ${tool} binary on PATH." >&2`,
+    "  exit 127",
+    "fi",
+    "",
+    "has_timeout=0",
+    "for arg in \"$@\"; do",
+    "  case \"$arg\" in",
+    `    ${timeoutCases}`,
+    "      has_timeout=1",
+    "      ;;",
+    "  esac",
+    "done",
+    "",
+    "if [[ \"$has_timeout\" -eq 1 ]]; then",
+    "  exec \"$real_binary\" \"$@\"",
+    "fi",
+    "",
+    "timeout_seconds=${OPENNEKO_HTTP_TOOL_TIMEOUT_SECONDS:-20}",
+    timeoutExec,
+    "",
+  ].join("\n");
+}
+
+export async function resolveBinaryOnPath(
+  name: string,
+  skipEntries: string[] = [],
+): Promise<string | null> {
   const pathValue = process.env.PATH || "";
+  const skip = new Set(skipEntries.filter(Boolean));
   for (const entry of pathValue.split(":")) {
     if (!entry) continue;
+    if (skip.has(entry)) continue;
     const candidate = join(entry, name);
     try {
       await access(candidate, fsConstants.X_OK);

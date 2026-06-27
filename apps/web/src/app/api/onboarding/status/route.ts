@@ -26,6 +26,9 @@ const STAGE_KINDS: StageKind[] = [
   "metric_refresh",
 ];
 
+const PROFILE_BUILD_FAILED_MESSAGE =
+  "Setup could not finish because the profiler agent failed. Check the agent provider configuration, then try again.";
+
 function isStageKind(s: string): s is StageKind {
   return (STAGE_KINDS as string[]).includes(s);
 }
@@ -123,8 +126,8 @@ async function loadMetricsProgress(orgId: string): Promise<MetricsProgress | und
  *  - ready        : a current profile exists → /
  *  - failed       : the most recent profile build failed and there's no
  *                   newer in-flight job → /onboarding with a toast. The UI
- *                   surfaces the error so the user knows why instead of
- *                   silently bouncing back to the wizard.
+ *                   surfaces a safe failure message instead of silently
+ *                   bouncing back to the wizard.
  */
 export async function GET() {
   if (isDemoMode()) {
@@ -140,7 +143,7 @@ export async function GET() {
   let profileRows: Array<{ id: string; version: number }>;
   let jobRows: Array<{ id: string; status: string }>;
   let wizardRows: Array<{ active_seats: string[] | null }>;
-  let lastJobRows: Array<{ id: string; status: string; error: string | null }>;
+  let lastJobRows: Array<{ id: string; status: string }>;
   try {
     [profileRows, jobRows, wizardRows, lastJobRows] = await Promise.all([
       db()
@@ -174,7 +177,6 @@ export async function GET() {
         .select({
           id: processing_job.id,
           status: processing_job.status,
-          error: processing_job.error,
         })
         .from(processing_job)
         .where(
@@ -221,7 +223,7 @@ export async function GET() {
     status = {
       state: "failed",
       jobId: lastJobRows[0].id,
-      message: lastJobRows[0].error ?? "The profiler agent failed.",
+      message: PROFILE_BUILD_FAILED_MESSAGE,
     };
   } else {
     status = { state: "needs_wizard" };

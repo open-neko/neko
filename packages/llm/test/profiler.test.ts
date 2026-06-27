@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { buildProfilerPrompt, validateBusinessProfile } from "../src/profiler";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  buildProfilerPrompt,
+  profilerAgentRunControls,
+  profilerTimeoutMs,
+  validateBusinessProfile,
+} from "../src/profiler";
 
 const VALID_PROFILE = `# AdventureWorks Cycles — Business Profile
 
@@ -24,6 +29,30 @@ Manufacturing, sales, fulfillment, and finance.
 - Bikes and accessories are the core offer.
 - Wholesale and DTC both matter.
 - Europe is a growth priority.`;
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("profilerTimeoutMs", () => {
+  it("defaults to a bounded onboarding timeout", () => {
+    vi.stubEnv("OPENNEKO_PROFILER_TIMEOUT_MS", "");
+    expect(profilerTimeoutMs()).toBe(3 * 60_000);
+  });
+
+  it("allows an explicit override", () => {
+    vi.stubEnv("OPENNEKO_PROFILER_TIMEOUT_MS", "45000");
+    expect(profilerTimeoutMs()).toBe(45_000);
+  });
+
+  it("disables hidden backend retries for onboarding profiler runs", () => {
+    vi.stubEnv("OPENNEKO_PROFILER_TIMEOUT_MS", "45000");
+    expect(profilerAgentRunControls()).toEqual({
+      retries: 0,
+      timeoutMs: 45_000,
+    });
+  });
+});
 
 describe("validateBusinessProfile", () => {
   it("accepts a profile that matches the required markdown contract", () => {
