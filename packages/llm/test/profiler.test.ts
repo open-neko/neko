@@ -135,6 +135,10 @@ describe("buildProfilerPrompt knowledge inlining", () => {
     expect(prompt).not.toContain(bigInsights);
     expect(prompt).toContain("join: public.hub_0.col_0 -> public.other_0.id");
     expect(prompt).toContain("- help:topic0");
+    expect(prompt).toContain("Only use `graphjin cli execute_graphql`");
+    expect(prompt).not.toContain("graphjin cli health");
+    expect(prompt).not.toContain("graphjin cli find_path");
+    expect(prompt).not.toContain("graphjin cli explore_relationships");
     // Raw agentic packs run 50KB+; the whole prompt must stay well under
     // the size that hangs the hermes first stream.
     expect(prompt.length).toBeLessThan(25_000);

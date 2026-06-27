@@ -66,6 +66,10 @@ avoid inventing unsupported payload fields.
   APIs, code indexes, file sources, GraphJin system roots, and workflow roots.
   Tables point to `tables[].source`; do not introduce legacy
   `tables[].database` or top-level `database`/`databases` for new configs.
+- OpenNeko-managed source-mode config must use the install-derived JWT secret
+  written by host provisioning. Do not hard-code `auth.jwt.secret` values in
+  proposals or examples; use the deployment template placeholder and let
+  OpenNeko reconcile it.
 - Keep the GraphJin system source separate from application data sources. Use a
   `kind: graphjin` source for catalog/control-plane roots such as `gj_catalog`
   and `gj_config`.
@@ -74,6 +78,10 @@ avoid inventing unsupported payload fields.
 - For agentic deployments, keep `mcp.legacy_discovery: false` and
   `mcp.allow_mutations: false` unless the admin has a specific reason to relax
   them.
+- When `mcp.allow_dev_tools: false`, use `gj_catalog` through
+  `graphjin cli execute_graphql` for source inspection. Do not rely on MCP dev
+  tools such as `list_tables`, `describe_table`, `get_table_sample`,
+  `find_path`, `explore_relationships`, `health`, or `fix_query_error`.
 
 ## RBAC Checklist
 

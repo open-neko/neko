@@ -38,14 +38,25 @@ describe("per-run GraphJin client auth (GJ4)", () => {
     );
     expect(cfg.server).toBe("http://localhost:8080/api/v1/mcp");
     expect(cfg.token).toBe(auth.token);
+    const linuxHomeCfg = JSON.parse(
+      await readFile(join(auth.xdgConfigHome, ".config", "graphjin", "client.json"), "utf8"),
+    );
+    expect(linuxHomeCfg.token).toBe(auth.token);
+    const macCfg = JSON.parse(
+      await readFile(
+        join(auth.xdgConfigHome, "Library", "Application Support", "graphjin", "client.json"),
+        "utf8",
+      ),
+    );
+    expect(macCfg.token).toBe(auth.token);
     const claims = verifyGraphjinToken(auth.token, "org-1");
-	    expect(claims).toMatchObject({
-	      sub: "u-1",
-	      role: "member",
-	      roles: ["member"],
-	      account_id: "org-1",
-	      org_id: "org-1",
-	    });
+    expect(claims).toMatchObject({
+      sub: "u-1",
+      role: "member",
+      roles: ["member"],
+      account_id: "org-1",
+      org_id: "org-1",
+    });
   });
 
   it("the guard pins the per-run XDG dir so the CLI sees the token", async () => {
@@ -65,5 +76,6 @@ describe("per-run GraphJin client auth (GJ4)", () => {
     });
     const script = await readFile(wrapper, "utf8");
     expect(script).toContain(`export XDG_CONFIG_HOME='${join(runRoot, "gj-auth")}'`);
+    expect(script).toContain(`export HOME='${join(runRoot, "gj-auth")}'`);
   });
 });

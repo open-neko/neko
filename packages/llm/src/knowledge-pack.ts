@@ -254,8 +254,11 @@ function, capability. \`gj_catalog(id: "...")\` returns one detailed
 card (details_json, examples_json, edges_json, safety_json). Start from
 \`help:discovery\` when unsure.
 
-For join planning, \`find_path\` and \`explore_relationships\` remain
-available and are often quicker than raw relationship rows.
+For join planning, use relationship catalog rows plus table-card
+\`details_json\`, \`examples_json\`, and \`edges_json\`. Source-mode
+deployments may disable GraphJin dev tools, so do not call \`find_path\`,
+\`explore_relationships\`, \`get_table_sample\`, \`list_tables\`,
+\`describe_table\`, or \`health\`.
 
 ## Files
 

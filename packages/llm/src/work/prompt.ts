@@ -83,8 +83,10 @@ A workflow can run on a schedule, when the data changes, or both:
   the low-stock details"); \`triggers.when\` is the condition.
 
   Before setting \`triggers.when\`, introspect the data source with the
-  GraphJin MCP — \`list_tables\` to find the table, \`describe_table\` to
-  confirm columns + the primary key, \`get_table_sample\` for real values.
+  available GraphJin discovery surface. In source-mode, query \`gj_catalog\`
+  through \`graphjin cli execute_graphql\` for table cards, columns, and
+  relationship edges. Only use MCP dev tools such as \`list_tables\`,
+  \`describe_table\`, or \`get_table_sample\` when the server exposes them.
 
   \`triggers.when\` shape:
   \`\`\`json
@@ -148,8 +150,10 @@ both:
   manual workflow.
 
 Before writing \`triggers.when\`, introspect the data source with your
-\`${shellTool}\` tool (graphjin CLI: \`list_tables\`, \`describe_table\`) to
-confirm the table, columns, and \`primary_key\`. \`primary_key\` is
+\`${shellTool}\` tool. In source-mode, query \`gj_catalog\` through
+\`graphjin cli execute_graphql\`; in legacy/tool deployments, use available
+GraphJin CLI discovery commands. Confirm the table, columns, and
+\`primary_key\`. \`primary_key\` is
 required and drives idempotency. If the workflow's steps write back to
 the watched table, add \`triggers.when.idempotency_key_template\` (e.g.
 \`"reorder-{primary_key}"\`).

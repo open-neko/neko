@@ -98,15 +98,31 @@ async function provisionGraphJin(orgId: string): Promise<void> {
 }
 
 const SOURCES_SECRET_PLACEHOLDER = "REPLACE_WITH_PER_ORG_SECRET_B64";
+const SOURCES_JWT_SECRET_RE =
+  /(^auth:\s*\n\s+type:\s*jwt\s*\n\s+jwt:\s*\n(?:\s+#.*\n)*\s+secret:\s*")([^"]*)(")/m;
+
+export function patchGraphjinSourcesJwtSecret(
+  raw: string,
+  secret: string,
+): { content: string; changed: boolean } {
+  let content = raw.replaceAll(SOURCES_SECRET_PLACEHOLDER, secret);
+  if (content !== raw) return { content, changed: true };
+
+  const match = SOURCES_JWT_SECRET_RE.exec(raw);
+  if (!match || match[2] === secret) return { content: raw, changed: false };
+
+  content = raw.replace(SOURCES_JWT_SECRET_RE, `$1${secret}$3`);
+  return { content, changed: content !== raw };
+}
 
 /**
  * Sources-mode (agentic) bootstrap. Two halves, both idempotent:
  *
  * 1. When the deployment mounts the GraphJin config into the worker
- *    (OPENNEKO_GRAPHJIN_CONFIG, the demo compose does), substitute the
- *    per-org JWT secret into the seeded template — the org id only
- *    exists after first boot, so compose can't bake it. GraphJin's
- *    reload_on_config_change picks the write up live.
+ *    (OPENNEKO_GRAPHJIN_CONFIG, the demo compose does), ensure the
+ *    per-org JWT secret in the seeded template matches this install's
+ *    secret-key. Named local volumes can outlive a secret-key rotation,
+ *    so this repairs stale concrete secrets as well as placeholders.
  *
  * 2. Probe the default data source with a minted service token: if the
  *    server answers a gj_catalog query, it runs agentic sources mode —
@@ -121,16 +137,16 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
     const { readFile } = await import("node:fs/promises");
     try {
       const raw = await readFile(cfgPath, "utf8");
-      if (raw.includes(SOURCES_SECRET_PLACEHOLDER)) {
-        const { graphjinSigningSecretB64 } = await import("./graphjin/token");
-        await writeFile(
-          cfgPath,
-          raw.replaceAll(SOURCES_SECRET_PLACEHOLDER, graphjinSigningSecretB64(orgId)),
-          "utf8",
-        );
+      const { graphjinSigningSecretB64 } = await import("./graphjin/token");
+      const patched = patchGraphjinSourcesJwtSecret(
+        raw,
+        graphjinSigningSecretB64(orgId),
+      );
+      if (patched.changed) {
+        await writeFile(cfgPath, patched.content, "utf8");
         wroteSecret = true;
         console.log(
-          `[host-provision] wrote per-org JWT secret into ${cfgPath} (sources mode)`,
+          `[host-provision] reconciled per-org JWT secret in ${cfgPath} (sources mode)`,
         );
       }
     } catch (e) {
@@ -150,7 +166,8 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
     .where(eq(data_source.org_id, orgId))
     .orderBy(desc(data_source.is_default), data_source.created_at)
     .limit(1);
-  if (!src?.graphqlUrl || src.authMode === "jwt") return;
+  if (!src?.graphqlUrl) return;
+  if (src.authMode === "jwt" && !wroteSecret) return;
 
   const { mintGraphjinToken } = await import("./graphjin/token");
   const token = mintGraphjinToken({ orgId, userId: null, role: "service" });
@@ -181,13 +198,15 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
         const rows = body.data?.gj_catalog;
         const answered = Array.isArray(rows) ? rows.length > 0 : Boolean(rows);
         if (answered && !body.errors?.length) {
-          await db()
-            .update(data_source)
-            .set({ auth_mode: "jwt", updated_at: new Date() })
-            .where(eq(data_source.id, src.id));
-          console.log(
-            `[host-provision] data source answers gj_catalog with an actor token — auth_mode=jwt (agentic mode on)`,
-          );
+          if (src.authMode !== "jwt") {
+            await db()
+              .update(data_source)
+              .set({ auth_mode: "jwt", updated_at: new Date() })
+              .where(eq(data_source.id, src.id));
+            console.log(
+              `[host-provision] data source answers gj_catalog with an actor token — auth_mode=jwt (agentic mode on)`,
+            );
+          }
           return;
         }
       }

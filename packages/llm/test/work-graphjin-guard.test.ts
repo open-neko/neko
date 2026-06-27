@@ -284,14 +284,14 @@ describe("ensureGraphjinGuard wrapper script", () => {
     expect(mutation.status).toBe(2);
   });
 
-  it("pins XDG_CONFIG_HOME for the wrapped graphjin process", async () => {
+  it("pins XDG_CONFIG_HOME and HOME for the wrapped graphjin process", async () => {
     const prev = process.env.XDG_CONFIG_HOME;
     const pinned = join(dir, "pinned-config");
     process.env.XDG_CONFIG_HOME = pinned;
     const fake = join(dir, "fake-graphjin");
     const pinnedBin = join(dir, "pinned-bin");
     await mkdir(pinnedBin);
-    await writeFile(fake, "#!/usr/bin/env bash\necho \"$XDG_CONFIG_HOME\"\n", {
+    await writeFile(fake, "#!/usr/bin/env bash\necho \"$XDG_CONFIG_HOME|$HOME\"\n", {
       encoding: "utf8",
       mode: 0o755,
     });
@@ -308,7 +308,7 @@ describe("ensureGraphjinGuard wrapper script", () => {
     else process.env.XDG_CONFIG_HOME = prev;
 
     expect(r.status).toBe(0);
-    expect(r.stdout.trim()).toBe(pinned);
+    expect(r.stdout.trim()).toBe(`${pinned}|${pinned}`);
   });
 });
 

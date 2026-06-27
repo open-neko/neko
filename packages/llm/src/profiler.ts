@@ -41,9 +41,13 @@ ${discoveryRule}
 4. Run queries via the \`${shellTool}\` tool:
      graphjin cli execute_graphql --args '{"query":"<your graphql>"}'
    (\`graphjin cli\` is already pointed at the running server. Use --args-file - and stdin if a query is large enough to be awkward to escape inline.)
-5. If a response contains an "errors" array, use:
+5. ${
+    agentic
+      ? `If a response contains an "errors" array, read the GraphQL error and any errors[].extensions.graphjin_repair hint, then correct the query yourself.`
+      : `If a response contains an "errors" array, use:
      graphjin cli fix_query_error --args '{"query":"<failing query>","error":"<error message>"}'
-   to get a corrected query, then run execute_graphql again.
+   to get a corrected query, then run execute_graphql again.`
+  }
 6. When you have enough facts, emit the final markdown body exactly per the OUTPUT FORMAT. No prose around it, no code fences.
 
 DATA ACCESS — READ-ONLY:
@@ -52,14 +56,22 @@ The database is queried exclusively via \`graphjin cli\` run through the \`${she
 - Every database read goes through \`graphjin cli execute_graphql\` via \`${shellTool}\`.
 - ${
     agentic
-      ? "Discover schema detail with gj_catalog queries (kinds: table, column, relationship, function; gj_catalog(id:) returns one detailed card). DO NOT call the legacy broad-dump tools (list_tables / describe_table / get_query_syntax / get_schema_insights / get_discovery_schema)."
+      ? "Discover schema detail with gj_catalog queries (kinds: table, column, relationship, function; gj_catalog(id:) returns one detailed card). Source-mode deployments may disable GraphJin dev tools, so DO NOT call list_tables / describe_table / get_table_sample / get_query_syntax / get_schema_insights / get_discovery_schema / find_path / explore_relationships / explain / health / fix_query_error."
       : "DO NOT call \`graphjin cli list_tables\` / \`describe_table\` / \`get_query_syntax\` / \`get_schema_insights\` / \`get_discovery_schema\` — those broad discovery dumps are already prefetched in the knowledge sections below."
   }
 - DO NOT run \`graphjin cli setup\`, \`graphjin cli config\`, \`graphjin cli write_query\`, or any config/write command. The CLI is already configured by OpenNeko and those commands are blocked.
-- DO use these targeted read-only relationship tools whenever they help you plan or verify joins:
+- ${
+    agentic
+      ? "For join planning, use gj_catalog table cards, relationship rows, details_json, examples_json, and edges_json. Do not call GraphJin relationship dev tools."
+      : `DO use these targeted read-only relationship tools whenever they help you plan or verify joins:
   - \`graphjin cli find_path --args '{"from_table":"<table>","to_table":"<table>"}'\` — exact relationship path between two specific tables.
-  - \`graphjin cli explore_relationships --args '{"table":"<name>"}'\` — connected tables around one focal table.
-- Other useful subcommands: \`graphjin cli explain --args '{"query":"..."}'\` (compile-only, no execution); \`graphjin cli fix_query_error --args '{"query":"...","error":"..."}'\` (get a corrected query); \`graphjin cli health\` (sanity check).
+  - \`graphjin cli explore_relationships --args '{"table":"<name>"}'\` — connected tables around one focal table.`
+  }
+- ${
+    agentic
+      ? "Only use `graphjin cli execute_graphql` for catalog and data reads in this profiler run."
+      : "Other useful subcommands: `graphjin cli explain --args '{\"query\":\"...\"}'` (compile-only, no execution); `graphjin cli fix_query_error --args '{\"query\":\"...\",\"error\":\"...\"}'` (get a corrected query); `graphjin cli health` (sanity check)."
+  }
 - Never invent data — every number in the profile must trace back to a \`graphjin cli execute_graphql\` response from this run.
 
 QUERY CONSTRUCTION — let the database aggregate:

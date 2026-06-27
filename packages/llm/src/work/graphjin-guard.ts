@@ -84,9 +84,9 @@ export async function ensureGraphjinGuard(
   binRoot: string,
   graphjinBinary: string,
   opts: {
-    /** GJ4: pin the CLI at a per-run config dir (gj-auth/graphjin/
-     *  client.json carries this run's actor token). Defaults to the
-     *  process XDG so legacy runs are unchanged. */
+    /** GJ4: pin the CLI at a per-run config home. client.json is written
+     *  under OS-specific config dirs there and carries this run's actor
+     *  token. Defaults to the process XDG so legacy runs are unchanged. */
     xdgConfigHome?: string;
     /** GJ5: write subcommands this run's policy grants (admin actors only). */
     allowSubcommands?: string[];
@@ -106,6 +106,9 @@ export async function ensureGraphjinGuard(
     "",
     pinnedXdgConfigHome
       ? `export XDG_CONFIG_HOME=${shellQuote(pinnedXdgConfigHome)}`
+      : "",
+    pinnedXdgConfigHome
+      ? `export HOME=${shellQuote(pinnedXdgConfigHome)}`
       : "",
     "",
     "if [[ \"${1:-}\" != \"cli\" ]]; then",
