@@ -4,9 +4,6 @@ OpenNeko-owned source code in this repository is licensed under the
 [Apache License 2.0](LICENSE), unless an individual file clearly says
 otherwise.
 
-That means OpenNeko-owned features are not split into a separate commercial
-source-code license in this repository.
-
 The Apache License 2.0 permits use, modification, distribution, commercial use,
 and hosted use of OpenNeko-owned code, subject to its terms. It requires
 preservation of required copyright, patent, trademark, attribution, license, and
@@ -77,6 +74,6 @@ if necessary. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Commercial relationships
 
-Apache 2.0 covers the OpenNeko-owned code. Commercial arrangements, if any, are
-for services such as support, official OpenNeko hosted-service branding,
-trademark permission, certification, partnership, or other non-code rights.
+Commercial services such as support, certification, partnership, official
+OpenNeko hosted-service branding, or trademark permission may be offered
+separately from the source-code license.
