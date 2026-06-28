@@ -45,7 +45,7 @@ esac
 LATEST=$(curl -fsSL https://api.github.com/repos/open-neko/openneko/releases/latest \
   | grep -oE '"tag_name":[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4)
 WANTED="${LATEST#v}"
-INSTALLED=$(/usr/local/bin/openneko version 2>/dev/null || echo none)
+INSTALLED=$(/usr/local/bin/openneko version --short 2>/dev/null || echo none)
 if [ "$INSTALLED" != "$WANTED" ]; then
   TMP=$(mktemp -d)
   curl -fsSL -o "$TMP/openneko.tar.gz" \
