@@ -399,6 +399,10 @@ async function provisionOpenShellRuntime(orgId: string, backend: string): Promis
 
 const provisionedOrgs = new Map<string, Promise<void>>();
 
+type ProvisionHostConfigOptions = {
+  requireOpenShellSync?: boolean;
+};
+
 /**
  * provisionHostConfig, once per org per process. The worker provisions at
  * boot, but the web process used to derive the agent-sandbox env (model
@@ -409,7 +413,7 @@ const provisionedOrgs = new Map<string, Promise<void>>();
 export function ensureHostConfigProvisioned(orgId: string): Promise<void> {
   let p = provisionedOrgs.get(orgId);
   if (!p) {
-    p = provisionHostConfig(orgId).catch((err) => {
+    p = provisionHostConfig(orgId, { requireOpenShellSync: true }).catch((err) => {
       provisionedOrgs.delete(orgId);
       throw err;
     });
@@ -418,7 +422,10 @@ export function ensureHostConfigProvisioned(orgId: string): Promise<void> {
   return p;
 }
 
-export async function provisionHostConfig(orgId: string): Promise<void> {
+export async function provisionHostConfig(
+  orgId: string,
+  options: ProvisionHostConfigOptions = {},
+): Promise<void> {
   try {
     await provisionGraphJin(orgId);
   } catch (e) {
@@ -442,9 +449,11 @@ export async function provisionHostConfig(orgId: string): Promise<void> {
       ? backendCfg.backend
       : "hermes";
 
+  let openShellError: unknown;
   try {
     await provisionOpenShellRuntime(orgId, backend);
   } catch (e) {
+    openShellError = e;
     console.warn(
       `[host-provision] OpenShell runtime provision failed: ${e instanceof Error ? e.message : e}`,
     );
@@ -458,5 +467,9 @@ export async function provisionHostConfig(orgId: string): Promise<void> {
         `[host-provision] hermes write failed: ${e instanceof Error ? e.message : e}`,
       );
     }
+  }
+
+  if (openShellError && options.requireOpenShellSync) {
+    throw openShellError;
   }
 }

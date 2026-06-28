@@ -63,6 +63,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
     throw e;
   }
 
+  // Derive the agent-sandbox env (model egress, gateway provider, key alias)
+  // before creating the run. If gateway sync is temporarily unavailable, the
+  // memoized provision attempt is cleared and the caller can retry cleanly.
+  await ensureHostConfigProvisioned(orgId);
+
   const actor = await getCurrentActor();
   const run = await createWorkRun(orgId, threadId, backend.id, actor);
 
@@ -98,11 +103,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
   // The web server stays the control plane, launches the box, and relays
   // events over the existing SSE.
   const broker = await ensureAgentBroker();
-
-  // Derive the agent-sandbox env (model egress, gateway provider, key alias)
-  // before the first launch — a fresh web process otherwise launches boxes
-  // that can't reach the model until a settings save re-provisions.
-  await ensureHostConfigProvisioned(orgId);
 
   void runChatTurn(
     {
