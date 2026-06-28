@@ -35,10 +35,8 @@ display, publicly perform, sublicense, distribute, and otherwise exploit Your
 Contribution and such derivative works.
 
 You expressly agree that the Project Maintainer may license and relicense Your
-Contribution under any license terms, including the Elastic License 2.0, other
-open-source or source-available licenses, and proprietary or commercial license
-terms, and may include Your Contribution in both the freely available and the
-commercially licensed editions of OpenNeko.
+Contribution under any license terms, including the Apache License 2.0 and other
+open-source licenses, and may include Your Contribution in OpenNeko.
 
 ## 3. Patent License
 

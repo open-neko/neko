@@ -119,7 +119,7 @@ COPY db/migrations db/migrations
 RUN cd apps/openneko && ./scripts/sync-migrations.sh --check
 RUN cd apps/openneko && \
     CGO_ENABLED=0 GOOS=linux \
-    go build -trimpath -ldflags "-s -w -X github.com/open-neko/neko/apps/openneko/internal/version.Version=container" \
+    go build -trimpath -ldflags "-s -w -X github.com/open-neko/neko/apps/openneko/internal/version.Version=container -X github.com/open-neko/neko/apps/openneko/internal/version.Commit=container -X github.com/open-neko/neko/apps/openneko/internal/version.CommitTimestamp=container" \
       -o /out/openneko ./cmd/openneko
 
 # ─── 4b. embedding-model prewarm ───────────────────────────────────────

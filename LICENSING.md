@@ -1,69 +1,74 @@
 # How OpenNeko is licensed
 
-OpenNeko uses an **open-core** model with two licenses:
+The source code in this repository is licensed under the
+[Apache License 2.0](LICENSE), unless a file clearly states different terms.
 
-| Edition | License | What it covers |
-|---|---|---|
-| **Core** | [Elastic License 2.0](LICENSE) (source-available) | Everything except the enterprise components below. Free to self-host and use. |
-| **Enterprise** | [OpenNeko Commercial License](LICENSE-COMMERCIAL.md) | Governance, compliance, and org-scale administration features. Requires a paid Commercial Agreement to use in production. |
+The Apache License 2.0 permits use, modification, distribution, commercial use,
+and hosted use, subject to its terms. It also requires preservation of required
+copyright, patent, trademark, attribution, license, and NOTICE materials in
+distributed copies and derivative works.
 
-> OpenNeko is **source-available**, not OSI "open source." You can read,
-> self-host, modify, and redistribute the Core, but the Elastic License 2.0
-> prohibits offering OpenNeko to third parties as a hosted or managed service and
-> prohibits circumventing the license-key / entitlement functionality.
+The Apache License 2.0 does **not** grant rights to use the OpenNeko name, logo,
+or branding. Those marks are governed separately by [TRADEMARKS.md](TRADEMARKS.md).
 
-## What's free (Elastic License 2.0)
+## Copyright and attribution
 
-Everything you need to run OpenNeko securely for yourself or your team:
+Original OpenNeko code authored by Amit Deshmukh is copyrighted by Amit
+Deshmukh. Contributor-authored code remains owned by its respective copyright
+holders and is licensed under the applicable contribution terms. See
+[NOTICE](NOTICE) and [CLA.md](CLA.md).
 
-- The agent runtime, Ask workspace, briefings, workflows, and watchers
-- The plugin system and sandbox, with on-the-wire model-key injection
-- Secrets encryption at rest, multi-tenant isolation, the RBAC engine, and
-  local / solo authentication
-- Personal access passes, memory integrity, and manual approval gates
-- Multi-user collaboration over chat channels (Slack / Telegram)
+## Third-party and modular components
 
-## What's enterprise (Commercial License)
+OpenNeko depends on and can interoperate with software that is not owned by
+OpenNeko. Those components remain under their own licenses.
 
-Features whose buyer is an organization's IT, security, or compliance function —
-they scale with org size, not individual use:
+Examples include:
 
-- **Teams on the web** — enterprise SSO / SAML / OIDC, SCIM provisioning, and web
-  multi-user login
-- **Approval policy engine** — auto-approval rules and per-organization policies
-  (manual approval stays free)
-- **Compliance & audit** — the tamper-evident, hash-chained audit log with SIEM
-  export, and dual-identity audit trails
-- **Governance** — install / plugin policy, behavioral alarms, org / hardened
-  security profiles, and context-versioning governance
-- **External secrets** — the Infisical vault integration
+- Runtime dependencies and container-layer software listed in
+  [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+- Hermes Agent, when used as an external/modular agent runtime, under its
+  upstream MIT license.
+- Claude Agent / Claude Code / Anthropic SDK components and related skill
+  formats under their upstream package, repository, or service terms.
+- Built-in skills that carry their own `license:` frontmatter or local
+  `LICENSE.txt` files.
+- Third-party plugins that communicate with OpenNeko across the plugin RPC
+  boundary.
 
-The authoritative per-feature mapping (with the feature keys that gate each one)
-lives alongside the code; enterprise files carry the SPDX header
-`LicenseRef-OpenNeko-Commercial`.
+If an individual file, package, bundled skill, plugin, or dependency includes a
+different license notice, that notice controls that component.
 
-## Plugins are not derivative works
+## Plugins are independent works
 
 OpenNeko loads plugins as separate processes inside sandboxes, across a defined
 RPC boundary. A third-party plugin that communicates with OpenNeko only across
-that boundary is an independent work and is **not** a derivative work of
-OpenNeko. Plugin authors may license their plugins however they choose.
+that boundary is an independent work. Plugin authors may license their plugins
+however they choose.
 
-## Trademarks
+OpenNeko plugin interfaces and in-repository plugin support code are covered by
+the repository license unless a file says otherwise.
 
-"OpenNeko" and the OpenNeko logo are trademarks of the Project Maintainer.
-Neither the Elastic License 2.0 nor the Commercial License grants you rights to
-use these marks. You may make nominative reference to OpenNeko (for example,
-"works with OpenNeko"), but you may not use the name or logo in a way that implies
-endorsement, and a redistributed or modified version may not be called
-"OpenNeko."
+## Trademarks and hosted services
+
+"OpenNeko" and the OpenNeko logo are trademarks of Amit Deshmukh / OpenNeko.
+Apache 2.0 does not grant trademark rights.
+
+Hosted services, forks, and commercial offerings based on OpenNeko must comply
+with the Apache 2.0 license and NOTICE obligations. They must also follow the
+OpenNeko trademark policy and use their own branding unless they have written
+permission to use OpenNeko marks.
+
+See [TRADEMARKS.md](TRADEMARKS.md).
 
 ## Contributing
 
-Contributions are welcome under a [Contributor License Agreement](CLA.md), which
-lets the project license your contribution under both the Elastic License 2.0 and
-the Commercial License. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributions are welcome under the [Contributor License Agreement](CLA.md).
+The CLA lets contributors keep ownership of their contributions while granting
+the project the rights needed to license OpenNeko under Apache 2.0 and relicense
+if necessary. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Getting a commercial license
+## Services
 
-Contact us via <https://openneko.app> to discuss an Enterprise subscription.
+Support, certification, partnership, and trademark permissions may be offered
+separately.

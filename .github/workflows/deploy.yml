@@ -49,7 +49,7 @@ jobs:
               case "$ARCH" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; *) GOARCH=amd64 ;; esac
               LATEST=$(curl -fsSL https://api.github.com/repos/open-neko/openneko/releases/latest \
                 | grep -oE '"tag_name":[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4 || true)
-              INSTALLED=$(openneko version 2>/dev/null || echo none)
+              INSTALLED=$(openneko version --short 2>/dev/null || echo none)
               if [ -n "${LATEST:-}" ] && [ "${LATEST#v}" != "$INSTALLED" ]; then
                 TMP=$(mktemp -d)
                 if curl -fsSL -o "$TMP/o.tgz" \
@@ -73,7 +73,7 @@ jobs:
             # GC superseded OpenNeko images: every release pulls ~15GB and
             # the disk fills after a few versions (two deploys have already
             # died on ENOSPC). In-use tags survive (rmi refuses); non-fatal.
-            CUR=$(openneko version 2>/dev/null || true)
+            CUR=$(openneko version --short 2>/dev/null || true)
             if [ -n "$CUR" ]; then
               docker images --format '{{.Repository}}:{{.Tag}}' \
                 | grep '^ghcr.io/open-neko/' \

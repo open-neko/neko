@@ -53,4 +53,4 @@ node run.js <method> <json-params>
 
 ## License
 
-Elastic-2.0 — see [LICENSING.md](../../LICENSING.md).
+Apache-2.0 — see [LICENSING.md](../../LICENSING.md).

@@ -1,0 +1,21 @@
+OpenNeko
+Copyright 2026 Amit Deshmukh and OpenNeko contributors.
+
+This product includes software developed by Amit Deshmukh and OpenNeko
+contributors.
+
+Original OpenNeko core code authored by Amit Deshmukh is Copyright 2026
+Amit Deshmukh. Contributor-authored code remains owned by its respective
+copyright holders and is licensed to the project and downstream recipients
+under the terms described in LICENSE, CLA.md, and LICENSING.md.
+
+The source code in this repository is licensed under the Apache License,
+Version 2.0 unless a file clearly states different terms.
+
+Third-party libraries, bundled skills, modular integrations, and plugin code may
+be governed by separate licenses. See THIRD_PARTY_LICENSES.md and individual
+files for details.
+
+"OpenNeko" and the OpenNeko logo are trademarks of Amit Deshmukh / OpenNeko.
+The Apache License, Version 2.0 does not grant trademark rights. See
+TRADEMARKS.md.

@@ -4,20 +4,16 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const COMMERCIAL = "SPDX-License-Identifier: LicenseRef-OpenNeko-Commercial";
+const FORBIDDEN_LICENSE_MARKER = "LicenseRef-" + "OpenNeko-Commercial";
 
-// Files whose contents are wholly an enterprise feature (OpenNeko Commercial License).
-const ENTERPRISE = ["src/infisical-resolver.ts"];
+const FILES = [
+  "src/infisical-resolver.ts",
+  "src/secrets-resolver.ts",
+  "src/secrets-store.ts",
+];
 
-// Foundation files that must stay free (Elastic License 2.0).
-const FOUNDATION = ["src/secrets-resolver.ts", "src/secrets-store.ts"];
-
-describe("license boundary", () => {
-  it.each(ENTERPRISE)("%s carries the commercial SPDX header", (rel) => {
-    expect(readFileSync(join(pkgRoot, rel), "utf8")).toContain(COMMERCIAL);
-  });
-
-  it.each(FOUNDATION)("%s is not marked commercial", (rel) => {
-    expect(readFileSync(join(pkgRoot, rel), "utf8")).not.toContain(COMMERCIAL);
+describe("license headers", () => {
+  it.each(FILES)("%s does not carry a non-Apache project license marker", (rel) => {
+    expect(readFileSync(join(pkgRoot, rel), "utf8")).not.toContain(FORBIDDEN_LICENSE_MARKER);
   });
 });

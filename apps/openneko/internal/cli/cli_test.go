@@ -44,8 +44,26 @@ func TestVersionSubcommand(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(out.String()) == "" {
-		t.Fatalf("expected version output, got empty")
+	got := out.String()
+	for _, want := range []string{"OpenNeko ", "Commit SHA-1", "Go version", "Licensed under the Apache License 2.0"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected %q in version output:\n%s", want, got)
+		}
+	}
+}
+
+func TestVersionSubcommandShort(t *testing.T) {
+	root := NewRoot()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"version", "--short"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.TrimSpace(out.String())
+	if got == "" || strings.Contains(got, "\n") || strings.Contains(got, "OpenNeko") {
+		t.Fatalf("expected short version output, got %q", out.String())
 	}
 }
 

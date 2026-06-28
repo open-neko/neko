@@ -22,6 +22,8 @@ builds:
     ldflags:
       - -s -w
       - -X github.com/open-neko/neko/apps/openneko/internal/version.Version={{.Version}}
+      - -X github.com/open-neko/neko/apps/openneko/internal/version.Commit={{.Commit}}
+      - -X github.com/open-neko/neko/apps/openneko/internal/version.CommitTimestamp={{.Date}}
 
 archives:
   - id: openneko
