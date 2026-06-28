@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const OLD_COMMERCIAL_MARKER = "LicenseRef-" + "OpenNeko-Commercial";
+const FORBIDDEN_LICENSE_MARKER = "LicenseRef-" + "OpenNeko-Commercial";
 
 const FILES = [
   "src/infisical-resolver.ts",
@@ -13,7 +13,7 @@ const FILES = [
 ];
 
 describe("license headers", () => {
-  it.each(FILES)("%s is not marked with the old commercial license reference", (rel) => {
-    expect(readFileSync(join(pkgRoot, rel), "utf8")).not.toContain(OLD_COMMERCIAL_MARKER);
+  it.each(FILES)("%s does not carry a non-Apache project license marker", (rel) => {
+    expect(readFileSync(join(pkgRoot, rel), "utf8")).not.toContain(FORBIDDEN_LICENSE_MARKER);
   });
 });

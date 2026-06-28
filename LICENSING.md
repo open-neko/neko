@@ -1,13 +1,12 @@
 # How OpenNeko is licensed
 
-OpenNeko-owned source code in this repository is licensed under the
-[Apache License 2.0](LICENSE), unless an individual file clearly says
-otherwise.
+The source code in this repository is licensed under the
+[Apache License 2.0](LICENSE), unless a file clearly states different terms.
 
 The Apache License 2.0 permits use, modification, distribution, commercial use,
-and hosted use of OpenNeko-owned code, subject to its terms. It requires
-preservation of required copyright, patent, trademark, attribution, license, and
-NOTICE materials in distributed copies and derivative works.
+and hosted use, subject to its terms. It also requires preservation of required
+copyright, patent, trademark, attribution, license, and NOTICE materials in
+distributed copies and derivative works.
 
 The Apache License 2.0 does **not** grant rights to use the OpenNeko name, logo,
 or branding. Those marks are governed separately by [TRADEMARKS.md](TRADEMARKS.md).
@@ -22,8 +21,7 @@ holders and is licensed under the applicable contribution terms. See
 ## Third-party and modular components
 
 OpenNeko depends on and can interoperate with software that is not owned by
-OpenNeko. Those components remain under their own licenses, even when referenced,
-bundled, invoked, or integrated by OpenNeko.
+OpenNeko. Those components remain under their own licenses.
 
 Examples include:
 
@@ -45,23 +43,21 @@ different license notice, that notice controls that component.
 
 OpenNeko loads plugins as separate processes inside sandboxes, across a defined
 RPC boundary. A third-party plugin that communicates with OpenNeko only across
-that boundary is an independent work and is **not** licensed merely by being
-used with OpenNeko. Plugin authors may license their plugins however they choose.
+that boundary is an independent work. Plugin authors may license their plugins
+however they choose.
 
-The OpenNeko plugin interfaces and in-repository plugin support code are covered
-by the repository license unless a file says otherwise.
+OpenNeko plugin interfaces and in-repository plugin support code are covered by
+the repository license unless a file says otherwise.
 
 ## Trademarks and hosted services
 
 "OpenNeko" and the OpenNeko logo are trademarks of Amit Deshmukh / OpenNeko.
 Apache 2.0 does not grant trademark rights.
 
-Apache 2.0 does not prohibit a third party from running a hosted or managed
-service based on OpenNeko-owned code. It does require compliance with the
-license and NOTICE obligations for distributed copies. Separately, the trademark
-policy prohibits unauthorized use of the OpenNeko name, logo, or confusingly
-similar branding for forks, hosted services, commercial offerings, or
-endorsement claims.
+Hosted services, forks, and commercial offerings based on OpenNeko must comply
+with the Apache 2.0 license and NOTICE obligations. They must also follow the
+OpenNeko trademark policy and use their own branding unless they have written
+permission to use OpenNeko marks.
 
 See [TRADEMARKS.md](TRADEMARKS.md).
 
@@ -72,8 +68,7 @@ The CLA lets contributors keep ownership of their contributions while granting
 the project the rights needed to license OpenNeko under Apache 2.0 and relicense
 if necessary. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Commercial relationships
+## Services
 
-Commercial services such as support, certification, partnership, official
-OpenNeko hosted-service branding, or trademark permission may be offered
-separately from the source-code license.
+Support, certification, partnership, and trademark permissions may be offered
+separately.

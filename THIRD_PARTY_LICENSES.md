@@ -1,10 +1,10 @@
 # Third-party software shipped with OpenNeko
 
-OpenNeko-owned source code is distributed under the [Apache License 2.0](LICENSE).
-That grant covers OpenNeko's own source code. This file lists third-party
-software and modular components that are shipped alongside, referenced by, or
-designed to interoperate with OpenNeko, and the additional license obligations
-those carry.
+The source code in this repository is distributed under the
+[Apache License 2.0](LICENSE) unless a file clearly states different terms.
+This file lists third-party software and modular components that are shipped
+alongside, referenced by, or designed to interoperate with OpenNeko, and the
+additional license obligations those carry.
 
 This file complements [NOTICE](NOTICE). Operators who redistribute OpenNeko in
 any form should ship LICENSE, NOTICE, this file, and any applicable third-party

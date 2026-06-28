@@ -1,7 +1,7 @@
 # OpenNeko Trademark Policy
 
-This policy applies to the OpenNeko name, logo, visual identity, domain names,
-and other marks associated with the OpenNeko project.
+This policy applies to the OpenNeko name, logo, visual identity, domains, and
+other marks associated with the OpenNeko project.
 
 The Apache License, Version 2.0 grants copyright and patent permissions for the
 OpenNeko core. It does not grant permission to use OpenNeko trade names,
@@ -40,14 +40,10 @@ You need prior written permission from Amit Deshmukh / OpenNeko to:
 
 ## Forks and hosted services
 
-The Apache License, Version 2.0 permits use, modification, distribution, and
-commercial use of the OpenNeko core, including hosted services, subject to its
-terms. This trademark policy does not restrict those copyright permissions.
-
-Forks and hosted services must use their own distinct branding. They may make a
-truthful, secondary attribution such as "forked from OpenNeko" or "powered by
-OpenNeko" if the statement is accurate, does not imply endorsement, and links
-back to the original project.
+Forks, modified versions, and hosted services must use their own distinct
+branding. They may make a truthful, secondary attribution such as "forked from
+OpenNeko" or "powered by OpenNeko" if the statement is accurate, does not imply
+endorsement, and links back to the original project.
 
 If you distribute source, binaries, containers, documentation, or other copies of
 OpenNeko or derivative works, you must comply with LICENSE and NOTICE,
@@ -56,6 +52,5 @@ notices.
 
 ## Contact
 
-For permission to use OpenNeko marks, official OpenNeko hosted-service branding,
-certification, partnership, or commercial terms, contact the Project Maintainer
-via <https://openneko.app>.
+For permission to use OpenNeko marks, certification, partnership, or commercial
+terms, contact the Project Maintainer via <https://openneko.app>.
