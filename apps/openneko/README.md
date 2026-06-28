@@ -117,4 +117,4 @@ go test -tags=integration -count=1 -timeout 10m ./internal/db/...
 
 ## License
 
-Apache License 2.0. See [LICENSE](./LICENSE), [LICENSING.md](../../LICENSING.md), and [TRADEMARKS.md](../../TRADEMARKS.md) for the full open-core model.
+Apache License 2.0. See [LICENSE](./LICENSE), [LICENSING.md](../../LICENSING.md), and [TRADEMARKS.md](../../TRADEMARKS.md) for the full license model.

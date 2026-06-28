@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: LicenseRef-OpenNeko-Commercial
 import {
   readFullSecretsFileSoft,
   type FullSecretsFile,

@@ -79,7 +79,7 @@ openneko install @open-neko/plugin-parallel-search
 - **Bring your own LLM.** Hermes runs against Anthropic, OpenAI, Google, Ollama, and others; Claude Agent runs Anthropic in-process. Pick per task, swap any time.
 - **Plugins in OpenShell sandboxes.** Outbound network is allowlisted per manifest, not blanket-open.
 - **Agent in a sandbox by default.** The agent loop itself runs inside an OpenShell policy sandbox — default-deny egress, and the model API key never enters the box (the gateway proxy injects it on the wire). See [OPENSHELL.md](OPENSHELL.md).
-- **Apache-2.0 core.** Read the source, self-host, fork, and build on it. Enterprise features and OpenNeko trademarks are separately controlled — see [LICENSING.md](LICENSING.md) and [TRADEMARKS.md](TRADEMARKS.md).
+- **Apache-2.0.** Read the source, self-host, fork, and build on it. OpenNeko trademarks are separately controlled — see [LICENSING.md](LICENSING.md) and [TRADEMARKS.md](TRADEMARKS.md).
 
 ## Docs
 
@@ -100,7 +100,7 @@ Pull requests are welcome — on your first PR a bot will ask you to sign a quic
 
 ## License
 
-OpenNeko's core is licensed under the [Apache License 2.0](LICENSE). Some enterprise features are separately licensed under the [OpenNeko Commercial License](LICENSE-COMMERCIAL.md). The OpenNeko name and logo are governed by [TRADEMARKS.md](TRADEMARKS.md). See **[LICENSING.md](LICENSING.md)** for the full model.
+OpenNeko-owned source code is licensed under the [Apache License 2.0](LICENSE). Third-party and modular components remain under their own licenses. The OpenNeko name and logo are governed by [TRADEMARKS.md](TRADEMARKS.md). See **[LICENSING.md](LICENSING.md)** for the full model.
 
 ## Author
 

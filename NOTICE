@@ -9,9 +9,8 @@ Amit Deshmukh. Contributor-authored code remains owned by its respective
 copyright holders and is licensed to the project and downstream recipients
 under the terms described in LICENSE, CLA.md, and LICENSING.md.
 
-The OpenNeko core is licensed under the Apache License, Version 2.0. Enterprise
-components identified by the SPDX identifier LicenseRef-OpenNeko-Commercial are
-licensed separately.
+OpenNeko-owned source code in this repository is licensed under the Apache
+License, Version 2.0 unless an individual file clearly says otherwise.
 
 Third-party libraries, bundled skills, modular integrations, and plugin code may
 be governed by separate licenses. See THIRD_PARTY_LICENSES.md and individual
