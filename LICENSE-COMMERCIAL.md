@@ -2,7 +2,7 @@
 
 Copyright (c) 2026 Amit Deshmukh. All rights reserved.
 
-Most of OpenNeko is made available under the Elastic License 2.0 (see
+Most of OpenNeko is made available under the Apache License 2.0 (see
 [LICENSE](LICENSE)). This Commercial License instead governs the **enterprise
 components** of OpenNeko — the files and modules identified by the SPDX header
 `LicenseRef-OpenNeko-Commercial`, together with any components designated as

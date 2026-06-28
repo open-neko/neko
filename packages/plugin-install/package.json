@@ -2,7 +2,7 @@
   "name": "@open-neko/plugin-install",
   "version": "2.13.0",
   "private": true,
-  "license": "Elastic-2.0",
+  "license": "Apache-2.0",
   "description": "Shared library for OpenNeko plugin install + secrets-store. Consumed by both the worker (reads the secrets store, will gain a server-side install path) and the openneko CLI (the operator-facing surface).",
   "type": "module",
   "main": "./src/index.ts",

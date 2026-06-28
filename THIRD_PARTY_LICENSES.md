@@ -1,8 +1,29 @@
 # Third-party software shipped with OpenNeko
 
-OpenNeko is distributed under the [Elastic License 2.0](LICENSE) — some enterprise components are instead under a separate commercial license (see [LICENSING.md](LICENSING.md)). That grant covers OpenNeko's own source code. This file lists third-party software that is **shipped alongside** OpenNeko (bundled in npm dependencies, Docker images, or release artifacts) and the additional license obligations those carry.
+OpenNeko's core is distributed under the [Apache License 2.0](LICENSE). Some
+enterprise components are instead under a separate commercial license (see
+[LICENSING.md](LICENSING.md)). Those grants cover OpenNeko's own source code.
+This file lists third-party software and modular components that are shipped
+alongside, referenced by, or designed to interoperate with OpenNeko, and the
+additional license obligations those carry.
 
-This file is the canonical NOTICE. Operators who redistribute OpenNeko in any form must ship this file alongside.
+This file complements [NOTICE](NOTICE). Operators who redistribute OpenNeko in
+any form should ship LICENSE, NOTICE, this file, and any applicable third-party
+license texts alongside their distribution.
+
+---
+
+## Modular agents, skills, and plugins
+
+OpenNeko can invoke or interoperate with external agents, skills, and plugins.
+Those components remain under their own licenses.
+
+| Component | License | Notes |
+|---|---|---|
+| Hermes Agent | MIT | External/modular agent runtime from Nous Research. Preserve upstream copyright and license notices when distributing it or substantial portions of it. |
+| Claude Agent / Claude Code / Anthropic SDK components | Upstream terms | OpenNeko integration code is licensed as OpenNeko code unless marked otherwise; Anthropic packages, binaries, services, and skill formats remain under their own package, repository, or service terms. |
+| Built-in skills with `license:` frontmatter | As declared in each skill | Some bundled skills are Apache-2.0, MIT, or proprietary to their upstream source. Check each `SKILL.md` and local `LICENSE.txt`. |
+| Third-party plugins | Plugin author's license | Plugins communicate across the OpenNeko plugin RPC boundary and are independent works unless their own license says otherwise. |
 
 ---
 
@@ -18,7 +39,8 @@ When the plugin subsystem is enabled (microsandbox is installed and the host sup
 | `@superradcompany/microsandbox-{darwin-arm64,linux-x64-gnu,linux-arm64-gnu}` (platform bundles) | Apache-2.0 | https://github.com/superradcompany/microsandbox |
 | [`containers/libkrun`](https://github.com/containers/libkrun) (statically linked into the platform bundle) | Apache-2.0 | https://github.com/containers/libkrun |
 
-These components are governed by the Apache License 2.0. The terms in `LICENSE` apply.
+These components are governed by the Apache License 2.0. Their upstream license
+terms apply in addition to OpenNeko's own LICENSE and NOTICE obligations.
 
 ### 2. `containers/libkrunfw` — LGPL-2.1-only shim
 

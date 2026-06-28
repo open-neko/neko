@@ -9,7 +9,7 @@ const COMMERCIAL = "SPDX-License-Identifier: LicenseRef-OpenNeko-Commercial";
 // Files whose contents are wholly an enterprise feature (OpenNeko Commercial License).
 const ENTERPRISE = ["src/infisical-resolver.ts"];
 
-// Foundation files that must stay free (Elastic License 2.0).
+// Foundation files that must stay Apache-licensed core code.
 const FOUNDATION = ["src/secrets-resolver.ts", "src/secrets-store.ts"];
 
 describe("license boundary", () => {
