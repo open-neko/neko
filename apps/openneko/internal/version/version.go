@@ -13,7 +13,7 @@ var CommitTimestamp = "unknown"
 const (
 	DocumentationURL = "https://openneko.app"
 	LicenseName      = "Apache License 2.0"
-	Copyright        = "Copyright 2026 Amit Deshmukh and OpenNeko Contributors"
+	Copyright        = "Copyright 2026 Amit Deshmukh and OpenNeko contributors"
 )
 
 func Detailed() string {
