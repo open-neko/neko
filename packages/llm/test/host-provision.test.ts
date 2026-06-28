@@ -9,6 +9,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
 import {
   clearProvider,
@@ -21,10 +22,20 @@ import {
 } from "@neko/db/test-helpers";
 import { db, eq, data_source, pool } from "@neko/db";
 import {
+  ensureHostConfigProvisioned,
   hermesHomeForOrg,
   patchGraphjinSourcesJwtSecret,
   provisionHostConfig,
 } from "../src/host-provision";
+import { ensureOpenShellProvider } from "../src/work/sandbox-launcher";
+
+vi.mock("../src/work/sandbox-launcher", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/work/sandbox-launcher")>();
+  return {
+    ...actual,
+    ensureOpenShellProvider: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 const reachable = await dbReachable();
 const describeIfDb = reachable ? describe : describe.skip;
@@ -49,6 +60,7 @@ function graphjinPath(home: string): string {
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HERMES_HOME = process.env.HERMES_HOME;
 const ORIGINAL_XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
+const ensureOpenShellProviderMock = vi.mocked(ensureOpenShellProvider);
 
 describe("patchGraphjinSourcesJwtSecret", () => {
   it("replaces a source-mode placeholder", () => {
@@ -118,6 +130,8 @@ describeIfDb("provisionHostConfig", () => {
   });
 
   beforeEach(async () => {
+    ensureOpenShellProviderMock.mockReset();
+    ensureOpenShellProviderMock.mockResolvedValue(undefined);
     tempHome = await mkdtemp(join(tmpdir(), "neko-test-home-"));
     hermesHome = join(tempHome, ".hermes");
     process.env.HOME = tempHome;
@@ -311,6 +325,59 @@ describeIfDb("provisionHostConfig", () => {
 
     const env = await readFile(join(hermesHome, ".env"), "utf8");
     expect(env).toBe("");
+  });
+
+  it("keeps direct provisioning best-effort when OpenShell provider sync fails", async () => {
+    ensureOpenShellProviderMock.mockRejectedValueOnce(new Error("gateway unavailable"));
+    await seedDataSource(orgId);
+    await seedProvider(orgId, {
+      scope: "agent",
+      provider: "hermes",
+      config: { backend: "hermes" },
+    });
+    await seedProvider(orgId, {
+      scope: "primary",
+      provider: "google-gemini",
+      model: "gemini-pro-latest",
+      secrets: { apiKey: "test-gemini-key" },
+    });
+
+    await expect(provisionHostConfig(orgId)).resolves.toBeUndefined();
+    expect(ensureOpenShellProviderMock).toHaveBeenCalledTimes(1);
+
+    const yaml = await readFile(join(hermesHome, "config.yaml"), "utf8");
+    expect(yaml).toContain('provider: "gemini"');
+  });
+
+  it("retries memoized provisioning after an OpenShell provider sync failure", async () => {
+    const retryOrgId = uniqueOrgId("provision-retry");
+    await createTestOrg(retryOrgId);
+    try {
+      await seedDataSource(retryOrgId);
+      await seedProvider(retryOrgId, {
+        scope: "agent",
+        provider: "hermes",
+        config: { backend: "hermes" },
+      });
+      await seedProvider(retryOrgId, {
+        scope: "primary",
+        provider: "google-gemini",
+        model: "gemini-pro-latest",
+        secrets: { apiKey: "test-gemini-key" },
+      });
+      ensureOpenShellProviderMock
+        .mockRejectedValueOnce(new Error("gateway unavailable"))
+        .mockResolvedValueOnce(undefined);
+
+      await expect(ensureHostConfigProvisioned(retryOrgId)).rejects.toThrow(
+        "gateway unavailable",
+      );
+      await expect(ensureHostConfigProvisioned(retryOrgId)).resolves.toBeUndefined();
+
+      expect(ensureOpenShellProviderMock).toHaveBeenCalledTimes(2);
+    } finally {
+      await deleteTestOrg(retryOrgId);
+    }
   });
 });
 
