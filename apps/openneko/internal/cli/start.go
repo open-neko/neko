@@ -32,7 +32,7 @@ func newStartCmd() *cobra.Command {
 
 Modes:
   prod  Core services only (default; production stack)
-  dev   Core + dev tooling
+  dev   Developer defaults; source checkouts should use pnpm dev:setup + pnpm dev
   demo  Core + AdventureWorks trial bundle`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

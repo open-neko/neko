@@ -13,7 +13,10 @@ const DEFAULT_PRIORITIES = [
   "Defend wholesale margins",
   "Grow DTC in Europe",
 ];
-const DEFAULT_GRAPHJIN_ROOT = "http://graphjin:8080";
+const DEFAULT_GRAPHJIN_ROOT =
+  process.env.ADVENTUREWORKS_GRAPHJIN_ROOT?.trim() || "http://graphjin:8080";
+const GRAPHJIN_ROOT = DEFAULT_GRAPHJIN_ROOT.replace(/\/+$/, "");
+const UPDATE_DATA_SOURCE = process.env.ADVENTUREWORKS_UPDATE_DATA_SOURCE === "1";
 
 function configBase() {
   const xdg = process.env.XDG_CONFIG_HOME?.trim();
@@ -83,21 +86,33 @@ if (!orgId) {
 }
 
 const sourceRows = await client.query(
-  "select id from data_source where org_id = $1 limit 1",
+  "select id from data_source where org_id = $1 order by created_at asc limit 1",
   [orgId],
 );
+const graphjinUrls = [
+  `${GRAPHJIN_ROOT}/api/v1/graphql`,
+  `${GRAPHJIN_ROOT}/api/v1/graphql`,
+  `${GRAPHJIN_ROOT}/api/v1/mcp`,
+];
 if (sourceRows.rowCount === 0) {
   await client.query(
     `insert into data_source (org_id, kind, graphql_url, subscription_url, mcp_url, label)
      values ($1, 'graphjin', $2, $3, $4, 'AdventureWorks')`,
-    [
-      orgId,
-      `${DEFAULT_GRAPHJIN_ROOT}/api/v1/graphql`,
-      `${DEFAULT_GRAPHJIN_ROOT}/api/v1/graphql`,
-      `${DEFAULT_GRAPHJIN_ROOT}/api/v1/mcp`,
-    ],
+    [orgId, ...graphjinUrls],
   );
   console.log("[seed-adventureworks] inserted GraphJin data source");
+} else if (UPDATE_DATA_SOURCE) {
+  await client.query(
+    `update data_source
+       set kind = 'graphjin',
+           graphql_url = $2,
+           subscription_url = $3,
+           mcp_url = $4,
+           label = 'AdventureWorks'
+     where id = $1`,
+    [sourceRows.rows[0].id, ...graphjinUrls],
+  );
+  console.log(`[seed-adventureworks] updated GraphJin data source to ${GRAPHJIN_ROOT}`);
 } else {
   console.log("[seed-adventureworks] data source already exists; leaving it unchanged");
 }

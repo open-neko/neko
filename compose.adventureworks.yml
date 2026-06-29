@@ -170,6 +170,7 @@ services:
       NEKO_PG_USER: neko
       NEKO_PG_PASSWORD: secret
       NEKO_PG_DATABASE: neko
+      ADVENTUREWORKS_GRAPHJIN_ROOT: ${ADVENTUREWORKS_GRAPHJIN_ROOT:-http://graphjin:8080}
       NO_PROXY: localhost,127.0.0.1,::1,neko-db,worker,web,graphjin,adventureworks-db,host.docker.internal,host.internal
       no_proxy: localhost,127.0.0.1,::1,neko-db,worker,web,graphjin,adventureworks-db,host.docker.internal,host.internal
     volumes:
