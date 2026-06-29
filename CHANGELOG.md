@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.14.0](https://github.com/open-neko/openneko/compare/v2.13.0...v2.14.0) (2026-06-29)
+
+
+### Features
+
+* **dev:** one-command dev:setup with AdventureWorks demo data ([b589b72](https://github.com/open-neko/openneko/commit/b589b722ea743a405854bd0c59f27c8e5dc4f21f))
+* **dev:** one-command dev:setup with AdventureWorks demo data ([6c0750e](https://github.com/open-neko/openneko/commit/6c0750e7f0da10ef89b6346346c2691b3145ad66))
+
 ## [2.13.0](https://github.com/open-neko/openneko/compare/v2.12.0...v2.13.0) (2026-06-27)
 
 
