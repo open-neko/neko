@@ -467,6 +467,9 @@ func defaultDataURL(cfg Config, ds *DataSource) string {
 	if cfg.Mode == "demo" {
 		return "http://graphjin:8080"
 	}
+	if cfg.Mode == "dev" {
+		return "http://localhost:8080"
+	}
 	return "http://host.docker.internal:8080"
 }
 

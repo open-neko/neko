@@ -43,7 +43,7 @@ openneko reset [--all]
 Modes:
 
 - `prod` — core services only (default)
-- `dev` — core + dev tooling
+- `dev` — developer defaults; from a source checkout use repo-root `pnpm dev:setup` + `pnpm dev` for demo data and hot-reloaded web/worker
 - `demo` — core + AdventureWorks trial bundle
 
 The binary materializes its embedded compose files to `.openneko/runtime/`

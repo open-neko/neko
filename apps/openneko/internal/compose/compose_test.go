@@ -7,6 +7,11 @@ import (
 	"testing/fstest"
 )
 
+func isolateConfig(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+}
+
 func sampleFS() fstest.MapFS {
 	return fstest.MapFS{
 		"compose/core.yml":      {Data: []byte("services: { web: {} }\n")},
@@ -17,6 +22,7 @@ func sampleFS() fstest.MapFS {
 }
 
 func TestMaterializeProd(t *testing.T) {
+	isolateConfig(t)
 	dir := t.TempDir()
 	s := &Supervisor{AssetsFS: sampleFS(), RuntimeDir: dir, GOOS: "darwin"}
 	files, err := s.Materialize(ModeProd)
@@ -35,6 +41,7 @@ func TestMaterializeProd(t *testing.T) {
 }
 
 func TestMaterializeDemo(t *testing.T) {
+	isolateConfig(t)
 	dir := t.TempDir()
 	s := &Supervisor{AssetsFS: sampleFS(), RuntimeDir: dir, GOOS: "darwin"}
 	files, err := s.Materialize(ModeDemo)
@@ -52,6 +59,7 @@ func TestMaterializeDemo(t *testing.T) {
 }
 
 func TestMaterializeOpenShellAlwaysOn(t *testing.T) {
+	isolateConfig(t)
 	dir := t.TempDir()
 	for _, goos := range []string{"darwin", "linux"} {
 		s := &Supervisor{AssetsFS: sampleFS(), RuntimeDir: dir, GOOS: goos}
@@ -72,6 +80,7 @@ func TestMaterializeOpenShellAlwaysOn(t *testing.T) {
 }
 
 func TestMaterializeUnknownMode(t *testing.T) {
+	isolateConfig(t)
 	dir := t.TempDir()
 	s := &Supervisor{AssetsFS: sampleFS(), RuntimeDir: dir, GOOS: "linux"}
 	if _, err := s.Materialize(Mode("bogus")); err == nil {

@@ -106,6 +106,7 @@ services:
       NEKO_PG_USER: neko
       NEKO_PG_PASSWORD: secret
       NEKO_PG_DATABASE: neko
+      ADVENTUREWORKS_GRAPHJIN_ROOT: ${ADVENTUREWORKS_GRAPHJIN_ROOT:-http://graphjin:8080}
     volumes:
       - openneko-config:/config/openneko
     # --import tsx/esm so the seed's `import("@neko/secret-crypt")` (raw .ts

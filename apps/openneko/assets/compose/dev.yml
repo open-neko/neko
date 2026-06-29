@@ -1,4 +1,5 @@
-# Dev overlay: layered on top of core.yml. Adds anything an operator running
-# `openneko start --mode dev` should see (e.g. mailhog later). Empty for now
-# — kept as a real file so the supervisor's overlay flag points somewhere.
+# Dev overlay for the embedded release stack. The source hot-reload workflow is
+# repo-root `pnpm dev:setup` + `pnpm dev`: Docker runs the dependency/demo data
+# services, while web/worker run as host source processes. Keep this overlay
+# empty until we add Docker-only dev tooling that belongs in the release CLI.
 services: {}

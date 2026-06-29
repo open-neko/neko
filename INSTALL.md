@@ -84,7 +84,7 @@ openneko version
 Modes:
 
 - **`prod`** (default) — core services: `neko-db`, `neko-graphjin`, `web`, `worker`.
-- **`dev`** — core + dev tooling (empty overlay today).
+- **`dev`** — source-checkout workflow: use `pnpm dev:setup` for Docker-only dependencies plus AdventureWorks demo data, then `pnpm dev` for hot-reloaded web/worker from source.
 - **`demo`** — core + AdventureWorks: `adventureworks-db`, `adventureworks-init`, `neko-adventureworks-seed`. The full live-trial flow (continuous order trickle + scenario injector) lives in `compose.adventureworks.yml` and needs the [Build from source](#build-from-source-advanced) path.
 
 `~/.config/openneko/compose.override.yml` is auto-applied if present (last `-f` to docker compose).
@@ -216,10 +216,13 @@ Stack pieces in Docker, app processes from source:
 ```bash
 corepack enable
 pnpm bootstrap
-pnpm dev:up
-(cd apps/openneko && go run ./cmd/openneko migrate)
+pnpm dev:setup
 pnpm dev
 ```
+
+`pnpm dev:setup` starts the Docker-only pieces (`neko-db`, `neko-graphjin`, AdventureWorks Postgres, customer GraphJin, the order simulator, and the scenario injector), applies migrations, and seeds the OpenNeko metadata DB with demo workflows. It writes the demo data source as `http://localhost:8080` because web/worker run on the host in this flow.
+
+`pnpm dev` runs `next dev` and `tsx watch` from the checkout, so edits to `apps/web`, `apps/worker`, and workspace packages hot reload without rebuilding images. `pnpm dev:up` is the Docker-only bring-up step; `pnpm dev:seed` re-runs only the metadata seed.
 
 `pnpm dev:up` bind-mounts `~/.config/openneko` into `neko-graphjin` so host web/worker and in-Docker GraphJin share `config.json` (including the DB password after `/setup` rotates it). Demo/prod don't need this — web+worker run in compose and share the named volume.
 
@@ -232,17 +235,6 @@ Install host-only CLIs the worker shells out to (Docker images already include t
 ```
 
 Installs the GraphJin CLI, Hermes, and the Claude Agent CLI.
-
-With sample data:
-
-```bash
-mkdir -p "$HOME/.config/openneko"
-OPENNEKO_CONFIG_VOLUME="$HOME/.config/openneko" \
-  docker compose -f compose.yml -f compose.adventureworks.yml up -d \
-  neko-db neko-graphjin adventureworks-db graphjin
-(cd apps/openneko && go run ./cmd/openneko migrate)
-pnpm dev
-```
 
 In the dev flow, use `http://localhost:8080` for customer-data GraphJin in the setup wizard. Metadata GraphJin reaches `http://127.0.0.1:8089` automatically.
 
