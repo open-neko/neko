@@ -32,6 +32,7 @@ You also need Docker (Docker Desktop on macOS, Docker Engine on Linux).
 ```bash
 openneko setup [--mode prod|dev|demo]   # guided install: preflight + bring-up + configure
 openneko start [--mode prod|dev|demo] [--detach]
+openneko upgrade [--version vX.Y.Z] [--mode auto|prod|dev|demo]
 openneko stop [--volumes]
 openneko status
 openneko logs [service…] [-f]
@@ -50,6 +51,10 @@ The binary materializes its embedded compose files to `.openneko/runtime/`
 in the current working directory before invoking `docker compose`. A
 project- or user-level override at `~/.config/openneko/compose.override.yml`
 is appended automatically when present.
+
+`openneko upgrade` pulls newer service images plus the agent/plugin-base
+images, recreates the recorded stack mode, runs migrations, prunes old
+OpenNeko image tags, and persists the selected image tag for later starts.
 
 ### Plugin + skill management
 

@@ -70,12 +70,21 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 	if m == "" {
 		m = compose.ModeProd
 	}
+	sup := compose.New(assets.ComposeFS)
 	// Pin compose's image tags to this binary's version unless the caller has
-	// already set OPENNEKO_VERSION — that lets the smoke workflow (which builds
-	// openneko fresh from source, so its embedded version is "0.0.0-dev") test
-	// against a real release tag.
+	// already set OPENNEKO_VERSION or an install-level image version marker.
+	// That lets the smoke workflow (which builds openneko fresh from source, so
+	// its embedded version is "0.0.0-dev") test against a real release tag, and
+	// lets `openneko upgrade --version ...` keep using the requested tag.
 	if os.Getenv("OPENNEKO_VERSION") == "" {
-		_ = os.Setenv("OPENNEKO_VERSION", "v"+version.Version)
+		imageVersion, err := sup.ImageVersion()
+		if err != nil {
+			return err
+		}
+		if imageVersion == "" {
+			imageVersion = "v" + version.Version
+		}
+		_ = os.Setenv("OPENNEKO_VERSION", imageVersion)
 	}
 
 	// SEC9: OpenShell is the only agent runtime.
@@ -83,7 +92,6 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 		return err
 	}
 
-	sup := compose.New(assets.ComposeFS)
 	files, err := sup.Materialize(m)
 	if err != nil {
 		return err
