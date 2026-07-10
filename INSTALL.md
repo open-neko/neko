@@ -71,6 +71,7 @@ Browse the marketplace at [open-neko.github.io/plugins](https://open-neko.github
 ```bash
 openneko setup [--mode prod|dev|demo]  # guided: preflight + bring-up + configure
 openneko start [--mode prod|dev|demo] [--detach]
+openneko upgrade [--version vX.Y.Z] [--mode auto|prod|dev|demo]
 openneko status                    # docker compose ps proxy
 openneko logs [service…] [-f]
 openneko stop [--volumes]          # --volumes wipes data
@@ -103,7 +104,37 @@ Docker — already required to run OpenNeko.
 
 ## Upgrade
 
-`openneko` upgrades by replacing the binary. The new binary embeds bumped image pins and new migrations; both apply on the next `openneko start`. No `openneko upgrade` subcommand — subscribe to [release notifications](https://github.com/open-neko/openneko/releases) for pushes.
+`openneko upgrade` is the normal stack upgrade path. It:
+
+1. Pulls the latest OpenNeko service, agent, and plugin-base images.
+2. Detects the mode recorded by your last `setup` or `start` (`prod`, `dev`, or `demo`) and recreates that stack detached.
+3. Runs pending migrations through the stack's `neko-migrate` container.
+4. Removes old OpenNeko image tags and dangling image layers unless you pass `--no-prune`.
+
+Run it from the same install directory you use for `openneko start`:
+
+```bash
+cd ~/openneko
+openneko upgrade
+```
+
+Install a specific image version/tag:
+
+```bash
+openneko upgrade --version v1.18.0
+# "1.18.0" is accepted too and is normalized to "v1.18.0".
+```
+
+If you are upgrading an older install without a saved mode marker, pass the
+mode explicitly:
+
+```bash
+openneko upgrade --mode demo
+```
+
+The command persists the selected image tag in `.openneko/runtime/.image-version`,
+so later `openneko start` runs the same tag. Upgrading the host binary is still
+recommended when a release includes CLI changes.
 
 ### macOS
 
@@ -111,8 +142,7 @@ Docker — already required to run OpenNeko.
 brew update
 brew upgrade openneko
 cd ~/openneko
-openneko stop                          # leaves volumes intact
-openneko start --mode demo --detach    # use the same --mode you started with
+openneko upgrade
 ```
 
 > **Installed before 1.17.2?** Those releases shipped a Homebrew *formula*; 1.17.2+ ships a *cask*, so `brew upgrade openneko` won't move you across. Switch once:
@@ -132,8 +162,7 @@ ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 curl -fsSL "https://github.com/open-neko/openneko/releases/download/$TAG/openneko_${TAG#v}_linux_$ARCH.tar.gz" | tar -xz openneko
 sudo install -m 0755 openneko /usr/local/bin/ && rm -f openneko
 cd ~/openneko
-openneko stop
-openneko start --mode demo --detach
+openneko upgrade
 ```
 
 ### What `openneko start` does

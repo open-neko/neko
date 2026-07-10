@@ -27,6 +27,11 @@ const (
 	ModeDemo Mode = "demo"
 )
 
+const (
+	projectNameMarker  = ".project-name"
+	imageVersionMarker = ".image-version"
+)
+
 // Supervisor is the host-side controller; assets are the embedded files the
 // supervisor materializes before running compose.
 type Supervisor struct {
@@ -116,9 +121,9 @@ func (s *Supervisor) ProjectName(modeIfStarting Mode) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	marker := filepath.Join(rt, ".project-name")
+	marker := filepath.Join(rt, projectNameMarker)
 	if modeIfStarting != "" {
-		name := "openneko-" + string(modeIfStarting)
+		name := ProjectNameForMode(modeIfStarting)
 		_ = os.MkdirAll(rt, 0o755)
 		_ = os.WriteFile(marker, []byte(name+"\n"), 0o644)
 		return name, nil
@@ -130,6 +135,58 @@ func (s *Supervisor) ProjectName(modeIfStarting Mode) (string, error) {
 		}
 	}
 	return "openneko", nil
+}
+
+// ProjectNameForMode is the canonical compose project name for a stack mode.
+func ProjectNameForMode(mode Mode) string {
+	if mode == "" {
+		mode = ModeProd
+	}
+	return "openneko-" + string(mode)
+}
+
+// ModeFromProjectName recovers the stack mode from a project marker written by
+// ProjectName. The bool is false for legacy names or unrelated projects.
+func ModeFromProjectName(project string) (Mode, bool) {
+	const prefix = "openneko-"
+	if !strings.HasPrefix(project, prefix) {
+		return "", false
+	}
+	switch m := Mode(strings.TrimPrefix(project, prefix)); m {
+	case ModeProd, ModeDev, ModeDemo:
+		return m, true
+	default:
+		return "", false
+	}
+}
+
+// ImageVersion reads the persisted image tag for this install. An empty string
+// means callers should use their normal default.
+func (s *Supervisor) ImageVersion() (string, error) {
+	rt, err := s.runtimeDir()
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(filepath.Join(rt, imageVersionMarker))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// WriteImageVersion persists the image tag subsequent starts should use.
+func (s *Supervisor) WriteImageVersion(version string) error {
+	rt, err := s.runtimeDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(rt, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(rt, imageVersionMarker), []byte(strings.TrimSpace(version)+"\n"), 0o644)
 }
 
 // Run shells out to `docker compose -p <project> -f <files…> <args…>`,
@@ -183,6 +240,11 @@ func (s *Supervisor) EnsureImage(ctx context.Context, image string, stdout, stde
 	if exec.CommandContext(ctx, "docker", "image", "inspect", image).Run() == nil {
 		return nil // already local
 	}
+	return s.PullImage(ctx, image, stdout, stderr)
+}
+
+// PullImage always asks Docker for the image ref, even if a local tag exists.
+func (s *Supervisor) PullImage(ctx context.Context, image string, stdout, stderr *os.File) error {
 	cmd := exec.CommandContext(ctx, "docker", "pull", image)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
