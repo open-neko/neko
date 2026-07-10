@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.15.0](https://github.com/open-neko/openneko/compare/v2.14.0...v2.15.0) (2026-07-10)
+
+
+### Features
+
+* add openneko upgrade command ([d7ffa1a](https://github.com/open-neko/openneko/commit/d7ffa1a50f5707d4d82335069e588c9473c410e1))
+
 ## [2.14.0](https://github.com/open-neko/openneko/compare/v2.13.0...v2.14.0) (2026-06-29)
 
 
