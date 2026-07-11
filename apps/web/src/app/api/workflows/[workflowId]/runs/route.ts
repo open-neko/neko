@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AgentBackendConfigError } from "@neko/llm";
-import { getWorkRun } from "@neko/llm/work";
+import {
+  AgentBackendConfigError,
+  ensureHostConfigProvisioned,
+} from "@neko/llm";
+import {
+  ensureAgentBroker,
+  getWorkRun,
+  workflowRuntimeDepsFromEnv,
+} from "@neko/llm/work";
 import {
   prepareWorkflowRun,
   runWorkflowTurn,
@@ -27,6 +34,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     typeof body.userMessage === "string" ? body.userMessage.trim() : undefined;
 
   const orgId = await getOrgId();
+  await ensureHostConfigProvisioned(orgId);
 
   let prepared;
   try {
@@ -60,15 +68,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
   });
 
   const pluginActions = await getPluginActionDescriptors();
+  const broker = await ensureAgentBroker();
 
-  void runWorkflowTurn({
-    prepared,
-    userMessage,
-    mode: "live",
-    emit,
-    signal: abortController.signal,
-    pluginActions,
-  })
+  void runWorkflowTurn(
+    {
+      prepared,
+      userMessage,
+      mode: "live",
+      emit,
+      signal: abortController.signal,
+      pluginActions,
+    },
+    workflowRuntimeDepsFromEnv(broker),
+  )
     .catch(async (err) => {
       console.error(
         `[workflow-run] run ${prepared.workflowRun.id} threw:`,

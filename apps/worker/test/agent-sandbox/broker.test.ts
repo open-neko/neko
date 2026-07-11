@@ -46,6 +46,29 @@ function makeFakeControlPlane() {
         ReturnType<AgentControlPlane["saveWorkflowWithTrigger"]>
       >;
     },
+    async emitWorkflowOutput(input) {
+      calls.push({ method: "wf-output", input: input as Record<string, unknown> });
+      return {
+        id: "out1",
+        orgId: input.orgId,
+        workflowRunId: input.workflowRunId,
+        workRunId: input.workRunId,
+        kind: input.kind,
+        title: input.title ?? "",
+        body: input.body ?? "",
+        payload: input.payload ?? {},
+        artifactPath: input.artifactPath ?? null,
+        scope: input.scope ?? null,
+        topic: input.topic ?? null,
+        mood: input.mood ?? null,
+        timeWindowStart: input.timeWindowStart?.toISOString() ?? null,
+        timeWindowEnd: input.timeWindowEnd?.toISOString() ?? null,
+        freshnessTtlSeconds: input.freshnessTtlSeconds ?? null,
+        seenCount: 1,
+        lastSeenAt: "2026-01-01T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      } as Awaited<ReturnType<AgentControlPlane["emitWorkflowOutput"]>>;
+    },
     async listWorkflowsWithTriggers(input) {
       calls.push({ method: "wf-list", input: input as Record<string, unknown> });
       return { total: 0, workflows: [] };
@@ -71,6 +94,26 @@ function makeFakeControlPlane() {
     async listUsers(input) {
       calls.push({ method: "users-list", input: input as Record<string, unknown> });
       return { users: [] };
+    },
+    async listChannels(input) {
+      calls.push({ method: "channels-list", input: input as Record<string, unknown> });
+      return { workspaces: [], identities: [] };
+    },
+    async listDataSources(input) {
+      calls.push({ method: "datasources-list", input: input as Record<string, unknown> });
+      return { sources: [] };
+    },
+    async describeSourceGraph(input) {
+      calls.push({ method: "source-graph", input: input as Record<string, unknown> });
+      return { reachable: false };
+    },
+    async listSourceSecretNames(input) {
+      calls.push({ method: "source-secrets", input: input as Record<string, unknown> });
+      return { names: [] };
+    },
+    async listAuditTrail(input) {
+      calls.push({ method: "audit-list", input: input as Record<string, unknown> });
+      return { requests: [], alerts: [], gatewaySummary: [] };
     },
   };
   return { cp, calls };
@@ -173,6 +216,39 @@ describe("agent broker", () => {
     expect(ruleSave?.createdByRunId).toBe("r1");
     expect(fake.calls.find((c) => c.method === "wf-list")?.input.orgId).toBe("o1");
     expect(fake.calls.find((c) => c.method === "rule-list")?.input.orgId).toBe("o1");
+  });
+
+  it("emits workflow outputs through the binding and restores date fields", async () => {
+    const cp = new BrokerControlPlane(baseUrl, "good");
+    const output = await cp.emitWorkflowOutput({
+      orgId: "SPOOF",
+      workRunId: "SPOOF",
+      workflowRunId: "wf-run-1",
+      kind: "report",
+      title: "Daily report",
+      body: "Done",
+      payload: {},
+      timeWindowStart: new Date("2026-01-02T03:04:05.000Z"),
+      timeWindowEnd: null,
+    });
+
+    expect(output).toMatchObject({
+      id: "out1",
+      orgId: "o1",
+      workRunId: "r1",
+      workflowRunId: "wf-run-1",
+      timeWindowStart: "2026-01-02T03:04:05.000Z",
+      timeWindowEnd: null,
+    });
+    const input = fake.calls.find((c) => c.method === "wf-output")?.input;
+    expect(input?.orgId).toBe("o1");
+    expect(input?.workRunId).toBe("r1");
+    expect(input?.workflowRunId).toBe("wf-run-1");
+    expect(input?.timeWindowStart).toBeInstanceOf(Date);
+    expect((input?.timeWindowStart as Date).toISOString()).toBe(
+      "2026-01-02T03:04:05.000Z",
+    );
+    expect(input?.timeWindowEnd).toBeNull();
   });
 
   it("forces delete org from the binding, keeps the workflowId from the body", async () => {

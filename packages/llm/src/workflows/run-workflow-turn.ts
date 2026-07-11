@@ -18,22 +18,18 @@ import {
   saveAssistantWorkMessage,
   setWorkRunValue,
 } from "../work/store";
-import { buildWorkMemoryServer } from "../work/tools";
 import { ensureWorkWorkspace } from "../work/workspace";
+import { handleActionRequest } from "./action-server";
 import {
-  buildWorkflowActionServer,
-  handleActionRequest,
-} from "./action-server";
+  runWorkflowAgentBackend as defaultRunWorkflowAgentBackend,
+} from "./agent-core";
 import {
   extractActionRequestFences,
   extractValueFence,
   extractWorkflowOutputFences,
 } from "./fence-parsers";
 import { clampAnalysisMinutes } from "./value";
-import {
-  buildWorkflowOutputServer,
-  handleWorkflowOutput,
-} from "./output-server";
+import { handleWorkflowOutput } from "./output-server";
 import {
   buildWorkflowRunnerPrompt,
   type PluginActionPromptDescriptor,
@@ -45,11 +41,6 @@ import {
   type WorkflowRecord,
   type WorkflowRunRecord,
 } from "./store";
-import {
-  WORKFLOW_FIXED_DENY,
-  WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS,
-  buildAllowDenyGate,
-} from "./tool-defaults";
 
 export class WorkflowNeedsInputError extends Error {
   constructor(message = "Workflow paused awaiting operator input") {
@@ -143,6 +134,7 @@ export type RunWorkflowTurnOptions = {
 export type RunWorkflowTurnDeps = {
   resolveAgentBackend: typeof defaultResolveAgentBackend;
   formatGlobalMemoryPromptContext: typeof defaultFormatGlobalMemoryPromptContext;
+  runCore: typeof defaultRunWorkflowAgentBackend;
 };
 
 export type RunWorkflowTurnResult = {
@@ -186,26 +178,21 @@ export async function runWorkflowTurn(
     deps.resolveAgentBackend ?? defaultResolveAgentBackend;
   const formatGlobalMemoryPromptContext =
     deps.formatGlobalMemoryPromptContext ?? defaultFormatGlobalMemoryPromptContext;
+  const runCore = deps.runCore ?? defaultRunWorkflowAgentBackend;
 
   const backend = await resolveAgentBackend(orgId);
   await markWorkRunRunning(workRunId);
 
   let assistantText = "";
+  let needsInput = false;
   const wrappedEmit = async (event: AgentEvent): Promise<void> => {
     if (event.type === "message" && event.role === "assistant") {
       assistantText += event.content;
     }
+    if (event.type === "needs_input") {
+      needsInput = true;
+    }
     await emit(event);
-  };
-
-  let needsInput = false;
-  const headlessElicitation = async (): Promise<Record<string, unknown>> => {
-    needsInput = true;
-    await wrappedEmit({
-      type: "needs_input",
-      question: "Workflow paused awaiting operator input.",
-    });
-    throw new WorkflowNeedsInputError();
   };
 
   const workspace = await ensureWorkWorkspace(orgId, threadId, workRunId);
@@ -259,52 +246,26 @@ export async function runWorkflowTurn(
       userMessage,
     );
 
-    const mcpServers = backend.capabilities.mcpTools
-      ? {
-          neko_workflow_output: buildWorkflowOutputServer({
-            orgId,
-            workflowRunId: workflowRun.id,
-            workRunId: workRunId,
-            emit: wrappedEmit,
-          }),
-          neko_action: buildWorkflowActionServer({
-            orgId,
-            workflowRunId: workflowRun.id,
-            workRunId: workRunId,
-            triggeredByObservationId:
-              workflowRun.triggeredByObservationId ?? null,
-            emit: wrappedEmit,
-          }),
-          neko_memory: buildWorkMemoryServer({
-            orgId,
-            threadId,
-            runId: workRunId,
-          }),
-        }
-      : undefined;
-
-    const canUseTool = backend.capabilities.canUseToolGate
-      ? buildAllowDenyGate(
-          WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS,
-          WORKFLOW_FIXED_DENY,
-        )
-      : undefined;
-
-    const result = await backend.run({
+    const result = await runCore({
+      backend,
       prompt,
       userMessage: seedMessage,
       orgId,
+      threadId,
+      runId: workRunId,
+      workflowRunId: workflowRun.id,
+      mode,
+      triggeredByObservationId:
+        workflowRun.triggeredByObservationId ?? null,
       workspace,
-      onEvent: wrappedEmit,
-      mcpServers,
-      canUseTool,
-      allowedTools: backend.capabilities.canUseToolGate
-        ? WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS
-        : undefined,
-      onElicitation: mode === "headless" ? headlessElicitation : undefined,
+      emit: wrappedEmit,
       tag: `workflow ${workflow.name} ${workflowRun.id}`,
       signal,
     });
+
+    if (needsInput) {
+      throw new WorkflowNeedsInputError();
+    }
 
     let persistedText = result.finalText.trim() || assistantText.trim();
 

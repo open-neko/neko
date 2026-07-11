@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentWorkspace } from "../src/agent-backend";
 import { buildWorkflowRunnerPrompt } from "../src/workflows/runner-prompt";
 import type { WorkflowRecord } from "../src/workflows/store";
+import { WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS } from "../src/workflows/tool-defaults";
 
 const sampleWorkspace: AgentWorkspace = {
   orgRoot: "/tmp/org",
@@ -137,5 +138,32 @@ describe("buildWorkflowRunnerPrompt", () => {
     expect(prompt).not.toContain("mcp__neko_memory__save");
     // No fence-save path for workflow runner (runtime doesn't parse one).
     expect(prompt).not.toContain("```neko_memory");
+  });
+
+  it("uses native dynamic delegation guidance for Hermes workflow runs", () => {
+    const prompt = buildWorkflowRunnerPrompt({
+      ...base,
+      backend: "hermes",
+      mcpTools: true,
+    });
+    expect(prompt).toContain("delegate_task");
+    expect(prompt).toContain("OpenNeko does not provide named subagent profiles");
+    expect(prompt).toContain("toolsets");
+  });
+
+  it("uses native dynamic Agent guidance for Claude workflow runs", () => {
+    const prompt = buildWorkflowRunnerPrompt({
+      ...base,
+      backend: "claude-agent",
+      mcpTools: true,
+    });
+    expect(prompt).toContain("Agent");
+    expect(prompt).toContain("general-purpose");
+    expect(prompt).toContain("filesystem-discovered agents");
+    expect(prompt).toMatch(/OpenNeko does\s+not define named subagent\s+profiles/);
+  });
+
+  it("allows Claude workflow runners to call the native Agent tool", () => {
+    expect(WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS).toContain("Agent");
   });
 });

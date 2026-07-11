@@ -215,6 +215,7 @@ export class HermesBackend implements AgentBackend {
     sdkStopHook: false,
     sessionResume: false,
     canUseToolGate: false,
+    nativeDelegation: "hermes-delegate-task",
   } as const;
 
   async run(opts: AgentRunOptions): Promise<AgentRunResult> {

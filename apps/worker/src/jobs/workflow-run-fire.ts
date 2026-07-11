@@ -1,6 +1,15 @@
 import type { WorkflowRunFirePayload } from "@neko/db/jobs";
-import { type AgentEvent, registerAgentCanceller } from "@neko/llm";
-import { appendWorkRunEvent, scrubAgentEvent } from "@neko/llm/work";
+import {
+  ensureHostConfigProvisioned,
+  type AgentEvent,
+  registerAgentCanceller,
+} from "@neko/llm";
+import {
+  appendWorkRunEvent,
+  ensureAgentBroker,
+  scrubAgentEvent,
+  workflowRuntimeDepsFromEnv,
+} from "@neko/llm/work";
 import { prepareWorkflowRun, runWorkflowTurn } from "@neko/llm/workflows";
 import {
   getCurrentScrubber,
@@ -19,6 +28,8 @@ export class WorkflowRunInterrupted extends Error {
 export async function runWorkflowRunFire(
   payload: WorkflowRunFirePayload,
 ): Promise<void> {
+  await ensureHostConfigProvisioned(payload.orgId);
+
   const prepared = await prepareWorkflowRun({
     orgId: payload.orgId,
     workflowId: payload.workflowId,
@@ -46,20 +57,25 @@ export async function runWorkflowRunFire(
   const pluginActions =
     getPluginRegistryInstance()?.getRegisteredActionDescriptors() ?? [];
 
+  const broker = await ensureAgentBroker();
+
   // SIGTERM aborts this signal, so an interrupted run finalizes as "cancelled"
   // (not a hard failure with an opaque "ACP client disposed" error).
   const abort = new AbortController();
   const unregister = registerAgentCanceller(() => abort.abort());
   let result;
   try {
-    result = await runWorkflowTurn({
-      prepared,
-      userMessage: payload.userMessage,
-      mode: "headless",
-      emit,
-      signal: abort.signal,
-      pluginActions,
-    });
+    result = await runWorkflowTurn(
+      {
+        prepared,
+        userMessage: payload.userMessage,
+        mode: "headless",
+        emit,
+        signal: abort.signal,
+        pluginActions,
+      },
+      workflowRuntimeDepsFromEnv(broker),
+    );
   } finally {
     unregister();
   }

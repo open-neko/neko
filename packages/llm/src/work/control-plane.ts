@@ -16,11 +16,15 @@ import {
 } from "../workflows/save-workflow-with-trigger";
 import {
   deleteWorkflow,
+  emitWorkflowOutput,
   listSubscriptionsByWorkflow,
   listWorkflows,
   type SaveWorkflowInput,
   type WorkflowRecord,
+  type WorkflowOutputInput,
+  type WorkflowOutputRecord,
 } from "../workflows/store";
+import { notifyWorkflowOutputDeliveryHook } from "../workflows/output-delivery";
 import { rememberWorkMemory, searchWorkMemoryByContext } from "./memory";
 
 type PolicyRequestSubject = Parameters<typeof evaluateActionPolicy>[0];
@@ -118,6 +122,9 @@ export interface AgentControlPlane {
   saveWorkflowWithTrigger(
     input: SaveWorkflowInput,
   ): Promise<Wire<SaveWorkflowWithTriggerResult>>;
+  emitWorkflowOutput(
+    input: WorkflowOutputInput,
+  ): Promise<Wire<WorkflowOutputRecord>>;
   listWorkflowsWithTriggers(input: {
     orgId: string;
     limit?: number;
@@ -328,6 +335,14 @@ export class InProcessControlPlane implements AgentControlPlane {
     input: SaveWorkflowInput,
   ): Promise<Wire<SaveWorkflowWithTriggerResult>> {
     return toWire(await saveWorkflowWithTrigger(input));
+  }
+
+  async emitWorkflowOutput(
+    input: WorkflowOutputInput,
+  ): Promise<Wire<WorkflowOutputRecord>> {
+    const output = await emitWorkflowOutput(input);
+    notifyWorkflowOutputDeliveryHook(input.orgId, output);
+    return toWire(output);
   }
 
   async listWorkflowsWithTriggers(input: {

@@ -1,10 +1,11 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentEvent } from "../src/agent-backend";
+import type { AgentEvent, AgentWorkspace } from "../src/agent-backend";
 import type { RunAgentBackendInput } from "../src/work/agent-core";
+import type { RunWorkflowAgentBackendInput } from "../src/workflows/agent-core";
 
 /**
  * The launcher shells out to the `openshell` CLI. We mock spawn: non-exec calls
@@ -71,8 +72,12 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
 });
 
-const { makeSandboxRunCore, buildModelEgressArgs, ensureOpenShellProvider } =
-  await import("../src/work/sandbox-launcher");
+const {
+  makeSandboxRunCore,
+  makeSandboxWorkflowRunCore,
+  buildModelEgressArgs,
+  ensureOpenShellProvider,
+} = await import("../src/work/sandbox-launcher");
 
 function fakeInput(
   emit: (e: AgentEvent) => Promise<void>,
@@ -91,6 +96,47 @@ function fakeInput(
     backendState: undefined,
     pluginActions: [],
     emit,
+  };
+}
+
+function fakeWorkflowInput(
+  emit: (e: AgentEvent) => Promise<void>,
+  backend?: RunWorkflowAgentBackendInput["backend"],
+  workspaceOverride?: AgentWorkspace,
+): RunWorkflowAgentBackendInput {
+  return {
+    backend:
+      backend ??
+      ({ id: "hermes", capabilities: { mcpTools: false } } as RunWorkflowAgentBackendInput["backend"]),
+    prompt: "WORKFLOW PROMPT",
+    userMessage: "begin",
+    orgId: "org-1",
+    threadId: "thr-1",
+    runId: "run-1",
+    workflowRunId: "workflow-run-1",
+    mode: "headless",
+    triggeredByObservationId: "obs-1",
+    workspace:
+      workspaceOverride ??
+      ({ orgRoot: "/tmp/ws/org-1" } as RunWorkflowAgentBackendInput["workspace"]),
+    emit,
+  };
+}
+
+function fullWorkspace(orgRoot: string): AgentWorkspace {
+  return {
+    orgRoot,
+    skillsRoot: join(orgRoot, "skills"),
+    memoryRoot: join(orgRoot, "memory"),
+    knowledgeRoot: join(orgRoot, "knowledge"),
+    uploadsRoot: join(orgRoot, "uploads"),
+    runsRoot: join(orgRoot, "runs"),
+    threadUploadsRoot: join(orgRoot, "uploads", "thr-1"),
+    runRoot: join(orgRoot, "runs", "run-1"),
+    artifactRoot: join(orgRoot, "runs", "run-1", "artifacts"),
+    binRoot: join(orgRoot, "runs", "run-1", "bin"),
+    claudeProjectRoot: orgRoot,
+    claudeConfigRoot: join(orgRoot, "claude", "config"),
   };
 }
 
@@ -199,6 +245,89 @@ describe("makeSandboxRunCore", () => {
     expect(execCall?.args.join(" ")).toContain("agent-sandbox/entry.ts");
     // the credential alias references the OpenShell-injected var at runtime, never a value:
     expect(execCall?.args.join(" ")).toContain('export GEMINI_API_KEY="$api_key"');
+  });
+
+  it("uses one OpenShell sandbox for a native-delegation-capable backend", async () => {
+    const runCore = makeSandboxRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    await runCore(
+      fakeInput(async () => {}, {
+        id: "hermes",
+        capabilities: {
+          mcpTools: false,
+          nativeDelegation: "hermes-delegate-task",
+        },
+      } as RunAgentBackendInput["backend"]),
+    );
+
+    const calls = h.calls.map((c) => c.args);
+    expect(calls.filter((args) => args.includes("create"))).toHaveLength(1);
+    expect(calls.filter((args) => args.includes("exec"))).toHaveLength(1);
+    expect(calls.filter((args) => args.includes("delete"))).toHaveLength(1);
+  });
+
+  it("serializes workflow context into the sandbox job", async () => {
+    const runCore = makeSandboxWorkflowRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    await runCore(
+      fakeWorkflowInput(async () => {}, {
+        id: "claude-agent",
+        model: "claude-sonnet-4-6",
+        capabilities: { mcpTools: true },
+      } as RunWorkflowAgentBackendInput["backend"]),
+    );
+
+    const job = jobCapture.jobs.at(-1);
+    expect(job).toMatchObject({
+      kind: "workflow",
+      orgId: "org-1",
+      threadId: "thr-1",
+      runId: "run-1",
+      workflowRunId: "workflow-run-1",
+      mode: "headless",
+      triggeredByObservationId: "obs-1",
+      backendId: "claude-agent",
+      model: "claude-sonnet-4-6",
+      message: "begin",
+    });
+    expect(job).not.toHaveProperty("backendState");
+    expect(job).not.toHaveProperty("pluginActions");
+    expect(h.calls.filter((c) => c.args.includes("create"))).toHaveLength(1);
+    expect(h.calls.filter((c) => c.args.includes("exec"))).toHaveLength(1);
+    expect(h.calls.filter((c) => c.args.includes("delete"))).toHaveLength(1);
+  });
+
+  it("serializes the per-run GraphJin client config into workflow sandbox jobs", async () => {
+    const orgRoot = await mkdtemp(join(tmpdir(), "ws-"));
+    const workspace = fullWorkspace(orgRoot);
+    const clientDir = join(workspace.runRoot, "gj-auth", "graphjin");
+    await mkdir(clientDir, { recursive: true });
+    await writeFile(
+      join(clientDir, "client.json"),
+      JSON.stringify({
+        server: "http://localhost:8080/api/v1/mcp",
+        token: "run-token",
+        subject: "service",
+      }),
+    );
+    const runCore = makeSandboxWorkflowRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    await runCore(fakeWorkflowInput(async () => {}, undefined, workspace));
+
+    expect(jobCapture.jobs.at(-1)?.graphjinClientConfig).toMatchObject({
+      server: "http://localhost:8080/api/v1/mcp",
+      token: "run-token",
+      subject: "service",
+    });
   });
 
   it("scopes broker egress to node, injects url+token, and releases on finish", async () => {

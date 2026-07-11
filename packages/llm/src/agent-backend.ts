@@ -201,6 +201,8 @@ export type AgentRunResult = {
   error?: string;
 };
 
+export type AgentNativeDelegation = "hermes-delegate-task" | "claude-agent-tool";
+
 // Per-backend feature flags so shared runtime code (runChatTurn, prompt
 // builder, auto-memory dispatch) never branches on backend.id. Adding a new
 // backend (Codex etc.) requires only declaring its capabilities; no edits to
@@ -214,6 +216,8 @@ export interface AgentBackendCapabilities {
   readonly sessionResume: boolean;
   /** Honors canUseTool callback for per-call permission decisions. */
   readonly canUseToolGate: boolean;
+  /** Native backend subagent/delegation primitive, when available. */
+  readonly nativeDelegation?: AgentNativeDelegation;
 }
 
 export interface AgentBackend {

@@ -89,6 +89,12 @@ export class BrokerControlPlane implements AgentControlPlane {
     return this.post("/v1/workflow/save", input);
   }
 
+  emitWorkflowOutput(
+    input: Parameters<AgentControlPlane["emitWorkflowOutput"]>[0],
+  ): ReturnType<AgentControlPlane["emitWorkflowOutput"]> {
+    return this.post("/v1/workflow-output/emit", input);
+  }
+
   listWorkflowsWithTriggers(
     input: Parameters<AgentControlPlane["listWorkflowsWithTriggers"]>[0],
   ): ReturnType<AgentControlPlane["listWorkflowsWithTriggers"]> {

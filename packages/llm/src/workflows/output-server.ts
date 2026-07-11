@@ -1,36 +1,30 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentEvent, OutputMood } from "../agent-backend";
+import type { AgentControlPlane, Wire } from "../work/control-plane";
 import {
   WORKFLOW_OUTPUT_SCHEMA,
   type WorkflowOutputPayload,
 } from "./fence-schemas";
-import { emitWorkflowOutput, type WorkflowOutputRecord } from "./store";
+import { notifyWorkflowOutputDeliveryHook } from "./output-delivery";
+import {
+  emitWorkflowOutput,
+  type WorkflowOutputInput,
+  type WorkflowOutputRecord,
+} from "./store";
+
+export {
+  setWorkflowOutputDeliveryHook,
+  type WorkflowOutputDeliveryHook,
+} from "./output-delivery";
 
 export type WorkflowOutputContext = {
   orgId: string;
   workflowRunId: string;
   workRunId: string;
   emit: (event: AgentEvent) => Promise<void> | void;
+  /** In-process on host; broker-backed inside the agent sandbox. */
+  controlPlane?: Pick<AgentControlPlane, "emitWorkflowOutput">;
 };
-
-/**
- * Optional delivery hook — the worker registers one at startup to fan a
- * newly-emitted output out to bound channels (Slack, Telegram, …). A
- * registered seam (like registerActionAdapter) so packages/llm never depends
- * on the worker's channel registry. Fire-and-forget; never fails the run.
- */
-export type WorkflowOutputDeliveryHook = (
-  orgId: string,
-  output: WorkflowOutputRecord,
-) => Promise<void> | void;
-
-let outputDeliveryHook: WorkflowOutputDeliveryHook | null = null;
-
-export function setWorkflowOutputDeliveryHook(
-  hook: WorkflowOutputDeliveryHook | null,
-): void {
-  outputDeliveryHook = hook;
-}
 
 /**
  * Shared handler. The MCP tool and the fence-fallback path both route
@@ -39,8 +33,8 @@ export function setWorkflowOutputDeliveryHook(
 export async function handleWorkflowOutput(
   ctx: WorkflowOutputContext,
   args: WorkflowOutputPayload,
-): Promise<WorkflowOutputRecord> {
-  const output = await emitWorkflowOutput({
+): Promise<WorkflowOutputRecord | Wire<WorkflowOutputRecord>> {
+  const input: WorkflowOutputInput = {
     orgId: ctx.orgId,
     workflowRunId: ctx.workflowRunId,
     workRunId: ctx.workRunId,
@@ -59,22 +53,19 @@ export async function handleWorkflowOutput(
       ? new Date(args.timeWindowEnd)
       : null,
     freshnessTtlSeconds: args.freshnessTtlSeconds ?? null,
-  });
+  };
+  let output: WorkflowOutputRecord | Wire<WorkflowOutputRecord>;
+  if (ctx.controlPlane) {
+    output = await ctx.controlPlane.emitWorkflowOutput(input);
+  } else {
+    output = await emitWorkflowOutput(input);
+    notifyWorkflowOutputDeliveryHook(ctx.orgId, output);
+  }
   await ctx.emit({
     type: "output_emit",
     output_id: output.id,
     kind: output.kind,
   });
-  if (outputDeliveryHook) {
-    const hook = outputDeliveryHook;
-    // async IIFE so a *synchronous* throw in the hook is captured as a
-    // rejection too — delivery must never fail the run.
-    void (async () => hook(ctx.orgId, output))().catch((err) => {
-      console.warn(
-        `[workflow-output] delivery hook failed: ${err instanceof Error ? err.message : err}`,
-      );
-    });
-  }
   return output;
 }
 

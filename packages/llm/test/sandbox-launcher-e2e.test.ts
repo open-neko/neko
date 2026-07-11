@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { makeAgentBackend } from "../src/agent-backend-resolver";
 import { makeSandboxRunCore } from "../src/work/sandbox-launcher";
@@ -33,6 +34,8 @@ const ENABLED =
   hasOpenshell();
 
 const d = ENABLED ? describe : describe.skip;
+const delegationIt =
+  ENABLED && process.env.OPENNEKO_AGENT_DELEGATION_E2E === "1" ? it : it.skip;
 
 d("agent-in-sandbox e2e (opt-in)", () => {
   it(
@@ -84,5 +87,65 @@ d("agent-in-sandbox e2e (opt-in)", () => {
       );
     },
     300_000,
+  );
+
+  delegationIt(
+    "runs Hermes delegate_task inside the same run sandbox and pulls back child artifacts",
+    async () => {
+      const binary = process.env.OPENNEKO_AGENT_MODEL_BINARY ?? "";
+      const hosts = (process.env.OPENNEKO_AGENT_MODEL_HOST ?? "")
+        .split(",")
+        .map((h) => h.trim())
+        .filter(Boolean);
+      const keyEnv = process.env.OPENNEKO_AGENT_MODEL_KEY_ENV;
+      const runId = `delegation-e2e-${process.pid}-${process.hrtime.bigint()}`;
+      const orgId = "openshell-delegation-e2e-org";
+      const workspace = await ensureWorkWorkspace(orgId, "delegation-thread", runId);
+      const marker = `CHILD_OK_${runId}`;
+
+      const runCore = makeSandboxRunCore({
+        agentImage: process.env.OPENNEKO_AGENT_IMAGE!,
+        gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
+        gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
+        modelProvider: process.env.OPENNEKO_AGENT_MODEL_PROVIDER,
+        modelEgress: binary ? hosts.map((host) => ({ host, binary })) : [],
+        keyAliases: keyEnv ? [{ from: "api_key", to: keyEnv }] : undefined,
+        hermesHomeHostPath: process.env.OPENNEKO_AGENT_HERMES_HOME || undefined,
+        execTimeoutMs: 360_000,
+        onLog: () => {},
+      });
+      const events: unknown[] = [];
+
+      const result = await runCore({
+        backend: makeAgentBackend({ id: "hermes" }),
+        prompt: `You are testing Hermes native delegation. You must call delegate_task exactly once. The delegated child must use a terminal/file-capable toolset to write exactly ${marker} to ${workspace.artifactRoot}/delegation-child.txt. After the child reports success, reply with exactly DELEGATION_DONE and nothing else.`,
+        userMessage: "Run the delegation test now.",
+        orgId,
+        threadId: "delegation-thread",
+        runId,
+        workspace,
+        pluginActions: [],
+        emit: (event) => {
+          events.push(event);
+          return Promise.resolve();
+        },
+      });
+
+      expect(result.status).toBe("completed");
+      expect(result.finalText).toMatch(/DELEGATION_DONE/i);
+      expect(
+        events.some(
+          (event) =>
+            typeof event === "object" &&
+            event !== null &&
+            (event as { type?: unknown; name?: unknown }).type === "tool_start" &&
+            /delegate_task/i.test(String((event as { name?: unknown }).name ?? "")),
+        ),
+      ).toBe(true);
+      await expect(
+        readFile(`${workspace.artifactRoot}/delegation-child.txt`, "utf8"),
+      ).resolves.toContain(marker);
+    },
+    420_000,
   );
 });

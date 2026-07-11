@@ -5,6 +5,10 @@ import {
 } from "@neko/db/jobs";
 import type { AgentEvent } from "../agent-backend";
 import {
+  inProcessControlPlane,
+  type AgentControlPlane,
+} from "../work/control-plane";
+import {
   createActionRequest,
   listEnabledPolicies as defaultListEnabledPolicies,
   type ActionRequestRecord,
@@ -28,6 +32,8 @@ export type WorkflowActionContext = {
   workRunId: string;
   triggeredByObservationId?: string | null;
   emit: (event: AgentEvent) => Promise<void> | void;
+  /** In-process on host; broker-backed inside the agent sandbox. */
+  controlPlane?: AgentControlPlane;
   /** DI for tests. */
   listPolicies?: typeof defaultListEnabledPolicies;
   enqueue?: typeof defaultEnqueue;
@@ -91,6 +97,8 @@ export async function handleActionRequest(
   ctx: WorkflowActionContext,
   args: ActionRequestPayload,
 ): Promise<HandleActionRequestResult> {
+  if (ctx.controlPlane) return handleActionRequestViaControlPlane(ctx, args);
+
   const listPolicies = ctx.listPolicies ?? defaultListEnabledPolicies;
   const enqueue = ctx.enqueue ?? defaultEnqueue;
 
@@ -149,6 +157,90 @@ export async function handleActionRequest(
 
   if (status === "approved") {
     await enqueue(QUEUE.ACTION_EXECUTE, {
+      orgId: ctx.orgId,
+      actionRequestId: request.id,
+    });
+    return {
+      ok: true,
+      decision: "auto_approved",
+      status: "queued_for_execution",
+      actionRequestId: request.id,
+      policy: decision.policy.name,
+    };
+  }
+
+  return {
+    ok: true,
+    decision: "needs_approval",
+    status: "pending_approval",
+    actionRequestId: request.id,
+    policy: decision.policy.name,
+    reason: decision.reason,
+  };
+}
+
+async function handleActionRequestViaControlPlane(
+  ctx: WorkflowActionContext,
+  args: ActionRequestPayload,
+): Promise<HandleActionRequestResult> {
+  const controlPlane = ctx.controlPlane ?? inProcessControlPlane;
+  const decision = await controlPlane.evaluateActionPolicy({
+    orgId: ctx.orgId,
+    scope: args.scope as ActionScope,
+    kind: args.kind,
+    target: args.target ?? null,
+    riskLevel: (args.risk_level as RiskLevel | undefined) ?? null,
+  });
+
+  if (decision.decision === "deny") {
+    return {
+      ok: false,
+      decision: "denied",
+      reason: decision.reason,
+      policy: decision.policy.name,
+    };
+  }
+  if (decision.decision === "no_policy") {
+    return {
+      ok: false,
+      decision: "denied",
+      reason:
+        "no policy matches this scope/kind — refuse for safety. Ask the operator to define a policy first.",
+    };
+  }
+
+  const status =
+    decision.decision === "allow" ? "approved" : "pending_approval";
+  const request = await controlPlane.createActionRequest({
+    orgId: ctx.orgId,
+    workflowRunId: ctx.workflowRunId,
+    workRunId: ctx.workRunId,
+    requestedByRunId: ctx.workflowRunId,
+    triggeredByObservationId: ctx.triggeredByObservationId ?? null,
+    policyId: decision.policy.id,
+    scope: args.scope as ActionScope,
+    kind: args.kind,
+    target: args.target ?? null,
+    payload: args.payload ?? {},
+    riskLevel: (args.risk_level as RiskLevel | undefined) ?? null,
+    summary: args.summary,
+    minutesSaved: clampActionMinutes(args.minutes_saved),
+    minutesSavedBasis: args.basis ?? null,
+    status,
+  });
+
+  await ctx.emit({
+    type: "action_request_emit",
+    action_request_id: request.id,
+    kind: args.kind,
+    scope: args.scope,
+    risk_level: args.risk_level,
+    decision: status === "approved" ? "auto_approved" : "pending_approval",
+    ...(args.summary ? { summary: args.summary } : {}),
+  });
+
+  if (status === "approved") {
+    await controlPlane.enqueueActionExecute({
       orgId: ctx.orgId,
       actionRequestId: request.id,
     });

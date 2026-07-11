@@ -60,6 +60,16 @@ function graphjinPath(home: string): string {
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_HERMES_HOME = process.env.HERMES_HOME;
 const ORIGINAL_XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME;
+const DELEGATION_ENV_KEYS = [
+  "OPENNEKO_AGENT_DELEGATION_MAX_ITERATIONS",
+  "OPENNEKO_AGENT_DELEGATION_MAX_CONCURRENT_CHILDREN",
+  "OPENNEKO_AGENT_DELEGATION_MAX_SPAWN_DEPTH",
+  "OPENNEKO_AGENT_DELEGATION_CHILD_TIMEOUT_SECONDS",
+  "OPENNEKO_AGENT_DELEGATION_ORCHESTRATOR_ENABLED",
+] as const;
+const ORIGINAL_DELEGATION_ENV = Object.fromEntries(
+  DELEGATION_ENV_KEYS.map((key) => [key, process.env[key]]),
+);
 const ensureOpenShellProviderMock = vi.mocked(ensureOpenShellProvider);
 
 describe("patchGraphjinSourcesJwtSecret", () => {
@@ -137,6 +147,7 @@ describeIfDb("provisionHostConfig", () => {
     process.env.HOME = tempHome;
     process.env.HERMES_HOME = hermesHome;
     delete process.env.XDG_CONFIG_HOME;
+    for (const key of DELEGATION_ENV_KEYS) delete process.env[key];
   });
 
   afterEach(async () => {
@@ -146,6 +157,11 @@ describeIfDb("provisionHostConfig", () => {
     else delete process.env.HERMES_HOME;
     if (ORIGINAL_XDG_CONFIG_HOME) process.env.XDG_CONFIG_HOME = ORIGINAL_XDG_CONFIG_HOME;
     else delete process.env.XDG_CONFIG_HOME;
+    for (const key of DELEGATION_ENV_KEYS) {
+      const original = ORIGINAL_DELEGATION_ENV[key];
+      if (original === undefined) delete process.env[key];
+      else process.env[key] = original;
+    }
     await clearProvider(orgId, "agent");
     await clearProvider(orgId, "primary");
     await db().delete(data_source).where(eq(data_source.org_id, orgId));
@@ -209,12 +225,48 @@ describeIfDb("provisionHostConfig", () => {
     expect(yaml).toContain('default: "gemini-pro-latest"');
     expect(yaml).toContain('provider: "gemini"');
     expect(yaml).toContain("max_turns:");
+    expect(yaml).toContain("delegation:");
+    expect(yaml).toContain("max_iterations: 50");
+    expect(yaml).toContain("max_concurrent_children: 3");
+    expect(yaml).toContain("max_spawn_depth: 1");
+    expect(yaml).toContain("orchestrator_enabled: true");
+    expect(yaml).toContain("child_timeout_seconds: 0");
 
     const env = await readFile(join(hermesHome, ".env"), "utf8");
     expect(env).toContain("GEMINI_API_KEY=test-gemini-key");
 
     const envStat = await stat(join(hermesHome, ".env"));
     expect(envStat.mode & 0o777).toBe(0o600);
+  });
+
+  it("honors and clamps Hermes delegation env overrides", async () => {
+    process.env.OPENNEKO_AGENT_DELEGATION_MAX_ITERATIONS = "17.9";
+    process.env.OPENNEKO_AGENT_DELEGATION_MAX_CONCURRENT_CHILDREN = "5";
+    process.env.OPENNEKO_AGENT_DELEGATION_MAX_SPAWN_DEPTH = "99";
+    process.env.OPENNEKO_AGENT_DELEGATION_CHILD_TIMEOUT_SECONDS = "-10";
+    process.env.OPENNEKO_AGENT_DELEGATION_ORCHESTRATOR_ENABLED = "off";
+    await seedDataSource(orgId);
+    await seedProvider(orgId, {
+      scope: "agent",
+      provider: "hermes",
+      config: { backend: "hermes" },
+    });
+    await seedProvider(orgId, {
+      scope: "primary",
+      provider: "google-gemini",
+      model: "gemini-pro-latest",
+      secrets: { apiKey: "test-gemini-key" },
+    });
+
+    await provisionHostConfig(orgId);
+
+    const yaml = await readFile(join(hermesHome, "config.yaml"), "utf8");
+    expect(yaml).toContain("delegation:");
+    expect(yaml).toContain("max_iterations: 17");
+    expect(yaml).toContain("max_concurrent_children: 5");
+    expect(yaml).toContain("max_spawn_depth: 3");
+    expect(yaml).toContain("orchestrator_enabled: false");
+    expect(yaml).toContain("child_timeout_seconds: 0");
   });
 
   it("writes anthropic key var for anthropic provider", async () => {

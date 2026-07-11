@@ -1,5 +1,6 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import type { AgentEvent } from "@neko/llm";
 import {
   buildAuditViewerServer,
   buildChannelManagerServer,
@@ -12,8 +13,13 @@ import {
   buildWorkMemoryServer,
   type PluginActionDescriptor,
 } from "@neko/llm/work";
-import { buildRuleBuilderServer, buildWorkflowBuilderServer } from "@neko/llm/workflows";
-import { BrokerControlPlane } from "./broker-client";
+import {
+  buildRuleBuilderServer,
+  buildWorkflowActionServer,
+  buildWorkflowBuilderServer,
+  buildWorkflowOutputServer,
+} from "@neko/llm/workflows";
+import { BrokerControlPlane, postAgentEvents } from "./broker-client";
 
 /**
  * Stdio MCP server for ACP backends (hermes). The agent process can't hand
@@ -43,13 +49,18 @@ export function buildBridgeServer(
     skillsRoot: string;
     pluginActions: PluginActionDescriptor[];
     controlPlane: BrokerControlPlane;
+    brokerUrl?: string;
+    brokerToken?: string;
+    workflowRunId?: string;
+    triggeredByObservationId?: string | null;
   },
 ): { instance: { connect: (t: Transport) => Promise<void> } } {
   const { orgId, threadId, runId, skillsRoot, pluginActions, controlPlane } = ctx;
-  // Tool emits stream into the run on the in-process path; from a bridge
-  // child they have no channel back, and the durable effects (action
-  // requests, memory rows) persist via the control plane regardless.
-  const emit = () => {};
+  const emit =
+    ctx.brokerUrl && ctx.brokerToken
+      ? (event: AgentEvent) =>
+          postAgentEvents(ctx.brokerUrl!, ctx.brokerToken!, [event])
+      : () => {};
   const common = { orgId, runId, emit, controlPlane };
   switch (name) {
     case "neko_skills":
@@ -61,6 +72,29 @@ export function buildBridgeServer(
         orgId,
         createdByThreadId: threadId,
         createdByRunId: runId,
+        emit,
+        controlPlane,
+      });
+    case "neko_workflow_output":
+      if (!ctx.workflowRunId) {
+        throw new Error("mcp-bridge: neko_workflow_output requires workflowRunId");
+      }
+      return buildWorkflowOutputServer({
+        orgId,
+        workflowRunId: ctx.workflowRunId,
+        workRunId: runId,
+        emit,
+        controlPlane,
+      });
+    case "neko_action":
+      if (!ctx.workflowRunId) {
+        throw new Error("mcp-bridge: neko_action requires workflowRunId");
+      }
+      return buildWorkflowActionServer({
+        orgId,
+        workflowRunId: ctx.workflowRunId,
+        workRunId: runId,
+        triggeredByObservationId: ctx.triggeredByObservationId ?? null,
         emit,
         controlPlane,
       });
@@ -149,10 +183,11 @@ async function main(): Promise<void> {
   const name = process.argv[2];
   if (!name) throw new Error("mcp-bridge: missing server-name argument");
   const brokerUrl = requireEnv("OPENNEKO_BROKER_URL");
+  const brokerToken = requireEnv("OPENNEKO_BROKER_TOKEN");
   await warmUpBroker(brokerUrl, name);
   const controlPlane = new BrokerControlPlane(
     brokerUrl,
-    requireEnv("OPENNEKO_BROKER_TOKEN"),
+    brokerToken,
   );
   const server = buildBridgeServer(name, {
     orgId: requireEnv("OPENNEKO_MCP_ORG_ID"),
@@ -163,6 +198,11 @@ async function main(): Promise<void> {
       process.env.OPENNEKO_MCP_PLUGIN_ACTIONS ?? "[]",
     ) as PluginActionDescriptor[],
     controlPlane,
+    brokerUrl,
+    brokerToken,
+    workflowRunId: process.env.OPENNEKO_MCP_WORKFLOW_RUN_ID,
+    triggeredByObservationId:
+      process.env.OPENNEKO_MCP_TRIGGERED_BY_OBSERVATION_ID ?? null,
   });
   await server.instance.connect(new StdioServerTransport());
 }
