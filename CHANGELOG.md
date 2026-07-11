@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.15.1](https://github.com/open-neko/openneko/compare/v2.15.0...v2.15.1) (2026-07-11)
+
+
+### Bug Fixes
+
+* detect upgrade mode from existing stack ([64c7fe2](https://github.com/open-neko/openneko/commit/64c7fe286400a79a966cecb852aaba5382daa0be))
+
 ## [2.15.0](https://github.com/open-neko/openneko/compare/v2.14.0...v2.15.0) (2026-07-10)
 
 
