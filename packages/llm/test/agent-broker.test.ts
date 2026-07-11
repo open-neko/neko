@@ -18,13 +18,21 @@ function stubControlPlane(): AgentControlPlane {
       unused as AgentControlPlane["searchWorkMemoryByContext"],
     saveWorkflowWithTrigger:
       unused as AgentControlPlane["saveWorkflowWithTrigger"],
+    emitWorkflowOutput: unused as AgentControlPlane["emitWorkflowOutput"],
     listWorkflowsWithTriggers:
       unused as AgentControlPlane["listWorkflowsWithTriggers"],
+    deleteWorkflow: unused as AgentControlPlane["deleteWorkflow"],
     upsertActionPolicyByName:
       unused as AgentControlPlane["upsertActionPolicyByName"],
     listActionPolicies: unused as AgentControlPlane["listActionPolicies"],
     listPlugins: unused as AgentControlPlane["listPlugins"],
     listUsers: unused as AgentControlPlane["listUsers"],
+    listChannels: unused as AgentControlPlane["listChannels"],
+    listDataSources: unused as AgentControlPlane["listDataSources"],
+    listAuditTrail: unused as AgentControlPlane["listAuditTrail"],
+    describeSourceGraph: unused as AgentControlPlane["describeSourceGraph"],
+    listSourceSecretNames:
+      unused as AgentControlPlane["listSourceSecretNames"],
   };
 }
 

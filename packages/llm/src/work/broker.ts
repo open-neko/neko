@@ -118,6 +118,12 @@ async function handle(
           createdByRunId: binding.runId,
         } as Parameters<AgentControlPlane["saveWorkflowWithTrigger"]>[0]),
       );
+    case "/v1/workflow-output/emit":
+      return send(
+        res,
+        200,
+        await cp.emitWorkflowOutput(workflowOutputInputFromBody(body, binding)),
+      );
     case "/v1/workflow/list":
       return send(
         res,
@@ -272,6 +278,33 @@ function readJson(req: IncomingMessage): Promise<unknown> {
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
+}
+
+function workflowOutputInputFromBody(
+  body: Record<string, unknown>,
+  binding: RunBinding,
+): Parameters<AgentControlPlane["emitWorkflowOutput"]>[0] {
+  return {
+    ...body,
+    orgId: binding.orgId,
+    workRunId: binding.runId,
+    timeWindowStart: optionalDate(body.timeWindowStart, "timeWindowStart"),
+    timeWindowEnd: optionalDate(body.timeWindowEnd, "timeWindowEnd"),
+  } as Parameters<AgentControlPlane["emitWorkflowOutput"]>[0];
+}
+
+function optionalDate(value: unknown, field: string): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (value instanceof Date) return value;
+  if (typeof value !== "string" && typeof value !== "number") {
+    throw new Error(`${field} must be an ISO date string or null`);
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`${field} must be a valid date`);
+  }
+  return date;
 }
 
 /** A running broker + its per-run token registry. */

@@ -310,6 +310,45 @@ describe("ensureGraphjinGuard wrapper script", () => {
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toBe(`${pinned}|${pinned}`);
   });
+
+  it("injects the per-run GraphJin actor token as an Authorization header", async () => {
+    const pinned = join(dir, "token-config");
+    const cfgDir = join(pinned, "graphjin");
+    const fake = join(dir, "fake-graphjin-token");
+    const pinnedBin = join(dir, "token-bin");
+    await mkdir(cfgDir, { recursive: true });
+    await mkdir(pinnedBin, { recursive: true });
+    await writeFile(
+      join(cfgDir, "client.json"),
+      JSON.stringify({
+        server: "http://localhost:8080/api/v1/mcp",
+        token: "actor-token",
+      }),
+    );
+    await writeFile(fake, "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\"\n", {
+      encoding: "utf8",
+      mode: 0o755,
+    });
+    const pinnedWrapper = await ensureGraphjinGuard(pinnedBin, fake, {
+      xdgConfigHome: pinned,
+    });
+
+    const r = spawnSync(
+      pinnedWrapper,
+      ["cli", "execute_graphql", "--args", '{"query":"{ x }"}'],
+      { encoding: "utf8" },
+    );
+
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim().split("\n")).toEqual([
+      "cli",
+      "--header",
+      "Authorization: Bearer actor-token",
+      "execute_graphql",
+      "--args",
+      '{"query":"{ x }"}',
+    ]);
+  });
 });
 
 describe("ensureGraphjinGuard output compaction", () => {

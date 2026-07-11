@@ -68,6 +68,10 @@ export {
 } from "./output-server";
 export { buildWorkflowRunnerPrompt } from "./runner-prompt";
 export {
+  runWorkflowAgentBackend,
+  type RunWorkflowAgentBackendInput,
+} from "./agent-core";
+export {
   computeDueWorkflows,
   singletonKeyForFiring,
   type DueWorkflow,

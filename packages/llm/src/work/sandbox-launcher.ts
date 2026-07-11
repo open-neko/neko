@@ -8,6 +8,8 @@ import {
   type AgentEvent,
   type AgentRunResult,
 } from "../agent-backend";
+import type { RunWorkflowAgentBackendInput } from "../workflows/agent-core";
+import type { RunWorkflowTurnDeps } from "../workflows/run-workflow-turn";
 import type { RunAgentBackendInput } from "./agent-core";
 import type { RunChatTurnDeps } from "./run-chat-turn";
 import { isHostLocalName, SANDBOX_HOST_ALIAS } from "./sandbox-net";
@@ -75,6 +77,9 @@ export interface SandboxLauncherOptions {
 }
 
 type RunCore = (input: RunAgentBackendInput) => Promise<AgentRunResult>;
+type RunWorkflowCore = (input: RunWorkflowAgentBackendInput) => Promise<AgentRunResult>;
+type SandboxRunKind = "work" | "workflow";
+type SandboxRunInput = RunAgentBackendInput | RunWorkflowAgentBackendInput;
 
 const SHELL_KEY_RX = /^[A-Z_][A-Z0-9_]*$/;
 // Shell var names allow lowercase — the OpenShell credential is injected as `api_key`.
@@ -93,6 +98,19 @@ function shellQuote(value: string): string {
  * hosts that launch the sandbox but never run the agent loop themselves.
  */
 export function makeSandboxRunCore(opts: SandboxLauncherOptions): RunCore {
+  return makeSandboxCore(opts, "work") as RunCore;
+}
+
+export function makeSandboxWorkflowRunCore(
+  opts: SandboxLauncherOptions,
+): RunWorkflowCore {
+  return makeSandboxCore(opts, "workflow") as RunWorkflowCore;
+}
+
+function makeSandboxCore(
+  opts: SandboxLauncherOptions,
+  kind: SandboxRunKind,
+): (input: SandboxRunInput) => Promise<AgentRunResult> {
   const cli = opts.cli ?? "openshell";
   const log = opts.onLog ?? ((l: string) => console.log(`[agent-sandbox] ${l}`));
 
@@ -106,7 +124,7 @@ export function makeSandboxRunCore(opts: SandboxLauncherOptions): RunCore {
     runProcessOnce(cli, [...gatewayArgs, ...args], timeoutMs);
 
   return async function sandboxRunCore(
-    input: RunAgentBackendInput,
+    input: SandboxRunInput,
   ): Promise<AgentRunResult> {
     const name = `work-${input.runId}`.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60);
 
@@ -139,8 +157,12 @@ export function makeSandboxRunCore(opts: SandboxLauncherOptions): RunCore {
       input.orgId,
       opts.graphjinBinaryInBox ?? "/usr/local/bin/graphjin",
     );
+    const graphjinClientConfig = await readRunGraphjinClientConfig(
+      input.workspace.runRoot,
+    );
 
     const job = {
+      kind,
       orgId: input.orgId,
       threadId: input.threadId,
       runId: input.runId,
@@ -150,15 +172,26 @@ export function makeSandboxRunCore(opts: SandboxLauncherOptions): RunCore {
       // claude-agent reconstructs in-box and validates it has a Claude model;
       // hermes reads its model from config.yaml, so this is undefined there.
       model: input.backend.model,
-      backendState: input.backendState,
-      pluginActions: input.pluginActions,
-      sourceConfigEnabled: input.sourceConfigEnabled ?? false,
-      // Channel render intent — gates the in-box render tool (see
-      // docs/PER_CHANNEL_RENDERING.md). Default true if absent.
-      wantsCards: input.wantsCards ?? true,
       workspace: boxWorkspace,
+      ...(kind === "work"
+        ? {
+            backendState: (input as RunAgentBackendInput).backendState,
+            pluginActions: (input as RunAgentBackendInput).pluginActions,
+            sourceConfigEnabled:
+              (input as RunAgentBackendInput).sourceConfigEnabled ?? false,
+            // Channel render intent — gates the in-box render tool (see
+            // docs/PER_CHANNEL_RENDERING.md). Default true if absent.
+            wantsCards: (input as RunAgentBackendInput).wantsCards ?? true,
+          }
+        : {
+            workflowRunId: (input as RunWorkflowAgentBackendInput).workflowRunId,
+            mode: (input as RunWorkflowAgentBackendInput).mode,
+            triggeredByObservationId:
+              (input as RunWorkflowAgentBackendInput).triggeredByObservationId ?? null,
+          }),
       ...(graphjinWriteGrants.length > 0 ? { graphjinWriteGrants } : {}),
       ...(dataEgress.serverUrl ? { graphjinServerUrl: dataEgress.serverUrl } : {}),
+      ...(graphjinClientConfig ? { graphjinClientConfig } : {}),
     };
 
     const stageDir = await mkdtemp(path.join(tmpdir(), "oss-agent-"));
@@ -303,6 +336,35 @@ async function resolveDataSourceEgress(
   }
 }
 
+async function readRunGraphjinClientConfig(
+  runRoot: string | undefined,
+): Promise<Record<string, unknown> | null> {
+  if (!runRoot) return null;
+  const candidates = [
+    path.join(runRoot, "gj-auth", "graphjin", "client.json"),
+    path.join(runRoot, "gj-auth", ".config", "graphjin", "client.json"),
+    path.join(
+      runRoot,
+      "gj-auth",
+      "Library",
+      "Application Support",
+      "graphjin",
+      "client.json",
+    ),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(await readFile(candidate, "utf8")) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 /** GJ5 host-side grant resolution for the in-box guard rebuild. Best-effort. */
 async function resolveRunGraphjinGrants(
   orgId: string,
@@ -352,6 +414,26 @@ export function agentRuntimeDepsFromEnv(broker?: {
   tokenFor: (binding: { runId: string; orgId: string }) => string;
   release?: (runId: string) => void;
 }): Pick<Partial<RunChatTurnDeps>, "runCore"> {
+  return {
+    runCore: makeSandboxRunCore(sandboxLauncherOptionsFromEnv(broker)),
+  };
+}
+
+export function workflowRuntimeDepsFromEnv(broker?: {
+  url: string;
+  tokenFor: (binding: { runId: string; orgId: string }) => string;
+  release?: (runId: string) => void;
+}): Pick<Partial<RunWorkflowTurnDeps>, "runCore"> {
+  return {
+    runCore: makeSandboxWorkflowRunCore(sandboxLauncherOptionsFromEnv(broker)),
+  };
+}
+
+function sandboxLauncherOptionsFromEnv(broker?: {
+  url: string;
+  tokenFor: (binding: { runId: string; orgId: string }) => string;
+  release?: (runId: string) => void;
+}): SandboxLauncherOptions {
   // Comma-separated: the model endpoint AND any resolution hosts (hermes needs
   // models.dev), all scoped to the backend's one connecting binary.
   const hosts = (process.env.OPENNEKO_AGENT_MODEL_HOST ?? "")
@@ -366,20 +448,18 @@ export function agentRuntimeDepsFromEnv(broker?: {
   const keyEnv = process.env.OPENNEKO_AGENT_MODEL_KEY_ENV;
   const credName = process.env.OPENNEKO_AGENT_MODEL_CREDENTIAL || "api_key";
   return {
-    runCore: makeSandboxRunCore({
-      agentImage: process.env.OPENNEKO_AGENT_IMAGE ?? "ghcr.io/open-neko/agent:latest",
-      gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
-      gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
-      modelProvider: process.env.OPENNEKO_AGENT_MODEL_PROVIDER || undefined,
-      modelEgress: binary ? hosts.map((host) => ({ host, binary })) : [],
-      keyAliases: keyEnv ? [{ from: credName, to: keyEnv }] : undefined,
-      hermesHomeHostPath: process.env.OPENNEKO_AGENT_HERMES_HOME || undefined,
-      graphjinBinaryInBox:
-        process.env.OPENNEKO_AGENT_GRAPHJIN_BINARY || undefined,
-      brokerUrl: broker?.url,
-      brokerTokenFor: broker?.tokenFor,
-      brokerRelease: broker?.release,
-    }),
+    agentImage: process.env.OPENNEKO_AGENT_IMAGE ?? "ghcr.io/open-neko/agent:latest",
+    gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
+    gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
+    modelProvider: process.env.OPENNEKO_AGENT_MODEL_PROVIDER || undefined,
+    modelEgress: binary ? hosts.map((host) => ({ host, binary })) : [],
+    keyAliases: keyEnv ? [{ from: credName, to: keyEnv }] : undefined,
+    hermesHomeHostPath: process.env.OPENNEKO_AGENT_HERMES_HOME || undefined,
+    graphjinBinaryInBox:
+      process.env.OPENNEKO_AGENT_GRAPHJIN_BINARY || undefined,
+    brokerUrl: broker?.url,
+    brokerTokenFor: broker?.tokenFor,
+    brokerRelease: broker?.release,
   };
 }
 

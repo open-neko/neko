@@ -37,6 +37,37 @@ answer, send one \`Markdown\` component.
 </rendering>`;
 }
 
+function buildNativeDelegationSection(backend: AgentBackendId): string {
+  if (backend === "hermes") {
+    return `<delegation>
+You have Hermes native subagent delegation through \`delegate_task\`. Use it
+when a focused subtask would benefit from a fresh context, parallel work, or
+independent investigation. The parent agent decides whether to delegate and
+how to decompose the work; OpenNeko does not provide named subagent profiles.
+
+When delegating, pass all context the child needs in \`goal\` and \`context\`.
+Children do not know the parent conversation, prior tool calls, or unstated
+decisions. Choose \`toolsets\` per task (for example \`["file"]\` for read-only
+review, \`["terminal", "file"]\` for code work, \`["web"]\` for research) and
+use \`tasks\` for independent parallel subtasks. Use \`role: "orchestrator"\`
+only when nested delegation is truly worth the extra cost and the configured
+spawn depth allows it.
+</delegation>`;
+  }
+
+  return `<delegation>
+You have Claude Code native dynamic subagent delegation through the \`Agent\`
+tool. Use it when a focused subtask would benefit from a fresh context,
+parallel work, or independent investigation. Prefer Claude Code's built-in
+\`general-purpose\` subagent or filesystem-discovered agents; OpenNeko does
+not define named subagent profiles.
+
+When delegating, include all context the subagent needs directly in the Agent
+tool prompt. Subagents do not receive the parent conversation, prior tool
+results, or unstated decisions; only their final result returns to you.
+</delegation>`;
+}
+
 function buildWorkflowToolsSection(
   supportsWorkflowTool: boolean,
   shellTool: string,
@@ -519,6 +550,7 @@ that flags churn risk every Monday."
     buildWorkflowToolsSection(supportsWorkflowTool, shellTool),
     buildPoliciesSection(supportsPolicyTool),
     buildSourceConfigSection(supportsSourceConfigTool, workspace),
+    buildNativeDelegationSection(backend),
     buildDataAccessSection({
       shellTool,
       workspace,

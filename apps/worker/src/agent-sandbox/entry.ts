@@ -1,13 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
-import { appendFile, mkdir, rename, symlink, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, rename, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   makeAgentBackend,
   type AgentBackendId,
   type AgentEvent,
+  type AgentRunResult,
   type AgentWorkspace,
 } from "@neko/llm";
+import { runWorkflowAgentBackend } from "@neko/llm/workflows";
 import {
   ensureGraphjinGuard,
   resolveBinaryOnPath,
@@ -33,6 +35,7 @@ import { EVENT_MARKER, RESULT_MARKER } from "./protocol";
  * mid-turn, so a BrokerControlPlane is wired when broker coords are present.
  */
 interface SandboxJob {
+  kind?: "work" | "workflow";
   orgId: string;
   threadId: string;
   runId: string;
@@ -44,12 +47,18 @@ interface SandboxJob {
   pluginActions?: RunAgentBackendInput["pluginActions"];
   sourceConfigEnabled?: boolean;
   wantsCards?: boolean;
+  workflowRunId?: string;
+  mode?: "live" | "headless";
+  triggeredByObservationId?: string | null;
   workspace: AgentWorkspace;
   /** GJ5: policy write grants resolved host-side (the box has no DB). */
   graphjinWriteGrants?: string[];
   /** GJ6: the org's GraphJin MCP URL, resolved host-side. Lets the box
    *  build a client.json even in legacy (token-less) mode. */
   graphjinServerUrl?: string;
+  /** GJ6/GJ4: host-side per-run GraphJin client config ({server, token, ...}).
+   *  The sandbox rewrites only server reachability and preserves the actor token. */
+  graphjinClientConfig?: Record<string, unknown>;
 }
 
 function requireEnv(name: string): string {
@@ -116,31 +125,18 @@ export async function main(): Promise<void> {
   if (graphjinBinary) {
     const gjAuth = join(job.workspace.runRoot, "gj-auth");
     const clientJsonPath = join(gjAuth, "graphjin", "client.json");
-    let hasRunAuth = existsSync(clientJsonPath);
-    if (hasRunAuth) {
-      // The uploaded client.json holds the HOST's view of the server — a
-      // loopback URL points at the box itself here. Rewrite to the gateway's
-      // host alias.
-      const cfg = JSON.parse(readFileSync(clientJsonPath, "utf8")) as {
-        server?: string;
-      };
-      if (cfg.server) {
-        const reachable = sandboxReachableUrl(cfg.server);
-        if (reachable !== cfg.server) {
-          await writeFile(
-            clientJsonPath,
-            JSON.stringify({ ...cfg, server: reachable }),
-          );
-        }
-      }
-    } else if (job.graphjinServerUrl) {
-      // Legacy/anonymous data source: no token, but the CLI still needs a
-      // server URL (it has no default in the box).
+    const uploadedConfig = existsSync(clientJsonPath)
+      ? JSON.parse(readFileSync(clientJsonPath, "utf8")) as Record<string, unknown>
+      : null;
+    const clientConfig = sandboxGraphjinClientConfig(
+      job.graphjinClientConfig ?? uploadedConfig,
+      job.graphjinServerUrl,
+    );
+    let hasRunAuth = false;
+    if (clientConfig) {
       await mkdir(join(gjAuth, "graphjin"), { recursive: true });
-      await writeFile(
-        clientJsonPath,
-        JSON.stringify({ server: sandboxReachableUrl(job.graphjinServerUrl) }),
-      );
+      await writeFile(clientJsonPath, JSON.stringify(clientConfig));
+      await chmod(clientJsonPath, 0o600).catch(() => {});
       hasRunAuth = true;
     }
     await mkdir(job.workspace.binRoot, { recursive: true });
@@ -184,23 +180,59 @@ export async function main(): Promise<void> {
     }
   }
 
-  const result = await runAgentBackend({
-    backend,
-    prompt: job.prompt,
-    userMessage: job.message,
-    orgId: job.orgId,
-    threadId: job.threadId,
-    runId: job.runId,
-    workspace: job.workspace,
-    backendState: job.backendState,
-    pluginActions: job.pluginActions ?? [],
-    sourceConfigEnabled: job.sourceConfigEnabled ?? false,
-    wantsCards: job.wantsCards ?? true,
-    controlPlane,
-    emit,
-  });
+  const kind = job.kind ?? "work";
+  let result: AgentRunResult;
+  if (kind === "workflow") {
+    const workflowRunId = job.workflowRunId;
+    if (!workflowRunId) {
+      throw new Error("agent-sandbox: workflow job missing workflowRunId");
+    }
+    result = await runWorkflowAgentBackend({
+      backend,
+      prompt: job.prompt,
+      userMessage: job.message,
+      orgId: job.orgId,
+      threadId: job.threadId,
+      runId: job.runId,
+      workflowRunId,
+      mode: job.mode ?? "headless",
+      triggeredByObservationId: job.triggeredByObservationId ?? null,
+      workspace: job.workspace,
+      controlPlane,
+      emit,
+    });
+  } else {
+    result = await runAgentBackend({
+      backend,
+      prompt: job.prompt,
+      userMessage: job.message,
+      orgId: job.orgId,
+      threadId: job.threadId,
+      runId: job.runId,
+      workspace: job.workspace,
+      backendState: job.backendState,
+      pluginActions: job.pluginActions ?? [],
+      sourceConfigEnabled: job.sourceConfigEnabled ?? false,
+      wantsCards: job.wantsCards ?? true,
+      controlPlane,
+      emit,
+    });
+  }
 
   emitLine(RESULT_MARKER, result);
+}
+
+function sandboxGraphjinClientConfig(
+  config: Record<string, unknown> | null | undefined,
+  fallbackServerUrl: string | undefined,
+): Record<string, unknown> | null {
+  const next = config ? { ...config } : {};
+  const server =
+    typeof next.server === "string" && next.server.trim()
+      ? next.server
+      : fallbackServerUrl;
+  if (!server) return null;
+  return { ...next, server: sandboxReachableUrl(server) };
 }
 
 main().catch((err: unknown) => {

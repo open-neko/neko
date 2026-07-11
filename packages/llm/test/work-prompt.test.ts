@@ -163,3 +163,23 @@ describe("buildWorkPrompt workflow + policy management", () => {
     expect(prompt).toMatch(/only chat surface/i);
   });
 });
+
+describe("buildWorkPrompt native delegation guidance", () => {
+  it("teaches Hermes to use delegate_task without OpenNeko-named profiles", () => {
+    const prompt = build("hermes");
+    expect(prompt).toContain("<delegation>");
+    expect(prompt).toContain("delegate_task");
+    expect(prompt).toContain("OpenNeko does not provide named subagent profiles");
+    expect(prompt).not.toContain("researcher");
+    expect(prompt).not.toContain("coder");
+  });
+
+  it("teaches Claude dynamic Agent delegation without programmatic profiles", () => {
+    const prompt = build("claude-agent");
+    expect(prompt).toContain("<delegation>");
+    expect(prompt).toContain("Agent");
+    expect(prompt).toContain("general-purpose");
+    expect(prompt).toContain("filesystem-discovered agents");
+    expect(prompt).toMatch(/OpenNeko does\s+not define named subagent\s+profiles/);
+  });
+});

@@ -23,6 +23,7 @@ export const WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS = [
   "WebFetch",
   "WebSearch",
   "AskUserQuestion",
+  "Agent",
   "Skill",
   "mcp__neko_ui__render_cards",
   "mcp__neko_memory__search",

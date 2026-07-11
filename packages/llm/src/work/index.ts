@@ -82,5 +82,7 @@ export {
   buildModelEgressArgs,
   ensureOpenShellProvider,
   makeSandboxRunCore,
+  makeSandboxWorkflowRunCore,
+  workflowRuntimeDepsFromEnv,
   type SandboxLauncherOptions,
 } from "./sandbox-launcher";

@@ -49,6 +49,7 @@ export class ClaudeAgentBackend implements AgentBackend {
     sdkStopHook: true,
     sessionResume: true,
     canUseToolGate: true,
+    nativeDelegation: "claude-agent-tool",
   } as const;
   readonly model: string;
 
