@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.0](https://github.com/open-neko/openneko/compare/v2.15.1...v2.16.0) (2026-07-11)
+
+
+### Features
+
+* add native workflow subagent delegation ([4aab05c](https://github.com/open-neko/openneko/commit/4aab05c9b859406ba01f07f9315203ac11fdeb27))
+
 ## [2.15.1](https://github.com/open-neko/openneko/compare/v2.15.0...v2.15.1) (2026-07-11)
 
 
