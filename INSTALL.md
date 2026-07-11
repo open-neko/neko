@@ -125,8 +125,9 @@ openneko upgrade --version v1.18.0
 # "1.18.0" is accepted too and is normalized to "v1.18.0".
 ```
 
-If you are upgrading an older install without a saved mode marker, pass the
-mode explicitly:
+Older installs without a saved mode marker are detected from their existing
+Docker Compose project (`openneko`, `openneko-dev`, or `openneko-demo`). If more
+than one OpenNeko stack exists on the machine, pass the intended mode explicitly:
 
 ```bash
 openneko upgrade --mode demo

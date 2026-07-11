@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -25,9 +26,10 @@ func newUpgradeCmd() *cobra.Command {
 		Long: `Pull newer OpenNeko component images, recreate the current stack, and clean
 up old OpenNeko image tags.
 
-By default the command targets the latest image tag and uses the mode recorded
-by the last setup/start. Use --version to pin a specific image tag, and --mode
-when upgrading an install whose mode marker is missing.`,
+By default the command targets the latest image tag and upgrades the current
+stack mode. It first uses the mode recorded by the last setup/start, then falls
+back to existing Docker Compose project names for older installs. Use --version
+to pin a specific image tag, and --mode if multiple OpenNeko stacks exist.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithCancel(cmd.Context())
@@ -57,12 +59,12 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command, opts upgradeOptions) er
 	target := normalizeUpgradeImageVersion(opts.imageVersion)
 
 	sup := compose.New(assets.ComposeFS)
-	m, defaulted, err := resolveUpgradeMode(opts.mode, sup)
+	m, defaulted, err := resolveUpgradeMode(ctx, opts.mode, sup)
 	if err != nil {
 		return err
 	}
 	if defaulted {
-		fmt.Fprintln(errOut, "warning: no saved stack mode found; assuming prod. Re-run with --mode dev or --mode demo if this install used another mode.")
+		fmt.Fprintln(errOut, "warning: no saved stack mode or existing OpenNeko Docker stack found; assuming prod. Re-run with --mode dev or --mode demo if this install used another mode.")
 	}
 
 	previous, hadPrevious := os.LookupEnv("OPENNEKO_VERSION")
@@ -139,7 +141,7 @@ func restartUpgradedStack(ctx context.Context, sup *compose.Supervisor, project 
 	return nil
 }
 
-func resolveUpgradeMode(flag string, sup *compose.Supervisor) (compose.Mode, bool, error) {
+func resolveUpgradeMode(ctx context.Context, flag string, sup *compose.Supervisor) (compose.Mode, bool, error) {
 	mode := strings.TrimSpace(flag)
 	if mode != "" && mode != "auto" {
 		switch compose.Mode(mode) {
@@ -156,7 +158,89 @@ func resolveUpgradeMode(flag string, sup *compose.Supervisor) (compose.Mode, boo
 	if detected, ok := compose.ModeFromProjectName(project); ok {
 		return detected, false, nil
 	}
+	if detected, ok, err := detectExistingOpenNekoMode(ctx); err != nil {
+		return "", false, err
+	} else if ok {
+		return detected, false, nil
+	}
 	return compose.ModeProd, true, nil
+}
+
+var listDockerComposeProjectNames = dockerComposeProjectNames
+
+func detectExistingOpenNekoMode(ctx context.Context) (compose.Mode, bool, error) {
+	running, err := listDockerComposeProjectNames(ctx, false)
+	if err != nil {
+		return "", false, fmt.Errorf("inspect running Docker compose projects: %w", err)
+	}
+	if mode, ok, err := modeFromExistingProjects(running); ok || err != nil {
+		return mode, ok, err
+	}
+
+	all, err := listDockerComposeProjectNames(ctx, true)
+	if err != nil {
+		return "", false, fmt.Errorf("inspect Docker compose projects: %w", err)
+	}
+	return modeFromExistingProjects(all)
+}
+
+func dockerComposeProjectNames(ctx context.Context, all bool) ([]string, error) {
+	args := []string{"ps"}
+	if all {
+		args = append(args, "-a")
+	}
+	args = append(args,
+		"--filter", "label=com.docker.compose.project",
+		"--format", `{{.Label "com.docker.compose.project"}}`,
+	)
+	out, err := exec.CommandContext(ctx, "docker", args...).Output()
+	if err != nil {
+		return nil, err
+	}
+	return uniqueLines(string(out)), nil
+}
+
+func modeFromExistingProjects(projects []string) (compose.Mode, bool, error) {
+	modes := map[compose.Mode]string{}
+	for _, project := range projects {
+		mode, ok := modeFromLegacyProjectName(project)
+		if !ok {
+			continue
+		}
+		modes[mode] = project
+	}
+	if len(modes) == 0 {
+		return "", false, nil
+	}
+	if len(modes) == 1 {
+		for mode := range modes {
+			return mode, true, nil
+		}
+	}
+	return "", false, fmt.Errorf("found multiple OpenNeko stacks (%s); re-run with --mode prod, --mode dev, or --mode demo", strings.Join(sortedProjectNames(modes), ", "))
+}
+
+func modeFromLegacyProjectName(project string) (compose.Mode, bool) {
+	if project == "openneko" {
+		return compose.ModeProd, true
+	}
+	if mode, ok := compose.ModeFromProjectName(project); ok {
+		return mode, true
+	}
+	return "", false
+}
+
+func uniqueLines(s string) []string {
+	return uniqueStrings(strings.Split(s, "\n"))
+}
+
+func sortedProjectNames(modes map[compose.Mode]string) []string {
+	names := make([]string, 0, len(modes))
+	for _, project := range modes {
+		names = append(names, project)
+	}
+	sort.Strings(names)
+	return names
 }
 
 var semverishImageVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+.*$`)

@@ -55,6 +55,8 @@ is appended automatically when present.
 `openneko upgrade` pulls newer service images plus the agent/plugin-base
 images, recreates the recorded stack mode, runs migrations, prunes old
 OpenNeko image tags, and persists the selected image tag for later starts.
+Older installs without a recorded mode are inferred from existing Docker
+Compose projects; pass `--mode` only when multiple OpenNeko stacks exist.
 
 ### Plugin + skill management
 

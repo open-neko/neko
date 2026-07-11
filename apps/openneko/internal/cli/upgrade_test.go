@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -27,10 +28,11 @@ func TestNormalizeUpgradeImageVersion(t *testing.T) {
 
 func TestResolveUpgradeMode(t *testing.T) {
 	s := &compose.Supervisor{RuntimeDir: t.TempDir()}
+	stubComposeProjects(t, []string{"openneko-prod"}, []string{"openneko-prod"})
 	if _, err := s.ProjectName(compose.ModeDemo); err != nil {
 		t.Fatal(err)
 	}
-	mode, defaulted, err := resolveUpgradeMode("auto", s)
+	mode, defaulted, err := resolveUpgradeMode(context.Background(), "auto", s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +40,7 @@ func TestResolveUpgradeMode(t *testing.T) {
 		t.Fatalf("mode=%q defaulted=%v, want demo false", mode, defaulted)
 	}
 
-	mode, defaulted, err = resolveUpgradeMode("prod", s)
+	mode, defaulted, err = resolveUpgradeMode(context.Background(), "prod", s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +48,7 @@ func TestResolveUpgradeMode(t *testing.T) {
 		t.Fatalf("mode=%q defaulted=%v, want prod false", mode, defaulted)
 	}
 
-	_, _, err = resolveUpgradeMode("bogus", s)
+	_, _, err = resolveUpgradeMode(context.Background(), "bogus", s)
 	if err == nil {
 		t.Fatal("expected invalid mode error")
 	}
@@ -54,12 +56,62 @@ func TestResolveUpgradeMode(t *testing.T) {
 
 func TestResolveUpgradeModeDefaultsProdWithoutMarker(t *testing.T) {
 	s := &compose.Supervisor{RuntimeDir: t.TempDir()}
-	mode, defaulted, err := resolveUpgradeMode("auto", s)
+	stubComposeProjects(t, nil, nil)
+	mode, defaulted, err := resolveUpgradeMode(context.Background(), "auto", s)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if mode != compose.ModeProd || !defaulted {
 		t.Fatalf("mode=%q defaulted=%v, want prod true", mode, defaulted)
+	}
+}
+
+func TestResolveUpgradeModeDetectsRunningLegacyStack(t *testing.T) {
+	s := &compose.Supervisor{RuntimeDir: t.TempDir()}
+	stubComposeProjects(t, []string{"openneko-demo"}, []string{"openneko-demo"})
+
+	mode, defaulted, err := resolveUpgradeMode(context.Background(), "auto", s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode != compose.ModeDemo || defaulted {
+		t.Fatalf("mode=%q defaulted=%v, want demo false", mode, defaulted)
+	}
+}
+
+func TestResolveUpgradeModeDetectsStoppedLegacyStack(t *testing.T) {
+	s := &compose.Supervisor{RuntimeDir: t.TempDir()}
+	stubComposeProjects(t, nil, []string{"openneko-dev"})
+
+	mode, defaulted, err := resolveUpgradeMode(context.Background(), "auto", s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode != compose.ModeDev || defaulted {
+		t.Fatalf("mode=%q defaulted=%v, want dev false", mode, defaulted)
+	}
+}
+
+func TestResolveUpgradeModeDetectsLegacyProdProject(t *testing.T) {
+	s := &compose.Supervisor{RuntimeDir: t.TempDir()}
+	stubComposeProjects(t, []string{"openneko"}, []string{"openneko"})
+
+	mode, defaulted, err := resolveUpgradeMode(context.Background(), "auto", s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode != compose.ModeProd || defaulted {
+		t.Fatalf("mode=%q defaulted=%v, want prod false", mode, defaulted)
+	}
+}
+
+func TestResolveUpgradeModeErrorsOnMultipleStacks(t *testing.T) {
+	s := &compose.Supervisor{RuntimeDir: t.TempDir()}
+	stubComposeProjects(t, []string{"openneko-dev", "openneko-demo"}, []string{"openneko-dev", "openneko-demo"})
+
+	_, _, err := resolveUpgradeMode(context.Background(), "auto", s)
+	if err == nil {
+		t.Fatal("expected multiple stack error")
 	}
 }
 
@@ -90,5 +142,19 @@ func TestExtraUpgradeImageRefsDedupesOverrides(t *testing.T) {
 	want := []string{"custom/agent:v1"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("extraUpgradeImageRefs = %#v, want %#v", got, want)
+	}
+}
+
+func stubComposeProjects(t *testing.T, running, all []string) {
+	t.Helper()
+	previous := listDockerComposeProjectNames
+	t.Cleanup(func() {
+		listDockerComposeProjectNames = previous
+	})
+	listDockerComposeProjectNames = func(_ context.Context, includeStopped bool) ([]string, error) {
+		if includeStopped {
+			return all, nil
+		}
+		return running, nil
 	}
 }
