@@ -23,7 +23,6 @@ import {
   evaluateActionPolicy,
   type PolicyDecision,
 } from "./policy-engine";
-import { gateAutoApprove } from "./policy-gate";
 import { clampActionMinutes } from "./value";
 
 export type WorkflowActionContext = {
@@ -103,17 +102,14 @@ export async function handleActionRequest(
   const enqueue = ctx.enqueue ?? defaultEnqueue;
 
   const policies = await listPolicies(ctx.orgId);
-  const decision = await gateAutoApprove(
-    ctx.orgId,
-    evaluateActionPolicy(
-      {
-        scope: args.scope as ActionScope,
-        kind: args.kind,
-        target: args.target ?? null,
-        riskLevel: (args.risk_level as RiskLevel | undefined) ?? null,
-      },
-      policies,
-    ),
+  const decision = evaluateActionPolicy(
+    {
+      scope: args.scope as ActionScope,
+      kind: args.kind,
+      target: args.target ?? null,
+      riskLevel: (args.risk_level as RiskLevel | undefined) ?? null,
+    },
+    policies,
   );
 
   if (decision.decision === "deny") {
@@ -300,17 +296,14 @@ export async function handleWorkActionRequest(
   const enqueue = ctx.enqueue ?? defaultEnqueue;
 
   const policies = await listPolicies(ctx.orgId);
-  const decision = await gateAutoApprove(
-    ctx.orgId,
-    evaluateActionPolicy(
-      {
-        scope: args.scope as ActionScope,
-        kind: args.kind,
-        target: args.target ?? null,
-        riskLevel: (args.risk_level as RiskLevel | undefined) ?? null,
-      },
-      policies,
-    ),
+  const decision = evaluateActionPolicy(
+    {
+      scope: args.scope as ActionScope,
+      kind: args.kind,
+      target: args.target ?? null,
+      riskLevel: (args.risk_level as RiskLevel | undefined) ?? null,
+    },
+    policies,
   );
 
   if (decision.decision === "deny") {

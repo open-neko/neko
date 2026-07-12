@@ -3,7 +3,7 @@
 // authenticated broker call lands a control_plane_audit row with the
 // same dual identity.
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import {
   app_user,
   control_plane_audit,
@@ -32,10 +32,6 @@ if (!reachable) {
 }
 
 describeIfDb("SEC5 dual-identity audit", () => {
-  beforeAll(() => {
-    vi.stubEnv("OPENNEKO_FEATURES", "dual_identity_audit");
-  });
-
   afterAll(async () => {
     await pool().end();
     vi.unstubAllEnvs();

@@ -5,7 +5,7 @@ import AppHeader from "@/components/AppHeader";
 import SectionNav from "@/components/SectionNav";
 import { AdminDenied } from "@/app/admin/AdminShell";
 import { getCurrentActor } from "@/lib/actor";
-import { getOrgId, orgHasFeature, FEATURE } from "@/lib/db";
+import { getOrgId } from "@/lib/db";
 import { getSetupCompleteAt } from "@/lib/org-state";
 import {
   getDataSourceSettings,
@@ -84,7 +84,6 @@ export default async function SettingsPage() {
     getGraphjinConfigSettingsPayload(orgId),
   ]);
 
-  const installPolicyOn = await orgHasFeature(orgId, FEATURE.installPolicy);
   const enabledSources = sources.filter((source) => source.enabled);
   const jwtSources = enabledSources.filter(
     (source) => source.authMode === "jwt",
@@ -137,13 +136,11 @@ export default async function SettingsPage() {
       statusOk: true,
     },
   ];
-  if (installPolicyOn) {
-    cards.push({
-      href: "/admin/settings/security",
-      title: "Security",
-      copy: "Trust floor for plugin and skill installs — which marketplaces are allowed, whether unverified or community installs are permitted.",
-    });
-  }
+  cards.push({
+    href: "/admin/settings/security",
+    title: "Security",
+    copy: "Trust floor for plugin and skill installs — which marketplaces are allowed, whether unverified or community installs are permitted.",
+  });
 
   return (
     <div className="root">

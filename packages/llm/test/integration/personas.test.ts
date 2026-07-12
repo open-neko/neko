@@ -23,7 +23,6 @@ describeIfDb("operator personas (CV3)", () => {
   const orgId = uniqueOrgId("persona");
 
   beforeAll(async () => {
-    vi.stubEnv("OPENNEKO_FEATURES", "context_versioning");
     await createTestOrg(orgId);
   });
 

@@ -54,7 +54,6 @@ describeIfDb("CV2 memory fork overlay", () => {
   let bob: string;
 
   beforeAll(async () => {
-    vi.stubEnv("OPENNEKO_FEATURES", "context_versioning");
     await createTestOrg(orgId);
     ada = `${orgId}-ada`;
     bob = `${orgId}-bob`;

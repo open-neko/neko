@@ -174,16 +174,14 @@ export function memoryLayerForActor(actor: {
 }
 
 /**
- * The active memory layer, gated by context_versioning. Without the
- * entitlement everyone resolves to the team layer (null) — the per-user
- * personal memory layer is enterprise.
+ * The active memory layer: members resolve to their own personal layer,
+ * everyone else to the shared team layer (null).
  */
-export async function effectiveMemoryLayer(
+export function effectiveMemoryLayer(
   orgId: string,
   actor: { userId: string | null; role: string | null },
-): Promise<string | null> {
-  const { orgHasFeature, FEATURE } = await import("@neko/db");
-  if (!(await orgHasFeature(orgId, FEATURE.contextVersioning))) return null;
+): string | null {
+  void orgId;
   return memoryLayerForActor(actor);
 }
 
@@ -689,10 +687,6 @@ export async function overrideWorkMemoryForUser(input: {
   runId?: string | null;
   threadId?: string | null;
 }): Promise<WorkMemory> {
-  const { orgHasFeature, FEATURE } = await import("@neko/db");
-  if (!(await orgHasFeature(input.orgId, FEATURE.contextVersioning))) {
-    throw new Error("context versioning is not enabled");
-  }
   const target = await getWorkMemory(input.orgId, input.memoryId);
   if (!target || target.archivedAt) {
     throw new Error(`Memory not found: ${input.memoryId}`);

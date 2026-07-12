@@ -222,9 +222,7 @@ async function auditControlPlaneCall(
   path: string,
 ): Promise<void> {
   try {
-    const { control_plane_audit, db, eq, work_run, orgHasFeature, FEATURE } =
-      await import("@neko/db");
-    if (!(await orgHasFeature(binding.orgId, FEATURE.dualIdentityAudit))) return;
+    const { control_plane_audit, db, eq, work_run } = await import("@neko/db");
     let identity = runIdentityCache.get(binding.runId);
     if (!identity) {
       const [run] = await db()

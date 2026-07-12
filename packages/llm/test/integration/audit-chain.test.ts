@@ -37,7 +37,6 @@ describeIfDb("SEC10 audit chain", () => {
   const orgId = uniqueOrgId("sec10");
 
   beforeAll(async () => {
-    vi.stubEnv("OPENNEKO_FEATURES", "audit_chain");
     await createTestOrg(orgId);
   });
 

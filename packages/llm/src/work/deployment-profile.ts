@@ -2,7 +2,6 @@ import {
   behaviorThresholdsFromEnv,
   type BehaviorThresholds,
 } from "./behavior-monitor";
-import { FEATURE, hasFeature } from "@neko/db";
 
 /**
  * SEC8 — the deployment dial. One knob (OPENNEKO_PROFILE) sets the
@@ -25,13 +24,6 @@ export function resolveDeploymentProfile(): DeploymentProfile {
   const requested = (DEPLOYMENT_PROFILES as readonly string[]).includes(raw)
     ? (raw as DeploymentProfile)
     : "solo";
-  // org/hardened are enterprise postures; without the entitlement they clamp to team.
-  if (
-    (requested === "org" || requested === "hardened") &&
-    !hasFeature(null, FEATURE.securityProfiles)
-  ) {
-    return "team";
-  }
   return requested;
 }
 

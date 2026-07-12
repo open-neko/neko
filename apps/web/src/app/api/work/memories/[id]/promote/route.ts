@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promoteWorkMemoryToOrg } from "@neko/llm/work";
 import { getCurrentActor } from "@/lib/actor";
-import { getOrgId, orgHasFeature, FEATURE } from "@/lib/db";
+import { getOrgId } from "@/lib/db";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -18,12 +18,6 @@ export async function POST(_request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "admin only" }, { status: 403 });
   }
   const orgId = await getOrgId();
-  if (!(await orgHasFeature(orgId, FEATURE.contextVersioning))) {
-    return NextResponse.json(
-      { error: "context versioning not enabled" },
-      { status: 403 },
-    );
-  }
   try {
     const memory = await promoteWorkMemoryToOrg({
       orgId,

@@ -5,9 +5,9 @@ per-operator OAuth credentials. By default everything is encrypted at rest with
 the local `enc:v1` cipher (AES-256-GCM, keyed from
 `~/.config/openneko/secret-key`).
 
-## External vault (Infisical) — enterprise
+## External vault (Infisical)
 
-Deployments with the **`vault`** entitlement can keep deployment-wide secret
+Deployments can keep deployment-wide secret
 **env bags** in a self-hosted [Infisical](https://infisical.com) instance
 instead of the local file. Per-operator OAuth credentials always stay local
 (`enc:v1`).
@@ -48,8 +48,6 @@ next refresh without a restart.
 
 ### Fallbacks
 
-- Backend set to `infisical` but the deployment lacks the `vault` entitlement:
-  OpenNeko logs a warning and uses the local file resolver.
 - Infisical unreachable at runtime: OpenNeko falls back to the local file.
 
 OpenNeko talks to Infisical's MIT-licensed REST API and bundles no Infisical

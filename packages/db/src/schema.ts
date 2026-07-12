@@ -38,7 +38,6 @@ export const organization = pgTable(
     scalekit_org_id: text("scalekit_org_id"),
     name: text("name").notNull(),
     domain: text("domain"),
-    features: text("features").notNull().default(""),
     status: text("status").notNull().default("active"),
     setup_complete_at: ts("setup_complete_at"),
     created_at: ts("created_at").notNull().defaultNow(),

@@ -166,7 +166,6 @@ describeIfDb("CV4 forks (DB-backed)", () => {
   let root: string;
 
   beforeAll(async () => {
-    vi.stubEnv("OPENNEKO_FEATURES", "context_versioning");
     await createTestOrg(orgId);
     ada = `${orgId}-ada`;
     await db().insert(app_user).values({

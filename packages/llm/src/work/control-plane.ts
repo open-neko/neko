@@ -1,5 +1,4 @@
 import { enqueue, QUEUE } from "@neko/db/jobs";
-import { gateAutoApprove } from "../workflows/policy-gate";
 import {
   createActionRequest,
   listAllPolicies,
@@ -291,7 +290,7 @@ export class InProcessControlPlane implements AgentControlPlane {
   ): Promise<PolicyDecision> {
     const { orgId, ...subject } = input;
     const policies = await listEnabledPolicies(orgId);
-    return gateAutoApprove(orgId, evaluateActionPolicy(subject, policies));
+    return evaluateActionPolicy(subject, policies);
   }
 
   async createActionRequest(

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isDenied, requireAdminActor } from "@/lib/admin-auth";
-import { getOrgId, orgHasFeature, FEATURE } from "@/lib/db";
+import { getOrgId } from "@/lib/db";
 import {
   getInstallPolicyPayload,
   saveInstallPolicyDraft,
@@ -11,9 +11,6 @@ export async function GET() {
   const allowed = await requireAdminActor();
   if (isDenied(allowed)) return allowed;
   const orgId = await getOrgId();
-  if (!(await orgHasFeature(orgId, FEATURE.installPolicy))) {
-    return NextResponse.json({ error: "feature not enabled" }, { status: 404 });
-  }
   const payload = await getInstallPolicyPayload(orgId);
   return NextResponse.json(payload);
 }
@@ -24,9 +21,6 @@ export async function PATCH(request: NextRequest) {
   try {
     const body = (await request.json()) as InstallPolicyDraft;
     const orgId = await getOrgId();
-    if (!(await orgHasFeature(orgId, FEATURE.installPolicy))) {
-      return NextResponse.json({ error: "feature not enabled" }, { status: 404 });
-    }
     const saved = await saveInstallPolicyDraft(orgId, {
       allowUnverified: typeof body.allowUnverified === "boolean" ? body.allowUnverified : undefined,
       allowGitUrlInstalls:

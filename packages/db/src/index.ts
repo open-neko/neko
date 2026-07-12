@@ -39,19 +39,6 @@ export {
   type GraphjinConfigSettings,
 } from "./graphjin-config";
 export {
-  FEATURE,
-  parseFeatures,
-  hasFeature,
-  orgHasFeature,
-  type FeatureKey,
-} from "./features";
-export {
-  signLicense,
-  verifyLicense,
-  licensePublicKey,
-  type License,
-} from "./license";
-export {
   and,
   asc,
   desc,

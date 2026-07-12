@@ -1,12 +1,4 @@
-import {
-  and,
-  db,
-  eq,
-  FEATURE,
-  operator_profile,
-  orgHasFeature,
-  work_run,
-} from "@neko/db";
+import { and, db, eq, operator_profile, work_run } from "@neko/db";
 
 /**
  * CV3 — personas. The agent reads a compiled, persona-shaped brief as an
@@ -49,7 +41,7 @@ export async function getOperatorProfile(
   orgId: string,
   userId: string | null,
 ): Promise<OperatorProfile | null> {
-  if (userId && (await orgHasFeature(orgId, FEATURE.contextVersioning))) {
+  if (userId) {
     const [own] = await db()
       .select()
       .from(operator_profile)

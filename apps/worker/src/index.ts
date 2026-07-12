@@ -18,10 +18,8 @@ import {
   db,
   desc,
   eq,
-  FEATURE,
   getOrgId,
   metric,
-  orgHasFeature,
   processing_job,
 } from "@neko/db";
 import {
@@ -198,25 +196,17 @@ async function runMetricRefreshSweep() {
 // admin handler can lazily reach a freshly-installed auth plugin
 // without a server restart.
 let pluginRegistry: PluginRegistry | null = null;
-const ssoEnabled = await orgHasFeature(ADMIN_ORG_ID, FEATURE.sso);
 const server = createServer(
   createAdminHandler({
     auth: {
-      getAuthProvider: () =>
-        ssoEnabled ? (pluginRegistry?.getAuthProvider() ?? null) : null,
+      getAuthProvider: () => pluginRegistry?.getAuthProvider() ?? null,
       beginAuth: (params) => {
-        if (!ssoEnabled) {
-          throw new Error("SSO is not enabled on this deployment");
-        }
         if (!pluginRegistry) {
           throw new Error("plugin registry not initialised");
         }
         return pluginRegistry.beginAuth(params);
       },
       completeAuth: (params) => {
-        if (!ssoEnabled) {
-          throw new Error("SSO is not enabled on this deployment");
-        }
         if (!pluginRegistry) {
           throw new Error("plugin registry not initialised");
         }
@@ -333,15 +323,9 @@ console.log("[worker] action policies seeded and built-in adapters registered");
 // SEC3: pick the secret residency from local config — Infisical-backed
 // env bags when configured, the enc:v1 local file otherwise.
 const secretsResolver = await (async () => {
-  const { readLocalConfig, orgHasFeature, FEATURE } = await import("@neko/db");
+  const { readLocalConfig } = await import("@neko/db");
   const cfg = readLocalConfig().secrets;
   if (cfg?.backend === "infisical" && cfg.infisical) {
-    if (!(await orgHasFeature(ADMIN_ORG_ID, FEATURE.vault))) {
-      console.warn(
-        "[worker] Infisical secrets backend is configured but the 'vault' feature is not enabled; using the local file resolver",
-      );
-      return undefined;
-    }
     const { InfisicalSecretsResolver } = await import(
       "@open-neko/plugin-install"
     );
@@ -581,13 +565,10 @@ await b.work(QUEUE.WORKFLOW_CRON_SWEEP, async () => {
   // SEC7: behavioral thresholds ride the minute tick so a runaway agent
   // alerts within its window, not at the nightly sweep.
   try {
-    const { orgHasFeature, FEATURE } = await import("@neko/db");
-    if (await orgHasFeature(ADMIN_ORG_ID, FEATURE.behavioralAlarms)) {
-      const { profileBehaviorThresholds, runBehaviorSweep } = await import(
-        "@neko/llm/work"
-      );
-      await runBehaviorSweep(ADMIN_ORG_ID, profileBehaviorThresholds());
-    }
+    const { profileBehaviorThresholds, runBehaviorSweep } = await import(
+      "@neko/llm/work"
+    );
+    await runBehaviorSweep(ADMIN_ORG_ID, profileBehaviorThresholds());
   } catch (e) {
     console.warn(
       `[worker] behavior sweep failed: ${e instanceof Error ? e.message : e}`,
