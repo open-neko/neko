@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.1](https://github.com/open-neko/openneko/compare/v2.16.0...v2.16.1) (2026-07-12)
+
+
+### Bug Fixes
+
+* remove open-core entitlement gating; features are Apache-2.0 always-on ([bfda4d9](https://github.com/open-neko/openneko/commit/bfda4d9d185605dcb98410ab3534b3092ade53a5))
+
 ## [2.16.0](https://github.com/open-neko/openneko/compare/v2.15.1...v2.16.0) (2026-07-11)
 
 
