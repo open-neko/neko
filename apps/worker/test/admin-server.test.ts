@@ -9,6 +9,10 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  reportAuditLoggingFailure,
+  resetAuditLoggingHealthForTesting,
+} from "@neko/llm/workflows";
 import { createAdminHandler } from "../src/admin-server";
 
 async function startServer(handler: ReturnType<typeof createAdminHandler>) {
@@ -32,6 +36,8 @@ describe("worker admin HTTP handler", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    resetAuditLoggingHealthForTesting();
+    vi.restoreAllMocks();
   });
 
   it("GET /health returns 200 ok", async () => {
@@ -41,6 +47,34 @@ describe("worker admin HTTP handler", () => {
       expect(res.status).toBe(200);
       expect(await res.text()).toBe("ok");
       expect(exit).not.toHaveBeenCalled();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("GET /health/security exposes degraded audit logging health", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    reportAuditLoggingFailure(
+      {
+        orgId: "org_test",
+        entityKind: "work_run",
+        entityId: "run_test",
+        event: "run:failed",
+      },
+      new Error("audit database unavailable"),
+    );
+    const srv = await startServer(createAdminHandler({ exit }));
+    try {
+      const res = await fetch(`http://127.0.0.1:${srv.port}/health/security`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        status: "degraded",
+        auditLogging: {
+          healthy: false,
+          failureCount: 1,
+          lastError: "audit database unavailable",
+        },
+      });
     } finally {
       await srv.close();
     }
