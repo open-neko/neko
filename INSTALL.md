@@ -90,6 +90,34 @@ Modes:
 
 `~/.config/openneko/compose.override.yml` is auto-applied if present (last `-f` to docker compose).
 
+### Audit logging failure alerts
+
+Every failed tamper-evident audit append emits a structured
+`security.audit_logging_failure` event to stderr. The worker also exposes
+process-local state at `GET /health/security`; monitor for
+`status: "degraded"` or `auditLogging.healthy: false`.
+
+For immediate delivery independent of PostgreSQL, configure an HTTPS webhook
+on both processes that can write audit events:
+
+```yaml
+# ~/.config/openneko/compose.override.yml
+services:
+  web:
+    environment:
+      OPENNEKO_AUDIT_FAILURE_WEBHOOK_URL: https://alerts.example/audit-failure
+      OPENNEKO_AUDIT_FAILURE_WEBHOOK_TOKEN: ${OPENNEKO_AUDIT_FAILURE_WEBHOOK_TOKEN}
+  worker:
+    environment:
+      OPENNEKO_AUDIT_FAILURE_WEBHOOK_URL: https://alerts.example/audit-failure
+      OPENNEKO_AUDIT_FAILURE_WEBHOOK_TOKEN: ${OPENNEKO_AUDIT_FAILURE_WEBHOOK_TOKEN}
+```
+
+The token is optional and is sent as a bearer token. Webhook delivery has a
+two-second timeout, is fire-and-forget, and never blocks the governed operation.
+Alert delivery failures are themselves emitted as structured critical stderr
+events.
+
 ### Agent & plugin sandboxing
 
 The agent loop **and** plugins always run inside OpenShell policy

@@ -3,6 +3,7 @@
  *
  * Routes:
  *   GET  /health              → 200 ok (liveness)
+ *   GET  /health/security     → process-local security subsystem health
  *   POST /admin/reconnect     → 202 + clean exit so the supervisor restarts
  *                               us with fresh DB credentials. Used by the
  *                               web app's /api/admin/change-password handler
@@ -35,6 +36,7 @@ import type {
   CompleteConnectParams,
   ConnectorCredential,
 } from "@open-neko/plugin-types";
+import { getAuditLoggingHealth } from "@neko/llm/workflows";
 
 export interface AuthHandlerSurface {
   getAuthProvider(): {
@@ -243,6 +245,14 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
   return function handle(req: IncomingMessage, res: ServerResponse) {
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200).end("ok");
+      return;
+    }
+    if (req.method === "GET" && req.url === "/health/security") {
+      const auditLogging = getAuditLoggingHealth();
+      json(res, 200, {
+        status: auditLogging.healthy ? "ok" : "degraded",
+        auditLogging,
+      });
       return;
     }
     if (req.method === "POST" && req.url === "/admin/reconnect") {

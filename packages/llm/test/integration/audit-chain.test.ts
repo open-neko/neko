@@ -2,7 +2,7 @@
 // verification walks them, and any retroactive edit, deletion, or
 // reorder breaks the chain at the exact spot.
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { audit_chain, and, db, eq, pool } from "@neko/db";
 import {
   createTestOrg,
@@ -14,6 +14,9 @@ import {
   appendAuditChain,
   canonicalJson,
   exportAuditChain,
+  getAuditLoggingHealth,
+  reportAuditLoggingFailure,
+  resetAuditLoggingHealthForTesting,
   verifyAuditChain,
 } from "../../src/workflows/audit-chain";
 import { createActionRequest } from "../../src/workflows/action-store";
@@ -29,6 +32,70 @@ describe("canonicalJson", () => {
   it("is independent of key order and drops undefined", () => {
     expect(canonicalJson({ b: 1, a: { d: 2, c: 3 }, z: undefined })).toBe(
       canonicalJson({ a: { c: 3, d: 2 }, b: 1 }),
+    );
+  });
+});
+
+describe("audit logging failure alerts", () => {
+  afterEach(() => {
+    resetAuditLoggingHealthForTesting();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("records degraded health and emits a structured critical event", () => {
+    const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+    reportAuditLoggingFailure(
+      {
+        orgId: "org_test",
+        entityKind: "action_request",
+        entityId: "act_test",
+        event: "approved",
+      },
+      new Error("database unavailable"),
+    );
+
+    expect(getAuditLoggingHealth()).toMatchObject({
+      healthy: false,
+      failureCount: 1,
+      lastError: "database unavailable",
+    });
+    const event = JSON.parse(String(stderr.mock.calls[0]?.[0]));
+    expect(event).toMatchObject({
+      type: "security.audit_logging_failure",
+      severity: "critical",
+      orgId: "org_test",
+      event: "approved",
+    });
+  });
+
+  it("posts to the independent webhook without awaiting delivery", async () => {
+    vi.stubEnv("OPENNEKO_AUDIT_FAILURE_WEBHOOK_URL", "https://alerts.test/audit");
+    vi.stubEnv("OPENNEKO_AUDIT_FAILURE_WEBHOOK_TOKEN", "secret-token");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    reportAuditLoggingFailure(
+      {
+        orgId: "org_test",
+        entityKind: "work_run",
+        entityId: "run_test",
+        event: "run:completed",
+      },
+      "append failed",
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://alerts.test/audit",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: "Bearer secret-token",
+        }),
+      }),
     );
   });
 });
