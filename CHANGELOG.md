@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.17.0](https://github.com/open-neko/openneko/compare/v2.16.1...v2.17.0) (2026-07-13)
+
+
+### Features
+
+* alert on audit logging failures ([7c7b613](https://github.com/open-neko/openneko/commit/7c7b6131c02a5961fb721d8dd6b656e6e0619924))
+
 ## [2.16.1](https://github.com/open-neko/openneko/compare/v2.16.0...v2.16.1) (2026-07-12)
 
 
