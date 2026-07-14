@@ -53,7 +53,7 @@ and proposing actions, with brakes so it never runs away from you.
 | Feature | What it does for you | Shipped in |
 |---|---|---|
 | The operating loop | Workflows observe your data on schedules, surface findings as observations, and propose actions through an approval stack — the full loop from data to decision. | #11 |
-| Morning briefing | Important observations are elevated into briefing cards — a short, prioritised read on what changed and what needs you. | #11, #96 |
+| Dashboard | Important observations are elevated into dashboard cards — a short, prioritised read on what changed and what needs you. | #11, #96 |
 | At-a-glance stats | A four-number strip (runs, findings, approvals waiting, budget used) tells you the state of your assistant in two seconds. | #96 |
 | Build workflows by chatting | Create, update, and look up workflows and approval rules in the same chat where you ask questions — every artifact links back to the conversation that produced it. | #46 |
 | Retire workflows by @mention | Delete a noisy or obsolete workflow mid-conversation by @mentioning it — composer autocomplete included. | #110 |
