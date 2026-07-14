@@ -111,6 +111,26 @@ function makeFakeControlPlane() {
       calls.push({ method: "source-secrets", input: input as Record<string, unknown> });
       return { names: [] };
     },
+    async askSourceConfigAgent(input) {
+      calls.push({ method: "source-config-agent", input: input as Record<string, unknown> });
+      return { response: { status: "answered", answer: "read-only" } };
+    },
+    async previewSourceConfigChange(input) {
+      calls.push({ method: "source-config-preview", input: input as Record<string, unknown> });
+      return {
+        preview: {
+          valid: true,
+          patchHash: "hash",
+          catalogRevision: "rev",
+          expiresAt: null,
+          scope: "source",
+          reloadMode: "source_scoped",
+          changes: [],
+          findings: [],
+          errors: [],
+        },
+      };
+    },
     async listAuditTrail(input) {
       calls.push({ method: "audit-list", input: input as Record<string, unknown> });
       return { requests: [], alerts: [], gatewaySummary: [] };

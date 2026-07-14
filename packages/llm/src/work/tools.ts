@@ -596,6 +596,42 @@ export function buildSourceConfigManagerServer(opts: {
     }),
   );
 
+  const askConfigAgent = tool(
+    "ask_graphjin_config_agent",
+    [
+      "ADMIN ONLY. Ask the selected CUSTOMER GraphJin server's built-in",
+      "agent to inspect, explain, or plan changes to its own redacted",
+      "configuration. The host first verifies that the GraphJin agent is",
+      "globally read-only, and the tool can never apply a change. Use this",
+      "before request_source_config_change when the operator asks about",
+      "settings, roles, sources, access, security, runtime, or reload impact.",
+      "Never include credentials, tokens, connection strings, or other",
+      "secret values in the instruction. If multiple data sources exist,",
+      "call list_data_sources and pass the intended dataSourceId.",
+    ].join(" "),
+    {
+      instruction: z.string().trim().min(1).max(8_000),
+      dataSourceId: z.string().uuid().optional(),
+      maxSteps: z.number().int().min(1).max(12).optional(),
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            await controlPlane.askSourceConfigAgent({
+              orgId: opts.orgId,
+              runId: opts.runId ?? null,
+              instruction: args.instruction,
+              dataSourceId: args.dataSourceId,
+              maxSteps: args.maxSteps,
+            }),
+          ),
+        },
+      ],
+    }),
+  );
+
   const requestChange = tool(
     "request_source_config_change",
     [
@@ -631,19 +667,45 @@ export function buildSourceConfigManagerServer(opts: {
         .max(128)
         .regex(/^[A-Za-z0-9._-]*$/, "a secret name, not a value")
         .optional(),
+      dataSourceId: z.string().uuid().optional(),
       intent: z.string().trim().min(1).max(500),
     },
     async (args) => {
       // Build a credential-free payload — secretRef is a NAME only; the
       // schema regex forbids whitespace/values, and we never accept a
       // literal secret field.
-      const { action, intent, ...rest } = args;
+      const { action, intent, dataSourceId, ...rest } = args;
       const target =
         action === "add_role"
           ? `role:${args.name ?? ""}`
           : action === "set_source_access"
             ? `access:${args.source ?? ""}`
             : `source:${args.name ?? ""}`;
+      const changePayload = {
+        action,
+        ...rest,
+        ...(dataSourceId ? { dataSourceId } : {}),
+      };
+      const preview = await controlPlane.previewSourceConfigChange({
+        orgId: opts.orgId,
+        runId: opts.runId ?? null,
+        dataSourceId,
+        payload: changePayload,
+      });
+      if (preview.denied || preview.error || !preview.preview?.valid) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                ok: false,
+                stage: "graphjin_config_preview",
+                ...preview,
+              }),
+            },
+          ],
+        };
+      }
       return proposeAdminAction({
         controlPlane,
         orgId: opts.orgId,
@@ -652,15 +714,21 @@ export function buildSourceConfigManagerServer(opts: {
         kind: "source_config_admin",
         target,
         intent,
-        payload: { action, ...rest },
+        payload: {
+          ...changePayload,
+          preview: {
+            source: preview.source,
+            ...preview.preview,
+          },
+        },
       });
     },
   );
 
   return createSdkMcpServer({
     name: "neko_source_config_manager",
-    version: "1.0.0",
-    tools: [describe, listSecretNames, requestChange],
+    version: "1.1.0",
+    tools: [describe, askConfigAgent, listSecretNames, requestChange],
   });
 }
 

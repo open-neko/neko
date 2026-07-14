@@ -267,6 +267,7 @@ export async function runChatTurn(
     const supportsSourceConfigTool =
       backend.capabilities.mcpTools &&
       actor.role === "admin" &&
+      (opts.channel ?? "web") === "web" &&
       sourceConfigSettings.sourceConfigEnabled;
     const inlineTranscript = !backend.capabilities.sessionResume;
 

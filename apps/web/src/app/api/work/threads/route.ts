@@ -15,7 +15,7 @@ import {
 } from "@neko/db";
 import { BRIEFING_CARD_SENTINEL } from "@/lib/briefing-card-context";
 import { getOrgId } from "@/lib/db";
-import { getCurrentUserSafe } from "@/lib/actor";
+import { getCurrentActor } from "@/lib/actor";
 import {
   createWorkMessage,
   createWorkThread,
@@ -23,7 +23,12 @@ import {
 } from "@/lib/work-store";
 
 export async function GET() {
-  const threads = await listWorkThreads(await getOrgId());
+  const [orgId, actor] = await Promise.all([getOrgId(), getCurrentActor()]);
+  const threads = await listWorkThreads(
+    orgId,
+    "web",
+    actor.userId,
+  );
   return NextResponse.json({ threads });
 }
 
@@ -45,7 +50,7 @@ export async function POST(request: NextRequest) {
       ? body.seedActionRequestId
       : null;
 
-  const orgId = await getOrgId();
+  const [orgId, actor] = await Promise.all([getOrgId(), getCurrentActor()]);
 
   // Resolve title from seed when possible — feels less arbitrary than
   // "Untitled thread" when the operator just clicked "Deep dive" or
@@ -62,7 +67,11 @@ export async function POST(request: NextRequest) {
     }
   }
   if (seedActionRequestId) {
-    const seed = await loadActionRequestContext(orgId, seedActionRequestId);
+    const seed = await loadActionRequestContext(
+      orgId,
+      seedActionRequestId,
+      actor.role === "admin",
+    );
     if (seed) {
       actionContext = seed.message;
       if (!resolvedTitle) resolvedTitle = `Follow-up · ${seed.label}`;
@@ -73,8 +82,12 @@ export async function POST(request: NextRequest) {
     if (seedCard && !resolvedTitle) resolvedTitle = seedCard.title;
   }
 
-  const creator = await getCurrentUserSafe();
-  const thread = await createWorkThread(orgId, resolvedTitle, "web", creator?.id ?? null);
+  const thread = await createWorkThread(
+    orgId,
+    resolvedTitle,
+    "web",
+    actor.userId,
+  );
 
   // When the dashboard's "Deep dive" action opens a new thread, the briefing
   // card travels into the thread as the opening user message — that way the
@@ -311,6 +324,7 @@ export async function loadBriefingCardForSeed(
 async function loadActionRequestContext(
   orgId: string,
   actionRequestId: string,
+  canReadAdminConfig = false,
 ): Promise<{ label: string; message: string } | null> {
   const arRows = await db()
     .select({
@@ -340,6 +354,7 @@ async function loadActionRequestContext(
     .limit(1);
   const ar = arRows[0];
   if (!ar) return null;
+  if (ar.kind === "source_config_admin" && !canReadAdminConfig) return null;
 
   let workflowName: string | null = null;
   if (ar.workflowRunId) {

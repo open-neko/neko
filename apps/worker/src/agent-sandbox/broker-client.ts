@@ -160,6 +160,18 @@ export class BrokerControlPlane implements AgentControlPlane {
   ): ReturnType<AgentControlPlane["listSourceSecretNames"]> {
     return this.post("/v1/source-secrets/names", input);
   }
+
+  askSourceConfigAgent(
+    input: Parameters<AgentControlPlane["askSourceConfigAgent"]>[0],
+  ): ReturnType<AgentControlPlane["askSourceConfigAgent"]> {
+    return this.post("/v1/source-config/agent", input);
+  }
+
+  previewSourceConfigChange(
+    input: Parameters<AgentControlPlane["previewSourceConfigChange"]>[0],
+  ): ReturnType<AgentControlPlane["previewSourceConfigChange"]> {
+    return this.post("/v1/source-config/preview", input);
+  }
 }
 
 /** Emit agent events back to the host through the broker (one-way sink). */

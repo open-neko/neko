@@ -30,13 +30,17 @@ RBAC, or discussing the `gj_config` MCP/config-update path.
 1. Read this `SKILL.md`.
 2. Inspect current state with
    `mcp__neko_source_config_manager__describe_source_graph`.
-3. For source registration, call
+3. Use `mcp__neko_source_config_manager__ask_graphjin_config_agent` to have
+   the selected GraphJin explain its redacted current configuration, security
+   posture, relevant config recipe, and expected reload impact. This agent is
+   host-verified as globally read-only and cannot apply changes.
+4. For source registration, call
    `mcp__neko_source_config_manager__list_source_secret_names` and choose an
    existing `secretRef`. If the needed secret is missing, tell the operator to
    add it in Admin > Settings > GraphJin Config.
-4. Propose changes only with
+5. Propose changes only with
    `mcp__neko_source_config_manager__request_source_config_change`.
-5. Tell the operator exactly what was proposed and that an admin approval is
+6. Tell the operator exactly what was proposed and that an admin approval is
    required before the change is applied.
 
 ## Supported Proposals
@@ -73,8 +77,11 @@ avoid inventing unsupported payload fields.
 - Keep the GraphJin system source separate from application data sources. Use a
   `kind: graphjin` source for catalog/control-plane roots such as `gj_catalog`
   and `gj_config`.
-- `gj_config: admin` is defense in depth. The real boundary is OpenNeko's admin
-  role, source-config capability toggle, approval rule, and worker-side adapter.
+- Set `gj_config`, `gj_security`, and `gj_runtime` to GraphJin's `admin` access
+  class. GraphJin's verified JWT role is a second boundary behind OpenNeko's
+  live admin-role check, capability toggle, approval rule, and worker adapter.
+- Keep `agent.read_only: true`. OpenNeko refuses to call a GraphJin config
+  agent whose status endpoint reports that read-only mode is disabled.
 - For agentic deployments, keep `mcp.legacy_discovery: false` and
   `mcp.allow_mutations: false` unless the admin has a specific reason to relax
   them.

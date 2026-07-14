@@ -14,6 +14,7 @@ import {
   uniqueOrgId,
 } from "@neko/db/test-helpers";
 import {
+  app_user,
   data_source,
   data_source_secret,
   db,
@@ -29,6 +30,7 @@ import {
   executeApprovedActionRequest,
 } from "@neko/llm/workflows";
 import { maybeEncryptSecret } from "@neko/llm/secrets";
+import { graphjinConfigPatchHash } from "@neko/llm/graphjin";
 import { inProcessControlPlane } from "@neko/llm/work";
 import { registerSourceConfigAdminAdapter } from "../../src/plugins/manage-adapters.js";
 
@@ -129,12 +131,19 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
   }
 
   async function runAction(payload: Record<string, unknown>) {
+    const approvedPayload = {
+      ...payload,
+      preview: {
+        patchHash: graphjinConfigPatchHash(payload),
+        catalogRevision: "rev1",
+      },
+    };
     const request = await createActionRequest({
       orgId,
       scope: "internal",
       kind: "source_config_admin",
       target: String(payload.action ?? ""),
-	      payload,
+	      payload: approvedPayload,
 	      riskLevel: "high",
 	      status: "approved",
 	      summary: "test",
@@ -204,7 +213,7 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
       write: "blocked",
       delete: "blocked",
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.error).toBe(true);
 
     // rev read → preview → apply, all to the customer endpoint.
     expect(calls).toHaveLength(3);
@@ -233,7 +242,7 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
       dbname: "warehouse",
       user: "reader",
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.error).toBe(true);
     const preview = calls[1].body.query;
     expect(preview).toContain("update_sources");
     // Must not wipe the meta-source via a full replace or a non-existent field.
@@ -280,7 +289,7 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
       user: "reader",
       secretRef: SECRET_NAME,
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.error).toBe(true);
 
     // The resolved value IS injected into the apply POST body (worker-side).
     const applyBody = calls.find((c) => c.body.query.includes('mode: "apply"'))!;
@@ -306,5 +315,94 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
     expect(graph.databases?.[0]?.id).toBe("database-1");
     expect(graph.capabilities?.[0]?.id).toBe("capability-1");
     expect(graph.namespaces?.[0]?.id).toBe("namespace-1");
+  });
+
+  it("server agent is admin-only, bearer-authenticated, and rechecks live role", async () => {
+    await setEndpoint(CUSTOMER);
+    const userId = `admin-${randomUUID()}`;
+    const threadId = randomUUID();
+    const runId = randomUUID();
+    await db().insert(app_user).values({
+      id: userId,
+      org_id: orgId,
+      email: `${userId}@example.test`,
+      role: "admin",
+    });
+    await db().insert(work_thread).values({
+      id: threadId,
+      org_id: orgId,
+      title: "private admin config",
+      created_by_user_id: userId,
+    });
+    await db().insert(work_run).values({
+      id: runId,
+      org_id: orgId,
+      thread_id: threadId,
+      backend: "claude-agent",
+      status: "running",
+      actor_user_id: userId,
+      actor_role: "admin",
+    });
+
+    const calls: Array<{ url: string; headers: Headers; body?: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit = {}) => {
+        const headers = new Headers(init.headers);
+        calls.push({
+          url,
+          headers,
+          body: typeof init.body === "string" ? JSON.parse(init.body) : undefined,
+        });
+        if (url.endsWith("/api/v1/agent/status")) {
+          return new Response(
+            JSON.stringify({
+              status: "ready",
+              enabled: true,
+              ready: true,
+              endpoint: "/api/v1/agent",
+              provider: "openai",
+              api_key_configured: true,
+              max_steps: 8,
+              timeout_seconds: 50,
+              read_only: true,
+              return_trace: false,
+              message: "ready",
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            status: "answered",
+            answer: "The redacted configuration is healthy.",
+            trace_id: "gj-trace-1",
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const answer = await inProcessControlPlane.askSourceConfigAgent({
+      orgId,
+      runId,
+      instruction: "Explain the current redacted configuration.",
+    });
+    expect(answer.response?.status).toBe("answered");
+    expect(answer.agentStatus?.read_only).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls.every((call) => call.headers.has("authorization"))).toBe(true);
+    expect(calls.every((call) => !call.headers.has("x-role"))).toBe(true);
+
+    await db().update(app_user).set({ role: "member" }).where(eq(app_user.id, userId));
+    calls.length = 0;
+    const denied = await inProcessControlPlane.askSourceConfigAgent({
+      orgId,
+      runId,
+      instruction: "Show configuration.",
+    });
+    expect(denied.denied).toBe(true);
+    expect(denied.error).toMatch(/admin-only/i);
+    expect(calls).toHaveLength(0);
   });
 });

@@ -1,5 +1,5 @@
 # GJ4 — source/agentic-mode template for the CUSTOMER-data GraphJin
-# (compare dev.example.yml, the legacy anonymous config). Copy to dev.yml,
+# (compare dev.example.yml, the legacy anonymous config). Copy to agentic.yml,
 # fill the secret, and set data_source.auth_mode='jwt' in neko-db to
 # activate per-run actor tokens.
 #
@@ -17,34 +17,36 @@
 # guard blocks mutations); the worker applies the approved gj_config
 # preview→apply with a minted admin token.
 #
-# WHERE THE ADMIN-ONLY GUARANTEE COMES FROM: the OpenNeko approval gate
-# (source_config_admin actions require approverRole: admin) plus the agent
-# CLI mutation guard — NOT the engine. Verified live: the engine's
-# `gj_config: admin` root only distinguishes anon from authenticated, so a
-# member-role token can still reach gj_config. Treat the root as
-# defense-in-depth, not the boundary.
+# THE ADMIN-ONLY GUARANTEE IS LAYERED: OpenNeko rechecks the live app_user role
+# for every config-agent/proposal call and again before apply; GraphJin verifies
+# the short-lived JWT and independently enforces its admin system roots.
 #
-# TWO PRECONDITIONS for a durable apply (verified live on the fork):
+# TWO PRECONDITIONS for a durable apply:
 #   1. roles: must explicitly define every token role (admin, user).
 #      gj_config role/source updates re-normalize roles; without explicit
 #      entries the implicit admin role is dropped and all tokens break
 #      ("roles 'admin' not defined").
 #   2. secrets.keystore.key (base64 → 32 bytes) is REQUIRED to register a
 #      DB source with a password — GraphJin seals it to a gjsecret:// ref.
-# Also note: gj_config apply persists + reloads the config; needs a fork
-# build with the saveConfigToDisk fix (dosco/graphjin#601) or the reload
-# crash-loops on a spurious top-level database: block.
+# GraphJin 3.18.42 includes the upstream saveConfigToDisk persistence fix, so
+# gj_config apply can safely persist and reload this sources-mode config.
 #
 # The OpenNeko INTERNAL neko-graphjin MUST NOT enable any of this:
 # keep allow_config_updates:false and no gj_config root there — it is
 # never reconfigurable from chat.
 
 app_name: ./Graphjin/Neko-AdventureWorks (source mode)
+mode: agentic
 host_port: 0.0.0.0:8080
-production: false
-debug: true
+production: true
+# OpenNeko and the GraphJin server agent both compile ad-hoc, role-scoped
+# GraphQL from chat. Production mode otherwise accepts only named queries from
+# the queries directory. This flag disables that query allow-list gate; it does
+# not bypass JWT authentication, source access, read_only, or admin-only roots.
+disable_production_security: true
+debug: false
 log_format: plain
-log_level: debug
+log_level: info
 http_compress: true
 reload_on_config_change: true
 server_timing: true
@@ -82,9 +84,13 @@ subs_poll_duration: 5s
 
 mcp:
   disable: false
-  # OL5: makes gj_config.update reachable. The admin-only guarantee is the
-  # OpenNeko approval gate + agent CLI guard, not the engine (see header).
+  # OpenNeko's approved worker uses gj_config preview/apply directly. The
+  # server agent itself remains globally read-only.
   allow_config_updates: true
+  # The OpenNeko CLI still drives the low-level data/config tools directly.
+  # Without this, enabling the server agent collapses MCP to only
+  # ask_graphjin_agent and breaks existing query/discovery paths.
+  include_tools_with_agent: true
   allow_mutations: false
   allow_raw_queries: true
   workflow_timeout: 300
@@ -93,6 +99,19 @@ mcp:
   # dumps anonymously. Agentic deployments discover via gj_catalog under
   # the caller's token; the knowledge prefetch does the same.
   legacy_discovery: false
+
+# GraphJin's built-in agent is an evidence-backed configuration specialist for
+# OpenNeko admin chat. This global read-only switch is verified through
+# /api/v1/agent/status before OpenNeko forwards every instruction.
+agent:
+  enabled: true
+  provider: openai
+  model: gpt-4.1-mini
+  api_key_env: GRAPHJIN_AGENT_API_KEY
+  max_steps: 8
+  timeout_seconds: 50
+  read_only: true
+  return_trace: false
 
 analytics_mode: true
 
@@ -126,16 +145,22 @@ sources:
     kind: graphjin
     metadata: true
     catalog: true
+    control_plane: true
+    # Makes gj_config structurally mutable for the approved OpenNeko worker.
+    # access.roots below still limits both reads and writes to admin JWTs, and
+    # agent.read_only keeps the server-side LLM itself unable to mutate it.
+    capabilities:
+      config.write: true
     access:
       roots:
         # authenticated, NOT public — verified live: public leaks the
         # whole schema catalog to anonymous callers.
         gj_catalog: authenticated
-        # OL5: gates gj_config to authenticated callers (defense-in-depth).
-        # NOT a member/admin boundary — the engine treats `admin` as
-        # authenticated here; the admin-only guarantee is OpenNeko's
-        # approval gate. The worker mints an admin token to apply changes.
+        # Native GraphJin admin roots are the second boundary behind
+        # OpenNeko's live role checks and approval workflow.
         gj_config: admin
+        gj_security: admin
+        gj_runtime: admin
 
   - name: adventureworks
     kind: database

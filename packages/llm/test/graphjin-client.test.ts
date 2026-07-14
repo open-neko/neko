@@ -47,4 +47,21 @@ describe("graphjinQuery", () => {
       }),
     ).rejects.toThrow(/500/);
   });
+
+  it("normalizes GraphJin string errors", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ errors: ["blocked for role user"] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const result = await graphjinQuery({
+      baseUrl: "http://127.0.0.1:8089/api/v1/graphql",
+      query: "query { gj_config(id: \"current\") { id } }",
+    });
+
+    expect(result.data).toBeNull();
+    expect(result.errors).toEqual([{ message: "blocked for role user" }]);
+  });
 });

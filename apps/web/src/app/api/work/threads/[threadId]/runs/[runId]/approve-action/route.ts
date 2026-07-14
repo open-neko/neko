@@ -27,9 +27,9 @@ import {
   rejectActionRequest,
 } from "@neko/llm/workflows";
 import { appendWorkRunEvent } from "@neko/llm/work";
-import { getCurrentUser } from "@/lib/auth";
 import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
+import { getAuthorizedWorkThread } from "@/lib/work-thread-auth";
 
 type RouteContext = {
   params: Promise<{ threadId: string; runId: string }>;
@@ -64,8 +64,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   const orgId = await getOrgId();
+  const actor = await getCurrentActor();
+  const thread = await getAuthorizedWorkThread(orgId, threadId, actor);
+  if (!thread) {
+    return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+  }
   const req = await getActionRequest(orgId, actionRequestId);
-  if (!req) {
+  if (
+    !req ||
+    (req.kind === "source_config_admin" && actor.role !== "admin")
+  ) {
     return NextResponse.json({ error: "action_request not found" }, { status: 404 });
   }
   if (req.workRunId !== runId) {
@@ -87,12 +95,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
     );
   }
 
-  const user = await getCurrentUser();
-  const approverUserId = user?.id ?? null;
+  const approverUserId = actor.userId;
 
   if (decision === "approve") {
     await approveActionRequest({
-      approver: await getCurrentActor(),
+      approver: actor,
       id: req.id,
       orgId,
       approverUserId,
@@ -112,7 +119,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   // Reject: persist the rejection and emit a terminal result event so
   // the chat UI updates immediately — no worker round-trip needed.
   await rejectActionRequest({
-      approver: await getCurrentActor(),
+    approver: actor,
     id: req.id,
     orgId,
     approverUserId,

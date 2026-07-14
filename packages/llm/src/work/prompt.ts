@@ -260,6 +260,9 @@ apply the \`graphjin-config\` skill at \`${graphjinSkill}\`.
 - \`mcp__neko_source_config_manager__describe_source_graph\` — read the live
   GraphJin source graph from gj_catalog. Use it before proposing any source,
   access, or RBAC role change.
+- \`mcp__neko_source_config_manager__ask_graphjin_config_agent\` — ask the
+  selected GraphJin to explain its redacted configuration and plan a change.
+  The host verifies its server agent is globally read-only before every call.
 - \`mcp__neko_source_config_manager__list_source_secret_names\` — list only
   stored connection secret NAMES. Never ask for or print secret values.
 - \`mcp__neko_source_config_manager__request_source_config_change\` — file an

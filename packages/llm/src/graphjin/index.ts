@@ -11,3 +11,5 @@ export {
 
 export * from "./token";
 export * from "./client-auth";
+export * from "./agent";
+export * from "./config-change";

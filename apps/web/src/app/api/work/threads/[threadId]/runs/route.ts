@@ -22,10 +22,10 @@ import {
 } from "@/lib/neko-run-registry";
 import {
   createWorkMessage,
-  getWorkThread,
   suggestWorkThreadTitle,
   touchWorkThread,
 } from "@/lib/work-store";
+import { getAuthorizedWorkThread } from "@/lib/work-thread-auth";
 
 type RouteContext = {
   params: Promise<{ threadId: string }>;
@@ -43,7 +43,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   const orgId = await getOrgId();
-  const thread = await getWorkThread(orgId, threadId);
+  const actor = await getCurrentActor();
+  const thread = await getAuthorizedWorkThread(orgId, threadId, actor);
   if (!thread) {
     return NextResponse.json({ error: "Thread not found" }, { status: 404 });
   }
@@ -68,7 +69,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
   // memoized provision attempt is cleared and the caller can retry cleanly.
   await ensureHostConfigProvisioned(orgId);
 
-  const actor = await getCurrentActor();
   const run = await createWorkRun(orgId, threadId, backend.id, actor);
 
   if (!thread.title) {

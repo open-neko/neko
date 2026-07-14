@@ -3,9 +3,15 @@ import {
   WORK_MEMORY_SCOPES,
   acceptPendingWorkMemory,
   declinePendingWorkMemory,
+  getPendingWorkMemory,
   type WorkMemoryScope,
 } from "@neko/llm/work";
+import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
+import {
+  getAuthorizedWorkRun,
+  getAuthorizedWorkThread,
+} from "@/lib/work-thread-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +25,16 @@ export async function POST(request: NextRequest) {
   }
 
   const orgId = await getOrgId();
+  const actor = await getCurrentActor();
+  const pending = await getPendingWorkMemory(orgId, id);
+  const authorized = pending?.threadId
+    ? await getAuthorizedWorkThread(orgId, pending.threadId, actor)
+    : pending?.runId
+      ? await getAuthorizedWorkRun(orgId, pending.runId, actor)
+      : null;
+  if (!pending || !authorized) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
   try {
     if (action === "accept") {
       const scope =

@@ -39,7 +39,35 @@ export async function graphjinQuery<T = unknown>(
     const text = await res.text().catch(() => "");
     throw new Error(`graphjin query failed: ${res.status} ${text.slice(0, 500)}`);
   }
-  return (await res.json()) as GraphjinQueryResult<T>;
+  const body = (await res.json()) as {
+    data?: T | null;
+    errors?: unknown[];
+  };
+  const errors = Array.isArray(body.errors)
+    ? body.errors.map((item) => {
+        if (typeof item === "string") return { message: item };
+        if (item && typeof item === "object") {
+          const error = item as {
+            message?: unknown;
+            path?: unknown;
+          };
+          return {
+            message:
+              typeof error.message === "string"
+                ? error.message
+                : JSON.stringify(item),
+            ...(Array.isArray(error.path)
+              ? { path: error.path as (string | number)[] }
+              : {}),
+          };
+        }
+        return { message: String(item) };
+      })
+    : undefined;
+  return {
+    data: body.data ?? null,
+    ...(errors?.length ? { errors } : {}),
+  };
 }
 
 export type GraphjinSubscriptionMessage<T = unknown> = {

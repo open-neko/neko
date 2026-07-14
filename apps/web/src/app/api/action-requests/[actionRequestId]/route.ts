@@ -30,7 +30,11 @@ export async function GET(_req: Request, context: RouteContext) {
   const { actionRequestId } = await context.params;
   const orgId = await getOrgId();
   const request = await getActionRequest(orgId, actionRequestId);
-  if (!request) {
+  const actor = await getCurrentActor();
+  if (
+    !request ||
+    (request.kind === "source_config_admin" && actor.role !== "admin")
+  ) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
   const executions = await listActionExecutions(actionRequestId);
@@ -156,14 +160,22 @@ export async function PATCH(req: Request, context: RouteContext) {
     );
   }
   const orgId = await getOrgId();
-  const approverUserId =
-    typeof body.approverUserId === "string" ? body.approverUserId : null;
+  const actor = await getCurrentActor();
+  const existing = await getActionRequest(orgId, actionRequestId);
+  if (
+    !existing ||
+    (existing.kind === "source_config_admin" && actor.role !== "admin")
+  ) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+  // Attribution is session-derived; never trust a caller-supplied user id.
+  const approverUserId = actor.userId;
   const reason = typeof body.reason === "string" ? body.reason : undefined;
 
   try {
     if (decision === "approve") {
       const approved = await approveActionRequest({
-      approver: await getCurrentActor(),
+        approver: actor,
         id: actionRequestId,
         orgId,
         approverUserId,
@@ -175,7 +187,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       return NextResponse.json({ actionRequest: { id: approved.id, status: approved.status } });
     } else {
       const rejected = await rejectActionRequest({
-      approver: await getCurrentActor(),
+        approver: actor,
         id: actionRequestId,
         orgId,
         approverUserId,

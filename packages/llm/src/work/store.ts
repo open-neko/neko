@@ -5,6 +5,7 @@ import {
   desc,
   eq,
   gte,
+  isNull,
   sql,
   work_message,
   work_run,
@@ -60,6 +61,7 @@ export type WorkThreadBundle = {
 export async function listWorkThreads(
   orgId: string,
   channel = "web",
+  createdByUserId?: string | null,
 ): Promise<WorkThreadSummary[]> {
   // Workflow runs reuse the work_thread / work_run plumbing for their
   // transcripts (so they get the same surface, events, memory hooks).
@@ -76,6 +78,13 @@ export async function listWorkThreads(
       and(
         eq(work_thread.org_id, orgId),
         eq(work_thread.channel, channel),
+        ...(createdByUserId !== undefined
+          ? [
+              createdByUserId === null
+                ? isNull(work_thread.created_by_user_id)
+                : eq(work_thread.created_by_user_id, createdByUserId),
+            ]
+          : []),
         sql`NOT EXISTS (SELECT 1 FROM ${workflow_run} wr WHERE wr.thread_id = ${work_thread.id})`,
       ),
     )

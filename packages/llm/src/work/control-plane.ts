@@ -25,6 +25,10 @@ import {
 } from "../workflows/store";
 import { notifyWorkflowOutputDeliveryHook } from "../workflows/output-delivery";
 import { rememberWorkMemory, searchWorkMemoryByContext } from "./memory";
+import type {
+  GraphjinAgentResponse,
+  GraphjinAgentStatus,
+} from "../graphjin/agent";
 
 type PolicyRequestSubject = Parameters<typeof evaluateActionPolicy>[0];
 type PolicyDecision = ReturnType<typeof evaluateActionPolicy>;
@@ -56,8 +60,12 @@ async function requireSourceConfigAccess(input: {
   orgId: string;
   runId?: string | null;
   actorRole?: string | null;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+}): Promise<
+  { ok: true; userId: string | null } | { ok: false; error: string }
+> {
   const {
+    and,
+    app_user,
     db,
     eq,
     getGraphjinConfigSettingsForOrg,
@@ -72,13 +80,44 @@ async function requireSourceConfigAccess(input: {
   }
 
   let role: string | null = null;
+  let userId: string | null = null;
   if (input.runId) {
     const [run] = await db()
-      .select({ role: work_run.actor_role })
+      .select({
+        orgId: work_run.org_id,
+        userId: work_run.actor_user_id,
+        snapshotRole: work_run.actor_role,
+      })
       .from(work_run)
       .where(eq(work_run.id, input.runId))
       .limit(1);
-    role = run?.role ?? null;
+    if (!run || run.orgId !== input.orgId) {
+      return { ok: false, error: "GraphJin config run is not available." };
+    }
+    if (run.userId) {
+      userId = run.userId;
+      const [user] = await db()
+        .select({ role: app_user.role, disabledAt: app_user.disabled_at })
+        .from(app_user)
+        .where(
+          and(
+            eq(app_user.id, run.userId),
+            eq(app_user.org_id, input.orgId),
+          ),
+        )
+        .limit(1);
+      role = user && !user.disabledAt ? user.role : null;
+    } else {
+      // Null-user admin runs are valid only in the solo profile. In a
+      // multi-user org, a deleted/detached admin must not inherit the solo
+      // profile's authority from the role snapshot.
+      const [anyUser] = await db()
+        .select({ id: app_user.id })
+        .from(app_user)
+        .where(eq(app_user.org_id, input.orgId))
+        .limit(1);
+      role = anyUser ? null : run.snapshotRole;
+    }
   } else {
     role = input.actorRole ?? null;
   }
@@ -89,8 +128,33 @@ async function requireSourceConfigAccess(input: {
     };
   }
 
-  return { ok: true };
+  return { ok: true, userId };
 }
+
+export type SourceConfigAgentResult = {
+  denied?: boolean;
+  error?: string;
+  source?: { id: string; name: string; host: string | null };
+  agentStatus?: GraphjinAgentStatus;
+  response?: GraphjinAgentResponse;
+};
+
+export type SourceConfigPreviewResult = {
+  denied?: boolean;
+  error?: string;
+  source?: { id: string; name: string; host: string | null };
+  preview?: {
+    valid: boolean;
+    patchHash: string;
+    catalogRevision: string;
+    expiresAt: string | null;
+    scope: string | null;
+    reloadMode: string | null;
+    changes: unknown;
+    findings: unknown;
+    errors: unknown;
+  };
+};
 
 export type WorkflowListEntry = Wire<WorkflowRecord> & {
   /** Enabled source_change trigger filter, if any. */
@@ -209,6 +273,28 @@ export interface AgentControlPlane {
     error?: string;
     names: Array<{ name: string; description: string | null; updatedAt: string }>;
   }>;
+  /**
+   * Ask the selected customer GraphJin's built-in server agent to inspect or
+   * explain its configuration. The host verifies the agent is globally
+   * read-only before forwarding an instruction, and authenticates with a
+   * short-lived admin JWT that never enters the sandbox.
+   */
+  askSourceConfigAgent(input: {
+    orgId: string;
+    runId?: string | null;
+    actorRole?: string | null;
+    dataSourceId?: string;
+    instruction: string;
+    maxSteps?: number;
+  }): Promise<SourceConfigAgentResult>;
+  /** Validate the exact allowlisted patch before an approval is created. */
+  previewSourceConfigChange(input: {
+    orgId: string;
+    runId?: string | null;
+    actorRole?: string | null;
+    dataSourceId?: string;
+    payload: Record<string, unknown>;
+  }): Promise<SourceConfigPreviewResult>;
   /**
    * ADM4: the audit trail, for ADMIN runs only — the requesting run's
    * K1 actor is checked server-side (the sandbox is never trusted to
@@ -510,7 +596,6 @@ export class InProcessControlPlane implements AgentControlPlane {
         const res = await graphjinQuery<{ gj_catalog?: Row[] }>({
           baseUrl: src.graphqlUrl,
           query: `query { gj_catalog(where: { kind: { eq: "${kind}" } }, limit: 100) { id name summary } }`,
-          role: "service",
           headers: { authorization: `Bearer ${token}` },
         });
         if (res.errors?.length) {
@@ -566,6 +651,306 @@ export class InProcessControlPlane implements AgentControlPlane {
         updatedAt: r.updatedAt.toISOString(),
       })),
     };
+  }
+
+  async askSourceConfigAgent(input: {
+    orgId: string;
+    runId?: string | null;
+    actorRole?: string | null;
+    dataSourceId?: string;
+    instruction: string;
+    maxSteps?: number;
+  }): Promise<SourceConfigAgentResult> {
+    const gate = await requireSourceConfigAccess(input);
+    if (!gate.ok) {
+      return { denied: true, error: gate.error };
+    }
+    const instruction = input.instruction.trim();
+    if (!instruction || instruction.length > 8_000) {
+      return {
+        error: "instruction must contain between 1 and 8,000 characters",
+      };
+    }
+
+    const { and, data_source, db, eq } = await import("@neko/db");
+    const rows = await db()
+      .select({
+        id: data_source.id,
+        name: data_source.name,
+        kind: data_source.kind,
+        graphqlUrl: data_source.graphql_url,
+      })
+      .from(data_source)
+      .where(
+        and(
+          eq(data_source.org_id, input.orgId),
+          eq(data_source.enabled, true),
+          ...(input.dataSourceId
+            ? [eq(data_source.id, input.dataSourceId)]
+            : []),
+        ),
+      )
+      .limit(input.dataSourceId ? 1 : 3);
+    if (rows.length === 0) {
+      return { error: "no enabled customer GraphJin data source was found" };
+    }
+    if (!input.dataSourceId && rows.length > 1) {
+      return {
+        error:
+          "multiple enabled data sources exist; choose a dataSourceId with list_data_sources before asking the configuration agent",
+      };
+    }
+    const src = rows[0]!;
+    if (src.kind !== "graphjin") {
+      return { error: "the selected data source is not a GraphJin server" };
+    }
+    if (isInternalGraphjinURL(src.graphqlUrl)) {
+      return {
+        denied: true,
+        error: "refusing to inspect the OpenNeko internal GraphJin",
+      };
+    }
+
+    const { askGraphjinAgent, getGraphjinAgentStatus } = await import(
+      "../graphjin/agent"
+    );
+    const { mintGraphjinToken } = await import("../graphjin/token");
+    const token = mintGraphjinToken({
+      orgId: input.orgId,
+      userId: gate.userId,
+      role: "admin",
+    });
+    const timeout = AbortSignal.timeout(90_000);
+    try {
+      const agentStatus = await getGraphjinAgentStatus({
+        baseUrl: src.graphqlUrl,
+        token,
+        signal: timeout,
+      });
+      const source = {
+        id: src.id,
+        name: src.name,
+        host: hostnameOf(src.graphqlUrl),
+      };
+      if (!agentStatus.ready) {
+        return {
+          source,
+          agentStatus,
+          error: agentStatus.message || "GraphJin agent is not ready",
+        };
+      }
+      if (!agentStatus.read_only) {
+        return {
+          denied: true,
+          source,
+          agentStatus,
+          error:
+            "GraphJin agent is not configured read-only; OpenNeko will not forward configuration instructions",
+        };
+      }
+      const response = await askGraphjinAgent({
+        baseUrl: src.graphqlUrl,
+        token,
+        signal: timeout,
+        request: {
+          instruction,
+          max_steps: Math.min(Math.max(input.maxSteps ?? 8, 1), 12),
+          return_trace: false,
+          context: {
+            caller: "OpenNeko admin chat",
+            purpose: "configuration inspection and planning",
+            constraint:
+              "Read-only advisory request. Do not apply configuration or schema changes.",
+          },
+        },
+      });
+      return { source, agentStatus, response };
+    } catch (err) {
+      return {
+        source: {
+          id: src.id,
+          name: src.name,
+          host: hostnameOf(src.graphqlUrl),
+        },
+        error: (err instanceof Error ? err.message : String(err)).slice(0, 1_000),
+      };
+    }
+  }
+
+  async previewSourceConfigChange(input: {
+    orgId: string;
+    runId?: string | null;
+    actorRole?: string | null;
+    dataSourceId?: string;
+    payload: Record<string, unknown>;
+  }): Promise<SourceConfigPreviewResult> {
+    const gate = await requireSourceConfigAccess(input);
+    if (!gate.ok) return { denied: true, error: gate.error };
+
+    const {
+      and,
+      data_source,
+      data_source_secret,
+      db,
+      eq,
+    } = await import("@neko/db");
+    const sources = await db()
+      .select({
+        id: data_source.id,
+        name: data_source.name,
+        kind: data_source.kind,
+        graphqlUrl: data_source.graphql_url,
+      })
+      .from(data_source)
+      .where(
+        and(
+          eq(data_source.org_id, input.orgId),
+          eq(data_source.enabled, true),
+          ...(input.dataSourceId
+            ? [eq(data_source.id, input.dataSourceId)]
+            : []),
+        ),
+      )
+      .limit(input.dataSourceId ? 1 : 3);
+    if (sources.length === 0) {
+      return { error: "no enabled customer GraphJin data source was found" };
+    }
+    if (!input.dataSourceId && sources.length > 1) {
+      return {
+        error:
+          "multiple enabled data sources exist; choose a dataSourceId before previewing",
+      };
+    }
+    const src = sources[0]!;
+    const source = {
+      id: src.id,
+      name: src.name,
+      host: hostnameOf(src.graphqlUrl),
+    };
+    if (src.kind !== "graphjin") {
+      return { source, error: "the selected data source is not a GraphJin server" };
+    }
+    if (isInternalGraphjinURL(src.graphqlUrl)) {
+      return {
+        denied: true,
+        source,
+        error: "refusing to preview changes against the OpenNeko internal GraphJin",
+      };
+    }
+
+    let secretValue = "";
+    try {
+      const {
+        buildGraphjinConfigUpdate,
+        graphjinConfigPatchHash,
+        graphjinInputValue,
+      } = await import("../graphjin/config-change");
+      const { update } = await buildGraphjinConfigUpdate(
+        input.payload,
+        async (name) => {
+          const [row] = await db()
+            .select({ valueEnc: data_source_secret.value_enc })
+            .from(data_source_secret)
+            .where(
+              and(
+                eq(data_source_secret.org_id, input.orgId),
+                eq(data_source_secret.name, name),
+              ),
+            )
+            .limit(1);
+          if (!row) {
+            throw new Error(
+              `no stored source secret named "${name}"; add it in GraphJin Config first`,
+            );
+          }
+          const { maybeDecryptSecret } = await import("@neko/secret-crypt");
+          secretValue = maybeDecryptSecret(row.valueEnc);
+          return secretValue;
+        },
+      );
+      // Hash only the credential-free, typed proposal. A password can be low
+      // entropy; even its plain SHA-256 must never enter an approval payload.
+      // Canonical JSON survives PostgreSQL JSONB key reordering.
+      const patchHash = graphjinConfigPatchHash(input.payload);
+      const { graphjinQuery } = await import("../graphjin/client");
+      const { mintGraphjinToken } = await import("../graphjin/token");
+      const token = mintGraphjinToken({
+        orgId: input.orgId,
+        userId: gate.userId,
+        role: "admin",
+        ttlSeconds: 120,
+      });
+      const headers = { authorization: `Bearer ${token}` };
+      const revisionResponse = await graphjinQuery<{
+        gj_config?: { catalog_revision?: string };
+      }>({
+        baseUrl: src.graphqlUrl,
+        headers,
+        query: 'query { gj_config(id: "current") { catalog_revision } }',
+      });
+      const revision = revisionResponse.data?.gj_config?.catalog_revision;
+      if (!revision || revisionResponse.errors?.length) {
+        return {
+          source,
+          error:
+            revisionResponse.errors?.map((item) => item.message).join("; ") ||
+            "GraphJin did not return catalog_revision",
+        };
+      }
+      const literal = graphjinInputValue({
+        mode: "preview",
+        expected_catalog_revision: revision,
+        ...update,
+      });
+      const response = await graphjinQuery<{
+        gj_config?: {
+          valid?: boolean;
+          preview_id?: string;
+          expires_at?: string;
+          change_summary_json?: string;
+          findings_json?: string;
+          errors_json?: string;
+        };
+      }>({
+        baseUrl: src.graphqlUrl,
+        headers,
+        query: `mutation { gj_config(id: "current", update: ${literal}) { valid preview_id expires_at change_summary_json findings_json errors_json } }`,
+      });
+      if (response.errors?.length) {
+        return {
+          source,
+          error: response.errors.map((item) => item.message).join("; "),
+        };
+      }
+      const row = response.data?.gj_config;
+      const scrub = (value: string | undefined): string =>
+        secretValue && secretValue.length >= 8
+          ? (value ?? "").split(secretValue).join("[REDACTED]")
+          : value ?? "";
+      return {
+        source,
+        preview: {
+          valid: row?.valid === true && Boolean(row.preview_id),
+          patchHash,
+          catalogRevision: revision,
+          expiresAt: row?.expires_at ?? null,
+          scope: null,
+          reloadMode: null,
+          changes: parseConfigPreviewJSON(scrub(row?.change_summary_json)),
+          findings: parseConfigPreviewJSON(scrub(row?.findings_json)),
+          errors: parseConfigPreviewJSON(scrub(row?.errors_json)),
+        },
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        source,
+        error:
+          secretValue && secretValue.length >= 8
+            ? message.split(secretValue).join("[REDACTED]").slice(0, 1_000)
+            : message.slice(0, 1_000),
+      };
+    }
   }
 
   async listAuditTrail(input: {
@@ -704,6 +1089,27 @@ function hostnameOf(url: string | null): string | null {
     return new URL(url).hostname;
   } catch {
     return null;
+  }
+}
+
+function isInternalGraphjinURL(url: string): boolean {
+  try {
+    const candidate = new URL(url).host;
+    const internal = new URL(
+      process.env.OPENNEKO_GRAPHJIN_URL ?? "http://127.0.0.1:8089",
+    ).host;
+    return candidate === internal;
+  } catch {
+    return true;
+  }
+}
+
+function parseConfigPreviewJSON(value: string): unknown {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value.slice(0, 4_000);
   }
 }
 

@@ -33,6 +33,10 @@ function stubControlPlane(): AgentControlPlane {
     describeSourceGraph: unused as AgentControlPlane["describeSourceGraph"],
     listSourceSecretNames:
       unused as AgentControlPlane["listSourceSecretNames"],
+    askSourceConfigAgent:
+      unused as AgentControlPlane["askSourceConfigAgent"],
+    previewSourceConfigChange:
+      unused as AgentControlPlane["previewSourceConfigChange"],
   };
 }
 

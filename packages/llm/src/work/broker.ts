@@ -189,6 +189,39 @@ async function handle(
           runId: binding.runId,
         }),
       );
+    case "/v1/source-config/agent":
+      return send(
+        res,
+        200,
+        await cp.askSourceConfigAgent({
+          orgId: binding.orgId,
+          runId: binding.runId,
+          dataSourceId:
+            typeof body.dataSourceId === "string"
+              ? body.dataSourceId
+              : undefined,
+          instruction: String(body.instruction ?? ""),
+          maxSteps:
+            typeof body.maxSteps === "number" ? body.maxSteps : undefined,
+        }),
+      );
+    case "/v1/source-config/preview":
+      return send(
+        res,
+        200,
+        await cp.previewSourceConfigChange({
+          orgId: binding.orgId,
+          runId: binding.runId,
+          dataSourceId:
+            typeof body.dataSourceId === "string"
+              ? body.dataSourceId
+              : undefined,
+          payload:
+            body.payload && typeof body.payload === "object"
+              ? (body.payload as Record<string, unknown>)
+              : {},
+        }),
+      );
     case "/v1/audit/list":
       // ADM4: the admin gate runs on the BOUND run's actor — the
       // sandbox can't claim someone else's run.

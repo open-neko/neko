@@ -53,14 +53,14 @@ services:
       - -c
       - |
         set -eu
-        if [ ! -f /config/dev.yml ]; then
+        if [ ! -f /config/agentic.yml ]; then
           # Sources (agentic) mode is the default. The per-org JWT secret
           # placeholder is substituted by the worker at boot
           # (OPENNEKO_GRAPHJIN_CONFIG) — the org id only exists then. The
           # keystore key must be real at boot, so generate it here once.
-          cp /app/db/graphjin/dev.sources.example.yml /config/dev.yml
+          cp /app/db/graphjin/dev.sources.example.yml /config/agentic.yml
           KEY=$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64"))')
-          sed -i "s|REPLACE_WITH_BASE64_32_BYTE_KEY|$$KEY|" /config/dev.yml
+          sed -i "s|REPLACE_WITH_BASE64_32_BYTE_KEY|$$KEY|" /config/agentic.yml
         fi
         chmod -R a+rwX /config
     volumes:
@@ -71,7 +71,7 @@ services:
     # Data-source GraphJin over the AdventureWorks DB. This is what the
     # setup wizard's "GraphJin URL" defaults to (http://graphjin:8080).
     # Distinct from neko-graphjin (over neko-db, for subscriptions).
-    image: dosco/graphjin:3.18.37
+    image: dosco/graphjin:3.18.42
     restart: unless-stopped
     depends_on:
       adventureworks-init:
@@ -81,6 +81,12 @@ services:
     ports:
       - "${GRAPHJIN_PORT:-8080}:8080"
     environment:
+      GO_ENV: agentic
+      # The server agent stays unavailable until the operator supplies a
+      # dedicated key. Provider/model can be overridden without editing YAML.
+      GRAPHJIN_AGENT_API_KEY: ${GRAPHJIN_AGENT_API_KEY:-}
+      GJ_AGENT_PROVIDER: ${GRAPHJIN_AGENT_PROVIDER:-openai}
+      GJ_AGENT_MODEL: ${GRAPHJIN_AGENT_MODEL:-gpt-4.1-mini}
       # No GJ_DATABASE_* here: in sources mode those are a FATAL boot error
       # ("database is legacy database-only config") — the connection lives in
       # the seeded /config/dev.yml. This crash-looped every fresh demo boot.
@@ -204,7 +210,7 @@ services:
       NEKO_ACTIONS_DRY_RUN: ${NEKO_ACTIONS_DRY_RUN:-true}
       # Sources mode: the worker substitutes the per-org JWT secret into
       # the seeded GraphJin config at boot (host-provision).
-      OPENNEKO_GRAPHJIN_CONFIG: /graphjin-config/dev.yml
+      OPENNEKO_GRAPHJIN_CONFIG: /graphjin-config/agentic.yml
     volumes:
       - graphjin-config:/graphjin-config
 

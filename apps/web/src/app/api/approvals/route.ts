@@ -7,11 +7,13 @@ import {
   desc,
   eq,
   inArray,
+  ne,
   observation,
   sql,
   workflow_definition,
   workflow_run,
 } from "@neko/db";
+import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -40,7 +42,8 @@ function statusesForFilter(filter: Filter): string[] | null {
 }
 
 export async function GET(request: NextRequest) {
-  const orgId = await getOrgId();
+  const [orgId, actor] = await Promise.all([getOrgId(), getCurrentActor()]);
+  const canReadSourceConfig = actor.role === "admin";
   const sp = new URL(request.url).searchParams;
   const countOnly = sp.get("countOnly") === "true";
   const filter = parseFilter(sp.get("filter"));
@@ -56,6 +59,9 @@ export async function GET(request: NextRequest) {
         and(
           eq(action_request.org_id, orgId),
           eq(action_request.status, "pending_approval"),
+          ...(canReadSourceConfig
+            ? []
+            : [ne(action_request.kind, "source_config_admin")]),
         ),
       );
     return NextResponse.json({ count: row?.count ?? 0 });
@@ -111,9 +117,13 @@ export async function GET(request: NextRequest) {
       eq(action_request.policy_id, action_policy.id),
     )
     .where(
-      statusCondition
-        ? and(eq(action_request.org_id, orgId), statusCondition)
-        : eq(action_request.org_id, orgId),
+      and(
+        eq(action_request.org_id, orgId),
+        ...(statusCondition ? [statusCondition] : []),
+        ...(canReadSourceConfig
+          ? []
+          : [ne(action_request.kind, "source_config_admin")]),
+      ),
     )
     .orderBy(desc(action_request.created_at))
     .limit(filter === "awaiting" ? 200 : 100);

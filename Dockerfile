@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # layer. Only the doc-skill toolchain (LibreOffice/python) is agent-exclusive
 # and lives one layer up in `cli`.
 FROM base AS runtime-base
-ARG GRAPHJIN_VERSION=3.18.37
+ARG GRAPHJIN_VERSION=3.18.42
 ARG HERMES_AGENT_REF=a91a57fa5a13d516c38b07a141a9ce8a3daabeb0
 ARG OPENSHELL_VERSION=0.0.54
 # TARGETARCH is auto-supplied by buildx (amd64 or arm64).
@@ -315,7 +315,7 @@ CMD ["--help"]
 # node base so we have node + curl available for the templating script
 # and a real healthcheck.
 FROM node:24-bookworm-slim AS neko-graphjin
-ARG GRAPHJIN_VERSION=3.18.37
+ARG GRAPHJIN_VERSION=3.18.42
 ARG TARGETARCH
 ENV NODE_ENV=production
 RUN apt-get update && apt-get install -y --no-install-recommends \
