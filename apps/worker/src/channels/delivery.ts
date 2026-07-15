@@ -207,8 +207,8 @@ function buildReplySurface(
     ...cards,
   ];
   return [
-    { version: "v0.9", createSurface: { surfaceId: "reply", catalogId: "urn:app:catalog:answer:v1" } },
-    { version: "v0.9", updateComponents: { surfaceId: "reply", components } },
+    { version: "v1.0", createSurface: { surfaceId: "reply", catalogId: "urn:app:catalog:answer:v1" } },
+    { version: "v1.0", updateComponents: { surfaceId: "reply", components } },
   ];
 }
 

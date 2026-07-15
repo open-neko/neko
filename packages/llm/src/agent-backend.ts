@@ -1,7 +1,10 @@
 export const AGENT_BACKEND_IDS = ["hermes", "claude-agent"] as const;
 export type AgentBackendId = (typeof AGENT_BACKEND_IDS)[number];
 
-export const AGENT_DEFAULT_GLOBAL_CAP = 20;
+// Every concurrent job can own an OpenShell sandbox. Keep the out-of-box
+// ceiling deliberately small; operators can raise it after sizing their
+// gateway and model-provider quota.
+export const AGENT_DEFAULT_GLOBAL_CAP = 2;
 
 export const AGENT_BACKEND_OPTIONS = [
   {
@@ -25,7 +28,7 @@ export function shellToolName(backendId: AgentBackendId): string {
 }
 
 export type AgentSurfaceMessage = {
-  version: "v0.9";
+  version: "v0.9" | "v1.0";
   [key: string]: unknown;
 };
 
@@ -171,7 +174,8 @@ export type AgentRunOptions = {
    * user-config / preset tools, real work happens in a subagent whose
    * catalog is exactly this list. Required to keep operator-local MCP
    * servers (~/.claude.json) out of the agent's tool catalog. Omit to keep
-   * legacy behavior (full claude_code preset on the parent query).
+   * legacy behavior (full claude_code preset on the parent query). An empty
+   * list selects isolation mode with no tools, for model-only jobs.
    */
   allowedTools?: readonly string[];
   canUseTool?: (

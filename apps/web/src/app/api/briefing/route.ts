@@ -287,7 +287,7 @@ export async function GET(request: NextRequest) {
   const messages: A2UIMessage[] = [];
 
   messages.push({
-    version: "v0.9",
+    version: "v1.0",
     createSurface: {
       surfaceId,
       catalogId: CATALOG_ID,
@@ -314,7 +314,7 @@ export async function GET(request: NextRequest) {
   };
 
   messages.push({
-    version: "v0.9",
+    version: "v1.0",
     updateDataModel: {
       surfaceId,
       value: dataModel,
@@ -337,14 +337,16 @@ export async function GET(request: NextRequest) {
   ];
 
   messages.push({
-    version: "v0.9",
+    version: "v1.0",
     updateComponents: {
       surfaceId,
       components,
     },
   });
 
-  return NextResponse.json(messages);
+  return NextResponse.json(messages, {
+    headers: { "Content-Type": "application/a2ui+json" },
+  });
 }
 
 export async function POST(request: NextRequest) {

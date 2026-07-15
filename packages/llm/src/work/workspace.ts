@@ -1,7 +1,20 @@
-import { cp, lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import type { Dirent } from "node:fs";
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { access } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentWorkspace } from "../agent-backend";
@@ -55,9 +68,8 @@ export async function ensureOrgWorkspace(orgId: string): Promise<OrgWorkspaceRoo
     await mkdir(dir, { recursive: true });
   }
 
-  await seedBuiltinSkills(skillsRoot);
+  await materializeBuiltinSkills(skillsRoot, claudeProjectRoot);
   await ensureKnowledgeFiles(knowledgeRoot);
-  await ensureLink(join(claudeProjectRoot, ".claude", "skills"), skillsRoot);
 
   return {
     orgRoot,
@@ -92,6 +104,72 @@ export async function ensureWorkWorkspace(
     runRoot,
     artifactRoot,
     binRoot,
+  };
+}
+
+/**
+ * A throw-away workspace for non-interactive agent jobs.
+ *
+ * Job agents must never receive the durable org workspace: it can contain
+ * member memories, uploads, prior run state, and client credentials from
+ * unrelated turns. The OpenShell launcher uploads this empty tree instead,
+ * then the caller exposes only the current run's explicit brokered
+ * capabilities. Source endpoints and service credentials stay host-side.
+ */
+export async function ensureIsolatedJobWorkspace(
+  label: string,
+): Promise<{ workspace: AgentWorkspace; cleanup: () => Promise<void> }> {
+  const safeLabel = safeSegment(label).slice(0, 48) || "job";
+  const orgRoot = await mkdtemp(
+    join(tmpdir(), `openneko-agent-${safeLabel}-`),
+  );
+  const skillsRoot = join(orgRoot, "skills");
+  const memoryRoot = join(orgRoot, "memory");
+  const knowledgeRoot = join(orgRoot, "knowledge");
+  const uploadsRoot = join(orgRoot, "uploads");
+  const runsRoot = join(orgRoot, "runs");
+  const threadUploadsRoot = join(uploadsRoot, "job");
+  const runRoot = join(runsRoot, "current");
+  const artifactRoot = join(runRoot, "artifacts");
+  const binRoot = join(runRoot, "bin");
+  const claudeProjectRoot = orgRoot;
+  const claudeConfigRoot = join(orgRoot, "claude", "config");
+
+  for (const dir of [
+    skillsRoot,
+    memoryRoot,
+    knowledgeRoot,
+    uploadsRoot,
+    runsRoot,
+    threadUploadsRoot,
+    runRoot,
+    artifactRoot,
+    binRoot,
+    claudeConfigRoot,
+  ]) {
+    await mkdir(dir, { recursive: true });
+  }
+
+  const workspace: AgentWorkspace = {
+    orgRoot,
+    skillsRoot,
+    memoryRoot,
+    knowledgeRoot,
+    uploadsRoot,
+    runsRoot,
+    threadUploadsRoot,
+    runRoot,
+    artifactRoot,
+    binRoot,
+    claudeProjectRoot,
+    claudeConfigRoot,
+  };
+
+  return {
+    workspace,
+    cleanup: async () => {
+      await rm(orgRoot, { recursive: true, force: true });
+    },
   };
 }
 
@@ -137,6 +215,97 @@ export async function listInstalledSkills(
     }
   }
   return out;
+}
+
+/**
+ * Make image-baked skills available at the workspace path agents see.
+ * Existing directories win, so an organization-created skill or a modified
+ * built-in skill can override the image copy by name.
+ */
+export async function materializeBuiltinSkills(
+  skillsRoot: string,
+  claudeProjectRoot?: string,
+): Promise<void> {
+  await mkdir(skillsRoot, { recursive: true });
+  await seedBuiltinSkills(skillsRoot);
+  if (claudeProjectRoot) {
+    await ensureLink(join(claudeProjectRoot, ".claude", "skills"), skillsRoot);
+  }
+}
+
+const builtinSkillFingerprints = new Map<string, Promise<string>>();
+
+async function fingerprintTree(root: string): Promise<string> {
+  const hash = createHash("sha256");
+  const visit = async (dir: string, prefix: string): Promise<void> => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolute = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        hash.update(`d:${rel}\0`);
+        await visit(absolute, rel);
+      } else if (entry.isSymbolicLink()) {
+        hash.update(`l:${rel}\0${await readlink(absolute)}\0`);
+      } else if (entry.isFile()) {
+        hash.update(`f:${rel}\0`);
+        hash.update(await readFile(absolute));
+        hash.update("\0");
+      }
+    }
+  };
+  await visit(root, "");
+  return hash.digest("hex");
+}
+
+function builtinFingerprint(name: string, root: string): Promise<string> {
+  let pending = builtinSkillFingerprints.get(name);
+  if (!pending) {
+    pending = fingerprintTree(root);
+    builtinSkillFingerprints.set(name, pending);
+  }
+  return pending;
+}
+
+/**
+ * Copy only skills that the agent image cannot reconstruct itself: custom
+ * organization skills and locally modified built-ins. Full skill bodies stay
+ * off the per-turn transfer for the common, unmodified built-in case.
+ */
+export async function copySkillOverrides(
+  skillsRoot: string,
+  destinationRoot: string,
+): Promise<string[]> {
+  await mkdir(destinationRoot, { recursive: true });
+  let entries: Dirent[];
+  try {
+    entries = await readdir(skillsRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const copied: string[] = [];
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isDirectory()) continue;
+    const source = join(skillsRoot, entry.name);
+    const bundled = join(BUILTIN_SKILLS_ROOT, entry.name);
+    let isUnmodifiedBuiltin = false;
+    try {
+      isUnmodifiedBuiltin =
+        (await fingerprintTree(source)) ===
+        (await builtinFingerprint(entry.name, bundled));
+    } catch {
+      // A missing bundled directory identifies an organization-created skill.
+    }
+    if (isUnmodifiedBuiltin) continue;
+
+    const destination = join(destinationRoot, entry.name);
+    await rm(destination, { recursive: true, force: true });
+    await cp(source, destination, { recursive: true, force: true });
+    copied.push(entry.name);
+  }
+  return copied;
 }
 
 async function seedBuiltinSkills(skillsRoot: string): Promise<void> {

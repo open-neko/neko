@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getOrgId } from "@/lib/db";
-import { getWorkThread } from "@/lib/work-store";
 import { ALLOWED_UPLOAD_EXTENSIONS, MAX_UPLOAD_SIZE, saveWorkUpload } from "@/lib/work-files";
+import { getAuthorizedWorkThread } from "@/lib/work-thread-auth";
 
 export const runtime = "nodejs";
 
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   }
 
   const orgId = await getOrgId();
-  const thread = await getWorkThread(orgId, threadId);
+  const thread = await getAuthorizedWorkThread(orgId, threadId);
   if (!thread) {
     return NextResponse.json({ error: "Thread not found" }, { status: 404 });
   }

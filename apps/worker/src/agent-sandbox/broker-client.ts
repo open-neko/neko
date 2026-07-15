@@ -83,6 +83,12 @@ export class BrokerControlPlane implements AgentControlPlane {
     return this.post("/v1/memory/search", args);
   }
 
+  queryGraphjinRead(
+    input: Parameters<AgentControlPlane["queryGraphjinRead"]>[0],
+  ): ReturnType<AgentControlPlane["queryGraphjinRead"]> {
+    return this.post("/v1/graphjin/query", input);
+  }
+
   saveWorkflowWithTrigger(
     input: Parameters<AgentControlPlane["saveWorkflowWithTrigger"]>[0],
   ): ReturnType<AgentControlPlane["saveWorkflowWithTrigger"]> {
@@ -159,6 +165,18 @@ export class BrokerControlPlane implements AgentControlPlane {
     input: Parameters<AgentControlPlane["listSourceSecretNames"]>[0],
   ): ReturnType<AgentControlPlane["listSourceSecretNames"]> {
     return this.post("/v1/source-secrets/names", input);
+  }
+
+  askSourceConfigAgent(
+    input: Parameters<AgentControlPlane["askSourceConfigAgent"]>[0],
+  ): ReturnType<AgentControlPlane["askSourceConfigAgent"]> {
+    return this.post("/v1/source-config/agent", input);
+  }
+
+  previewSourceConfigChange(
+    input: Parameters<AgentControlPlane["previewSourceConfigChange"]>[0],
+  ): ReturnType<AgentControlPlane["previewSourceConfigChange"]> {
+    return this.post("/v1/source-config/preview", input);
   }
 }
 

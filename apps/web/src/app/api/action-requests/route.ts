@@ -3,6 +3,7 @@ import {
   listActionRequests,
   type ActionRequestStatus,
 } from "@neko/llm/workflows";
+import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -20,7 +21,7 @@ const VALID_STATUSES: ActionRequestStatus[] = [
 ];
 
 export async function GET(req: NextRequest) {
-  const orgId = await getOrgId();
+  const [orgId, actor] = await Promise.all([getOrgId(), getCurrentActor()]);
   const url = new URL(req.url);
   const statusRaw = url.searchParams.get("status");
   const status =
@@ -41,8 +42,12 @@ export async function GET(req: NextRequest) {
     limit,
   });
 
+  const visibleRows = rows.filter(
+    (row) => actor.role === "admin" || row.kind !== "source_config_admin",
+  );
+
   return NextResponse.json({
-    actionRequests: rows.map((r) => ({
+    actionRequests: visibleRows.map((r) => ({
       id: r.id,
       workflowRunId: r.workflowRunId,
       triggeredByObservationId: r.triggeredByObservationId,

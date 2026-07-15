@@ -8,6 +8,7 @@
  * to populate the registry.
  */
 
+import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -15,7 +16,7 @@ import {
   linkifyWorkspacePaths,
 } from "@/lib/linkify-workspace-paths";
 import { registerComponent, renderChildren } from "./renderer";
-import { bodyChildIds } from "./surface";
+import { bodyChildIds, resolveComponent } from "./surface";
 import type { RenderContext } from "./renderer";
 import type { A2UIComponent } from "./types";
 import type {
@@ -29,6 +30,13 @@ import type {
   MarkdownProps,
   SectionProps,
   TableProps,
+  ButtonProps,
+  CheckBoxProps,
+  ChoicePickerProps,
+  LayoutProps,
+  TabsProps,
+  TextFieldProps,
+  TextProps,
 } from "./catalog";
 import BriefingCard from "@/components/BriefingCard";
 
@@ -274,4 +282,192 @@ registerComponent("Divider", (comp: A2UIComponent) => {
     );
   }
   return <hr key={props.id} className="work-divider" />;
+});
+
+function bindingPath(ctx: RenderContext, componentId: string, property: string): string | null {
+  const raw = ctx.surface.components.get(componentId)?.[property];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  return typeof (raw as { path?: unknown }).path === "string"
+    ? (raw as { path: string }).path
+    : null;
+}
+
+registerComponent("Text", (comp: A2UIComponent) => {
+  const props = comp as unknown as TextProps & { id: string };
+  return (
+    <div key={props.id} className={`work-a2ui-text is-${props.variant ?? "body"}`}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{props.text ?? ""}</ReactMarkdown>
+    </div>
+  );
+});
+
+const layoutRenderer = (direction: "row" | "column") =>
+  (comp: A2UIComponent, ctx: RenderContext) => {
+    const props = comp as unknown as LayoutProps & { id: string };
+    const justify = {
+      start: "flex-start",
+      center: "center",
+      end: "flex-end",
+      spaceBetween: "space-between",
+      spaceAround: "space-around",
+      spaceEvenly: "space-evenly",
+      stretch: "stretch",
+    }[props.justify ?? "start"];
+    const align = {
+      start: "flex-start",
+      center: "center",
+      end: "flex-end",
+      stretch: "stretch",
+    }[props.align ?? "stretch"];
+    const style = {
+      "--a2ui-justify": justify,
+      "--a2ui-align": align,
+    } as React.CSSProperties;
+    return (
+      <div key={props.id} className={`work-a2ui-layout is-${direction}`} style={style}>
+        {renderChildren(Array.isArray(props.children) ? props.children : [], ctx)}
+      </div>
+    );
+  };
+registerComponent("Row", layoutRenderer("row"));
+registerComponent("Column", layoutRenderer("column"));
+
+function TabsView({ props, ctx }: { props: TabsProps & { id: string }; ctx: RenderContext }) {
+  const tabs = Array.isArray(props.tabs) ? props.tabs : [];
+  const [active, setActive] = React.useState(0);
+  const selected = tabs[Math.min(active, Math.max(tabs.length - 1, 0))];
+  return (
+    <div className="work-a2ui-tabs">
+      <div className="work-a2ui-tab-list" role="tablist" aria-label="Configuration sections">
+        {tabs.map((tab, index) => (
+          <button
+            key={`${tab.child}-${index}`}
+            type="button"
+            role="tab"
+            aria-selected={index === active}
+            className="work-a2ui-tab"
+            onClick={() => setActive(index)}
+          >
+            {tab.title}
+          </button>
+        ))}
+      </div>
+      {selected ? <div className="work-a2ui-tab-panel">{renderChildren([selected.child], ctx)}</div> : null}
+    </div>
+  );
+}
+
+registerComponent("Tabs", (comp: A2UIComponent, ctx: RenderContext) => (
+  <TabsView props={comp as unknown as TabsProps & { id: string }} ctx={ctx} />
+));
+
+registerComponent("TextField", (comp: A2UIComponent, ctx: RenderContext) => {
+  const props = comp as unknown as TextFieldProps & { id: string };
+  const path = bindingPath(ctx, props.id, "value");
+  const inputType = props.variant === "number" ? "number" : props.variant === "obscured" ? "password" : "text";
+  const common = {
+    id: `${ctx.surface.surfaceId}-${props.id}`,
+    className: "work-a2ui-input",
+    placeholder: props.placeholder,
+    value: props.value == null ? "" : String(props.value),
+    onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      if (!path) return;
+      const next = props.variant === "number" && event.target.value !== ""
+        ? Number(event.target.value)
+        : event.target.value;
+      ctx.onDataChange?.(path, next);
+    },
+  };
+  return (
+    <label className="work-a2ui-field" htmlFor={common.id}>
+      <span className="work-a2ui-label">{props.label}</span>
+      {props.variant === "longText" ? <textarea {...common} rows={4} /> : <input {...common} type={inputType} />}
+    </label>
+  );
+});
+
+registerComponent("CheckBox", (comp: A2UIComponent, ctx: RenderContext) => {
+  const props = comp as unknown as CheckBoxProps & { id: string };
+  const path = bindingPath(ctx, props.id, "value");
+  return (
+    <label className="work-a2ui-checkbox">
+      <input
+        type="checkbox"
+        checked={Boolean(props.value)}
+        onChange={(event) => path && ctx.onDataChange?.(path, event.target.checked)}
+      />
+      <span>{props.label}</span>
+    </label>
+  );
+});
+
+registerComponent("ChoicePicker", (comp: A2UIComponent, ctx: RenderContext) => {
+  const props = comp as unknown as ChoicePickerProps & { id: string };
+  const path = bindingPath(ctx, props.id, "value");
+  const options = Array.isArray(props.options) ? props.options : [];
+  const selected = Array.isArray(props.value) ? props.value : [];
+  if (props.variant !== "multipleSelection") {
+    return (
+      <label className="work-a2ui-field">
+        {props.label ? <span className="work-a2ui-label">{props.label}</span> : null}
+        <select
+          className="work-a2ui-input"
+          value={selected[0] ?? ""}
+          onChange={(event) => path && ctx.onDataChange?.(path, event.target.value ? [event.target.value] : [])}
+        >
+          <option value="">Select…</option>
+          {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+    );
+  }
+  return (
+    <fieldset className="work-a2ui-picker">
+      {props.label ? <legend className="work-a2ui-label">{props.label}</legend> : null}
+      <div className={props.displayStyle === "chips" ? "work-a2ui-chips" : "work-a2ui-check-list"}>
+        {options.map((option) => {
+          const checked = selected.includes(option.value);
+          return (
+            <label key={option.value} className="work-a2ui-check-option">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => {
+                  if (!path) return;
+                  ctx.onDataChange?.(path, checked ? selected.filter((v) => v !== option.value) : [...selected, option.value]);
+                }}
+              />
+              <span>{option.label}</span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+});
+
+registerComponent("Button", (comp: A2UIComponent, ctx: RenderContext) => {
+  const props = comp as unknown as ButtonProps & { id: string };
+  const event = props.action?.event;
+  const labelComponent = props.child
+    ? ctx.surface.components.get(props.child)
+    : undefined;
+  const resolvedLabel = labelComponent
+    ? resolveComponent(labelComponent, ctx.surface.dataModel)
+    : undefined;
+  const label = resolvedLabel?.component === "Text"
+    ? String(resolvedLabel.text ?? "")
+    : null;
+  return (
+    <button
+      type="button"
+      className={`work-a2ui-button is-${props.variant ?? "default"}`}
+      onClick={() => event && ctx.onAction?.(props.id, event.name, event.context)}
+    >
+      {label !== null
+        ? <span className="work-a2ui-button-label">{label}</span>
+        : renderChildren(props.child ? [props.child] : [], ctx)}
+      <span aria-hidden="true">→</span>
+    </button>
+  );
 });

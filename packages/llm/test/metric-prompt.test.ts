@@ -77,6 +77,19 @@ describe("buildMetricPrompt", () => {
     expect(prompt).not.toContain("`terminal`");
   });
 
+  it("uses the query-only broker surface for isolated jobs", () => {
+    const prompt = buildMetricPrompt({
+      input: fakeInput,
+      knowledge: fakeKnowledge,
+      workspace: fakeWorkspace,
+      shellTool: "terminal",
+      queryTool: "mcp__neko_graphjin__execute_graphql",
+    });
+    expect(prompt).toContain("`mcp__neko_graphjin__execute_graphql`");
+    expect(prompt).toContain("service credential never enter your sandbox");
+    expect(prompt).not.toContain("graphjin cli execute_graphql");
+  });
+
   it("declares the JSON output contract with every required field name", () => {
     const prompt = buildMetricPrompt({
       input: fakeInput,

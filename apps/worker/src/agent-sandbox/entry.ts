@@ -6,12 +6,16 @@ import {
   makeAgentBackend,
   type AgentBackendId,
   type AgentEvent,
+  type AgentRunOptions,
   type AgentRunResult,
   type AgentWorkspace,
 } from "@neko/llm";
 import { runWorkflowAgentBackend } from "@neko/llm/workflows";
 import {
   ensureGraphjinGuard,
+  buildGraphjinReadServer,
+  buildWorkMemoryServer,
+  materializeBuiltinSkills,
   resolveBinaryOnPath,
   runAgentBackend,
   sandboxReachableUrl,
@@ -35,7 +39,7 @@ import { EVENT_MARKER, RESULT_MARKER } from "./protocol";
  * mid-turn, so a BrokerControlPlane is wired when broker coords are present.
  */
 interface SandboxJob {
-  kind?: "work" | "workflow";
+  kind?: "work" | "workflow" | "agent-job";
   orgId: string;
   threadId: string;
   runId: string;
@@ -51,6 +55,26 @@ interface SandboxJob {
   mode?: "live" | "headless";
   triggeredByObservationId?: string | null;
   workspace: AgentWorkspace;
+  /** Whether the raw GraphJin binary is replaced with the guarded client. */
+  graphjinEnabled?: boolean;
+  /** Explicit least-privilege envelope for non-interactive agent jobs. */
+  agentAccess?: {
+    graphjinRead?: boolean;
+    memorySearch?: boolean;
+  };
+  agentRun?: Pick<
+    AgentRunOptions,
+    | "userMessage"
+    | "timeoutMs"
+    | "retries"
+    | "debug"
+    | "tag"
+    | "skills"
+    | "backendState"
+    | "wantsCards"
+    | "outputSchema"
+    | "forkSession"
+  >;
   /** GJ5: policy write grants resolved host-side (the box has no DB). */
   graphjinWriteGrants?: string[];
   /** GJ6: the org's GraphJin MCP URL, resolved host-side. Lets the box
@@ -83,6 +107,14 @@ function loadJob(): SandboxJob {
 
 export async function main(): Promise<void> {
   const job = loadJob();
+  // The launcher transfers only custom or modified skill directories. Fill in
+  // unchanged built-ins from the agent image, then expose the same catalog to
+  // Claude's native project skill discovery. Skill bodies remain filesystem
+  // resources and are read only when the agent chooses one.
+  await materializeBuiltinSkills(
+    job.workspace.skillsRoot,
+    job.workspace.claudeProjectRoot,
+  );
   const brokerUrl = process.env.OPENNEKO_BROKER_URL;
   const brokerToken = process.env.OPENNEKO_BROKER_TOKEN;
 
@@ -121,7 +153,13 @@ export async function main(): Promise<void> {
   // host paths baked in — rebuild it for the box, pinned at the uploaded
   // per-run client.json (GJ4 token) and carrying the host-resolved policy
   // grants (GJ5). Without a graphjin binary in the image this is a no-op.
-  const graphjinBinary = await resolveBinaryOnPath("graphjin");
+  const graphjinEnabled =
+    job.kind === "agent-job"
+      ? job.graphjinEnabled === true
+      : job.graphjinEnabled !== false;
+  const graphjinBinary = graphjinEnabled
+    ? await resolveBinaryOnPath("graphjin")
+    : null;
   if (graphjinBinary) {
     const gjAuth = join(job.workspace.runRoot, "gj-auth");
     const clientJsonPath = join(gjAuth, "graphjin", "client.json");
@@ -182,7 +220,65 @@ export async function main(): Promise<void> {
 
   const kind = job.kind ?? "work";
   let result: AgentRunResult;
-  if (kind === "workflow") {
+  if (kind === "agent-job") {
+    const graphjinRead = job.agentAccess?.graphjinRead === true;
+    const memorySearch = job.agentAccess?.memorySearch === true;
+    if ((graphjinRead || memorySearch) && !controlPlane) {
+      throw new Error("agent-sandbox: brokered job capability missing broker");
+    }
+    const mcpServers =
+      graphjinRead || memorySearch
+        ? {
+            ...(graphjinRead
+              ? {
+                  neko_graphjin: buildGraphjinReadServer({
+                    orgId: job.orgId,
+                    controlPlane,
+                  }),
+                }
+              : {}),
+            ...(memorySearch
+              ? {
+                  neko_memory: buildWorkMemoryServer(
+                    { orgId: job.orgId, runId: job.runId },
+                    { exposeSave: false, controlPlane },
+                  ),
+                }
+              : {}),
+          }
+        : undefined;
+    const allowedTools =
+      backend.id === "claude-agent"
+        ? [
+            ...(graphjinRead
+              ? ["mcp__neko_graphjin__execute_graphql"]
+              : []),
+            ...(memorySearch ? ["mcp__neko_memory__search"] : []),
+          ]
+        : undefined;
+    result = await backend.run({
+      ...(job.agentRun ?? {}),
+      prompt: job.prompt,
+      userMessage: job.agentRun?.userMessage ?? (job.message || undefined),
+      orgId: job.orgId,
+      workspace: job.workspace,
+      onEvent: emit,
+      mcpServers,
+      allowedTools,
+      wantsCards: false,
+      mcpBridgeEnv:
+        graphjinRead || memorySearch
+          ? {
+              OPENNEKO_MCP_ORG_ID: job.orgId,
+              OPENNEKO_MCP_THREAD_ID: job.threadId,
+              OPENNEKO_MCP_RUN_ID: job.runId,
+              OPENNEKO_MCP_SKILLS_ROOT: job.workspace.skillsRoot,
+              OPENNEKO_MCP_PLUGIN_ACTIONS: "[]",
+              OPENNEKO_MCP_MEMORY_READ_ONLY: "1",
+            }
+          : undefined,
+    });
+  } else if (kind === "workflow") {
     const workflowRunId = job.workflowRunId;
     if (!workflowRunId) {
       throw new Error("agent-sandbox: workflow job missing workflowRunId");

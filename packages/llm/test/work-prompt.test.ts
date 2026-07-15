@@ -35,6 +35,7 @@ function build(
     supportsWorkflowTool?: boolean;
     supportsPolicyTool?: boolean;
     supportsSourceConfigTool?: boolean;
+    installedSkills?: Array<{ name: string; description: string }>;
   } = {},
 ): string {
   return buildWorkPrompt({
@@ -50,6 +51,7 @@ function build(
     supportsWorkflowTool: overrides.supportsWorkflowTool ?? false,
     supportsPolicyTool: overrides.supportsPolicyTool ?? false,
     supportsSourceConfigTool: overrides.supportsSourceConfigTool ?? false,
+    installedSkills: overrides.installedSkills,
     inlineTranscript: false,
   });
 }
@@ -83,12 +85,29 @@ describe("buildWorkPrompt attachments guidance", () => {
   });
 });
 
+describe("buildWorkPrompt skill catalog", () => {
+  it("includes compact discovery metadata and a path for on-demand instructions", () => {
+    const prompt = build("hermes", {
+      installedSkills: [
+        { name: "pdf", description: "Read, create, and inspect PDF files." },
+      ],
+    });
+
+    expect(prompt).toContain("pdf — Read, create, and inspect PDF files.");
+    expect(prompt).toContain(`${workspace.skillsRoot}/pdf/SKILL.md`);
+    expect(prompt).toContain("When a skill matches, read its SKILL.md");
+    expect(prompt).not.toContain("Full PDF skill body");
+  });
+});
+
 describe("per-channel rendering gate", () => {
   it("renders via the render_cards tool on web turns (wantsCards)", () => {
     // claude → the neko_ui MCP tool; hermes → its stdio render server tool.
     const claudeWeb = build("claude-agent", { wantsCards: true, supportsCardTool: true });
     expect(claudeWeb).toContain("<rendering>");
     expect(claudeWeb).toContain("mcp__neko_ui__render_cards");
+    expect(claudeWeb).toContain("interface that fits the current request");
+    expect(claudeWeb).not.toContain("BriefingCard");
 
     const hermesWeb = build("hermes", { wantsCards: true, supportsCardTool: false });
     expect(hermesWeb).toContain("<rendering>");
@@ -152,7 +171,12 @@ describe("buildWorkPrompt workflow + policy management", () => {
     expect(enabled).toContain("graphjin-config");
     expect(enabled).toContain(`${workspace.skillsRoot}/graphjin-config/SKILL.md`);
     expect(enabled).toContain("mcp__neko_source_config_manager__describe_source_graph");
+    expect(enabled).toContain("Call `ask_graphjin_config_agent`");
+    expect(enabled).toContain("Success for a view or explanation");
     expect(enabled).toContain("source_config_admin");
+    expect(enabled).not.toContain("trusted host");
+    expect(enabled).not.toContain("globally read-only");
+    expect(enabled).not.toContain("outside the sandbox");
 
     const disabled = build("claude-agent", { supportsSourceConfigTool: false });
     expect(disabled).not.toContain("mcp__neko_source_config_manager__");

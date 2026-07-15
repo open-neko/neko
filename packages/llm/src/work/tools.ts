@@ -10,12 +10,56 @@ import {
   type AgentControlPlane,
 } from "./control-plane";
 
-const a2uiMessageSchema = z.object({ version: z.literal("v0.9") }).passthrough();
+const a2uiComponentSchema = z
+  .object({ id: z.string().min(1), component: z.string().min(1) })
+  .passthrough();
+const createSurfaceSchema = z.object({
+  version: z.literal("v1.0"),
+  createSurface: z
+    .object({
+      surfaceId: z.string().min(1),
+      catalogId: z.literal("urn:openneko:catalog:work:v2"),
+      surfaceProperties: z.record(z.string(), z.unknown()).optional(),
+      sendDataModel: z.boolean().optional(),
+      components: z.array(a2uiComponentSchema).min(1).optional(),
+      dataModel: z.record(z.string(), z.unknown()).optional(),
+    })
+    .strict(),
+});
+const updateComponentsSchema = z.object({
+  version: z.literal("v1.0"),
+  updateComponents: z
+    .object({
+      surfaceId: z.string().min(1),
+      components: z.array(a2uiComponentSchema).min(1),
+    })
+    .strict(),
+});
+const updateDataModelSchema = z.object({
+  version: z.literal("v1.0"),
+  updateDataModel: z
+    .object({
+      surfaceId: z.string().min(1),
+      path: z.string().optional(),
+      value: z.unknown().optional(),
+    })
+    .strict(),
+});
+const deleteSurfaceSchema = z.object({
+  version: z.literal("v1.0"),
+  deleteSurface: z.object({ surfaceId: z.string().min(1) }).strict(),
+});
+const a2uiMessageSchema = z.union([
+  createSurfaceSchema,
+  updateComponentsSchema,
+  updateDataModelSchema,
+  deleteSurfaceSchema,
+]);
 
 function isValidA2UIMessage(m: unknown): m is AgentSurfaceMessage {
   if (!m || typeof m !== "object") return false;
   const o = m as Record<string, unknown>;
-  if (o.version !== "v0.9") return false;
+  if (o.version !== "v1.0") return false;
   return (
     "createSurface" in o ||
     "updateComponents" in o ||
@@ -44,7 +88,7 @@ export function buildRenderCardsServer(
               text: JSON.stringify({
                 ok: false,
                 error:
-                  "All messages rejected — each must have version: 'v0.9' and one of createSurface/updateComponents/updateDataModel/deleteSurface. Bare component objects are not accepted; wrap them in updateComponents.",
+                  "No surface messages were accepted. Send A2UI v1.0 createSurface/updateComponents/updateDataModel/deleteSurface envelopes.",
                 rejected,
               }),
             },
@@ -550,10 +594,9 @@ export function buildSourceConfigManagerServer(opts: {
   const describe = tool(
     "describe_source_graph",
     [
-      "Describe the customer data engine's live source graph: the",
-      "databases, capabilities, and namespaces GraphJin has discovered.",
-      "Read-only — use it to answer 'what sources/databases do we have?'",
-      "and before proposing a config change.",
+      "Return the selected GraphJin data engine's live source graph, including",
+      "its discovered databases, capabilities, and namespaces. Use the result",
+      "to answer source questions and to prepare configuration requests.",
     ].join(" "),
     {},
     async () => ({
@@ -574,11 +617,9 @@ export function buildSourceConfigManagerServer(opts: {
   const listSecretNames = tool(
     "list_source_secret_names",
     [
-      "List the NAMES of connection secrets the operator has stored for",
-      "data sources (never the values). Use these names as the `secretRef`",
-      "when proposing register_source, and offer them to the operator. If a",
-      "needed secret isn't listed, tell the operator to add it on the",
-      "GraphJin Config page — never ask for the value in chat.",
+      "Return stored connection-secret names for use as `secretRef` values in",
+      "a register_source proposal. When the required name is absent, direct",
+      "the admin to Admin > Settings > GraphJin Config to add it.",
     ].join(" "),
     {},
     async () => ({
@@ -596,16 +637,45 @@ export function buildSourceConfigManagerServer(opts: {
     }),
   );
 
+  const askConfigAgent = tool(
+    "ask_graphjin_config_agent",
+    [
+      "Ask the selected GraphJin configuration agent to inspect, explain, or",
+      "plan against its redacted configuration. Use this for questions about",
+      "settings, roles, sources, access, security, runtime, and reload impact.",
+      "For multiple data sources, pass the selected dataSourceId.",
+    ].join(" "),
+    {
+      instruction: z.string().trim().min(1).max(8_000),
+      dataSourceId: z.string().uuid().optional(),
+      maxSteps: z.number().int().min(1).max(12).optional(),
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            await controlPlane.askSourceConfigAgent({
+              orgId: opts.orgId,
+              runId: opts.runId ?? null,
+              instruction: args.instruction,
+              dataSourceId: args.dataSourceId,
+              maxSteps: args.maxSteps,
+            }),
+          ),
+        },
+      ],
+    }),
+  );
+
   const requestChange = tool(
     "request_source_config_change",
     [
-      "Propose a configuration change to the CUSTOMER data engine:",
+      "Create a source_config_admin proposal for admin review:",
       "- add_role { name, match }: a GraphJin role selected by a JWT match expression.",
       "- set_source_access { source, read, write, delete }: access mode per source (one of public|authenticated|account|owner|admin|blocked; write/delete also accept blocked).",
-      "- register_source { name, kind, host?, port?, dbname?, user?, secretRef? }: add a source. For a database, pass connection fields and a secretRef — the NAME of a stored secret holding the password/connection string. NEVER pass the secret value itself; the operator stores it via GraphJin Config and the system resolves it on apply.",
-      "NEVER applies directly — files an action request that an ADMIN must",
-      "approve. After proposing, tell the operator what you proposed and end",
-      "your turn. This never touches OpenNeko's own internal database.",
+      "- register_source { name, kind, host?, port?, dbname?, user?, secretRef? }: add a source using connection metadata and a stored secretRef name.",
+      "After the tool returns, summarize the proposed change and its approval status.",
     ].join("\n"),
     {
       action: z.enum(["add_role", "set_source_access", "register_source"]),
@@ -631,19 +701,45 @@ export function buildSourceConfigManagerServer(opts: {
         .max(128)
         .regex(/^[A-Za-z0-9._-]*$/, "a secret name, not a value")
         .optional(),
+      dataSourceId: z.string().uuid().optional(),
       intent: z.string().trim().min(1).max(500),
     },
     async (args) => {
       // Build a credential-free payload — secretRef is a NAME only; the
       // schema regex forbids whitespace/values, and we never accept a
       // literal secret field.
-      const { action, intent, ...rest } = args;
+      const { action, intent, dataSourceId, ...rest } = args;
       const target =
         action === "add_role"
           ? `role:${args.name ?? ""}`
           : action === "set_source_access"
             ? `access:${args.source ?? ""}`
             : `source:${args.name ?? ""}`;
+      const changePayload = {
+        action,
+        ...rest,
+        ...(dataSourceId ? { dataSourceId } : {}),
+      };
+      const preview = await controlPlane.previewSourceConfigChange({
+        orgId: opts.orgId,
+        runId: opts.runId ?? null,
+        dataSourceId,
+        payload: changePayload,
+      });
+      if (preview.denied || preview.error || !preview.preview?.valid) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                ok: false,
+                stage: "graphjin_config_preview",
+                ...preview,
+              }),
+            },
+          ],
+        };
+      }
       return proposeAdminAction({
         controlPlane,
         orgId: opts.orgId,
@@ -652,15 +748,21 @@ export function buildSourceConfigManagerServer(opts: {
         kind: "source_config_admin",
         target,
         intent,
-        payload: { action, ...rest },
+        payload: {
+          ...changePayload,
+          preview: {
+            source: preview.source,
+            ...preview.preview,
+          },
+        },
       });
     },
   );
 
   return createSdkMcpServer({
     name: "neko_source_config_manager",
-    version: "1.0.0",
-    tools: [describe, listSecretNames, requestChange],
+    version: "1.1.0",
+    tools: [describe, askConfigAgent, listSecretNames, requestChange],
   });
 }
 
@@ -758,6 +860,52 @@ export function buildSkillBuilderServer(skillsRoot: string) {
     name: "neko_skills",
     version: "1.0.0",
     tools: [createSkill],
+  });
+}
+
+/**
+ * Query-only GraphJin surface for non-interactive jobs. The broker owns the
+ * source URL and short-lived service token; neither enters the sandbox.
+ */
+export function buildGraphjinReadServer(opts: {
+  orgId: string;
+  controlPlane?: AgentControlPlane;
+}) {
+  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const executeGraphql = tool(
+    "execute_graphql",
+    [
+      "Execute one read-only GraphQL query against the configured customer",
+      "GraphJin source. Query and shorthand `{ ... }` operations are allowed;",
+      "mutations and subscriptions are rejected by the trusted host broker.",
+    ].join(" "),
+    {
+      query: z.string().trim().min(1).max(100_000),
+      variables: z.record(z.string(), z.unknown()).optional(),
+      operationName: z.string().trim().min(1).max(200).optional(),
+    },
+    async (args) => {
+      const result = await controlPlane.queryGraphjinRead({
+        orgId: opts.orgId,
+        query: args.query,
+        ...(args.variables ? { variables: args.variables } : {}),
+        ...(args.operationName ? { operationName: args.operationName } : {}),
+      });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(result),
+          },
+        ],
+      };
+    },
+  );
+
+  return createSdkMcpServer({
+    name: "neko_graphjin",
+    version: "1.0.0",
+    tools: [executeGraphql],
   });
 }
 

@@ -159,4 +159,24 @@ describe("buildProfilerPrompt knowledge inlining", () => {
     });
     expect(prompt).toContain(bigTables);
   });
+
+  it("uses only the brokered GraphJin query tool for isolated runs", () => {
+    const prompt = buildProfilerPrompt({
+      orgName: "Acme",
+      companyNote: "",
+      shellTool: "terminal",
+      queryTool: "mcp__neko_graphjin__execute_graphql",
+      knowledge: {
+        mode: "agentic",
+        tables: bigTables,
+        namespaces: "{}",
+        insights: bigInsights,
+        syntax: "{}",
+      },
+    });
+    expect(prompt).toContain("`mcp__neko_graphjin__execute_graphql`");
+    expect(prompt).toContain("trusted host broker");
+    expect(prompt).not.toContain("graphjin cli setup");
+    expect(prompt).not.toContain("graphjin cli execute_graphql");
+  });
 });

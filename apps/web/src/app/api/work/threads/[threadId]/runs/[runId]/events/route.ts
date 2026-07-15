@@ -4,6 +4,7 @@ import { createNotifyClient, type NotifyClient } from "@neko/db";
 import { getOrgId } from "@/lib/db";
 import { subscribeToRun } from "@/lib/neko-run-registry";
 import { getWorkRun, getWorkRunEventsAfter } from "@/lib/work-store";
+import { getAuthorizedWorkThread } from "@/lib/work-thread-auth";
 
 type RouteContext = {
   params: Promise<{ threadId: string; runId: string }>;
@@ -45,6 +46,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const afterId = Number(lastEventIdHeader) || afterIdParam;
 
   const orgId = await getOrgId();
+
+  const thread = await getAuthorizedWorkThread(orgId, threadId);
+  if (!thread) {
+    return new Response("Not Found", { status: 404 });
+  }
 
   const run = await getWorkRun(orgId, runId);
   if (!run || run.thread_id !== threadId) {

@@ -1250,7 +1250,7 @@ export async function declinePendingWorkMemory(
   return (await getPendingWorkMemory(orgId, id))!;
 }
 
-async function getPendingWorkMemory(
+export async function getPendingWorkMemory(
   orgId: string,
   id: string,
 ): Promise<WorkPendingMemory | null> {

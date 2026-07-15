@@ -1,37 +1,47 @@
-/**
- * A2UI Surface Engine
- *
- * Processes A2UI messages and maintains surface state.
- * The surface holds the component tree and data model,
- * resolving dynamic values (path references) against the data model.
- */
+/** Immutable A2UI v0.9/v1.0 surface reducer and data-binding helpers. */
 
 import type {
-  A2UIMessage,
   A2UIComponent,
-  SurfaceState,
+  A2UIMessage,
+  A2UIVersion,
   DynamicValue,
+  SurfaceState,
 } from "./types";
 
-/** Resolve a JSON Pointer path against an object */
-function resolvePointer(obj: Record<string, unknown>, pointer: string): unknown {
+function pointerParts(pointer: string): string[] {
+  return pointer
+    .replace(/^\//, "")
+    .split("/")
+    .filter(Boolean)
+    .map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"));
+}
+
+/** Resolve a JSON Pointer path against an object. */
+export function resolvePointer(obj: Record<string, unknown>, pointer: string): unknown {
   if (!pointer || pointer === "/") return obj;
-  const parts = pointer.replace(/^\//, "").split("/");
   let current: unknown = obj;
-  for (const part of parts) {
+  for (const part of pointerParts(pointer)) {
     if (current == null || typeof current !== "object") return undefined;
     current = (current as Record<string, unknown>)[part];
   }
   return current;
 }
 
-/** Set a value at a JSON Pointer path */
-function setPointer(obj: Record<string, unknown>, pointer: string, value: unknown): Record<string, unknown> {
-  const result = structuredClone(obj);
+/** Set or delete a JSON Pointer path, returning a cloned model. */
+export function setDataModelValue(
+  obj: Record<string, unknown>,
+  pointer: string,
+  value: unknown,
+  deleteValue: unknown = Symbol("never-delete"),
+): Record<string, unknown> {
   if (!pointer || pointer === "/") {
-    return value as Record<string, unknown>;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? structuredClone(value as Record<string, unknown>)
+      : {};
   }
-  const parts = pointer.replace(/^\//, "").split("/");
+  const result = structuredClone(obj);
+  const parts = pointerParts(pointer);
+  if (parts.length === 0) return result;
   let current: Record<string, unknown> = result;
   for (let i = 0; i < parts.length - 1; i++) {
     if (current[parts[i]] == null || typeof current[parts[i]] !== "object") {
@@ -39,31 +49,39 @@ function setPointer(obj: Record<string, unknown>, pointer: string, value: unknow
     }
     current = current[parts[i]] as Record<string, unknown>;
   }
-  if (value === undefined) {
-    delete current[parts[parts.length - 1]];
-  } else {
-    current[parts[parts.length - 1]] = value;
-  }
+  if (Object.is(value, deleteValue)) delete current[parts.at(-1)!];
+  else current[parts.at(-1)!] = value;
   return result;
 }
 
-/** Resolve a DynamicValue — if it has a path, look it up in the data model */
+/** Resolve a DynamicValue. */
 export function resolveDynamic<T>(val: DynamicValue<T>, dataModel: Record<string, unknown>): T {
-  if (val != null && typeof val === "object" && "path" in val) {
+  if (val != null && typeof val === "object" && !Array.isArray(val) && "path" in val) {
     return resolvePointer(dataModel, (val as { path: string }).path) as T;
   }
   return val as T;
 }
 
-/** Resolve all dynamic values in a component's properties */
+function resolveValue(value: unknown, dataModel: Record<string, unknown>): unknown {
+  if (value == null || typeof value !== "object") return value;
+  if (!Array.isArray(value) && "path" in value && typeof value.path === "string") {
+    return resolvePointer(dataModel, value.path);
+  }
+  if (Array.isArray(value)) return value.map((item) => resolveValue(item, dataModel));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, resolveValue(item, dataModel)]),
+  );
+}
+
+/** Resolve bindings recursively, including action event context values. */
 export function resolveComponent(
   component: A2UIComponent,
-  dataModel: Record<string, unknown>
+  dataModel: Record<string, unknown>,
 ): A2UIComponent {
   const resolved: A2UIComponent = { id: component.id, component: component.component };
   for (const [key, value] of Object.entries(component)) {
     if (key === "id" || key === "component") continue;
-    resolved[key] = resolveDynamic(value as DynamicValue<unknown>, dataModel);
+    resolved[key] = resolveValue(value, dataModel);
   }
   return resolved;
 }
@@ -71,94 +89,90 @@ export function resolveComponent(
 function flattenComponent(comp: A2UIComponent): A2UIComponent[] {
   const out: A2UIComponent[] = [];
   const normalized: A2UIComponent = { ...comp };
-  const rawChildren = comp.children;
-  if (Array.isArray(rawChildren)) {
-    const newChildren: string[] = [];
-    for (const child of rawChildren) {
-      if (typeof child === "string") {
-        newChildren.push(child);
-      } else if (child && typeof child === "object" && "id" in child) {
-        const childComp = child as A2UIComponent;
-        newChildren.push(childComp.id);
-        for (const nested of flattenComponent(childComp)) out.push(nested);
+  if (Array.isArray(comp.children)) {
+    const children: string[] = [];
+    for (const child of comp.children) {
+      if (typeof child === "string") children.push(child);
+      else if (child && typeof child === "object" && "id" in child) {
+        const nested = child as A2UIComponent;
+        children.push(nested.id);
+        out.push(...flattenComponent(nested));
       }
     }
-    normalized.children = newChildren;
+    normalized.children = children;
   }
   out.push(normalized);
   return out;
 }
 
-/** Create a new empty surface */
-export function createSurface(surfaceId: string, catalogId: string, theme?: Record<string, unknown>): SurfaceState {
-  return {
-    surfaceId,
-    catalogId,
-    components: new Map(),
-    dataModel: {},
-    theme,
-  };
+function addComponents(surface: SurfaceState, components: A2UIComponent[]): SurfaceState {
+  const updated = { ...surface, components: new Map(surface.components) };
+  for (const comp of components) {
+    if (!comp || typeof comp !== "object" || typeof comp.id !== "string" || typeof comp.component !== "string") continue;
+    for (const flat of flattenComponent(comp)) updated.components.set(flat.id, flat);
+  }
+  return updated;
 }
 
-/** Apply an A2UI message to surface state, returning updated state (immutable) */
+export function createSurface(
+  surfaceId: string,
+  catalogId: string,
+  theme?: Record<string, unknown>,
+  version: A2UIVersion = "v0.9",
+): SurfaceState {
+  return { version, surfaceId, catalogId, components: new Map(), dataModel: {}, theme };
+}
+
 export function applyMessage(
   surfaces: Map<string, SurfaceState>,
-  message: A2UIMessage
+  message: A2UIMessage,
 ): Map<string, SurfaceState> {
   const next = new Map(surfaces);
 
   if ("createSurface" in message) {
-    const { surfaceId, catalogId, theme } = message.createSurface;
-    next.set(surfaceId, createSurface(surfaceId, catalogId, theme));
+    const params = message.createSurface;
+    let surface: SurfaceState = {
+      ...createSurface(params.surfaceId, params.catalogId, params.theme, message.version),
+      surfaceProperties: params.surfaceProperties,
+      sendDataModel: params.sendDataModel,
+      dataModel: structuredClone(params.dataModel ?? {}),
+    };
+    if (params.components) surface = addComponents(surface, params.components);
+    next.set(params.surfaceId, surface);
   }
 
   if ("updateComponents" in message) {
     const { surfaceId, components } = message.updateComponents;
     const surface = next.get(surfaceId);
     if (!surface) return next;
-    const updated = { ...surface, components: new Map(surface.components) };
-    for (const comp of components) {
-      for (const flat of flattenComponent(comp)) {
-        updated.components.set(flat.id, flat);
-      }
-    }
-    next.set(surfaceId, updated);
+    next.set(surfaceId, addComponents(surface, components));
   }
 
   if ("updateDataModel" in message) {
     const { surfaceId, path, value } = message.updateDataModel;
     const surface = next.get(surfaceId);
     if (!surface) return next;
+    const deleteSentinel = message.version === "v1.0" ? null : undefined;
     next.set(surfaceId, {
       ...surface,
-      dataModel: setPointer(surface.dataModel, path ?? "/", value),
+      dataModel: setDataModelValue(surface.dataModel, path ?? "/", value, deleteSentinel),
     });
   }
 
-  if ("deleteSurface" in message) {
-    next.delete(message.deleteSurface.surfaceId);
-  }
-
+  if ("deleteSurface" in message) next.delete(message.deleteSurface.surfaceId);
   return next;
 }
 
-/** Get all components for a surface, with dynamic values resolved */
 export function getResolvedComponents(surface: SurfaceState): A2UIComponent[] {
-  return Array.from(surface.components.values()).map(
-    (c) => resolveComponent(c, surface.dataModel)
+  return Array.from(surface.components.values()).map((component) =>
+    resolveComponent(component, surface.dataModel),
   );
 }
 
-/** Get the root component of a surface */
 export function getRootComponent(surface: SurfaceState): A2UIComponent | undefined {
   return surface.components.get("root");
 }
 
-/**
- * Body child ids for a surface root: the ids it declares, or — when a payload
- * omits `children` — every other component in document order, so the body
- * never renders blank. Only the surface root absorbs orphans this way.
- */
 export function bodyChildIds(surface: SurfaceState, root: A2UIComponent): string[] {
   const declared = Array.isArray(root.children) ? (root.children as string[]) : [];
   if (declared.length > 0 || root.id !== "root") return declared;

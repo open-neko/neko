@@ -228,23 +228,23 @@ export default async function AdminGraphjinPage() {
 }
 
 const INSPECT_SOURCE_GRAPH_SEED =
-  "Inspect the live GraphJin source graph. Use describe_source_graph first, then summarize discovered databases, capabilities, namespaces, source-mode readiness, and RBAC gaps. Do not propose config changes unless I ask.";
+  "Inspect the live GraphJin source graph. Use describe_source_graph first, then summarize the current databases, capabilities, namespaces, source-mode readiness, and RBAC posture.";
 
 const REGISTER_SOURCE_SEED =
-  "Help me register a new GraphJin source. Use list_source_secret_names first, ask only for non-secret connection fields, then propose a source_config_admin register_source change for admin approval. Never ask for secret values in chat.";
+  "Help me register a new GraphJin source. Use list_source_secret_names, collect connection metadata and a stored secretRef name, then create a source_config_admin register_source proposal for admin approval.";
 
 const UPDATE_ACCESS_SEED =
-  "Review GraphJin source access. Use describe_source_graph first, then propose a source_config_admin set_source_access change only after I confirm the source name and desired read/write/delete access.";
+  "Review GraphJin source access. Use describe_source_graph first, ask me to confirm the source name and desired read/write/delete access, then create a source_config_admin set_source_access proposal.";
 
 const ADD_ROLE_SEED =
   "Help me add a GraphJin RBAC role. Inspect the live source graph if useful, then propose a source_config_admin add_role change for admin approval with the role name and JWT match expression.";
 
 function inspectSourceSeed(sourceName: string): string {
-  return `Inspect the live GraphJin source graph for the OpenNeko data source "${sourceName}". Use describe_source_graph first and summarize the databases, capabilities, namespaces, and RBAC posture. Do not propose config changes unless I ask.`;
+  return `Inspect the live GraphJin source graph for the OpenNeko data source "${sourceName}". Use describe_source_graph first and summarize its current databases, capabilities, namespaces, and RBAC posture.`;
 }
 
 function updateSourceAccessSeed(sourceName: string): string {
-  return `Review GraphJin access for the OpenNeko data source "${sourceName}". Use describe_source_graph first, map the relevant GraphJin source name, and propose a source_config_admin set_source_access change only after I confirm the desired read/write/delete access.`;
+  return `Review GraphJin access for the OpenNeko data source "${sourceName}". Use describe_source_graph first, map the relevant GraphJin source name, ask me to confirm the desired read/write/delete access, then create a source_config_admin set_source_access proposal.`;
 }
 
 function workSeedHref(seed: string): string {

@@ -6,7 +6,11 @@ import {
   uniqueOrgId,
 } from "@neko/db/test-helpers";
 import { app_user, db, eq, pool, work_run, work_thread } from "@neko/db";
-import { createWorkRun, createWorkThread } from "../../src/work/store";
+import {
+  createWorkRun,
+  createWorkThread,
+  listWorkThreads,
+} from "../../src/work/store";
 
 const reachable = await dbReachable();
 const describeIfDb = reachable ? describe : describe.skip;
@@ -19,16 +23,26 @@ if (!reachable) {
 describeIfDb("K1 actor threading", () => {
   const orgId = uniqueOrgId("actor");
   let userId: string;
+  let adminId: string;
 
   beforeAll(async () => {
     await createTestOrg(orgId);
     userId = `${orgId}-user`;
-    await db().insert(app_user).values({
-      id: userId,
-      email: "ada@example.com",
-      org_id: orgId,
-      role: "member",
-    });
+    adminId = `${orgId}-admin`;
+    await db().insert(app_user).values([
+      {
+        id: userId,
+        email: "ada@example.com",
+        org_id: orgId,
+        role: "member",
+      },
+      {
+        id: adminId,
+        email: "admin@example.com",
+        org_id: orgId,
+        role: "admin",
+      },
+    ]);
   });
 
   afterAll(async () => {
@@ -93,5 +107,32 @@ describeIfDb("K1 actor threading", () => {
       .from(work_run)
       .where(eq(work_run.id, run.id));
     expect(row?.actorRole).toBeNull();
+  });
+
+  it("lists web threads by owner without an admin visibility bypass", async () => {
+    const memberThread = await createWorkThread(
+      orgId,
+      "member private",
+      "web",
+      userId,
+    );
+    const adminThread = await createWorkThread(
+      orgId,
+      "admin private",
+      "web",
+      adminId,
+    );
+    const soloThread = await createWorkThread(orgId, "legacy local", "web");
+
+    expect((await listWorkThreads(orgId, "web", userId)).map((row) => row.id))
+      .toContain(memberThread.id);
+    expect((await listWorkThreads(orgId, "web", userId)).map((row) => row.id))
+      .not.toContain(adminThread.id);
+    expect((await listWorkThreads(orgId, "web", adminId)).map((row) => row.id))
+      .toContain(adminThread.id);
+    expect((await listWorkThreads(orgId, "web", adminId)).map((row) => row.id))
+      .not.toContain(memberThread.id);
+    expect((await listWorkThreads(orgId, "web", null)).map((row) => row.id))
+      .toContain(soloThread.id);
   });
 });

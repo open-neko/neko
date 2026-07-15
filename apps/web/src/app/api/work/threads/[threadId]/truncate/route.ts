@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, eq, work_message } from "@neko/db";
 import { getOrgId } from "@/lib/db";
-import { getWorkThread, truncateWorkThreadFromRun } from "@/lib/work-store";
+import { truncateWorkThreadFromRun } from "@/lib/work-store";
+import { getAuthorizedWorkThread } from "@/lib/work-thread-auth";
 
 type RouteContext = {
   params: Promise<{ threadId: string }>;
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   const orgId = await getOrgId();
-  const thread = await getWorkThread(orgId, threadId);
+  const thread = await getAuthorizedWorkThread(orgId, threadId);
   if (!thread) {
     return NextResponse.json({ error: "Thread not found" }, { status: 404 });
   }

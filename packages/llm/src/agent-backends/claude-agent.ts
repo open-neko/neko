@@ -188,7 +188,9 @@ export class ClaudeAgentBackend implements AgentBackend {
     // (~/.claude.json) out of the agent's tool catalog. The classic shape —
     // used by the briefing chat path — keeps the claude_code preset + auto
     // skills + canUseTool gate for the rich operator-facing experience.
-    const useIsolatedSubagent = !!allowedTools && allowedTools.length > 0;
+    // An explicitly empty whitelist is meaningful for model-only jobs: keep
+    // the parent in SDK isolation mode and give its worker zero tools.
+    const useIsolatedSubagent = allowedTools !== undefined;
     const sdkPrompt = userMessage ?? prompt;
     const claudePath = claudeBinaryPath();
     const sdkOptions: Record<string, unknown> = {

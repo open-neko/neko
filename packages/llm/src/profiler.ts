@@ -12,24 +12,31 @@ import {
   compactInsightsDigest,
   compactTableDigest,
 } from "./prompts/sections";
+import { sandboxAgentBackendForJob } from "./work/sandbox-launcher";
 import {
-  ensureGraphjinGuard,
-  resolveBinaryOnPath,
-} from "./work/graphjin-guard";
-import { ensureGraphjinGuardWithActorAuth } from "./work/graphjin-actor-guard";
-import { ensureWorkWorkspace } from "./work/workspace";
+  ensureIsolatedJobWorkspace,
+  ensureWorkWorkspace,
+} from "./work/workspace";
 
 export function buildProfilerPrompt(args: {
   orgName: string;
   companyNote: string;
   knowledge: KnowledgePackContents;
   shellTool: string;
+  queryTool?: string;
 }): string {
-  const { orgName, companyNote, knowledge, shellTool } = args;
+  const { orgName, companyNote, knowledge, shellTool, queryTool } = args;
   const agentic = knowledge.mode === "agentic";
+  const brokered = Boolean(queryTool);
+  const executeQuery = queryTool
+    ? `call \`${queryTool}\` with {"query":"<your read-only graphql>"}`
+    : `run through \`${shellTool}\`:\n     graphjin cli execute_graphql --args '{"query":"<your graphql>"}'`;
   const discoveryRule = agentic
-    ? `1. The knowledge sections below are a SLIM role-aware bootstrap (table summaries, help-card index, DSL essentials) — not the whole schema. Discover deeper detail ON DEMAND with catalog queries through \`${shellTool}\`:
-     graphjin cli execute_graphql --args '{"query":"query { gj_catalog(id: \\"table:<db>:<schema>.<table>\\") { details_json examples_json edges_json } }"}'
+    ? `1. The knowledge sections below are a SLIM role-aware bootstrap (table summaries, help-card index, DSL essentials) — not the whole schema. Discover deeper detail ON DEMAND with catalog queries: ${
+      queryTool
+        ? `call \`${queryTool}\` with {"query":"query { gj_catalog(id: \\"table:<db>:<schema>.<table>\\") { details_json examples_json edges_json } }"}`
+        : `through \`${shellTool}\`:\n     graphjin cli execute_graphql --args '{"query":"query { gj_catalog(id: \\"table:<db>:<schema>.<table>\\") { details_json examples_json edges_json } }"}'`
+    }
    Pull the table card (and column rows) before writing a non-trivial query.`
     : `1. Read the prefetched GraphJin knowledge sections below before writing any query. They are the authoritative DSL + schema/relationship context for this database. Don't run schema-discovery commands; that context is already prefetched here.`;
   return `You build a short markdown business profile about a customer company by querying its database via GraphJin.
@@ -38,11 +45,9 @@ EXECUTION PATTERN:
 ${discoveryRule}
 2. Skim the tables + insights sections to identify what this business actually does (industry, offering, business model). Pick the handful of tables that matter.
 3. Run a small set of GraphQL queries to gather facts: main business event (date range, recent volume + value), top categories / products / services, geography, who is served, who does the work.
-4. Run queries via the \`${shellTool}\` tool:
-     graphjin cli execute_graphql --args '{"query":"<your graphql>"}'
-   (\`graphjin cli\` is already pointed at the running server. Use --args-file - and stdin if a query is large enough to be awkward to escape inline.)
+4. Run queries by ${executeQuery}.
 5. ${
-    agentic
+    agentic || brokered
       ? `If a response contains an "errors" array, read the GraphQL error and any errors[].extensions.graphjin_repair hint, then correct the query yourself.`
       : `If a response contains an "errors" array, use:
      graphjin cli fix_query_error --args '{"query":"<failing query>","error":"<error message>"}'
@@ -51,28 +56,28 @@ ${discoveryRule}
 6. When you have enough facts, emit the final markdown body exactly per the OUTPUT FORMAT. No prose around it, no code fences.
 
 DATA ACCESS — READ-ONLY:
-The database is queried exclusively via \`graphjin cli\` run through the \`${shellTool}\` tool. GraphJin speaks GraphQL (not raw SQL). Mutations and subscriptions are forbidden and will be denied at the tool gate. DO NOT use \`execute_code\`, Python, raw HTTP requests, or any other tool to talk to GraphJin — only \`${shellTool}\` running \`graphjin cli\`.
+The database is queried exclusively through ${queryTool ? `the \`${queryTool}\` tool` : `\`graphjin cli\` run through the \`${shellTool}\` tool`}. GraphJin speaks GraphQL (not raw SQL). Mutations and subscriptions are forbidden and will be denied ${queryTool ? "by the trusted host broker" : "at the tool gate"}. DO NOT use \`execute_code\`, Python, raw HTTP requests, or any other path to talk to GraphJin.
 
-- Every database read goes through \`graphjin cli execute_graphql\` via \`${shellTool}\`.
+- Every database read goes through ${queryTool ? `\`${queryTool}\`` : `\`graphjin cli execute_graphql\` via \`${shellTool}\``}.
 - ${
-    agentic
+    agentic || brokered
       ? "Discover schema detail with gj_catalog queries (kinds: table, column, relationship, function; gj_catalog(id:) returns one detailed card). Source-mode deployments may disable GraphJin dev tools, so DO NOT call list_tables / describe_table / get_table_sample / get_query_syntax / get_schema_insights / get_discovery_schema / find_path / explore_relationships / explain / health / fix_query_error."
       : "DO NOT call \`graphjin cli list_tables\` / \`describe_table\` / \`get_query_syntax\` / \`get_schema_insights\` / \`get_discovery_schema\` — those broad discovery dumps are already prefetched in the knowledge sections below."
   }
-- DO NOT run \`graphjin cli setup\`, \`graphjin cli config\`, \`graphjin cli write_query\`, or any config/write command. The CLI is already configured by OpenNeko and those commands are blocked.
+- ${queryTool ? "No configuration or write tools are available in this job." : "DO NOT run `graphjin cli setup`, `graphjin cli config`, `graphjin cli write_query`, or any config/write command. The CLI is already configured by OpenNeko and those commands are blocked."}
 - ${
-    agentic
+    agentic || brokered
       ? "For join planning, use gj_catalog table cards, relationship rows, details_json, examples_json, and edges_json. Do not call GraphJin relationship dev tools."
       : `DO use these targeted read-only relationship tools whenever they help you plan or verify joins:
   - \`graphjin cli find_path --args '{"from_table":"<table>","to_table":"<table>"}'\` — exact relationship path between two specific tables.
   - \`graphjin cli explore_relationships --args '{"table":"<name>"}'\` — connected tables around one focal table.`
   }
 - ${
-    agentic
-      ? "Only use `graphjin cli execute_graphql` for catalog and data reads in this profiler run."
+    agentic || brokered
+      ? `Only use ${queryTool ? `\`${queryTool}\`` : "`graphjin cli execute_graphql`"} for catalog and data reads in this profiler run.`
       : "Other useful subcommands: `graphjin cli explain --args '{\"query\":\"...\"}'` (compile-only, no execution); `graphjin cli fix_query_error --args '{\"query\":\"...\",\"error\":\"...\"}'` (get a corrected query); `graphjin cli health` (sanity check)."
   }
-- Never invent data — every number in the profile must trace back to a \`graphjin cli execute_graphql\` response from this run.
+- Never invent data — every number in the profile must trace back to a GraphJin query-tool response from this run.
 
 QUERY CONSTRUCTION — let the database aggregate:
 Prefer one bulk query with server-side aggregation (count, sum, avg) over multiple round-trips that pull rows back to the agent. Specific GraphJin capabilities to reach for (consult \`syntax.json\` for full DSL reference):
@@ -225,12 +230,15 @@ export async function runProfiler(args: {
 }): Promise<ProfilerResult> {
   const { orgId, mcpUrl, orgName, companyNote, jobId, onProgress, debug } = args;
 
-  const workspace = await ensureWorkWorkspace(
+  const knowledgeWorkspace = await ensureWorkWorkspace(
     orgId,
     "profiler",
     jobId ?? orgId,
   );
-  const refresh = await prefetchKnowledgeForOrg(orgId, workspace.knowledgeRoot);
+  const refresh = await prefetchKnowledgeForOrg(
+    orgId,
+    knowledgeWorkspace.knowledgeRoot,
+  );
   if (refresh.ok) {
     const totalBytes = refresh.files.reduce((n, f) => n + f.bytes, 0);
     console.log(
@@ -241,54 +249,62 @@ export async function runProfiler(args: {
       `[profiler] org=${orgId} knowledge refresh failed (${refresh.error}); proceeding with on-disk pack`,
     );
   }
-  const knowledge = await readKnowledgePack(knowledgePackPaths(workspace.knowledgeRoot));
+  const knowledge = await readKnowledgePack(
+    knowledgePackPaths(knowledgeWorkspace.knowledgeRoot),
+  );
 
   const backend = await resolveAgentBackend(orgId);
-  const graphjinBinary = await resolveBinaryOnPath("graphjin");
-  if (!graphjinBinary) {
-    throw new Error("graphjin CLI is not installed on PATH.");
-  }
-  await ensureGraphjinGuardWithActorAuth({
-    orgId: orgId,
-    graphjinBinary,
-    binRoot: workspace.binRoot,
-    runRoot: workspace.runRoot,
-    actor: { userId: null, role: "service" },
-  });
-  console.log(`[profiler] org=${orgId} backend=${backend.id}`);
-
-  const prompt = buildProfilerPrompt({
-    orgName,
-    companyNote,
-    knowledge,
-    shellTool: shellToolName(backend.id),
-  });
-
-  if (onProgress) onProgress("Running profiler agent (up to 6 minutes)…");
-  const startedAt = Date.now();
-  // GJ2: iterative validation loop — a profile missing required sections
-  // (or containing failure text) goes back to the agent for a corrective
-  // turn instead of failing the onboarding job.
-  const { value: businessProfile, finalText } = await runValidatedAgentTurn({
-    backend,
-    run: {
-      prompt,
-      orgId,
-      tag: jobId ?? orgId,
-      workspace,
-      ...profilerAgentRunControls(),
-      debug: debug === true,
-    },
-    label: `profiler org=${orgId}`,
-    validate: (txt) => validateBusinessProfile(stripFences(txt), orgName),
-  });
-  const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(0);
-  console.log(
-    `[profiler] org=${orgId} done in ${elapsedSec}s (${finalText.length} chars)`,
+  const isolated = await ensureIsolatedJobWorkspace(
+    `profiler-${jobId ?? orgId}`,
   );
-  if (onProgress) onProgress("Profile drafted");
+  try {
+    const sandboxedBackend = await sandboxAgentBackendForJob({
+      backend,
+      orgId,
+      runId: jobId ?? orgId,
+      workspace: isolated.workspace,
+      access: { graphjinRead: true },
+    });
+    console.log(
+      `[profiler] org=${orgId} backend=${backend.id} runtime=openshell`,
+    );
 
-  return { businessProfile };
+    const prompt = buildProfilerPrompt({
+      orgName,
+      companyNote,
+      knowledge,
+      shellTool: shellToolName(backend.id),
+      queryTool: "mcp__neko_graphjin__execute_graphql",
+    });
+
+    if (onProgress) onProgress("Running profiler agent (up to 6 minutes)…");
+    const startedAt = Date.now();
+    // GJ2: iterative validation loop — a profile missing required sections
+    // (or containing failure text) goes back to the agent for a corrective
+    // turn instead of failing the onboarding job.
+    const { value: businessProfile, finalText } = await runValidatedAgentTurn({
+      backend: sandboxedBackend,
+      run: {
+        prompt,
+        orgId,
+        tag: jobId ?? orgId,
+        workspace: isolated.workspace,
+        ...profilerAgentRunControls(),
+        debug: debug === true,
+      },
+      label: `profiler org=${orgId}`,
+      validate: (txt) => validateBusinessProfile(stripFences(txt), orgName),
+    });
+    const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(0);
+    console.log(
+      `[profiler] org=${orgId} done in ${elapsedSec}s (${finalText.length} chars)`,
+    );
+    if (onProgress) onProgress("Profile drafted");
+
+    return { businessProfile };
+  } finally {
+    await isolated.cleanup();
+  }
 }
 
 function stripFences(raw: string): string {

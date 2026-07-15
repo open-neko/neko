@@ -30,10 +30,9 @@ function formatTranscript(messages: AgentChatMessage[]): string {
 function buildRenderingSection(supportsCardTool: boolean): string {
   const tool = supportsCardTool ? "mcp__neko_ui__render_cards" : "render_cards";
   return `<rendering>
-Render your answer by calling the \`${tool}\` tool — its description carries
-the component catalog and message schema. Put your prose in \`Markdown\`
-components; add \`BriefingCard\`s for the key numbers. For a pure-prose
-answer, send one \`Markdown\` component.
+Call \`${tool}\` to compose an interface that fits the current request. Its
+description carries the available components and protocol. Use the smallest
+useful combination of narrative, data, layout, inputs, and actions.
 </rendering>`;
 }
 
@@ -251,23 +250,47 @@ function buildSourceConfigSection(
   if (!supportsSourceConfigTool) return "";
   const graphjinSkill = `${workspace.skillsRoot}/graphjin-config/SKILL.md`;
   return `<source_config>
-Admins can inspect and propose guarded GraphJin source-mode config changes
-from chat. Use these tools only for GraphJin sources, roles, and access:
+Admins can inspect GraphJin configuration and create configuration-change
+proposals from chat.
 
 Before viewing, editing, creating, or explaining GraphJin config, read and
 apply the \`graphjin-config\` skill at \`${graphjinSkill}\`.
 
-- \`mcp__neko_source_config_manager__describe_source_graph\` — read the live
-  GraphJin source graph from gj_catalog. Use it before proposing any source,
-  access, or RBAC role change.
-- \`mcp__neko_source_config_manager__list_source_secret_names\` — list only
-  stored connection secret NAMES. Never ask for or print secret values.
-- \`mcp__neko_source_config_manager__request_source_config_change\` — file an
-  approval-gated \`source_config_admin\` request. It never applies directly.
+For a request about GraphJin config, sources, roles, access, security posture,
+runtime, or reload impact, complete these steps in order:
 
-For new sources, collect only non-secret fields plus a \`secretRef\` name
-from the stored secret list. For access changes, confirm the GraphJin source
-name and desired read/write/delete policy before filing the request.
+1. Call \`describe_source_graph\` for the selected customer data engine.
+2. Call \`ask_graphjin_config_agent\` with the user's requested inspection or
+   change.
+3. Present the redacted source graph and server-agent answer to the user.
+4. For an edit, collect the supported fields, call
+   \`request_source_config_change\`, and present the proposal and approval
+   status.
+
+When an edit needs operator input, call \`list_source_secret_names\` as needed,
+then use \`render_cards\` to present a bound A2UI v1.0 form with the relevant
+fields and one proposal action. In the next turn, validate the submitted values
+and call \`request_source_config_change\`. Use stored \`secretRef\` names for
+database credentials.
+
+Success for a view or explanation is a response containing the redacted result
+from step 2. Success for an edit is a response containing the proposal result
+from step 4. When a tool returns an error, present the error and name the step
+requiring attention.
+
+- \`mcp__neko_source_config_manager__describe_source_graph\` — read the live
+  GraphJin source graph and identify the selected data engine.
+- \`mcp__neko_source_config_manager__ask_graphjin_config_agent\` — ask the
+  selected GraphJin to explain its redacted configuration and plan a change.
+- \`mcp__neko_source_config_manager__list_source_secret_names\` — list only
+  stored connection secret names for use as \`secretRef\` values.
+- \`mcp__neko_source_config_manager__request_source_config_change\` — file an
+  \`source_config_admin\` proposal for admin review.
+
+For a new source, collect name, kind, host, port, database name, user, stored
+\`secretRef\`, and access policy fields relevant to that source kind. For an
+access change, collect the GraphJin source name and desired read/write/delete
+policy.
 </source_config>`;
 }
 
@@ -281,7 +304,8 @@ function buildSkillsSection(
       ? installedSkills
           .map(
             (s) =>
-              `- ${s.name} — ${s.description || `details in ${workspace.skillsRoot}/${s.name}/SKILL.md`}`,
+              `- ${s.name} — ${s.description || "Capability instructions"} — ` +
+              `${workspace.skillsRoot}/${s.name}/SKILL.md`,
           )
           .join("\n")
       : `(none installed; check ${workspace.skillsRoot})`;
@@ -289,18 +313,14 @@ function buildSkillsSection(
   const creationGuidance = supportsSkillTool
     ? `When the user asks you to create or update a skill, use
 \`mcp__neko_skills__create_skill\`.`
-    : `When the user asks you to create or update a skill, write
-agentskills.io-style files into the shared skills directory shown above
-using your shell tool (e.g. \`mkdir -p\` + \`cat > SKILL.md\`). Skills
-only appear in the OpenNeko sidebar when files land at that path —
-Hermes' built-in \`skill_manage\` / \`skills_list\` / \`skill_view\`
-tools write to a private directory the UI doesn't read, so anything
-saved there is invisible to the user.`;
+    : `When the user asks you to create or update a skill, write its
+agentskills.io-style files to
+\`${workspace.skillsRoot}/<skill-name>/SKILL.md\` using your shell tool.`;
 
   return `<skills>
-Installed skills — capability recipes you can use. Before telling the
-user you cannot do something, check whether one of these skills covers
-it and read its SKILL.md for usage details. The host image ships
+Installed skill catalog. Match the current task to the names and descriptions
+below. When a skill matches, read its SKILL.md at the listed path and follow
+its instructions. The host image ships
 Python 3, LibreOffice (\`soffice\`), Poppler (\`pdftotext\`), qpdf, plus
 pip libs: pypdf, pdfplumber, reportlab, Pillow, openpyxl, python-pptx,
 python-docx, PyYAML.

@@ -8,6 +8,7 @@ import {
   uniqueOrgId,
 } from "@neko/db/test-helpers";
 import { and, db, eq, llm_provider_config, pool } from "@neko/db";
+import { AGENT_DEFAULT_GLOBAL_CAP } from "@neko/llm";
 import {
   getAgentBackendSettings,
   getAgentSettingsPayload,
@@ -60,12 +61,12 @@ describeIfDb("agent-backend-settings", () => {
   });
 
   describe("getAgentBackendSettings", () => {
-    it("returns default { hermes, 20 } with no row", async () => {
+    it("returns the shared Hermes defaults with no row", async () => {
       const got = await getAgentBackendSettings(orgId);
       expect(got).toEqual({
         source: "default",
         backend: "hermes",
-        globalCap: 20,
+        globalCap: AGENT_DEFAULT_GLOBAL_CAP,
       });
     });
 
@@ -89,7 +90,9 @@ describeIfDb("agent-backend-settings", () => {
       const payload = await getAgentSettingsPayload(orgId);
       expect(payload.agent.backend).toBe("hermes");
       expect(payload.options.length).toBeGreaterThanOrEqual(2);
-      expect(payload.defaults).toEqual({ globalCap: 20 });
+      expect(payload.defaults).toEqual({
+        globalCap: AGENT_DEFAULT_GLOBAL_CAP,
+      });
     });
   });
 
@@ -161,7 +164,7 @@ describeIfDb("agent-backend-settings", () => {
         globalCap: "not-a-number" as never,
       });
       const got = await getAgentBackendSettings(orgId);
-      expect(got.globalCap).toBe(20);
+      expect(got.globalCap).toBe(AGENT_DEFAULT_GLOBAL_CAP);
     });
   });
 

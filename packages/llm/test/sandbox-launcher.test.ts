@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -15,6 +22,7 @@ import type { RunWorkflowAgentBackendInput } from "../src/workflows/agent-core";
  */
 const h = vi.hoisted(() => {
   const calls: { args: string[] }[] = [];
+  const state = { holdExec: false };
   function spawn(_cmd: string, args: string[]) {
     calls.push({ args });
     const isExec = args.includes("exec");
@@ -43,10 +51,20 @@ const h = vi.hoisted(() => {
       fire(ch, "close", 0);
     };
     const stdout = Readable.from(lines);
-    stdout.on("end", () => queueMicrotask(closeOnce));
-    return { stdout, stderr, on: reg(ch), kill() {} };
+    if (!isExec || !state.holdExec) {
+      stdout.on("end", () => queueMicrotask(closeOnce));
+    }
+    return {
+      stdout,
+      stderr,
+      on: reg(ch),
+      kill() {
+        closeOnce();
+        return true;
+      },
+    };
   }
-  return { calls, spawn };
+  return { calls, state, spawn };
 });
 
 vi.mock("node:child_process", () => ({ spawn: h.spawn }));
@@ -54,7 +72,10 @@ vi.mock("node:child_process", () => ({ spawn: h.spawn }));
 // Capture the job descriptor the launcher writes (then uploads to the box), so
 // we can assert what crosses the host→sandbox boundary — e.g. the Claude model,
 // which the box needs to reconstruct the claude-agent backend.
-const jobCapture = vi.hoisted(() => ({ jobs: [] as Array<Record<string, unknown>> }));
+const jobCapture = vi.hoisted(() => ({
+  jobs: [] as Array<Record<string, unknown>>,
+  policies: [] as Array<ReturnType<typeof JSON.parse>>,
+}));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
@@ -67,6 +88,13 @@ vi.mock("node:fs/promises", async (importOriginal) => {
           /* ignore non-JSON writes */
         }
       }
+      if (typeof p === "string" && p.endsWith("policy.json")) {
+        try {
+          jobCapture.policies.push(JSON.parse(String(data)));
+        } catch {
+          /* ignore non-JSON writes */
+        }
+      }
       return (actual.writeFile as (...a: unknown[]) => Promise<void>)(p, data, ...rest);
     },
   };
@@ -74,9 +102,13 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 const {
   makeSandboxRunCore,
+  makeSandboxJobRunCore,
   makeSandboxWorkflowRunCore,
   buildModelEgressArgs,
+  buildSandboxPolicy,
+  buildScopedEgressArgs,
   ensureOpenShellProvider,
+  stageSandboxWorkspace,
 } = await import("../src/work/sandbox-launcher");
 
 function fakeInput(
@@ -92,7 +124,7 @@ function fakeInput(
     orgId: "org-1",
     threadId: "thr-1",
     runId: "run-1",
-    workspace: { orgRoot: "/tmp/ws/org-1" } as RunAgentBackendInput["workspace"],
+    workspace: fullWorkspace("/tmp/ws/org-1"),
     backendState: undefined,
     pluginActions: [],
     emit,
@@ -118,8 +150,32 @@ function fakeWorkflowInput(
     triggeredByObservationId: "obs-1",
     workspace:
       workspaceOverride ??
-      ({ orgRoot: "/tmp/ws/org-1" } as RunWorkflowAgentBackendInput["workspace"]),
+      fullWorkspace("/tmp/ws/org-1"),
     emit,
+  };
+}
+
+function fakeJobInput(
+  workspace: AgentWorkspace,
+  access: { graphjinRead?: boolean; memorySearch?: boolean } = {},
+) {
+  return {
+    backend: {
+      id: "hermes",
+      capabilities: { mcpTools: true },
+    } as RunAgentBackendInput["backend"],
+    orgId: "org-1",
+    runId: "job-1",
+    workspace,
+    run: {
+      prompt: "JOB PROMPT",
+      timeoutMs: 45_000,
+      retries: 0,
+      tag: "profile-job",
+      workspace,
+    },
+    access,
+    emit: async () => {},
   };
 }
 
@@ -184,12 +240,106 @@ describe("buildModelEgressArgs", () => {
       "60",
     ]);
   });
+
+  it("keeps endpoint allowlists separated by executable", () => {
+    const updates = buildScopedEgressArgs("s", [
+      { host: "models.example.com", binary: "/bin/model" },
+      { host: "graphjin.internal", binary: "/bin/graphjin", port: 8080 },
+      { host: "broker.internal", binary: "/bin/node", port: 4199 },
+    ]);
+
+    expect(updates).toHaveLength(3);
+    const model = updates.find((args) => args.includes("/bin/model"))!;
+    expect(model.join(" ")).toContain("models.example.com:443");
+    expect(model.join(" ")).not.toContain("graphjin.internal");
+    expect(model.join(" ")).not.toContain("broker.internal");
+  });
+});
+
+describe("buildSandboxPolicy", () => {
+  it("builds the complete creation policy with executable-scoped endpoints", () => {
+    const policy = buildSandboxPolicy([
+      { host: "models.example.com", binary: "/bin/model" },
+      { host: "models.example.com", binary: "/bin/model" },
+      { host: "graphjin.internal", binary: "/bin/graphjin", port: 8080 },
+    ]);
+
+    expect(policy.filesystem_policy.read_write).toContain("/sandbox");
+    const entries = Object.values(policy.network_policies);
+    expect(entries).toHaveLength(2);
+    const model = entries.find((entry) => entry.binaries[0]?.path === "/bin/model")!;
+    expect(model.endpoints).toHaveLength(1);
+    expect(model.endpoints[0]).toMatchObject({
+      host: "models.example.com",
+      port: 443,
+      protocol: "rest",
+      enforcement: "enforce",
+    });
+    expect(model.endpoints.some((endpoint) => endpoint.host === "graphjin.internal"))
+      .toBe(false);
+  });
+});
+
+describe("stageSandboxWorkspace", () => {
+  it("exposes only the current run, current thread uploads, knowledge, and skill overrides", async () => {
+    const root = await mkdtemp(join(tmpdir(), "sandbox-stage-source-"));
+    const stage = await mkdtemp(join(tmpdir(), "sandbox-stage-dest-"));
+    try {
+      const workspace = fullWorkspace(root);
+      await Promise.all([
+        mkdir(workspace.knowledgeRoot, { recursive: true }),
+        mkdir(workspace.threadUploadsRoot, { recursive: true }),
+        mkdir(workspace.runRoot, { recursive: true }),
+        mkdir(join(workspace.uploadsRoot, "other-thread"), { recursive: true }),
+        mkdir(join(workspace.runsRoot, "other-run"), { recursive: true }),
+        mkdir(workspace.memoryRoot, { recursive: true }),
+        mkdir(join(workspace.skillsRoot, "quarterly-review"), { recursive: true }),
+      ]);
+      await Promise.all([
+        writeFile(join(workspace.knowledgeRoot, "schema.json"), "{}"),
+        writeFile(join(workspace.threadUploadsRoot, "current.csv"), "current"),
+        writeFile(join(workspace.runRoot, "current.txt"), "current"),
+        writeFile(join(workspace.uploadsRoot, "other-thread", "private.txt"), "private"),
+        writeFile(join(workspace.runsRoot, "other-run", "secret.txt"), "secret"),
+        writeFile(join(workspace.memoryRoot, "member-memory.txt"), "private memory"),
+        writeFile(
+          join(workspace.skillsRoot, "quarterly-review", "SKILL.md"),
+          "---\nname: quarterly-review\ndescription: Review quarters\n---\n",
+        ),
+      ]);
+
+      const staged = await stageSandboxWorkspace(workspace, stage);
+      expect(staged.skillOverrides).toEqual(["quarterly-review"]);
+      expect(await readFile(join(staged.workspace.knowledgeRoot, "schema.json"), "utf8"))
+        .toBe("{}");
+      expect(await readFile(join(staged.workspace.threadUploadsRoot, "current.csv"), "utf8"))
+        .toBe("current");
+      expect(await readFile(join(staged.workspace.runRoot, "current.txt"), "utf8"))
+        .toBe("current");
+      await expect(
+        access(join(staged.workspace.uploadsRoot, "other-thread", "private.txt")),
+      ).rejects.toThrow();
+      await expect(
+        access(join(staged.workspace.runsRoot, "other-run", "secret.txt")),
+      ).rejects.toThrow();
+      await expect(
+        access(join(staged.workspace.memoryRoot, "member-memory.txt")),
+      ).rejects.toThrow();
+    } finally {
+      await Promise.all([
+        rm(root, { recursive: true, force: true }),
+        rm(stage, { recursive: true, force: true }),
+      ]);
+    }
+  });
 });
 
 describe("makeSandboxRunCore", () => {
   beforeEach(() => {
     h.calls.length = 0;
+    h.state.holdExec = false;
     jobCapture.jobs.length = 0;
+    jobCapture.policies.length = 0;
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -231,20 +381,45 @@ describe("makeSandboxRunCore", () => {
 
     const verbs = h.calls.map((c) => c.args.find((a) => ["create", "update", "upload", "exec", "download", "delete"].includes(a)));
     // artifacts are pulled back from the box (download) before it's deleted
-    expect(verbs).toEqual(["create", "update", "upload", "upload", "exec", "download", "delete"]);
+    expect(verbs).toEqual(["create", "exec", "download", "delete"]);
     const download = h.calls.find((c) => c.args.includes("download"));
     expect(download?.args.at(-1)).toBe(fakeInput().workspace.artifactRoot);
     // streamed event reached emit:
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ type: "message", content: "hi" });
+    expect(events.filter((event) => event.type === "message")).toEqual([
+      expect.objectContaining({ type: "message", content: "hi" }),
+    ]);
     // result parsed from the RESULT line:
     expect(result).toEqual({ status: "completed", finalText: "hi there", backendState: { t: 1 } });
     // create used the agent image; exec ran entry.ts via the sh-wrapper:
     expect(h.calls[0]?.args).toContain("ghcr.io/open-neko/agent:test");
+    expect(h.calls[0]?.args).toContain("--policy");
+    expect(h.calls[0]?.args).toContain("--upload");
     const execCall = h.calls.find((c) => c.args.includes("exec"));
     expect(execCall?.args.join(" ")).toContain("agent-sandbox/entry.ts");
     // the credential alias references the OpenShell-injected var at runtime, never a value:
     expect(execCall?.args.join(" ")).toContain('export GEMINI_API_KEY="$api_key"');
+  });
+
+  it("aborts the live exec and deletes the whole sandbox without downloading artifacts", async () => {
+    h.state.holdExec = true;
+    const controller = new AbortController();
+    const runCore = makeSandboxRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    const pending = runCore({
+      ...fakeInput(async () => {}),
+      signal: controller.signal,
+    });
+    while (!h.calls.some((call) => call.args.includes("exec"))) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(h.calls.some((call) => call.args.includes("delete"))).toBe(true);
+    expect(h.calls.some((call) => call.args.includes("download"))).toBe(false);
   });
 
   it("uses one OpenShell sandbox for a native-delegation-capable backend", async () => {
@@ -330,6 +505,63 @@ describe("makeSandboxRunCore", () => {
     });
   });
 
+  it("gives model-only jobs no GraphJin capability or artifact persistence", async () => {
+    const orgRoot = await mkdtemp(join(tmpdir(), "job-ws-"));
+    const workspace = fullWorkspace(orgRoot);
+    await mkdir(workspace.artifactRoot, { recursive: true });
+    const runCore = makeSandboxJobRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    await runCore(fakeJobInput(workspace));
+
+    expect(jobCapture.jobs.at(-1)).toMatchObject({
+      kind: "agent-job",
+      graphjinEnabled: false,
+      agentAccess: {},
+      agentRun: {
+        timeoutMs: 45_000,
+        retries: 0,
+        tag: "profile-job",
+      },
+    });
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinServerUrl");
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinClientConfig");
+    expect(h.calls.some((c) => c.args.includes("download"))).toBe(false);
+  });
+
+  it("gives GraphJin jobs a broker capability without source egress or tokens", async () => {
+    const orgRoot = await mkdtemp(join(tmpdir(), "job-ws-"));
+    const workspace = fullWorkspace(orgRoot);
+    const clientDir = join(workspace.runRoot, "gj-auth", "graphjin");
+    await mkdir(clientDir, { recursive: true });
+    await writeFile(
+      join(clientDir, "client.json"),
+      JSON.stringify({
+        server: "http://localhost:8080/api/v1/mcp",
+        token: "ephemeral-job-token",
+        subject: "service",
+      }),
+    );
+    const runCore = makeSandboxJobRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    await runCore(fakeJobInput(workspace, { graphjinRead: true }));
+
+    const job = jobCapture.jobs.at(-1);
+    expect(job).toMatchObject({
+      kind: "agent-job",
+      graphjinEnabled: false,
+      agentAccess: { graphjinRead: true },
+    });
+    expect(job).not.toHaveProperty("graphjinWriteGrants");
+    expect(job).not.toHaveProperty("graphjinServerUrl");
+    expect(job).not.toHaveProperty("graphjinClientConfig");
+  });
+
   it("scopes broker egress to node, injects url+token, and releases on finish", async () => {
     const released: string[] = [];
     const runCore = makeSandboxRunCore({
@@ -342,12 +574,19 @@ describe("makeSandboxRunCore", () => {
 
     await runCore(fakeInput(async () => {}));
 
-    // the policy update opens the broker host:port for the node binary only:
-    const update = h.calls.find((c) => c.args.includes("update"));
-    expect(update?.args.join(" ")).toContain(
-      "host.openshell.internal:4199:read-write:rest:enforce",
+    // the creation policy opens the broker host:port for the node binary only:
+    const policies = Object.values(
+      (jobCapture.policies.at(-1)?.network_policies ?? {}) as Record<
+        string,
+        { binaries: Array<{ path: string }>; endpoints: Array<{ host: string; port: number }> }
+      >,
     );
-    expect(update?.args).toContain("/usr/local/bin/node");
+    const nodePolicy = policies.find(
+      (policy) => policy.binaries[0]?.path === "/usr/local/bin/node",
+    );
+    expect(nodePolicy?.endpoints).toContainEqual(
+      expect.objectContaining({ host: "host.openshell.internal", port: 4199 }),
+    );
     // the box gets the broker url + a run-bound bearer token — never a raw secret:
     const execCall = h.calls.find((c) => c.args.includes("exec"));
     expect(execCall?.args.join(" ")).toContain(
@@ -382,14 +621,16 @@ describe("makeSandboxRunCore", () => {
     });
     await runCore(fakeInput(async () => {}));
 
-    // three uploads now: workspace, keyless hermes-home, job descriptor
-    const uploads = h.calls.filter((c) => c.args.includes("upload"));
-    expect(uploads).toHaveLength(3);
-    const hermesUpload = uploads.find((u) => u.args.some((a) => a.endsWith("/hermes-home")));
-    expect(hermesUpload?.args).toContain("/sandbox");
+    // The minimal workspace, job descriptor, and keyless Hermes config cross
+    // the boundary together in the create transaction.
+    expect(h.calls.filter((c) => c.args.includes("upload"))).toHaveLength(0);
+    const create = h.calls.find((c) => c.args.includes("create"));
+    expect(create?.args).toContain("--upload");
     // the box reads the mirror, not a host path:
     const execCall = h.calls.find((c) => c.args.includes("exec"));
-    expect(execCall?.args.join(" ")).toContain("HERMES_HOME='/sandbox/hermes-home'");
+    expect(execCall?.args.join(" ")).toContain(
+      "HERMES_HOME='/sandbox/org-1/runs/run-1/.openneko/hermes-home'",
+    );
   });
 });
 

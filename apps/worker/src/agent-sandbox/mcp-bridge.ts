@@ -5,6 +5,7 @@ import {
   buildAuditViewerServer,
   buildChannelManagerServer,
   buildDataSourceManagerServer,
+  buildGraphjinReadServer,
   buildPluginActionServer,
   buildPluginManagerServer,
   buildSkillBuilderServer,
@@ -63,10 +64,18 @@ export function buildBridgeServer(
       : () => {};
   const common = { orgId, runId, emit, controlPlane };
   switch (name) {
+    case "neko_graphjin":
+      return buildGraphjinReadServer({ orgId, controlPlane });
     case "neko_skills":
       return buildSkillBuilderServer(skillsRoot);
     case "neko_memory":
-      return buildWorkMemoryServer({ orgId, threadId, runId }, { controlPlane });
+      return buildWorkMemoryServer(
+        { orgId, threadId, runId },
+        {
+          controlPlane,
+          exposeSave: process.env.OPENNEKO_MCP_MEMORY_READ_ONLY !== "1",
+        },
+      );
     case "neko_workflow_builder":
       return buildWorkflowBuilderServer({
         orgId,

@@ -108,6 +108,21 @@ async function handle(
           runId: binding.runId,
         } as Parameters<AgentControlPlane["searchWorkMemoryByContext"]>[0]),
       );
+    case "/v1/graphjin/query":
+      return send(
+        res,
+        200,
+        await cp.queryGraphjinRead({
+          query: String(body.query ?? ""),
+          ...(body.variables && typeof body.variables === "object"
+            ? { variables: body.variables as Record<string, unknown> }
+            : {}),
+          ...(typeof body.operationName === "string"
+            ? { operationName: body.operationName }
+            : {}),
+          orgId: binding.orgId,
+        }),
+      );
     case "/v1/workflow/save":
       return send(
         res,
@@ -187,6 +202,39 @@ async function handle(
         await cp.listSourceSecretNames({
           orgId: binding.orgId,
           runId: binding.runId,
+        }),
+      );
+    case "/v1/source-config/agent":
+      return send(
+        res,
+        200,
+        await cp.askSourceConfigAgent({
+          orgId: binding.orgId,
+          runId: binding.runId,
+          dataSourceId:
+            typeof body.dataSourceId === "string"
+              ? body.dataSourceId
+              : undefined,
+          instruction: String(body.instruction ?? ""),
+          maxSteps:
+            typeof body.maxSteps === "number" ? body.maxSteps : undefined,
+        }),
+      );
+    case "/v1/source-config/preview":
+      return send(
+        res,
+        200,
+        await cp.previewSourceConfigChange({
+          orgId: binding.orgId,
+          runId: binding.runId,
+          dataSourceId:
+            typeof body.dataSourceId === "string"
+              ? body.dataSourceId
+              : undefined,
+          payload:
+            body.payload && typeof body.payload === "object"
+              ? (body.payload as Record<string, unknown>)
+              : {},
         }),
       );
     case "/v1/audit/list":

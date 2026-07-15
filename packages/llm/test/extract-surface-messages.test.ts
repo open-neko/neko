@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { extractSurfaceMessages } from "../src/agent-backends/hermes";
+import { coerceGeneratedSurfaceMessages } from "../src/agent-backends/surface";
 
 describe("extractSurfaceMessages", () => {
   it("returns text and empty messages when no fence is present", () => {
@@ -40,10 +41,11 @@ describe("extractSurfaceMessages", () => {
     const result = extractSurfaceMessages(raw);
     expect(result.text).toContain("Prose.");
     expect(result.text).toContain("more prose.");
-    expect(result.messages).toHaveLength(2);
-    const components = (result.messages[1] as unknown as {
-      updateComponents: { components: Array<{ component: string; text?: string }> };
-    }).updateComponents.components;
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].version).toBe("v1.0");
+    const components = (result.messages[0] as unknown as {
+      createSurface: { components: Array<{ component: string; text?: string }> };
+    }).createSurface.components;
     expect(components[0].component).toBe("Markdown");
     expect(components[0].text).toBe("hello there");
   });
@@ -51,10 +53,10 @@ describe("extractSurfaceMessages", () => {
   it("wraps non-array JSON as a synthetic Markdown surface (preserves the body)", () => {
     const raw = '```neko_a2ui\n{"version": "v0.9"}\n```';
     const result = extractSurfaceMessages(raw);
-    expect(result.messages).toHaveLength(2);
-    const components = (result.messages[1] as unknown as {
-      updateComponents: { components: Array<{ component: string; text?: string }> };
-    }).updateComponents.components;
+    expect(result.messages).toHaveLength(1);
+    const components = (result.messages[0] as unknown as {
+      createSurface: { components: Array<{ component: string; text?: string }> };
+    }).createSurface.components;
     expect(components[0].component).toBe("Markdown");
     expect(components[0].text).toContain("v0.9");
   });
@@ -70,5 +72,46 @@ describe("extractSurfaceMessages", () => {
       '```NEKO_A2UI\n[{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"urn:app:catalog:briefing:v1"}}]\n```';
     const result = extractSurfaceMessages(raw);
     expect(result.messages).toHaveLength(1);
+  });
+
+  it("accepts A2UI v1.0 surface messages", () => {
+    const raw =
+      '```neko_a2ui\n[{"version":"v1.0","createSurface":{"surfaceId":"s2","catalogId":"urn:openneko:catalog:work:v2","components":[{"id":"root","component":"Text","text":"Ready"}]}}]\n```';
+    const result = extractSurfaceMessages(raw);
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].version).toBe("v1.0");
+  });
+});
+
+describe("coerceGeneratedSurfaceMessages", () => {
+  it("accepts well-formed v1.0 components", () => {
+    expect(
+      coerceGeneratedSurfaceMessages([
+        {
+          version: "v1.0",
+          createSurface: {
+            surfaceId: "s1",
+            catalogId: "urn:openneko:catalog:work:v2",
+            components: [{ id: "root", component: "Text", text: "Ready" }],
+          },
+        },
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it("rejects reader-only v0.9 and invalid component shorthand", () => {
+    expect(
+      coerceGeneratedSurfaceMessages([
+        { version: "v0.9", createSurface: { surfaceId: "old", catalogId: "legacy" } },
+        {
+          version: "v1.0",
+          createSurface: {
+            surfaceId: "bad",
+            catalogId: "urn:openneko:catalog:work:v2",
+            components: [1, 2, 3],
+          },
+        },
+      ]),
+    ).toEqual([]);
   });
 });

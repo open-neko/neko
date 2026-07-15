@@ -112,7 +112,8 @@ import {
   type WorkflowMention,
 } from "@/lib/workflow-mention";
 import { renderComponent, renderChildren } from "@/a2ui/renderer";
-import { applyMessage, getRootComponent } from "@/a2ui/surface";
+import { applyMessage, getRootComponent, setDataModelValue } from "@/a2ui/surface";
+import { buildActionFollowUp } from "@/a2ui/action";
 import type { SurfaceState, A2UIMessage } from "@/a2ui/types";
 import {
   useWorkShell,
@@ -878,6 +879,10 @@ export default function WorkScreen() {
   }
 
   async function postAndStreamRun(threadId: string, message: string) {
+    // Every entry point must expose the live-run controls. Retry/edit reloads
+    // the truncated thread first, and that reload clears `sending` when no
+    // earlier run remains in flight.
+    setSending(true);
     const body = JSON.stringify({ message });
     const res = await fetch(`/api/work/threads/${threadId}/runs`, {
       method: "POST",
@@ -2370,42 +2375,48 @@ function SurfaceBlock({ messages }: { messages: A2UIMessage[] }) {
   }, [messages]);
 
   const { submitFollowUp } = useWorkShell();
-  const onAction = (
-    _componentId: string,
-    eventName: string,
-    context?: Record<string, unknown>,
-  ) => {
-    if (
-      (eventName === "select" || eventName === "submit") &&
-      typeof context?.prompt === "string"
-    ) {
-      submitFollowUp(context.prompt);
-    }
-  };
-
   const nodes: React.ReactNode[] = [];
   for (const [, surface] of surfaces) {
-    const ctx = { surface, onAction };
-    const root = getRootComponent(surface);
-    if (root) {
-      nodes.push(
-        <div key={surface.surfaceId} className="work-surface-frame">
-          {renderComponent(root, ctx)}
-        </div>,
-      );
-      continue;
-    }
-    const ids = Array.from(surface.components.keys());
-    if (!ids.length) continue;
-    nodes.push(
-      <div key={surface.surfaceId} className="work-surface-frame">
-        {renderChildren(ids, ctx)}
-      </div>,
-    );
+    if (surface.components.size === 0) continue;
+    nodes.push(<InteractiveSurface key={surface.surfaceId} surface={surface} submitFollowUp={submitFollowUp} />);
   }
 
   if (nodes.length === 0) return null;
   return <div className="flex flex-col gap-2.5 mt-1">{nodes}</div>;
+}
+
+function InteractiveSurface({
+  surface,
+  submitFollowUp,
+}: {
+  surface: SurfaceState;
+  submitFollowUp: (prompt: string) => void;
+}) {
+  const [dataModel, setDataModel] = useState(surface.dataModel);
+  useEffect(() => setDataModel(surface.dataModel), [surface.dataModel]);
+
+  const liveSurface = { ...surface, dataModel };
+  const ctx = {
+    surface: liveSurface,
+    onDataChange: (path: string, value: unknown) => {
+      setDataModel((current) => setDataModelValue(current, path, value));
+    },
+    onAction: (
+      _componentId: string,
+      _eventName: string,
+      context?: Record<string, unknown>,
+    ) => {
+      const followUp = buildActionFollowUp(context);
+      if (followUp) submitFollowUp(followUp);
+    },
+  };
+  const root = getRootComponent(liveSurface);
+  const ids = Array.from(liveSurface.components.keys());
+  return (
+    <div className="work-surface-frame">
+      {root ? renderComponent(root, ctx) : renderChildren(ids, ctx)}
+    </div>
+  );
 }
 
 function describeToolDelta(delta: unknown): string {

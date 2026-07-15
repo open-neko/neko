@@ -10,7 +10,10 @@
  * All property values support A2UI data binding via { path: "/..." }
  */
 
+/** Dashboard/old-chat catalog retained for persisted v0.9 surfaces. */
 export const CATALOG_ID = "urn:app:catalog:briefing:v1";
+/** Conversational catalog used by new v1.0 surfaces. */
+export const WORK_CATALOG_ID = "urn:openneko:catalog:work:v2";
 
 // Component type names agents can reference. "Briefing" is the dashboard's
 // daily-briefing root; the conversational work/Ask surface uses "Answer". Both
@@ -26,6 +29,14 @@ export const ComponentTypes = {
   Callout: "Callout",
   Choice: "Choice",
   Divider: "Divider",
+  Text: "Text",
+  Row: "Row",
+  Column: "Column",
+  Tabs: "Tabs",
+  Button: "Button",
+  TextField: "TextField",
+  CheckBox: "CheckBox",
+  ChoicePicker: "ChoicePicker",
   // Dashboard / back-compat aliases (same renderers):
   Briefing: "Briefing",
   BriefingCard: "BriefingCard",
@@ -116,6 +127,62 @@ export interface DividerProps {
   label?: string;
 }
 
+export interface TextProps {
+  component: "Text";
+  text: string;
+  variant?: "caption" | "body";
+}
+
+export interface LayoutProps {
+  component: "Row" | "Column";
+  children: string[];
+  justify?: "start" | "center" | "end" | "spaceBetween" | "spaceAround" | "spaceEvenly" | "stretch";
+  align?: "start" | "center" | "end" | "stretch";
+}
+
+export interface TabsProps {
+  component: "Tabs";
+  tabs: Array<{ title: string; child: string }>;
+}
+
+export interface ButtonProps {
+  component: "Button";
+  child: string;
+  variant?: "default" | "primary" | "borderless";
+  action: {
+    event: {
+      name: string;
+      context?: Record<string, unknown>;
+      wantResponse?: boolean;
+      responsePath?: string;
+    };
+  };
+}
+
+export interface TextFieldProps {
+  component: "TextField";
+  label: string;
+  value?: string | number;
+  placeholder?: string;
+  variant?: "longText" | "number" | "shortText" | "obscured";
+}
+
+export interface CheckBoxProps {
+  component: "CheckBox";
+  label: string;
+  value: boolean;
+}
+
+export interface ChoicePickerProps {
+  component: "ChoicePicker";
+  label?: string;
+  options: Array<{ label: string; value: string }>;
+  value: string[];
+  variant?: "multipleSelection" | "mutuallyExclusive";
+  displayStyle?: "checkbox" | "chips";
+  filterable?: boolean;
+}
+
 export interface ConfirmationProps {
   component: "Confirmation";
   label: string; // action eyebrow, e.g. "Created workflow"
@@ -156,4 +223,11 @@ export type ComponentProps =
   | SectionProps
   | CalloutProps
   | ChoiceProps
-  | DividerProps;
+  | DividerProps
+  | TextProps
+  | LayoutProps
+  | TabsProps
+  | ButtonProps
+  | TextFieldProps
+  | CheckBoxProps
+  | ChoicePickerProps;

@@ -63,7 +63,7 @@ describeIfDb("/api/briefing GET", () => {
     await pool().end();
   });
 
-  it("returns the v0.9 message sequence: createSurface + updateDataModel + updateComponents", async () => {
+  it("returns the v1.0 message sequence: createSurface + updateDataModel + updateComponents", async () => {
     const res = await callRoute(GET, { url: "http://localhost/api/briefing?role=CEO" });
     expect(res.status).toBe(200);
     const messages = res.body as A2UIMessage[];
@@ -74,7 +74,7 @@ describeIfDb("/api/briefing GET", () => {
     expect("updateDataModel" in messages[1]).toBe(true);
     expect("updateComponents" in messages[2]).toBe(true);
 
-    for (const m of messages) expect(m.version).toBe("v0.9");
+    for (const m of messages) expect(m.version).toBe("v1.0");
   });
 
   it("falls back to mock ROLE_DATA insights when no DB metrics", async () => {

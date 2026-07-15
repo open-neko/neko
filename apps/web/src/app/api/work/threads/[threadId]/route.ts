@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getOrgId } from "@/lib/db";
 import { deleteWorkThread, getWorkThreadBundle } from "@/lib/work-store";
+import { getAuthorizedWorkThread } from "@/lib/work-thread-auth";
 
 type RouteContext = {
   params: Promise<{ threadId: string }>;
@@ -8,7 +9,12 @@ type RouteContext = {
 
 export async function GET(_: Request, context: RouteContext) {
   const { threadId } = await context.params;
-  const bundle = await getWorkThreadBundle(await getOrgId(), threadId);
+  const orgId = await getOrgId();
+  const authorized = await getAuthorizedWorkThread(orgId, threadId);
+  if (!authorized) {
+    return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+  }
+  const bundle = await getWorkThreadBundle(orgId, threadId);
   if (!bundle) {
     return NextResponse.json({ error: "Thread not found" }, { status: 404 });
   }
@@ -17,7 +23,12 @@ export async function GET(_: Request, context: RouteContext) {
 
 export async function DELETE(_: Request, context: RouteContext) {
   const { threadId } = await context.params;
-  const ok = await deleteWorkThread(await getOrgId(), threadId);
+  const orgId = await getOrgId();
+  const authorized = await getAuthorizedWorkThread(orgId, threadId);
+  if (!authorized) {
+    return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+  }
+  const ok = await deleteWorkThread(orgId, threadId);
   if (!ok) {
     return NextResponse.json({ error: "Thread not found" }, { status: 404 });
   }

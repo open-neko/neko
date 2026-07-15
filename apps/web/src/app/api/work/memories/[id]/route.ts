@@ -22,7 +22,11 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
   const actor = await getCurrentActor();
-  if (actor.role === "member" && memory.userId && memory.userId !== actor.userId) {
+  if (
+    actor.role !== "admin" &&
+    memory.userId &&
+    memory.userId !== actor.userId
+  ) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
   return NextResponse.json({ memory });
@@ -70,8 +74,17 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   const orgId = await getOrgId();
   const actor = await getCurrentActor();
 
+  const target = await getWorkMemory(orgId, id);
+  if (
+    actor.role !== "admin" &&
+    target?.userId &&
+    target.userId !== actor.userId
+  ) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+
   if (actor.role === "member" && actor.userId) {
-    const memory = await getWorkMemory(orgId, id);
+    const memory = target;
     if (!memory || memory.archivedAt) {
       return NextResponse.json(
         { error: "not found or already archived" },

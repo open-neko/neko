@@ -25,6 +25,27 @@ describe("createSurface", () => {
     const s = createSurface("s1", "cat:1", theme);
     expect(s.theme).toEqual(theme);
   });
+
+  it("creates a complete v1.0 surface from one message", () => {
+    const surfaces = applyMessage(new Map(), {
+      version: "v1.0",
+      createSurface: {
+        surfaceId: "form-1",
+        catalogId: "urn:openneko:catalog:work:v2",
+        surfaceProperties: { agentDisplayName: "OpenNeko" },
+        dataModel: { form: { name: "warehouse" } },
+        components: [
+          { id: "root", component: "Column", children: ["name"] },
+          { id: "name", component: "TextField", label: "Name", value: { path: "/form/name" } },
+        ],
+      },
+    });
+    const surface = surfaces.get("form-1")!;
+    expect(surface.version).toBe("v1.0");
+    expect(surface.surfaceProperties).toEqual({ agentDisplayName: "OpenNeko" });
+    expect(surface.dataModel).toEqual({ form: { name: "warehouse" } });
+    expect(surface.components.get("name")?.component).toBe("TextField");
+  });
 });
 
 describe("resolveDynamic", () => {
@@ -69,6 +90,26 @@ describe("resolveComponent", () => {
       component: "BriefingCard",
       mood: "good",
       text: "literal-text",
+    });
+  });
+
+  it("resolves nested action context bindings", () => {
+    const component = {
+      id: "submit",
+      component: "Button",
+      action: {
+        event: {
+          name: "submit_config",
+          context: { prompt: "Review this", values: { path: "/form" } },
+        },
+      },
+    };
+    expect(resolveComponent(component, { form: { name: "warehouse", port: 5432 } })).toMatchObject({
+      action: {
+        event: {
+          context: { prompt: "Review this", values: { name: "warehouse", port: 5432 } },
+        },
+      },
     });
   });
 });
@@ -154,6 +195,22 @@ describe("applyMessage", () => {
     s = applyMessage(s, {
       version: "v0.9",
       updateDataModel: { surfaceId: "s1", path: "/a", value: undefined },
+    });
+    expect(s.get("s1")?.dataModel).toEqual({ b: 2 });
+  });
+
+  it("v1.0 updateDataModel deletes a key with null", () => {
+    let s = applyMessage(new Map(), {
+      version: "v1.0",
+      createSurface: {
+        surfaceId: "s1",
+        catalogId: "cat:2",
+        dataModel: { a: 1, b: 2 },
+      },
+    });
+    s = applyMessage(s, {
+      version: "v1.0",
+      updateDataModel: { surfaceId: "s1", path: "/a", value: null },
     });
     expect(s.get("s1")?.dataModel).toEqual({ b: 2 });
   });

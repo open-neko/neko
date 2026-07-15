@@ -57,21 +57,21 @@ const policyFixture: ActionPolicyRecord = {
 };
 
 describe("workflowSavedCard", () => {
-  it("emits a v0.9 createSurface + updateComponents pair", () => {
+  it("emits a v1.0 createSurface + updateComponents pair", () => {
     const messages = workflowSavedCard({
       workflow: workflowFixture,
       action: "created",
     });
     expect(messages).toHaveLength(2);
     expect(messages[0]).toMatchObject({
-      version: "v0.9",
+      version: "v1.0",
       createSurface: {
         surfaceId: "workflow-save-wf-1",
         catalogId: "urn:app:catalog:briefing:v1",
       },
     });
     expect(messages[1]).toMatchObject({
-      version: "v0.9",
+      version: "v1.0",
       updateComponents: { surfaceId: "workflow-save-wf-1" },
     });
   });
@@ -129,7 +129,7 @@ const subscriptionFixture: SubscriptionRecord = {
 };
 
 describe("subscriptionSavedCard", () => {
-  it("emits a v0.9 createSurface + updateComponents pair keyed by sub id", () => {
+  it("emits a v1.0 createSurface + updateComponents pair keyed by sub id", () => {
     const messages = subscriptionSavedCard({
       subscription: subscriptionFixture,
       workflowName: "Stock alert",

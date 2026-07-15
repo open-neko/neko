@@ -1,5 +1,7 @@
 import { resolveAgentBackend } from "./agent-backend-resolver";
 import { parseJsonFromOutput } from "./agent-backends/hermes";
+import { sandboxAgentBackendForJob } from "./work/sandbox-launcher";
+import { ensureIsolatedJobWorkspace } from "./work/workspace";
 
 export type BootstrapMetric = {
   role: string;
@@ -120,31 +122,56 @@ export async function runBootstrapMetricsWriter(args: {
   }
 
   const backend = await resolveAgentBackend(orgId);
-  console.log(`[bootstrap-metrics] org=${orgId} backend=${backend.id}`);
-
-  const prompt = buildPrompt({ orgName, businessProfile, industryInsights, seats });
-
-  onProgress?.("Generating bootstrap metrics");
-  const startedAt = Date.now();
-  const result = await backend.run({
-    prompt,
-    orgId,
-    tag: jobId ?? orgId,
-    debug: debug === true,
-  });
-  if (result.status !== "completed") {
-    throw new Error(result.error ?? `${backend.id} returned status=${result.status}`);
-  }
-  const stdout = result.finalText;
-  const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(0);
-
-  const parsed = parseJsonFromOutput(stdout) as { metrics?: unknown };
-  const metrics = validate(parsed.metrics, seats);
-  console.log(
-    `[bootstrap-metrics] org=${orgId} generated ${metrics.length} cards for seats ${seats.join(", ")} in ${elapsedSec}s`,
+  const isolated = await ensureIsolatedJobWorkspace(
+    `bootstrap-metrics-${jobId ?? orgId}`,
   );
-  onProgress?.(`Generated ${metrics.length} cards`);
-  return { metrics };
+  try {
+    const sandboxedBackend = await sandboxAgentBackendForJob({
+      backend,
+      orgId,
+      runId: jobId ?? orgId,
+      workspace: isolated.workspace,
+      // Model-only: no GraphJin endpoint, memory broker, or durable org tree.
+      access: {},
+    });
+    console.log(
+      `[bootstrap-metrics] org=${orgId} backend=${backend.id} runtime=openshell`,
+    );
+
+    const prompt = buildPrompt({
+      orgName,
+      businessProfile,
+      industryInsights,
+      seats,
+    });
+
+    onProgress?.("Generating bootstrap metrics");
+    const startedAt = Date.now();
+    const result = await sandboxedBackend.run({
+      prompt,
+      orgId,
+      tag: jobId ?? orgId,
+      workspace: isolated.workspace,
+      debug: debug === true,
+    });
+    if (result.status !== "completed") {
+      throw new Error(
+        result.error ?? `${backend.id} returned status=${result.status}`,
+      );
+    }
+    const stdout = result.finalText;
+    const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(0);
+
+    const parsed = parseJsonFromOutput(stdout) as { metrics?: unknown };
+    const metrics = validate(parsed.metrics, seats);
+    console.log(
+      `[bootstrap-metrics] org=${orgId} generated ${metrics.length} cards for seats ${seats.join(", ")} in ${elapsedSec}s`,
+    );
+    onProgress?.(`Generated ${metrics.length} cards`);
+    return { metrics };
+  } finally {
+    await isolated.cleanup();
+  }
 }
 
 function validate(raw: unknown, seats: string[]): BootstrapMetric[] {

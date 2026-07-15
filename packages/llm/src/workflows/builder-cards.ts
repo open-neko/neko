@@ -11,14 +11,14 @@ function confirmationCard(args: {
 }): AgentSurfaceMessage[] {
   return [
     {
-      version: "v0.9",
+      version: "v1.0",
       createSurface: {
         surfaceId: args.surfaceId,
         catalogId: "urn:app:catalog:briefing:v1",
       },
     },
     {
-      version: "v0.9",
+      version: "v1.0",
       updateComponents: {
         surfaceId: args.surfaceId,
         components: [

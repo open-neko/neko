@@ -16,6 +16,7 @@ function stubControlPlane(): AgentControlPlane {
     rememberWorkMemory: unused as AgentControlPlane["rememberWorkMemory"],
     searchWorkMemoryByContext:
       unused as AgentControlPlane["searchWorkMemoryByContext"],
+    queryGraphjinRead: unused as AgentControlPlane["queryGraphjinRead"],
     saveWorkflowWithTrigger:
       unused as AgentControlPlane["saveWorkflowWithTrigger"],
     emitWorkflowOutput: unused as AgentControlPlane["emitWorkflowOutput"],
@@ -33,6 +34,10 @@ function stubControlPlane(): AgentControlPlane {
     describeSourceGraph: unused as AgentControlPlane["describeSourceGraph"],
     listSourceSecretNames:
       unused as AgentControlPlane["listSourceSecretNames"],
+    askSourceConfigAgent:
+      unused as AgentControlPlane["askSourceConfigAgent"],
+    previewSourceConfigChange:
+      unused as AgentControlPlane["previewSourceConfigChange"],
   };
 }
 

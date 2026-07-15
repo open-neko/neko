@@ -21,6 +21,7 @@ export type ComponentRenderer = (
 export interface RenderContext {
   surface: SurfaceState;
   onAction?: (componentId: string, eventName: string, context?: Record<string, unknown>) => void;
+  onDataChange?: (path: string, value: unknown) => void;
   // Component-specific callbacks passed through from the page
   extras?: Record<string, unknown>;
 }

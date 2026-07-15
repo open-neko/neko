@@ -149,11 +149,20 @@ export function buildMetricPrompt(args: {
   knowledge: KnowledgePackContents;
   workspace: AgentWorkspace;
   shellTool: string;
+  queryTool?: string;
   memoryContext?: string;
   /** True when the backend supports `mcp__neko_memory__search`. */
   supportsMemorySearch?: boolean;
 }): string {
-  const { input, knowledge, workspace, shellTool, memoryContext, supportsMemorySearch } = args;
+  const {
+    input,
+    knowledge,
+    workspace,
+    shellTool,
+    queryTool,
+    memoryContext,
+    supportsMemorySearch,
+  } = args;
   const sections: string[] = [
     `<role>
 You answer ONE dashboard card by writing GraphQL queries and executing
@@ -171,6 +180,7 @@ describing the snapshot. No prose around the JSON.
     }),
     buildDataAccessSection({
       shellTool,
+      queryTool,
       workspace,
       knowledge,
       // One-shot agent can't iterate — inline the full pack.

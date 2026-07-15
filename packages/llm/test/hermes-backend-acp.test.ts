@@ -300,8 +300,14 @@ describe("HermesBackend ACP behavior", () => {
     const cap = captureRequests();
     const sessionId = "sess-render";
     const a2ui = [
-      { version: "v0.9", createSurface: { surfaceId: "s1", catalogId: "urn:app:catalog:briefing:v1" } },
-      { version: "v0.9", updateComponents: { surfaceId: "s1", components: [{ id: "k", component: "BriefingCard", metric: "42", label: "Test" }] } },
+      {
+        version: "v1.0",
+        createSurface: {
+          surfaceId: "s1",
+          catalogId: "urn:openneko:catalog:work:v2",
+          components: [{ id: "root", component: "MetricCard", metric: "42", label: "Test" }],
+        },
+      },
     ];
     controller.setScript({
       responders: {
@@ -341,7 +347,8 @@ describe("HermesBackend ACP behavior", () => {
     // The render_cards call became the answer surface — not a tool pill.
     const surfaces = events.filter((e) => e.type === "surface");
     expect(surfaces).toHaveLength(1);
-    expect(surfaces[0].messages).toHaveLength(2);
+    expect(surfaces[0].messages).toHaveLength(1);
+    expect(surfaces[0].messages[0].version).toBe("v1.0");
     expect(events.some((e) => e.type === "tool_start")).toBe(false);
   });
 

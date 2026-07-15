@@ -14,15 +14,13 @@ import {
 } from "./knowledge-pack";
 import { buildMetricPrompt } from "./metric-prompt";
 import {
-  ensureGraphjinGuard,
-  resolveBinaryOnPath,
-} from "./work/graphjin-guard";
-import { ensureGraphjinGuardWithActorAuth } from "./work/graphjin-actor-guard";
-import {
   formatGlobalMemoryPromptContext,
 } from "./work/memory";
-import { buildWorkMemoryServer } from "./work/tools";
-import { ensureWorkWorkspace } from "./work/workspace";
+import { sandboxAgentBackendForJob } from "./work/sandbox-launcher";
+import {
+  ensureIsolatedJobWorkspace,
+  ensureWorkWorkspace,
+} from "./work/workspace";
 
 // Keep in sync with ROLE_FOCUS (bootstrap-metrics-writer.ts) and the
 // onboarding ALL_SEATS list — every seat the product offers must be here.
@@ -100,14 +98,14 @@ export async function runMetricAgent(
     `[metric-agent] org=${input.orgId} role=${input.role} slug=${input.slug} mcp=${mcpUrl}`,
   );
 
-  const workspace = await ensureWorkWorkspace(
+  const knowledgeWorkspace = await ensureWorkWorkspace(
     input.orgId,
     "metric-agent",
     input.jobId ?? input.slug,
   );
   const refreshResult = await prefetchKnowledgeForOrg(
     input.orgId,
-    workspace.knowledgeRoot,
+    knowledgeWorkspace.knowledgeRoot,
   );
   if (refreshResult.ok) {
     const totalBytes = refreshResult.files.reduce((n, f) => n + f.bytes, 0);
@@ -119,115 +117,113 @@ export async function runMetricAgent(
       `[metric-agent] org=${input.orgId} slug=${input.slug} knowledge refresh failed (${refreshResult.error}); proceeding with on-disk pack`,
     );
   }
-  const knowledge = await readKnowledgePack(knowledgePackPaths(workspace.knowledgeRoot));
+  const knowledge = await readKnowledgePack(
+    knowledgePackPaths(knowledgeWorkspace.knowledgeRoot),
+  );
 
   const backend = await resolveAgentBackend(input.orgId);
   const debug = input.debug === true;
-  const graphjinBinary = await resolveBinaryOnPath("graphjin");
-  if (!graphjinBinary) {
-    throw new Error("graphjin CLI is not installed on PATH.");
+  const isolated = await ensureIsolatedJobWorkspace(
+    `metric-${input.jobId ?? input.slug}`,
+  );
+  try {
+    // Preload the top-5 global memories so pinned operator rules show up
+    // verbatim. Anything narrower (per-card semantic match) is reachable
+    // through the sandbox's search-only memory broker capability.
+    const memoryContext = await formatGlobalMemoryPromptContext(input.orgId);
+    const supportsMemorySearch = backend.capabilities.mcpTools;
+    const sandboxedBackend = await sandboxAgentBackendForJob({
+      backend,
+      orgId: input.orgId,
+      runId: input.jobId ?? input.slug,
+      workspace: isolated.workspace,
+      access: {
+        graphjinRead: true,
+        memorySearch: supportsMemorySearch,
+      },
+    });
+
+    const basePrompt = buildMetricPrompt({
+      input,
+      knowledge,
+      workspace: isolated.workspace,
+      shellTool: shellToolName(backend.id),
+      queryTool: "mcp__neko_graphjin__execute_graphql",
+      memoryContext,
+      supportsMemorySearch,
+    });
+    // GJ3: role-shaped warm-start for discovery (cached per org/role/intent).
+    const pathwaysSection = buildDiscoveryPathwaysSection(
+      getDiscoveryPathways({
+        orgId: input.orgId,
+        role: input.role,
+        intent: input.title,
+        insightsJson: knowledge.insights,
+      }),
+    );
+    const prompt = pathwaysSection
+      ? `${basePrompt}\n\n${pathwaysSection}`
+      : basePrompt;
+
+    console.log(
+      `[metric-agent] org=${input.orgId} slug=${input.slug} backend=${backend.id} runtime=openshell`,
+    );
+
+    const startedAt = Date.now();
+    // GJ2: iterative validation loop — a malformed reply is fed back to the
+    // agent for a corrective turn instead of failing the whole job.
+    const { value: parsed } = await runValidatedAgentTurn<
+      Partial<MetricAgentResult>
+    >({
+      backend: sandboxedBackend,
+      run: {
+        prompt,
+        orgId: input.orgId,
+        tag: input.jobId,
+        workspace: isolated.workspace,
+        debug,
+      },
+      label: `metric-agent org=${input.orgId} slug=${input.slug}`,
+      validate: (finalText) => {
+        const out = parseJsonFromOutput(
+          finalText,
+        ) as Partial<MetricAgentResult>;
+        if (!out.headlineMetric && !out.insightText) {
+          throw new Error(
+            "JSON parsed but headlineMetric and insightText are both empty",
+          );
+        }
+        return out;
+      },
+    });
+    const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(0);
+
+    const tw = (parsed.timeWindow ?? {}) as Partial<TimeWindow>;
+    const result: MetricAgentResult = {
+      reasoning: String(parsed.reasoning ?? ""),
+      headlineMetric: String(parsed.headlineMetric ?? ""),
+      headlineLabel: String(parsed.headlineLabel ?? ""),
+      insightText: String(parsed.insightText ?? ""),
+      detailText: String(parsed.detailText ?? ""),
+      mood: parsed.mood as MetricAgentResult["mood"],
+      chartType: parsed.chartType as MetricAgentResult["chartType"],
+      chartData: Array.isArray(parsed.chartData)
+        ? (parsed.chartData as MetricAgentResult["chartData"])
+        : [],
+      timeWindow: {
+        grain: tw.grain as TimeWindowGrain,
+        start: tw.start === null ? null : tw.start ? String(tw.start) : null,
+        end: tw.end === null ? null : tw.end ? String(tw.end) : null,
+        label: String(tw.label ?? ""),
+      },
+    };
+
+    console.log(
+      `[metric-agent] org=${input.orgId} slug=${input.slug} done in ${elapsedSec}s`,
+    );
+
+    return result;
+  } finally {
+    await isolated.cleanup();
   }
-  await ensureGraphjinGuardWithActorAuth({
-    orgId: input.orgId,
-    graphjinBinary,
-    binRoot: workspace.binRoot,
-    runRoot: workspace.runRoot,
-    actor: { userId: null, role: "service" },
-  });
-
-  // Preload the top-5 global memories so pinned operator rules show up
-  // verbatim. Anything narrower (per-card semantic match) is reachable
-  // via the search MCP tool below.
-  const memoryContext = await formatGlobalMemoryPromptContext(input.orgId);
-
-  const supportsMemorySearch = backend.capabilities.mcpTools;
-
-  const basePrompt = buildMetricPrompt({
-    input,
-    knowledge,
-    workspace,
-    shellTool: shellToolName(backend.id),
-    memoryContext,
-    supportsMemorySearch,
-  });
-  // GJ3: role-shaped warm-start for discovery (cached per org/role/intent).
-  const pathwaysSection = buildDiscoveryPathwaysSection(
-    getDiscoveryPathways({
-      orgId: input.orgId,
-      role: input.role,
-      intent: input.title,
-      insightsJson: knowledge.insights,
-    }),
-  );
-  const prompt = pathwaysSection ? `${basePrompt}\n\n${pathwaysSection}` : basePrompt;
-
-  console.log(
-    `[metric-agent] org=${input.orgId} slug=${input.slug} backend=${backend.id}`,
-  );
-
-  // Search-only memory MCP: one-shot agent never persists memories itself
-  // (the operator does that explicitly via `save:`), but it can look up
-  // anything beyond the preloaded top-5.
-  const mcpServers = supportsMemorySearch
-    ? {
-        neko_memory: buildWorkMemoryServer(
-          { orgId: input.orgId },
-          { exposeSave: false },
-        ),
-      }
-    : undefined;
-
-  const startedAt = Date.now();
-  // GJ2: iterative validation loop — a malformed reply is fed back to the
-  // agent for a corrective turn instead of failing the whole job.
-  const { value: parsed } = await runValidatedAgentTurn<
-    Partial<MetricAgentResult>
-  >({
-    backend,
-    run: {
-      prompt,
-      orgId: input.orgId,
-      tag: input.jobId,
-      workspace,
-      debug,
-      mcpServers,
-    },
-    label: `metric-agent org=${input.orgId} slug=${input.slug}`,
-    validate: (finalText) => {
-      const out = parseJsonFromOutput(finalText) as Partial<MetricAgentResult>;
-      if (!out.headlineMetric && !out.insightText) {
-        throw new Error(
-          "JSON parsed but headlineMetric and insightText are both empty",
-        );
-      }
-      return out;
-    },
-  });
-  const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(0);
-
-  const tw = (parsed.timeWindow ?? {}) as Partial<TimeWindow>;
-  const result: MetricAgentResult = {
-    reasoning: String(parsed.reasoning ?? ""),
-    headlineMetric: String(parsed.headlineMetric ?? ""),
-    headlineLabel: String(parsed.headlineLabel ?? ""),
-    insightText: String(parsed.insightText ?? ""),
-    detailText: String(parsed.detailText ?? ""),
-    mood: parsed.mood as MetricAgentResult["mood"],
-    chartType: parsed.chartType as MetricAgentResult["chartType"],
-    chartData: Array.isArray(parsed.chartData)
-      ? (parsed.chartData as MetricAgentResult["chartData"])
-      : [],
-    timeWindow: {
-      grain: tw.grain as TimeWindowGrain,
-      start: tw.start === null ? null : tw.start ? String(tw.start) : null,
-      end: tw.end === null ? null : tw.end ? String(tw.end) : null,
-      label: String(tw.label ?? ""),
-    },
-  };
-
-  console.log(
-    `[metric-agent] org=${input.orgId} slug=${input.slug} done in ${elapsedSec}s`,
-  );
-
-  return result;
 }

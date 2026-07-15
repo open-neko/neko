@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { applyMessage, getResolvedComponents } from "@/a2ui/surface";
 import { renderComponent } from "@/a2ui/renderer";
 import "@/a2ui/components"; // side-effect: registers the real Briefing/Markdown/BriefingCard renderers
-import { CATALOG_ID, ComponentTypes } from "@/a2ui/catalog";
+import { CATALOG_ID, WORK_CATALOG_ID, ComponentTypes } from "@/a2ui/catalog";
 import type { A2UIComponent, A2UIMessage, SurfaceState } from "@/a2ui/types";
 import { webProjection } from "@neko/channels";
 import { WEB_PROFILE, type IntentEvent } from "@neko/interaction";
@@ -328,5 +328,65 @@ describe("web channel — Answer root (work/Ask vocabulary, not 'Briefing')", ()
     const html = renderHtml(surface.components.get("root")!, surface);
     expect(html).toContain("$4.7M");
     expect(html).toContain("Revenue MTD");
+  });
+});
+
+describe("web channel — A2UI v1.0 configuration form", () => {
+  const buildForm = (): SurfaceState => {
+    const surfaces = applyMessage(new Map(), {
+      version: "v1.0",
+      createSurface: {
+        surfaceId: "source-form-1",
+        catalogId: WORK_CATALOG_ID,
+        dataModel: {
+          form: { name: "warehouse", kind: ["database"], port: 5432 },
+        },
+        components: [
+          { id: "root", component: "Column", children: ["name", "kind", "submit"] },
+          { id: "name", component: "TextField", label: "Source name", value: { path: "/form/name" }, placeholder: "warehouse" },
+          { id: "kind", component: "ChoicePicker", label: "Source kind", options: [{ label: "Database", value: "database" }], value: { path: "/form/kind" } },
+          { id: "submitLabel", component: "Text", text: "Review proposal" },
+          {
+            id: "submit",
+            component: "Button",
+            child: "submitLabel",
+            variant: "primary",
+            action: {
+              event: {
+                name: "submit_source_config",
+                context: {
+                  prompt: "Review these values and file a proposal.",
+                  values: { path: "/form" },
+                },
+              },
+            },
+          },
+        ],
+      },
+    });
+    return surfaces.get("source-form-1")!;
+  };
+
+  it("renders bound fields and the proposal action from a single createSurface", () => {
+    const surface = buildForm();
+    const html = renderHtml(surface.components.get("root")!, surface);
+    expect(html).toContain("Source name");
+    expect(html).toContain('value="warehouse"');
+    expect(html).toContain("Source kind");
+    expect(html).toContain("Review proposal");
+  });
+
+  it("resolves the live form object into the Button action context", () => {
+    const surface = buildForm();
+    const onAction = vi.fn();
+    const button = renderComponent(surface.components.get("submit")!, {
+      surface,
+      onAction,
+    }) as ReactElement<{ onClick: () => void }>;
+    button.props.onClick();
+    expect(onAction).toHaveBeenCalledWith("submit", "submit_source_config", {
+      prompt: "Review these values and file a proposal.",
+      values: { name: "warehouse", kind: ["database"], port: 5432 },
+    });
   });
 });
