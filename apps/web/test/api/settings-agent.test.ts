@@ -23,6 +23,7 @@ import {
   uniqueOrgId,
 } from "@neko/db/test-helpers";
 import { and, db, eq, llm_provider_config, pool } from "@neko/db";
+import { AGENT_DEFAULT_GLOBAL_CAP } from "@neko/llm";
 import { callRoute } from "../_helpers/route";
 
 const { mockGetOrgId, mockProvisionHostConfig } = vi.hoisted(() => ({
@@ -87,7 +88,7 @@ describeIfDb("/api/settings/agent", () => {
     await pool().end();
   });
 
-  it("GET returns the default payload (hermes, 20) when no row", async () => {
+  it("GET returns the shared Hermes defaults when no row exists", async () => {
     const res = await callRoute(GET);
     expect(res.status).toBe(200);
     const body = res.body as {
@@ -97,7 +98,7 @@ describeIfDb("/api/settings/agent", () => {
     expect(body.agent).toMatchObject({
       source: "default",
       backend: "hermes",
-      globalCap: 20,
+      globalCap: AGENT_DEFAULT_GLOBAL_CAP,
     });
     expect(body.options.length).toBeGreaterThanOrEqual(2);
   });
