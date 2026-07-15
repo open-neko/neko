@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.18.0](https://github.com/open-neko/openneko/compare/v2.17.0...v2.18.0) (2026-07-15)
+
+
+### Features
+
+* add admin GraphJin configuration and A2UI v1 surfaces ([78c4e39](https://github.com/open-neko/openneko/commit/78c4e39d92e77dc303952e585811888ed1e5b5af))
+* add admin-only GraphJin config agent ([a16c13d](https://github.com/open-neko/openneko/commit/a16c13d8f95ef20e446b93b0c7bb8df03c3f68ce))
+* add progressive skills and A2UI v1 work surfaces ([1889220](https://github.com/open-neko/openneko/commit/1889220d4155b7ecf1f5d7de55f1840c8973a1b0))
+* secure GraphJin agentic admin workflows ([01cb5d1](https://github.com/open-neko/openneko/commit/01cb5d1d3be0fe01b79241b52df573c90125be66))
+
 ## [2.17.0](https://github.com/open-neko/openneko/compare/v2.16.1...v2.17.0) (2026-07-13)
 
 
