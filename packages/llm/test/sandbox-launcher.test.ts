@@ -15,6 +15,7 @@ import type { RunWorkflowAgentBackendInput } from "../src/workflows/agent-core";
  */
 const h = vi.hoisted(() => {
   const calls: { args: string[] }[] = [];
+  const state = { holdExec: false };
   function spawn(_cmd: string, args: string[]) {
     calls.push({ args });
     const isExec = args.includes("exec");
@@ -43,10 +44,20 @@ const h = vi.hoisted(() => {
       fire(ch, "close", 0);
     };
     const stdout = Readable.from(lines);
-    stdout.on("end", () => queueMicrotask(closeOnce));
-    return { stdout, stderr, on: reg(ch), kill() {} };
+    if (!isExec || !state.holdExec) {
+      stdout.on("end", () => queueMicrotask(closeOnce));
+    }
+    return {
+      stdout,
+      stderr,
+      on: reg(ch),
+      kill() {
+        closeOnce();
+        return true;
+      },
+    };
   }
-  return { calls, spawn };
+  return { calls, state, spawn };
 });
 
 vi.mock("node:child_process", () => ({ spawn: h.spawn }));
@@ -74,8 +85,10 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 const {
   makeSandboxRunCore,
+  makeSandboxJobRunCore,
   makeSandboxWorkflowRunCore,
   buildModelEgressArgs,
+  buildScopedEgressArgs,
   ensureOpenShellProvider,
 } = await import("../src/work/sandbox-launcher");
 
@@ -120,6 +133,30 @@ function fakeWorkflowInput(
       workspaceOverride ??
       ({ orgRoot: "/tmp/ws/org-1" } as RunWorkflowAgentBackendInput["workspace"]),
     emit,
+  };
+}
+
+function fakeJobInput(
+  workspace: AgentWorkspace,
+  access: { graphjinRead?: boolean; memorySearch?: boolean } = {},
+) {
+  return {
+    backend: {
+      id: "hermes",
+      capabilities: { mcpTools: true },
+    } as RunAgentBackendInput["backend"],
+    orgId: "org-1",
+    runId: "job-1",
+    workspace,
+    run: {
+      prompt: "JOB PROMPT",
+      timeoutMs: 45_000,
+      retries: 0,
+      tag: "profile-job",
+      workspace,
+    },
+    access,
+    emit: async () => {},
   };
 }
 
@@ -184,11 +221,26 @@ describe("buildModelEgressArgs", () => {
       "60",
     ]);
   });
+
+  it("keeps endpoint allowlists separated by executable", () => {
+    const updates = buildScopedEgressArgs("s", [
+      { host: "models.example.com", binary: "/bin/model" },
+      { host: "graphjin.internal", binary: "/bin/graphjin", port: 8080 },
+      { host: "broker.internal", binary: "/bin/node", port: 4199 },
+    ]);
+
+    expect(updates).toHaveLength(3);
+    const model = updates.find((args) => args.includes("/bin/model"))!;
+    expect(model.join(" ")).toContain("models.example.com:443");
+    expect(model.join(" ")).not.toContain("graphjin.internal");
+    expect(model.join(" ")).not.toContain("broker.internal");
+  });
 });
 
 describe("makeSandboxRunCore", () => {
   beforeEach(() => {
     h.calls.length = 0;
+    h.state.holdExec = false;
     jobCapture.jobs.length = 0;
   });
   afterEach(() => vi.restoreAllMocks());
@@ -245,6 +297,28 @@ describe("makeSandboxRunCore", () => {
     expect(execCall?.args.join(" ")).toContain("agent-sandbox/entry.ts");
     // the credential alias references the OpenShell-injected var at runtime, never a value:
     expect(execCall?.args.join(" ")).toContain('export GEMINI_API_KEY="$api_key"');
+  });
+
+  it("aborts the live exec and deletes the whole sandbox without downloading artifacts", async () => {
+    h.state.holdExec = true;
+    const controller = new AbortController();
+    const runCore = makeSandboxRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    const pending = runCore({
+      ...fakeInput(async () => {}),
+      signal: controller.signal,
+    });
+    while (!h.calls.some((call) => call.args.includes("exec"))) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(h.calls.some((call) => call.args.includes("delete"))).toBe(true);
+    expect(h.calls.some((call) => call.args.includes("download"))).toBe(false);
   });
 
   it("uses one OpenShell sandbox for a native-delegation-capable backend", async () => {
@@ -328,6 +402,63 @@ describe("makeSandboxRunCore", () => {
       token: "run-token",
       subject: "service",
     });
+  });
+
+  it("gives model-only jobs no GraphJin capability or artifact persistence", async () => {
+    const orgRoot = await mkdtemp(join(tmpdir(), "job-ws-"));
+    const workspace = fullWorkspace(orgRoot);
+    await mkdir(workspace.artifactRoot, { recursive: true });
+    const runCore = makeSandboxJobRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    await runCore(fakeJobInput(workspace));
+
+    expect(jobCapture.jobs.at(-1)).toMatchObject({
+      kind: "agent-job",
+      graphjinEnabled: false,
+      agentAccess: {},
+      agentRun: {
+        timeoutMs: 45_000,
+        retries: 0,
+        tag: "profile-job",
+      },
+    });
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinServerUrl");
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinClientConfig");
+    expect(h.calls.some((c) => c.args.includes("download"))).toBe(false);
+  });
+
+  it("gives GraphJin jobs a broker capability without source egress or tokens", async () => {
+    const orgRoot = await mkdtemp(join(tmpdir(), "job-ws-"));
+    const workspace = fullWorkspace(orgRoot);
+    const clientDir = join(workspace.runRoot, "gj-auth", "graphjin");
+    await mkdir(clientDir, { recursive: true });
+    await writeFile(
+      join(clientDir, "client.json"),
+      JSON.stringify({
+        server: "http://localhost:8080/api/v1/mcp",
+        token: "ephemeral-job-token",
+        subject: "service",
+      }),
+    );
+    const runCore = makeSandboxJobRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    await runCore(fakeJobInput(workspace, { graphjinRead: true }));
+
+    const job = jobCapture.jobs.at(-1);
+    expect(job).toMatchObject({
+      kind: "agent-job",
+      graphjinEnabled: false,
+      agentAccess: { graphjinRead: true },
+    });
+    expect(job).not.toHaveProperty("graphjinWriteGrants");
+    expect(job).not.toHaveProperty("graphjinServerUrl");
+    expect(job).not.toHaveProperty("graphjinClientConfig");
   });
 
   it("scopes broker egress to node, injects url+token, and releases on finish", async () => {

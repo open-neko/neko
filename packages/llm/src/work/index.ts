@@ -9,6 +9,7 @@ export {
   buildAuditViewerServer,
   buildChannelManagerServer,
   buildDataSourceManagerServer,
+  buildGraphjinReadServer,
   buildPluginActionServer,
   buildPluginManagerServer,
   buildRenderCardsServer,
@@ -80,9 +81,14 @@ export type {
 export {
   agentRuntimeDepsFromEnv,
   buildModelEgressArgs,
+  buildScopedEgressArgs,
   ensureOpenShellProvider,
+  makeSandboxJobRunCore,
   makeSandboxRunCore,
   makeSandboxWorkflowRunCore,
+  sandboxAgentBackendForJob,
   workflowRuntimeDepsFromEnv,
+  type AgentJobAccess,
+  type RunJobAgentBackendInput,
   type SandboxLauncherOptions,
 } from "./sandbox-launcher";

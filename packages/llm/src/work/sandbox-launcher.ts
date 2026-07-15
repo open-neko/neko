@@ -5,8 +5,11 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import {
   agentTurnTimeoutMs,
+  type AgentBackend,
   type AgentEvent,
+  type AgentRunOptions,
   type AgentRunResult,
+  type AgentWorkspace,
 } from "../agent-backend";
 import type { RunWorkflowAgentBackendInput } from "../workflows/agent-core";
 import type { RunWorkflowTurnDeps } from "../workflows/run-workflow-turn";
@@ -78,8 +81,29 @@ export interface SandboxLauncherOptions {
 
 type RunCore = (input: RunAgentBackendInput) => Promise<AgentRunResult>;
 type RunWorkflowCore = (input: RunWorkflowAgentBackendInput) => Promise<AgentRunResult>;
-type SandboxRunKind = "work" | "workflow";
-type SandboxRunInput = RunAgentBackendInput | RunWorkflowAgentBackendInput;
+export type AgentJobAccess = {
+  /** Permit query-only GraphJin reads through the trusted host broker. */
+  graphjinRead?: boolean;
+  /** Permit search-only access to the org's team memory layer via the broker. */
+  memorySearch?: boolean;
+};
+
+export type RunJobAgentBackendInput = {
+  backend: AgentBackend;
+  orgId: string;
+  runId: string;
+  workspace: AgentWorkspace;
+  run: AgentRunOptions;
+  access: AgentJobAccess;
+  emit: (event: AgentEvent) => Promise<void>;
+};
+
+type RunJobCore = (input: RunJobAgentBackendInput) => Promise<AgentRunResult>;
+type SandboxRunKind = "work" | "workflow" | "agent-job";
+type SandboxRunInput =
+  | RunAgentBackendInput
+  | RunWorkflowAgentBackendInput
+  | RunJobAgentBackendInput;
 
 const SHELL_KEY_RX = /^[A-Z_][A-Z0-9_]*$/;
 // Shell var names allow lowercase — the OpenShell credential is injected as `api_key`.
@@ -87,6 +111,37 @@ const SHELL_VARNAME_RX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+type SerializableAgentRunOptions = Pick<
+  AgentRunOptions,
+  | "userMessage"
+  | "timeoutMs"
+  | "retries"
+  | "debug"
+  | "tag"
+  | "skills"
+  | "backendState"
+  | "wantsCards"
+  | "outputSchema"
+  | "forkSession"
+>;
+
+function serializableAgentRunOptions(
+  run: AgentRunOptions,
+): SerializableAgentRunOptions {
+  return {
+    ...(run.userMessage !== undefined ? { userMessage: run.userMessage } : {}),
+    ...(run.timeoutMs !== undefined ? { timeoutMs: run.timeoutMs } : {}),
+    ...(run.retries !== undefined ? { retries: run.retries } : {}),
+    ...(run.debug !== undefined ? { debug: run.debug } : {}),
+    ...(run.tag !== undefined ? { tag: run.tag } : {}),
+    ...(run.skills !== undefined ? { skills: run.skills } : {}),
+    ...(run.backendState !== undefined ? { backendState: run.backendState } : {}),
+    ...(run.wantsCards !== undefined ? { wantsCards: run.wantsCards } : {}),
+    ...(run.outputSchema !== undefined ? { outputSchema: run.outputSchema } : {}),
+    ...(run.forkSession !== undefined ? { forkSession: run.forkSession } : {}),
+  };
 }
 
 /**
@@ -107,6 +162,77 @@ export function makeSandboxWorkflowRunCore(
   return makeSandboxCore(opts, "workflow") as RunWorkflowCore;
 }
 
+/** Run one non-interactive backend turn inside OpenShell. */
+export function makeSandboxJobRunCore(
+  opts: SandboxLauncherOptions,
+): RunJobCore {
+  return makeSandboxCore(opts, "agent-job") as RunJobCore;
+}
+
+/**
+ * Wrap a configured backend so every run happens in an OpenShell sandbox.
+ * The wrapper accepts only serializable, non-interactive run options; tools
+ * are derived from `access` inside the box instead of trusting caller-supplied
+ * MCP servers or permission callbacks.
+ */
+export async function sandboxAgentBackendForJob(opts: {
+  backend: AgentBackend;
+  orgId: string;
+  runId: string;
+  workspace: AgentWorkspace;
+  access?: AgentJobAccess;
+}): Promise<AgentBackend> {
+  const access = opts.access ?? {};
+  const needsBroker = access.graphjinRead || access.memorySearch;
+  const broker = needsBroker
+    ? await import("./broker").then(({ ensureAgentBroker }) =>
+        ensureAgentBroker(),
+      )
+    : undefined;
+  if (needsBroker && !broker) {
+    throw new Error("agent job capabilities require the OpenNeko broker");
+  }
+  const runCore = makeSandboxJobRunCore(sandboxLauncherOptionsFromEnv(broker));
+
+  return {
+    id: opts.backend.id,
+    model: opts.backend.model,
+    capabilities: opts.backend.capabilities,
+    async run(run): Promise<AgentRunResult> {
+      const workspace = run.workspace ?? opts.workspace;
+      if (workspace.orgRoot !== opts.workspace.orgRoot) {
+        throw new Error("agent job attempted to replace its isolated workspace");
+      }
+      if (
+        run.mcpServers ||
+        run.canUseTool ||
+        run.onElicitation ||
+        run.hooks ||
+        run.agents ||
+        run.allowedTools
+      ) {
+        throw new Error(
+          "agent job tools must be declared through the OpenShell access envelope",
+        );
+      }
+      if (run.signal) {
+        throw new Error("agent job AbortSignal forwarding is not supported");
+      }
+      return runCore({
+        backend: opts.backend,
+        orgId: opts.orgId,
+        runId: opts.runId,
+        workspace,
+        run,
+        access,
+        emit: async (event) => {
+          await run.onEvent?.(event);
+        },
+      });
+    },
+  };
+}
+
 function makeSandboxCore(
   opts: SandboxLauncherOptions,
   kind: SandboxRunKind,
@@ -120,13 +246,26 @@ function makeSandboxCore(
       ? ["--gateway-endpoint", opts.gatewayEndpoint]
       : [];
 
-  const run = (args: string[], timeoutMs: number): Promise<string> =>
+  const runCleanup = (args: string[], timeoutMs: number): Promise<string> =>
     runProcessOnce(cli, [...gatewayArgs, ...args], timeoutMs);
 
   return async function sandboxRunCore(
     input: SandboxRunInput,
   ): Promise<AgentRunResult> {
-    const name = `work-${input.runId}`.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 60);
+    const isJob = kind === "agent-job";
+    const jobInput = isJob ? (input as RunJobAgentBackendInput) : null;
+    const signal = isJob
+      ? undefined
+      : (input as RunAgentBackendInput | RunWorkflowAgentBackendInput).signal;
+    if (signal?.aborted) throw abortError();
+    const run = (args: string[], timeoutMs: number): Promise<string> =>
+      runProcessOnce(cli, [...gatewayArgs, ...args], timeoutMs, signal);
+    const inputPrompt = jobInput?.run.prompt ??
+      (input as RunAgentBackendInput | RunWorkflowAgentBackendInput).prompt;
+    const name = `${isJob ? "job" : "work"}-${input.runId}`
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "")
+      .slice(0, 60);
 
     // The box is a separate filesystem; the host workspace path (~/.config/… or
     // /Users/…) can't be recreated under the sandbox user's home. Upload the
@@ -142,37 +281,56 @@ function makeSandboxCore(
       ]),
     ) as RunAgentBackendInput["workspace"];
 
-    // GJ5: the box rebuilds the graphjin guard (host paths don't exist
-    // there) — resolve this run's policy write grants host-side, where
-    // the DB lives, and ship them in the job.
-    const graphjinWriteGrants = await resolveRunGraphjinGrants(
-      input.orgId,
-      input.runId,
-    );
+    // Non-interactive jobs never receive direct source egress or a GraphJin
+    // token. Their graphjinRead capability is a brokered query-only MCP tool.
+    const graphjinEnabled = !isJob;
+
+    // Job agents are always read-only. Interactive/workflow turns retain
+    // their existing actor-policy grant resolution.
+    const graphjinWriteGrants =
+      graphjinEnabled && !isJob
+        ? await resolveRunGraphjinGrants(input.orgId, input.runId)
+        : [];
 
     // GJ6: the box must reach the org's GraphJin server — resolved here
     // (host-side, where the DB lives) both for the egress rule and for the
     // in-box client.json (entry.ts rewrites loopback to the host alias).
-    const dataEgress = await resolveDataSourceEgress(
-      input.orgId,
-      opts.graphjinBinaryInBox ?? "/usr/local/bin/graphjin",
-    );
-    const graphjinClientConfig = await readRunGraphjinClientConfig(
-      input.workspace.runRoot,
-    );
+    const dataEgress: Awaited<ReturnType<typeof resolveDataSourceEgress>> = graphjinEnabled
+      ? await resolveDataSourceEgress(
+          input.orgId,
+          (() => {
+            const binary =
+              opts.graphjinBinaryInBox ?? "/usr/local/bin/graphjin";
+            return binary.endsWith("/graphjin")
+              ? [binary, `${binary}.real`]
+              : [binary];
+          })(),
+        )
+      : { rules: [] };
+    const graphjinClientConfig = graphjinEnabled
+      ? await readRunGraphjinClientConfig(input.workspace.runRoot)
+      : null;
+
+    const threadId = isJob
+      ? `agent-job:${input.runId}`
+      : (input as RunAgentBackendInput | RunWorkflowAgentBackendInput).threadId;
+    const message = isJob
+      ? jobInput?.run.userMessage ?? ""
+      : (input as RunAgentBackendInput | RunWorkflowAgentBackendInput).userMessage;
 
     const job = {
       kind,
       orgId: input.orgId,
-      threadId: input.threadId,
+      threadId,
       runId: input.runId,
-      message: input.userMessage,
-      prompt: toBox(input.prompt),
+      message,
+      prompt: toBox(inputPrompt),
       backendId: input.backend.id,
       // claude-agent reconstructs in-box and validates it has a Claude model;
       // hermes reads its model from config.yaml, so this is undefined there.
       model: input.backend.model,
       workspace: boxWorkspace,
+      graphjinEnabled,
       ...(kind === "work"
         ? {
             backendState: (input as RunAgentBackendInput).backendState,
@@ -183,12 +341,17 @@ function makeSandboxCore(
             // docs/PER_CHANNEL_RENDERING.md). Default true if absent.
             wantsCards: (input as RunAgentBackendInput).wantsCards ?? true,
           }
-        : {
+        : kind === "workflow"
+          ? {
             workflowRunId: (input as RunWorkflowAgentBackendInput).workflowRunId,
             mode: (input as RunWorkflowAgentBackendInput).mode,
             triggeredByObservationId:
               (input as RunWorkflowAgentBackendInput).triggeredByObservationId ?? null,
-          }),
+            }
+          : {
+              agentAccess: jobInput?.access ?? {},
+              agentRun: serializableAgentRunOptions(jobInput?.run ?? { prompt: inputPrompt }),
+            }),
       ...(graphjinWriteGrants.length > 0 ? { graphjinWriteGrants } : {}),
       ...(dataEgress.serverUrl ? { graphjinServerUrl: dataEgress.serverUrl } : {}),
       ...(graphjinClientConfig ? { graphjinClientConfig } : {}),
@@ -235,12 +398,17 @@ function makeSandboxCore(
             ];
           })()
         : [];
-      const policyArgs = buildModelEgressArgs(name, [
+      const egressRules = [
         ...(opts.modelEgress ?? []),
         ...brokerEgress,
         ...dataEgress.rules,
-      ]);
-      if (policyArgs) await run(policyArgs, 75_000);
+      ];
+      // Never combine different binaries into one policy update: doing so can
+      // create a cross-product (for example node reaching GraphJin, bypassing
+      // the guarded CLI). Each binary receives only its own endpoint set.
+      for (const policyArgs of buildScopedEgressArgs(name, egressRules)) {
+        await run(policyArgs, 75_000);
+      }
 
       // Workspace lands at /sandbox/<orgRoot-basename> (= boxOrgRoot); `upload`
       // nests a dir as DEST/basename(SRC). Then keyless HERMES_HOME + the job.
@@ -253,7 +421,9 @@ function makeSandboxCore(
       }
       await run(["sandbox", "upload", name, jobFile, SANDBOX_JOB_PATH], 30_000);
 
-      log(`agent sandbox ready: ${name} (backend=${input.backend.id})`);
+      log(
+        `agent sandbox ready: ${name} (backend=${input.backend.id}, kind=${kind}, graphjin=${graphjinEnabled})`,
+      );
       return await execAndStream(
         cli,
         gatewayArgs,
@@ -279,7 +449,9 @@ function makeSandboxCore(
         // Must outlive the in-box turn budget with margin, so a long turn
         // dies as the backend's honest timeout error — not an opaque
         // exec-stream kill from out here.
-        opts.execTimeoutMs ?? agentTurnTimeoutMs() + 120_000,
+        opts.execTimeoutMs ??
+          (jobInput?.run.timeoutMs ?? agentTurnTimeoutMs()) + 120_000,
+        signal,
       );
     } finally {
       opts.brokerRelease?.(input.runId);
@@ -288,12 +460,17 @@ function makeSandboxCore(
       // empty host dir and 404s the download. Best-effort, and runs even when
       // the turn errored or timed out (the box is still alive here), so a
       // partial artifact from a long run isn't lost.
-      await mkdir(input.workspace.artifactRoot, { recursive: true }).catch(() => {});
-      await run(
-        ["sandbox", "download", name, boxWorkspace.artifactRoot, input.workspace.artifactRoot],
-        120_000,
-      ).catch((e) => log(`artifact pull-back skipped: ${(e as Error).message}`));
-      await run(["sandbox", "delete", name], 60_000).catch(() => {});
+      if (!isJob && !signal?.aborted) {
+        await mkdir(input.workspace.artifactRoot, { recursive: true }).catch(() => {});
+        await runCleanup(
+          ["sandbox", "download", name, boxWorkspace.artifactRoot, input.workspace.artifactRoot],
+          120_000,
+        ).catch((e) => log(`artifact pull-back skipped: ${(e as Error).message}`));
+      }
+      // The sandbox is the process-tree boundary. Deleting it terminates the
+      // backend plus every child/sub-agent, and cleanup must not inherit the
+      // already-aborted run signal.
+      await runCleanup(["sandbox", "delete", name], 60_000).catch(() => {});
       await rm(stageDir, { recursive: true, force: true });
     }
   };
@@ -303,7 +480,7 @@ function makeSandboxCore(
 /** GJ6: the org's GraphJin host as a per-run egress allow entry. Best-effort. */
 async function resolveDataSourceEgress(
   orgId: string,
-  graphjinBinary: string,
+  graphjinBinaries: readonly string[],
 ): Promise<{
   rules: Array<{ host: string; binary: string; port?: number }>;
   serverUrl?: string;
@@ -325,7 +502,7 @@ async function resolveDataSourceEgress(
     // SSRF check rejects names resolving to private compose IPs.
     const host = isHostLocalName(u.hostname) ? SANDBOX_HOST_ALIAS : u.hostname;
     return {
-      rules: [{ host, port, binary: graphjinBinary }],
+      rules: graphjinBinaries.map((binary) => ({ host, port, binary })),
       serverUrl: src.mcpUrl,
     };
   } catch (err) {
@@ -396,6 +573,25 @@ export function buildModelEgressArgs(
     args.push("--add-allow", `${host}:${port ?? 443}:*:/**`);
   args.push("--wait", "--timeout", "60");
   return args;
+}
+
+export function buildScopedEgressArgs(
+  name: string,
+  egress: ReadonlyArray<{ host: string; binary: string; port?: number }>,
+): string[][] {
+  const byBinary = new Map<
+    string,
+    Array<{ host: string; binary: string; port?: number }>
+  >();
+  for (const rule of egress) {
+    const rules = byBinary.get(rule.binary) ?? [];
+    rules.push(rule);
+    byBinary.set(rule.binary, rules);
+  }
+  return Array.from(byBinary.values()).flatMap((rules) => {
+    const args = buildModelEgressArgs(name, rules);
+    return args ? [args] : [];
+  });
 }
 
 /**
@@ -587,24 +783,44 @@ function runProcessOnce(
   cmd: string,
   args: string[],
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+    const onAbort = () => {
+      child.kill("SIGKILL");
+      fail(abortError());
+    };
     child.stdout.on("data", (d: Buffer) => (stdout += d.toString("utf8")));
     child.stderr.on("data", (d: Buffer) => (stderr += d.toString("utf8")));
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error(`openshell ${args[0] ?? ""} timed out after ${timeoutMs}ms`));
+      fail(new Error(`openshell ${args[0] ?? ""} timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     timer.unref();
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
     child.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
+      fail(err);
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      cleanup();
       if (code !== 0 && !stdout.trim()) {
         // Redact secret-bearing values (--credential name=value) — this
         // message reaches console logs.
@@ -636,6 +852,7 @@ function execAndStream(
   innerCmd: string,
   emit: (event: AgentEvent) => Promise<void>,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<AgentRunResult> {
   return new Promise((resolve, reject) => {
     const timeoutSec = Math.max(1, Math.ceil(timeoutMs / 1000));
@@ -659,6 +876,20 @@ function execAndStream(
     );
     let result: AgentRunResult | undefined;
     let stderr = "";
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      child.kill("SIGKILL");
+      reject(err);
+    };
+    const onAbort = () => fail(abortError());
     const rl = createInterface({ input: child.stdout });
     rl.on("line", (line: string) => {
       const ev = line.indexOf(EVENT_MARKER);
@@ -680,17 +911,19 @@ function execAndStream(
       }
     });
     child.stderr.on("data", (d: Buffer) => (stderr += d.toString("utf8")));
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error(`agent sandbox exec timed out after ${timeoutMs}ms`));
+    timer = setTimeout(() => {
+      fail(new Error(`agent sandbox exec timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     timer.unref();
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
     child.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
+      fail(err);
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      cleanup();
       if (result) return resolve(result);
       reject(
         new Error(
@@ -699,4 +932,10 @@ function execAndStream(
       );
     });
   });
+}
+
+function abortError(): Error {
+  const err = new Error("aborted");
+  err.name = "AbortError";
+  return err;
 }

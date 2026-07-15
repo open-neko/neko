@@ -499,6 +499,26 @@ describe("ClaudeAgentBackend run", () => {
     expect(agents.worker.mcpServers).toEqual(["neko_workflow_builder"]);
   });
 
+  it("treats an empty allowedTools list as model-only isolation", async () => {
+    claudeController.setScript({
+      records: [systemInit("sess-model-only"), resultSuccess("sess-model-only", "ok")],
+    });
+    const backend = new ClaudeAgentBackend(CONFIG);
+    await backend.run({
+      prompt: "Return JSON only",
+      workspace: FAKE_WORKSPACE,
+      onEvent: () => {},
+      allowedTools: [],
+    });
+
+    const opts = claudeController.lastOptions() as Record<string, unknown>;
+    expect(opts.tools).toEqual(["Agent"]);
+    expect(opts.settingSources).toEqual([]);
+    expect(
+      (opts.agents as { worker: { tools: string[] } }).worker.tools,
+    ).toEqual([]);
+  });
+
   it("when allowedTools is NOT set, keeps the claude_code preset path", async () => {
     claudeController.setScript({
       records: [systemInit("sess-legacy"), resultSuccess("sess-legacy", "ok")],

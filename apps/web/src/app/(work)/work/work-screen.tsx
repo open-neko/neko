@@ -878,6 +878,10 @@ export default function WorkScreen() {
   }
 
   async function postAndStreamRun(threadId: string, message: string) {
+    // Every entry point must expose the live-run controls. Retry/edit reloads
+    // the truncated thread first, and that reload clears `sending` when no
+    // earlier run remains in flight.
+    setSending(true);
     const body = JSON.stringify({ message });
     const res = await fetch(`/api/work/threads/${threadId}/runs`, {
       method: "POST",

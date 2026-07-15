@@ -115,6 +115,8 @@ ${application}${usage}
 
 export type DataAccessOptions = {
   shellTool: string;
+  /** Query-only broker tool used by isolated, non-interactive jobs. */
+  queryTool?: string;
   workspace: AgentWorkspace;
   knowledge: KnowledgePackContents;
   // 'syntax': inline only the DSL reference, point at the other knowledge
@@ -127,6 +129,8 @@ export type DataAccessOptions = {
 export function buildDataAccessSection(opts: DataAccessOptions): string {
   const { shellTool, workspace, knowledge, inlineKnowledge } = opts;
   const paths = knowledgePackPaths(workspace.knowledgeRoot);
+
+  if (opts.queryTool) return buildBrokeredDataAccessSection(opts);
 
   // Agentic deployments (GraphJin sources mode, GJ4 actor tokens) layer
   // knowledge differently: a slim role-aware bootstrap is inlined and
@@ -246,6 +250,97 @@ ${GRAPHJIN_COLUMNAR_RULE.replace(/^- /, "")}
 
 Never invent or interpolate. If a query returned no rows, the answer
 is "no data", not a guess.
+
+${knowledgeBlock}
+</data_access>`;
+}
+
+function buildBrokeredDataAccessSection(opts: DataAccessOptions): string {
+  const { queryTool, knowledge } = opts;
+  if (!queryTool) throw new Error("brokered data access requires queryTool");
+  const agentic = knowledge.mode === "agentic";
+  const knowledgeBlock = agentic
+    ? `================================================================================
+Tables visible to the service role (deeper detail via gj_catalog):
+================================================================================
+
+${compactTableDigest(knowledge.tables)}
+
+================================================================================
+Hub tables and ready query templates:
+================================================================================
+
+${compactInsightsDigest(knowledge.insights)}
+
+================================================================================
+Help-card index (load detail with gj_catalog(id: "help:<topic>")):
+================================================================================
+
+${compactHelpCardIndex(knowledge.insights)}
+
+================================================================================
+GraphJin DSL essentials:
+================================================================================
+
+${knowledge.syntax}`
+    : `================================================================================
+Tables — prefetched schema summary:
+================================================================================
+
+${knowledge.tables}
+
+================================================================================
+Namespaces:
+================================================================================
+
+${knowledge.namespaces}
+
+================================================================================
+Insights — relationships and query templates:
+================================================================================
+
+${knowledge.insights}
+
+================================================================================
+GraphJin DSL reference:
+================================================================================
+
+${knowledge.syntax}`;
+
+  return `<data_access>
+The configured GraphJin database is the authoritative source for this metric.
+Execute every database read by calling \`${queryTool}\` with:
+
+  { "query": "<your read-only GraphQL query>" }
+
+This tool is implemented by the trusted OpenNeko host. The source URL and
+short-lived service credential never enter your sandbox. The host rejects
+mutations and subscriptions before GraphJin sees them. No shell, raw HTTP,
+configuration, or write path is available for database access.
+
+${
+  agentic
+    ? `Discover schema detail on demand with gj_catalog queries through the same
+tool. Pull a table card and relevant column rows before writing a non-trivial
+query. Use details_json, examples_json, and edges_json for columns, templates,
+and joins. Do not call GraphJin dev tools; only execute GraphQL queries.`
+    : `The complete prefetched schema and DSL context is inlined below. Use it
+instead of attempting separate discovery or configuration commands.`
+}
+
+If a response contains an errors array, read the error, correct the GraphQL,
+and call the same tool again. Do not repeat an unchanged failing query.
+
+${GRAPHJIN_DATE_RULE}
+
+${GRAPHJIN_FANOUT_RULE}
+
+${GRAPHJIN_AGGREGATE_RULE}
+
+- Keep query results small. Prefer server-side aggregation and grouped
+  summaries over fetching raw rows.
+- Never invent or interpolate. If a query returned no rows, the answer is
+  "no data", not a guess.
 
 ${knowledgeBlock}
 </data_access>`;

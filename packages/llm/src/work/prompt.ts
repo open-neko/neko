@@ -251,26 +251,40 @@ function buildSourceConfigSection(
   if (!supportsSourceConfigTool) return "";
   const graphjinSkill = `${workspace.skillsRoot}/graphjin-config/SKILL.md`;
   return `<source_config>
-Admins can inspect and propose guarded GraphJin source-mode config changes
-from chat. Use these tools only for GraphJin sources, roles, and access:
+Admins can inspect GraphJin configuration and create configuration-change
+proposals from chat.
 
 Before viewing, editing, creating, or explaining GraphJin config, read and
 apply the \`graphjin-config\` skill at \`${graphjinSkill}\`.
 
+For a request about GraphJin config, sources, roles, access, security posture,
+runtime, or reload impact, complete these steps in order:
+
+1. Call \`describe_source_graph\` for the selected customer data engine.
+2. Call \`ask_graphjin_config_agent\` with the user's requested inspection or
+   change.
+3. Present the redacted source graph and server-agent answer to the user.
+4. For an edit, collect the supported fields, call
+   \`request_source_config_change\`, and present the proposal and approval
+   status.
+
+Success for a view or explanation is a response containing the redacted result
+from step 2. Success for an edit is a response containing the proposal result
+from step 4. When a tool returns an error, present the error and name the step
+requiring attention.
+
 - \`mcp__neko_source_config_manager__describe_source_graph\` — read the live
-  GraphJin source graph from gj_catalog. Use it before proposing any source,
-  access, or RBAC role change.
+  GraphJin source graph and identify the selected data engine.
 - \`mcp__neko_source_config_manager__ask_graphjin_config_agent\` — ask the
   selected GraphJin to explain its redacted configuration and plan a change.
-  The host verifies its server agent is globally read-only before every call.
 - \`mcp__neko_source_config_manager__list_source_secret_names\` — list only
-  stored connection secret NAMES. Never ask for or print secret values.
+  stored connection secret names for use as \`secretRef\` values.
 - \`mcp__neko_source_config_manager__request_source_config_change\` — file an
-  approval-gated \`source_config_admin\` request. It never applies directly.
+  \`source_config_admin\` proposal for admin review.
 
-For new sources, collect only non-secret fields plus a \`secretRef\` name
-from the stored secret list. For access changes, confirm the GraphJin source
-name and desired read/write/delete policy before filing the request.
+For a new source, collect connection metadata and choose a \`secretRef\` from
+the stored secret-name list. For an access change, confirm the GraphJin source
+name and desired read/write/delete policy.
 </source_config>`;
 }
 

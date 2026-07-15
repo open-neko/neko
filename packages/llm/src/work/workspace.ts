@@ -1,7 +1,17 @@
-import { cp, lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { access } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentWorkspace } from "../agent-backend";
@@ -92,6 +102,72 @@ export async function ensureWorkWorkspace(
     runRoot,
     artifactRoot,
     binRoot,
+  };
+}
+
+/**
+ * A throw-away workspace for non-interactive agent jobs.
+ *
+ * Job agents must never receive the durable org workspace: it can contain
+ * member memories, uploads, prior run state, and client credentials from
+ * unrelated turns. The OpenShell launcher uploads this empty tree instead,
+ * then the caller exposes only the current run's explicit brokered
+ * capabilities. Source endpoints and service credentials stay host-side.
+ */
+export async function ensureIsolatedJobWorkspace(
+  label: string,
+): Promise<{ workspace: AgentWorkspace; cleanup: () => Promise<void> }> {
+  const safeLabel = safeSegment(label).slice(0, 48) || "job";
+  const orgRoot = await mkdtemp(
+    join(tmpdir(), `openneko-agent-${safeLabel}-`),
+  );
+  const skillsRoot = join(orgRoot, "skills");
+  const memoryRoot = join(orgRoot, "memory");
+  const knowledgeRoot = join(orgRoot, "knowledge");
+  const uploadsRoot = join(orgRoot, "uploads");
+  const runsRoot = join(orgRoot, "runs");
+  const threadUploadsRoot = join(uploadsRoot, "job");
+  const runRoot = join(runsRoot, "current");
+  const artifactRoot = join(runRoot, "artifacts");
+  const binRoot = join(runRoot, "bin");
+  const claudeProjectRoot = orgRoot;
+  const claudeConfigRoot = join(orgRoot, "claude", "config");
+
+  for (const dir of [
+    skillsRoot,
+    memoryRoot,
+    knowledgeRoot,
+    uploadsRoot,
+    runsRoot,
+    threadUploadsRoot,
+    runRoot,
+    artifactRoot,
+    binRoot,
+    claudeConfigRoot,
+  ]) {
+    await mkdir(dir, { recursive: true });
+  }
+
+  const workspace: AgentWorkspace = {
+    orgRoot,
+    skillsRoot,
+    memoryRoot,
+    knowledgeRoot,
+    uploadsRoot,
+    runsRoot,
+    threadUploadsRoot,
+    runRoot,
+    artifactRoot,
+    binRoot,
+    claudeProjectRoot,
+    claudeConfigRoot,
+  };
+
+  return {
+    workspace,
+    cleanup: async () => {
+      await rm(orgRoot, { recursive: true, force: true });
+    },
   };
 }
 

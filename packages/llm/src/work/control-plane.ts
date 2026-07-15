@@ -56,6 +56,20 @@ function toWire<T>(value: T): Wire<T> {
   return JSON.parse(JSON.stringify(value ?? null)) as Wire<T>;
 }
 
+export function assertReadOnlyGraphql(query: string): void {
+  const text = query.trim();
+  if (!text) throw new Error("GraphJin read query is empty");
+  // Deliberately conservative: rejecting the words even in a string/comment
+  // can cause a harmless false positive, while accepting either operation
+  // would turn the broker into a write bypass for legacy GraphJin sources.
+  if (/\b(?:mutation|subscription)\b/i.test(text)) {
+    throw new Error("GraphJin job broker allows query operations only");
+  }
+  if (!text.startsWith("{") && !/^query\b/i.test(text)) {
+    throw new Error("GraphJin job broker requires an explicit query operation");
+  }
+}
+
 async function requireSourceConfigAccess(input: {
   orgId: string;
   runId?: string | null;
@@ -182,6 +196,15 @@ export interface AgentControlPlane {
   searchWorkMemoryByContext(
     args: WorkMemorySearchArgs,
   ): Promise<WorkMemorySearchResult[]>;
+  queryGraphjinRead(input: {
+    orgId: string;
+    query: string;
+    variables?: Record<string, unknown>;
+    operationName?: string;
+  }): Promise<{
+    data: unknown;
+    errors?: Array<{ message: string; path?: (string | number)[] }>;
+  }>;
   saveWorkflowWithTrigger(
     input: SaveWorkflowInput,
   ): Promise<Wire<SaveWorkflowWithTriggerResult>>;
@@ -414,6 +437,47 @@ export class InProcessControlPlane implements AgentControlPlane {
     args: WorkMemorySearchArgs,
   ): Promise<WorkMemorySearchResult[]> {
     return searchWorkMemoryByContext(args);
+  }
+
+  async queryGraphjinRead(input: {
+    orgId: string;
+    query: string;
+    variables?: Record<string, unknown>;
+    operationName?: string;
+  }) {
+    assertReadOnlyGraphql(input.query);
+    const { data_source, db, desc, eq } = await import("@neko/db");
+    const [source] = await db()
+      .select({
+        graphqlUrl: data_source.graphql_url,
+        authMode: data_source.auth_mode,
+      })
+      .from(data_source)
+      .where(eq(data_source.org_id, input.orgId))
+      .orderBy(desc(data_source.is_default), data_source.created_at)
+      .limit(1);
+    if (!source?.graphqlUrl) {
+      throw new Error("no GraphJin GraphQL endpoint configured");
+    }
+
+    const headers: Record<string, string> = {};
+    if (source.authMode === "jwt") {
+      const { mintGraphjinToken } = await import("../graphjin/token");
+      headers.authorization = `Bearer ${mintGraphjinToken({
+        orgId: input.orgId,
+        userId: null,
+        role: "service",
+      })}`;
+    }
+    const { graphjinQuery } = await import("../graphjin/client");
+    return graphjinQuery({
+      baseUrl: source.graphqlUrl,
+      query: input.query,
+      variables: input.variables,
+      operationName: input.operationName,
+      headers,
+      signal: AbortSignal.timeout(60_000),
+    });
   }
 
   async saveWorkflowWithTrigger(

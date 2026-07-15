@@ -1,8 +1,12 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { access, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ensureOrgWorkspace, ensureWorkWorkspace } from "../src/work/workspace";
+import {
+  ensureIsolatedJobWorkspace,
+  ensureOrgWorkspace,
+  ensureWorkWorkspace,
+} from "../src/work/workspace";
 
 const cleanupPaths: string[] = [];
 
@@ -35,4 +39,24 @@ describe("work workspace", () => {
     expect(workspace.threadUploadsRoot).toContain("thread-1");
     expect(workspace.artifactRoot).toContain("run-1");
   }, 30_000);
+
+  it("creates an empty disposable tree for non-interactive agent jobs", async () => {
+    const isolated = await ensureIsolatedJobWorkspace("profile/job-1");
+    const rootEntries = await readdir(isolated.workspace.orgRoot);
+
+    expect(isolated.workspace.orgRoot).toContain("openneko-agent-profile_job-1-");
+    expect(rootEntries.sort()).toEqual([
+      "claude",
+      "knowledge",
+      "memory",
+      "runs",
+      "skills",
+      "uploads",
+    ]);
+    expect(await readdir(isolated.workspace.memoryRoot)).toEqual([]);
+    expect(await readdir(isolated.workspace.skillsRoot)).toEqual([]);
+
+    await isolated.cleanup();
+    await expect(access(isolated.workspace.orgRoot)).rejects.toThrow();
+  });
 });
