@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { Dirent } from "node:fs";
 import {
   cp,
   lstat,
@@ -5,6 +7,7 @@ import {
   mkdtemp,
   readdir,
   readFile,
+  readlink,
   rm,
   symlink,
   writeFile,
@@ -65,9 +68,8 @@ export async function ensureOrgWorkspace(orgId: string): Promise<OrgWorkspaceRoo
     await mkdir(dir, { recursive: true });
   }
 
-  await seedBuiltinSkills(skillsRoot);
+  await materializeBuiltinSkills(skillsRoot, claudeProjectRoot);
   await ensureKnowledgeFiles(knowledgeRoot);
-  await ensureLink(join(claudeProjectRoot, ".claude", "skills"), skillsRoot);
 
   return {
     orgRoot,
@@ -213,6 +215,97 @@ export async function listInstalledSkills(
     }
   }
   return out;
+}
+
+/**
+ * Make image-baked skills available at the workspace path agents see.
+ * Existing directories win, so an organization-created skill or a modified
+ * built-in skill can override the image copy by name.
+ */
+export async function materializeBuiltinSkills(
+  skillsRoot: string,
+  claudeProjectRoot?: string,
+): Promise<void> {
+  await mkdir(skillsRoot, { recursive: true });
+  await seedBuiltinSkills(skillsRoot);
+  if (claudeProjectRoot) {
+    await ensureLink(join(claudeProjectRoot, ".claude", "skills"), skillsRoot);
+  }
+}
+
+const builtinSkillFingerprints = new Map<string, Promise<string>>();
+
+async function fingerprintTree(root: string): Promise<string> {
+  const hash = createHash("sha256");
+  const visit = async (dir: string, prefix: string): Promise<void> => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolute = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        hash.update(`d:${rel}\0`);
+        await visit(absolute, rel);
+      } else if (entry.isSymbolicLink()) {
+        hash.update(`l:${rel}\0${await readlink(absolute)}\0`);
+      } else if (entry.isFile()) {
+        hash.update(`f:${rel}\0`);
+        hash.update(await readFile(absolute));
+        hash.update("\0");
+      }
+    }
+  };
+  await visit(root, "");
+  return hash.digest("hex");
+}
+
+function builtinFingerprint(name: string, root: string): Promise<string> {
+  let pending = builtinSkillFingerprints.get(name);
+  if (!pending) {
+    pending = fingerprintTree(root);
+    builtinSkillFingerprints.set(name, pending);
+  }
+  return pending;
+}
+
+/**
+ * Copy only skills that the agent image cannot reconstruct itself: custom
+ * organization skills and locally modified built-ins. Full skill bodies stay
+ * off the per-turn transfer for the common, unmodified built-in case.
+ */
+export async function copySkillOverrides(
+  skillsRoot: string,
+  destinationRoot: string,
+): Promise<string[]> {
+  await mkdir(destinationRoot, { recursive: true });
+  let entries: Dirent[];
+  try {
+    entries = await readdir(skillsRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const copied: string[] = [];
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isDirectory()) continue;
+    const source = join(skillsRoot, entry.name);
+    const bundled = join(BUILTIN_SKILLS_ROOT, entry.name);
+    let isUnmodifiedBuiltin = false;
+    try {
+      isUnmodifiedBuiltin =
+        (await fingerprintTree(source)) ===
+        (await builtinFingerprint(entry.name, bundled));
+    } catch {
+      // A missing bundled directory identifies an organization-created skill.
+    }
+    if (isUnmodifiedBuiltin) continue;
+
+    const destination = join(destinationRoot, entry.name);
+    await rm(destination, { recursive: true, force: true });
+    await cp(source, destination, { recursive: true, force: true });
+    copied.push(entry.name);
+  }
+  return copied;
 }
 
 async function seedBuiltinSkills(skillsRoot: string): Promise<void> {

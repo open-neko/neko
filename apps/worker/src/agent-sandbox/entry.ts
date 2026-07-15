@@ -15,6 +15,7 @@ import {
   ensureGraphjinGuard,
   buildGraphjinReadServer,
   buildWorkMemoryServer,
+  materializeBuiltinSkills,
   resolveBinaryOnPath,
   runAgentBackend,
   sandboxReachableUrl,
@@ -106,6 +107,14 @@ function loadJob(): SandboxJob {
 
 export async function main(): Promise<void> {
   const job = loadJob();
+  // The launcher transfers only custom or modified skill directories. Fill in
+  // unchanged built-ins from the agent image, then expose the same catalog to
+  // Claude's native project skill discovery. Skill bodies remain filesystem
+  // resources and are read only when the agent chooses one.
+  await materializeBuiltinSkills(
+    job.workspace.skillsRoot,
+    job.workspace.claudeProjectRoot,
+  );
   const brokerUrl = process.env.OPENNEKO_BROKER_URL;
   const brokerToken = process.env.OPENNEKO_BROKER_TOKEN;
 

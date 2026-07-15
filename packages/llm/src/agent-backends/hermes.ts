@@ -13,14 +13,17 @@ import {
 } from "../agent-backend";
 import { registerAgentCanceller } from "../agent-shutdown";
 import { hermesHomeForOrg } from "../host-provision";
-import { RENDER_CARDS_DESCRIPTION } from "../work/render-catalog";
+import {
+  RENDER_CARDS_DESCRIPTION,
+  RENDER_CARDS_INPUT_SCHEMA,
+} from "../work/render-catalog";
 import {
   AcpProtocolError,
   createAcpClient,
   type AcpClient,
   type AcpNotification,
 } from "./hermes-acp-client";
-import { coerceSurfaceMessages, extractSurfaceMessages } from "./surface";
+import { coerceGeneratedSurfaceMessages, extractSurfaceMessages } from "./surface";
 
 export { extractSurfaceMessages } from "./surface";
 
@@ -41,11 +44,7 @@ if(method==="initialize")w({protocolVersion:"2024-11-05",capabilities:{tools:{}}
 else if(method==="tools/list")w({tools:[${JSON.stringify({
   name: "render_cards",
   description: RENDER_CARDS_DESCRIPTION,
-  inputSchema: {
-    type: "object",
-    properties: { messages: { type: "array", items: { type: "object" } } },
-    required: ["messages"],
-  },
+  inputSchema: RENDER_CARDS_INPUT_SCHEMA,
 })}]});
 else if(method==="tools/call")w({content:[{type:"text",text:'{"ok":true}'}]});
 else w({})}});
@@ -538,7 +537,7 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
           // A render_cards call IS the answer surface, not a tool step: pull the
           // a2ui messages from the call input and emit them, skipping the pill.
           if (update.title === RENDER_TOOL_TITLE) {
-            const messages = coerceSurfaceMessages(
+            const messages = coerceGeneratedSurfaceMessages(
               (update.rawInput as { messages?: unknown } | undefined)?.messages,
             );
             if (messages.length > 0) {

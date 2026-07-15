@@ -301,20 +301,25 @@ export async function runChatTurn(
 
     await wrappedEmit({
       type: "status",
-      message: "Loading shared skills and memory…",
+      message: "Retrieving relevant context…",
     });
 
-    const memoryContext = await formatWorkMemoryPromptContext(
-      { orgId, threadId, runId, userId: await effectiveMemoryLayer(orgId, actor) },
-      // Use the latest user message as the retrieval query so we pull
-      // memories semantically close to what the operator just asked.
-      { contextQuery: message, contextLimit: 5 },
-    );
-
-    const installedSkills = await listInstalledSkills(workspace.skillsRoot);
-    const operatorProfile = buildOperatorProfileSection(
-      await getOperatorProfile(orgId, actor.userId),
-    );
+    const [memoryContext, installedSkills, profile] = await Promise.all([
+      formatWorkMemoryPromptContext(
+        {
+          orgId,
+          threadId,
+          runId,
+          userId: effectiveMemoryLayer(orgId, actor),
+        },
+        // Use the latest user message as the retrieval query so we pull
+        // memories semantically close to what the operator just asked.
+        { contextQuery: message, contextLimit: 5 },
+      ),
+      listInstalledSkills(workspace.skillsRoot),
+      getOperatorProfile(orgId, actor.userId),
+    ]);
+    const operatorProfile = buildOperatorProfileSection(profile);
 
     const prompt = buildWorkPrompt({
       backend: backend.id,

@@ -28,7 +28,7 @@ export function shellToolName(backendId: AgentBackendId): string {
 }
 
 export type AgentSurfaceMessage = {
-  version: "v0.9";
+  version: "v0.9" | "v1.0";
   [key: string]: unknown;
 };
 

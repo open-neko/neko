@@ -8,19 +8,41 @@ const JSX_TAG_RE = /<\/?[A-Z][A-Za-z0-9]*\b[^>]*>/g;
 function isValidA2UIMessage(m: unknown): m is AgentSurfaceMessage {
   if (!m || typeof m !== "object") return false;
   const o = m as Record<string, unknown>;
-  if (o.version !== "v0.9") return false;
-  return (
-    "createSurface" in o ||
-    "updateComponents" in o ||
-    "updateDataModel" in o ||
-    "deleteSurface" in o
-  );
+  if (o.version !== "v0.9" && o.version !== "v1.0") return false;
+  if (isRecord(o.createSurface)) {
+    return hasString(o.createSurface, "surfaceId") && hasString(o.createSurface, "catalogId") &&
+      (!Array.isArray(o.createSurface.components) || o.createSurface.components.every(isComponent));
+  }
+  if (isRecord(o.updateComponents)) {
+    return hasString(o.updateComponents, "surfaceId") &&
+      Array.isArray(o.updateComponents.components) && o.updateComponents.components.every(isComponent);
+  }
+  if (isRecord(o.updateDataModel)) return hasString(o.updateDataModel, "surfaceId");
+  if (isRecord(o.deleteSurface)) return hasString(o.deleteSurface, "surfaceId");
+  return false;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasString(value: Record<string, unknown>, key: string): boolean {
+  return typeof value[key] === "string" && value[key].length > 0;
+}
+
+function isComponent(value: unknown): boolean {
+  return isRecord(value) && hasString(value, "id") && hasString(value, "component");
 }
 
 // Validate an already-parsed messages value (e.g. a render_cards tool call's
 // `messages` argument) into surface messages. Returns [] when nothing valid.
 export function coerceSurfaceMessages(value: unknown): AgentSurfaceMessage[] {
   return Array.isArray(value) ? value.filter(isValidA2UIMessage) : [];
+}
+
+/** New render_cards calls emit v1.0; v0.9 remains a reader-only format. */
+export function coerceGeneratedSurfaceMessages(value: unknown): AgentSurfaceMessage[] {
+  return coerceSurfaceMessages(value).filter((message) => message.version === "v1.0");
 }
 
 export function extractSurfaceMessages(raw: string): {
@@ -53,14 +75,11 @@ function synthesizeMarkdownSurface(text: string): AgentSurfaceMessage[] {
   const surfaceId = "fallback";
   return [
     {
-      version: "v0.9",
-      createSurface: { surfaceId, catalogId: "urn:app:catalog:briefing:v1" },
-    } as AgentSurfaceMessage,
-    {
-      version: "v0.9",
-      updateComponents: {
+      version: "v1.0",
+      createSurface: {
         surfaceId,
-        components: [{ id: "md", component: "Markdown", text }],
+        catalogId: "urn:openneko:catalog:work:v2",
+        components: [{ id: "root", component: "Markdown", text }],
       },
     } as AgentSurfaceMessage,
   ];

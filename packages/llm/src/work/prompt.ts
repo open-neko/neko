@@ -30,10 +30,9 @@ function formatTranscript(messages: AgentChatMessage[]): string {
 function buildRenderingSection(supportsCardTool: boolean): string {
   const tool = supportsCardTool ? "mcp__neko_ui__render_cards" : "render_cards";
   return `<rendering>
-Render your answer by calling the \`${tool}\` tool — its description carries
-the component catalog and message schema. Put your prose in \`Markdown\`
-components; add \`BriefingCard\`s for the key numbers. For a pure-prose
-answer, send one \`Markdown\` component.
+Call \`${tool}\` to compose an interface that fits the current request. Its
+description carries the available components and protocol. Use the smallest
+useful combination of narrative, data, layout, inputs, and actions.
 </rendering>`;
 }
 
@@ -268,6 +267,12 @@ runtime, or reload impact, complete these steps in order:
    \`request_source_config_change\`, and present the proposal and approval
    status.
 
+When an edit needs operator input, call \`list_source_secret_names\` as needed,
+then use \`render_cards\` to present a bound A2UI v1.0 form with the relevant
+fields and one proposal action. In the next turn, validate the submitted values
+and call \`request_source_config_change\`. Use stored \`secretRef\` names for
+database credentials.
+
 Success for a view or explanation is a response containing the redacted result
 from step 2. Success for an edit is a response containing the proposal result
 from step 4. When a tool returns an error, present the error and name the step
@@ -282,9 +287,10 @@ requiring attention.
 - \`mcp__neko_source_config_manager__request_source_config_change\` — file an
   \`source_config_admin\` proposal for admin review.
 
-For a new source, collect connection metadata and choose a \`secretRef\` from
-the stored secret-name list. For an access change, confirm the GraphJin source
-name and desired read/write/delete policy.
+For a new source, collect name, kind, host, port, database name, user, stored
+\`secretRef\`, and access policy fields relevant to that source kind. For an
+access change, collect the GraphJin source name and desired read/write/delete
+policy.
 </source_config>`;
 }
 
@@ -298,7 +304,8 @@ function buildSkillsSection(
       ? installedSkills
           .map(
             (s) =>
-              `- ${s.name} — ${s.description || `details in ${workspace.skillsRoot}/${s.name}/SKILL.md`}`,
+              `- ${s.name} — ${s.description || "Capability instructions"} — ` +
+              `${workspace.skillsRoot}/${s.name}/SKILL.md`,
           )
           .join("\n")
       : `(none installed; check ${workspace.skillsRoot})`;
@@ -306,18 +313,14 @@ function buildSkillsSection(
   const creationGuidance = supportsSkillTool
     ? `When the user asks you to create or update a skill, use
 \`mcp__neko_skills__create_skill\`.`
-    : `When the user asks you to create or update a skill, write
-agentskills.io-style files into the shared skills directory shown above
-using your shell tool (e.g. \`mkdir -p\` + \`cat > SKILL.md\`). Skills
-only appear in the OpenNeko sidebar when files land at that path —
-Hermes' built-in \`skill_manage\` / \`skills_list\` / \`skill_view\`
-tools write to a private directory the UI doesn't read, so anything
-saved there is invisible to the user.`;
+    : `When the user asks you to create or update a skill, write its
+agentskills.io-style files to
+\`${workspace.skillsRoot}/<skill-name>/SKILL.md\` using your shell tool.`;
 
   return `<skills>
-Installed skills — capability recipes you can use. Before telling the
-user you cannot do something, check whether one of these skills covers
-it and read its SKILL.md for usage details. The host image ships
+Installed skill catalog. Match the current task to the names and descriptions
+below. When a skill matches, read its SKILL.md at the listed path and follow
+its instructions. The host image ships
 Python 3, LibreOffice (\`soffice\`), Poppler (\`pdftotext\`), qpdf, plus
 pip libs: pypdf, pdfplumber, reportlab, Pillow, openpyxl, python-pptx,
 python-docx, PyYAML.

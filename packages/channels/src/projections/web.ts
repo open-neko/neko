@@ -82,8 +82,8 @@ export const webProjection: Projection<WebProjectionResult> = (events) => {
     if (component) components.push(component);
   }
   const surfaces: SurfaceMessage[] = [
-    { version: "v0.9", createSurface: { surfaceId: "s1", catalogId: CATALOG_ID } },
-    { version: "v0.9", updateComponents: { surfaceId: "s1", components } },
+    { version: "v1.0", createSurface: { surfaceId: "s1", catalogId: CATALOG_ID } },
+    { version: "v1.0", updateComponents: { surfaceId: "s1", components } },
   ];
   return { surfaces, pendingAsks };
 };

@@ -1,19 +1,9 @@
-/**
- * A2UI Protocol Types (v0.9 subset)
- *
- * Implements the message types needed for Neko:
- * - CreateSurface: initialize a rendering surface
- * - UpdateComponents: add/update components on a surface
- * - UpdateDataModel: set data that components bind to
- * - DeleteSurface: tear down a surface
- */
+/** A2UI protocol types understood by the OpenNeko renderer. */
 
-// --- Data Binding ---
+export type A2UIVersion = "v0.9" | "v1.0";
 
-/** A value that is either a literal or a path reference into the data model */
+/** A literal value or a JSON Pointer reference into the surface data model. */
 export type DynamicValue<T> = T | { path: string };
-
-// --- Components ---
 
 export interface A2UIComponent {
   id: string;
@@ -21,19 +11,23 @@ export interface A2UIComponent {
   [key: string]: unknown;
 }
 
-// --- Messages (Server → Client) ---
-
 export interface CreateSurfaceMessage {
-  version: "v0.9";
+  version: A2UIVersion;
   createSurface: {
     surfaceId: string;
     catalogId: string;
+    /** v0.9 compatibility. New surfaces use surfaceProperties. */
     theme?: Record<string, unknown>;
+    surfaceProperties?: Record<string, unknown>;
+    sendDataModel?: boolean;
+    /** v1.0 can initialize a complete surface in one message. */
+    components?: A2UIComponent[];
+    dataModel?: Record<string, unknown>;
   };
 }
 
 export interface UpdateComponentsMessage {
-  version: "v0.9";
+  version: A2UIVersion;
   updateComponents: {
     surfaceId: string;
     components: A2UIComponent[];
@@ -41,19 +35,17 @@ export interface UpdateComponentsMessage {
 }
 
 export interface UpdateDataModelMessage {
-  version: "v0.9";
+  version: A2UIVersion;
   updateDataModel: {
     surfaceId: string;
-    path?: string;  // JSON Pointer, defaults to "/"
-    value?: unknown; // omit to delete
+    path?: string;
+    value?: unknown;
   };
 }
 
 export interface DeleteSurfaceMessage {
-  version: "v0.9";
-  deleteSurface: {
-    surfaceId: string;
-  };
+  version: A2UIVersion;
+  deleteSurface: { surfaceId: string };
 }
 
 export type A2UIMessage =
@@ -62,25 +54,26 @@ export type A2UIMessage =
   | UpdateDataModelMessage
   | DeleteSurfaceMessage;
 
-// --- Client-side Surface State ---
-
 export interface SurfaceState {
+  version: A2UIVersion;
   surfaceId: string;
   catalogId: string;
   components: Map<string, A2UIComponent>;
   dataModel: Record<string, unknown>;
   theme?: Record<string, unknown>;
+  surfaceProperties?: Record<string, unknown>;
+  sendDataModel?: boolean;
 }
 
-// --- Action (Client → Server) ---
-
 export interface A2UIAction {
-  version: "v0.9";
+  version: A2UIVersion;
   action: {
     name: string;
     surfaceId: string;
     sourceComponentId: string;
     timestamp: string;
-    context?: Record<string, unknown>;
+    context: Record<string, unknown>;
+    wantResponse?: boolean;
+    actionId?: string;
   };
 }

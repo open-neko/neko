@@ -10,12 +10,56 @@ import {
   type AgentControlPlane,
 } from "./control-plane";
 
-const a2uiMessageSchema = z.object({ version: z.literal("v0.9") }).passthrough();
+const a2uiComponentSchema = z
+  .object({ id: z.string().min(1), component: z.string().min(1) })
+  .passthrough();
+const createSurfaceSchema = z.object({
+  version: z.literal("v1.0"),
+  createSurface: z
+    .object({
+      surfaceId: z.string().min(1),
+      catalogId: z.literal("urn:openneko:catalog:work:v2"),
+      surfaceProperties: z.record(z.string(), z.unknown()).optional(),
+      sendDataModel: z.boolean().optional(),
+      components: z.array(a2uiComponentSchema).min(1).optional(),
+      dataModel: z.record(z.string(), z.unknown()).optional(),
+    })
+    .strict(),
+});
+const updateComponentsSchema = z.object({
+  version: z.literal("v1.0"),
+  updateComponents: z
+    .object({
+      surfaceId: z.string().min(1),
+      components: z.array(a2uiComponentSchema).min(1),
+    })
+    .strict(),
+});
+const updateDataModelSchema = z.object({
+  version: z.literal("v1.0"),
+  updateDataModel: z
+    .object({
+      surfaceId: z.string().min(1),
+      path: z.string().optional(),
+      value: z.unknown().optional(),
+    })
+    .strict(),
+});
+const deleteSurfaceSchema = z.object({
+  version: z.literal("v1.0"),
+  deleteSurface: z.object({ surfaceId: z.string().min(1) }).strict(),
+});
+const a2uiMessageSchema = z.union([
+  createSurfaceSchema,
+  updateComponentsSchema,
+  updateDataModelSchema,
+  deleteSurfaceSchema,
+]);
 
 function isValidA2UIMessage(m: unknown): m is AgentSurfaceMessage {
   if (!m || typeof m !== "object") return false;
   const o = m as Record<string, unknown>;
-  if (o.version !== "v0.9") return false;
+  if (o.version !== "v1.0") return false;
   return (
     "createSurface" in o ||
     "updateComponents" in o ||
@@ -44,7 +88,7 @@ export function buildRenderCardsServer(
               text: JSON.stringify({
                 ok: false,
                 error:
-                  "All messages rejected — each must have version: 'v0.9' and one of createSurface/updateComponents/updateDataModel/deleteSurface. Bare component objects are not accepted; wrap them in updateComponents.",
+                  "No surface messages were accepted. Send A2UI v1.0 createSurface/updateComponents/updateDataModel/deleteSurface envelopes.",
                 rejected,
               }),
             },
