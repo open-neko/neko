@@ -371,7 +371,9 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
         calls.some((call) => call.body.query.includes('kind: "api"')),
       ).toBe(true);
       expect(
-        calls.some((call) => call.body.query.includes("/config/specs/")),
+        calls.some((call) =>
+          call.body.query.includes('specs_dir: "/config/specs"'),
+        ),
       ).toBe(true);
       const specPath = join(
         root,
