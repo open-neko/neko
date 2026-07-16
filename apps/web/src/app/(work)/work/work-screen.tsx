@@ -1565,7 +1565,7 @@ function PendingMemoryPanel({
   const item = pending[0];
   if (!item) return null;
   return (
-    <div className="flex items-center justify-between gap-3 border border-border bg-white/80 rounded-2xl px-3 py-2.5 shadow-soft">
+    <div className="flex items-center justify-between gap-3 border border-border bg-white/80 rounded-2xl px-3 py-2.5 shadow-soft max-[560px]:items-stretch max-[560px]:flex-col">
       <div className="min-w-0 text-[12.5px] leading-[1.45] text-text2">
         <div className="text-[10.5px] font-bold tracking-[0.13em] uppercase text-text3 mb-0.5">Memory suggestion</div>
         <div>{item.draftText}</div>
@@ -1573,7 +1573,7 @@ function PendingMemoryPanel({
           <div className="mt-1 text-text3 text-[11px]">+{pending.length - 1} more</div>
         ) : null}
       </div>
-      <div className="inline-flex gap-[7px] flex-wrap justify-end flex-shrink-0 [&_button]:h-[30px] [&_button]:rounded-[10px] [&_button]:border [&_button]:border-border [&_button]:bg-card [&_button]:text-text2 [&_button]:inline-flex [&_button]:items-center [&_button]:justify-center [&_button]:gap-1 [&_button]:px-2 [&_button]:text-[11px] [&_button]:cursor-pointer [&_button]:transition-all [&_button]:duration-200 [&_button:hover]:border-accent [&_button:hover]:text-accent">
+      <div className="inline-flex min-w-0 gap-[7px] flex-wrap justify-end flex-shrink-0 max-[560px]:justify-start [&_button]:h-[30px] [&_button]:max-w-full [&_button]:rounded-[10px] [&_button]:border [&_button]:border-border [&_button]:bg-card [&_button]:text-text2 [&_button]:inline-flex [&_button]:items-center [&_button]:justify-center [&_button]:gap-1 [&_button]:px-2 [&_button]:text-[11px] [&_button]:cursor-pointer [&_button]:transition-all [&_button]:duration-200 [&_button:hover]:border-accent [&_button:hover]:text-accent">
         <button type="button" onClick={() => onDecide(item.id, "decline")} title="Dismiss">
           <X size={14} />
         </button>
@@ -2075,11 +2075,11 @@ function ActionApprovalCard({
 
   return (
     <div className="border border-border bg-card rounded-2xl px-4 py-3.5 text-[13px] flex flex-col gap-2.5">
-      <div className="flex items-baseline justify-between gap-3">
+      <div className="flex min-w-0 items-baseline justify-between gap-3 max-[480px]:items-start max-[480px]:flex-col max-[480px]:gap-1">
         <div className="font-display text-[11px] font-bold uppercase tracking-[0.14em] text-text3">
           Agent says
         </div>
-        <code className="font-mono text-[11px] text-text3">
+        <code className="min-w-0 max-w-full font-mono text-[11px] text-text3 [overflow-wrap:anywhere]">
           {approval.actionKind}
         </code>
       </div>

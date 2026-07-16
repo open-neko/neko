@@ -1063,6 +1063,8 @@ textarea.work-a2ui-input { resize: vertical; }
 }
 .work-a2ui-checkbox,
 .work-a2ui-check-option {
+  min-width: 0;
+  max-width: 100%;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -1081,6 +1083,13 @@ textarea.work-a2ui-input { resize: vertical; }
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 999px;
+  overflow: hidden;
+}
+.work-a2ui-chips .work-a2ui-check-option span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .work-a2ui-tabs { min-width: 0; }
 .work-a2ui-tab-list {
@@ -1123,6 +1132,9 @@ textarea.work-a2ui-input { resize: vertical; }
   cursor: pointer;
   font-size: 12.5px;
   font-weight: 600;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: center;
   transition: background 0.14s ease, border-color 0.14s ease;
 }
 .work-a2ui-button .work-a2ui-text { color: inherit; font: inherit; }
@@ -1168,7 +1180,8 @@ textarea.work-a2ui-input { resize: vertical; }
   border-radius: 10px;
 }
 .work-openapi-summary-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.work-openapi-summary-head strong { display: block; color: var(--text); font-size: 13px; }
+.work-openapi-summary-head > div { min-width: 0; }
+.work-openapi-summary-head strong { display: block; color: var(--text); font-size: 13px; overflow-wrap: anywhere; }
 .work-openapi-summary-head span { color: var(--text3); font-size: 11px; }
 .work-openapi-summary-head .work-openapi-ready { color: var(--good, #067647); font-weight: 700; }
 .work-openapi-summary dl { display: grid; gap: 7px; margin: 12px 0 0; }
@@ -1183,9 +1196,25 @@ textarea.work-a2ui-input { resize: vertical; }
   line-height: 1.55;
 }
 .work-managed-files-list { display: grid; gap: 5px; }
-.work-managed-files-list li { display: flex; justify-content: space-between; gap: 12px; }
+.work-managed-files-list li { display: flex; min-width: 0; justify-content: space-between; gap: 12px; }
 .work-managed-files-list code {
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--text3);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10.5px;
+}
+
+@media (max-width: 520px) {
+  .work-openapi-summary-head,
+  .work-managed-files-list li {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+  }
+
+  .work-openapi-summary dl > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
 }

@@ -289,11 +289,11 @@ function PolicyCard({
       as="li"
       className={cn("px-5 py-4.5", !policy.enabled && "opacity-60")}
     >
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <div className="font-display text-[17px] font-bold tracking-[-0.01em] text-text">
+      <div className="flex items-center justify-between gap-3 mb-2 max-[560px]:items-start max-[560px]:flex-col">
+        <div className="min-w-0 max-w-full font-display text-[17px] font-bold tracking-[-0.01em] text-text [overflow-wrap:anywhere]">
           {policy.name}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex max-w-full items-center gap-2 flex-wrap max-[560px]:self-stretch">
           <Pill variant={modePillVariant(policy.mode)}>
             {describeMode(policy.mode)}
           </Pill>
@@ -351,7 +351,7 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2.5 items-baseline">
+    <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2.5 items-baseline max-[480px]:grid-cols-1 max-[480px]:gap-0.5">
       <dt className="text-[10.5px] font-bold tracking-[0.13em] uppercase text-text3">
         {label}
       </dt>
@@ -441,21 +441,21 @@ function InstalledPluginsSection({
                 return (
                   <div
                     key={descriptor.kind}
-                    className="flex items-center justify-between gap-3 px-3 py-2 rounded-[10px] bg-neutral-soft"
+                    className="flex min-w-0 items-center justify-between gap-3 px-3 py-2 rounded-[10px] bg-neutral-soft max-[640px]:items-stretch max-[640px]:flex-col"
                   >
                     <div className="flex flex-col gap-0.5 min-w-0">
-                      <code className="font-mono text-[12px] text-text">
+                      <code className="font-mono text-[12px] text-text [overflow-wrap:anywhere]">
                         {descriptor.kind}
                       </code>
-                      <span className="text-[11px] text-text3 truncate">
+                      <span className="text-[11px] text-text3 truncate max-[640px]:whitespace-normal max-[640px]:[overflow-wrap:anywhere]">
                         {descriptor.description}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 flex-none">
+                    <div className="flex min-w-0 items-center justify-end gap-2 flex-wrap max-[640px]:justify-start">
                       <Pill variant={modePillVariant(mode)}>
                         {describeMode(mode)}
                       </Pill>
-                      <span className="text-[10.5px] text-text3">
+                      <span className="min-w-0 text-[10.5px] text-text3 [overflow-wrap:anywhere]">
                         {describeDefaultMode(descriptor.default_mode)}
                       </span>
                       {policyId ? (

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Archivo, Manrope } from "next/font/google";
 import { Toaster } from "sonner";
 import { DensityProvider } from "@/components/DensityProvider";
+import CommandDock from "@/components/CommandDock";
 import "./globals.css";
 
 // Set data-density before paint from the persisted choice (default compact),
@@ -42,7 +43,10 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: DENSITY_INIT }} />
       </head>
       <body>
-        <DensityProvider>{children}</DensityProvider>
+        <DensityProvider>
+          {children}
+          <CommandDock />
+        </DensityProvider>
         <Toaster
           position="bottom-right"
           expand
