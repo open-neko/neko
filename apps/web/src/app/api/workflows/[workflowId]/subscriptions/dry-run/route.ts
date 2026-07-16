@@ -4,7 +4,7 @@ import {
   getDataSourceForOrg,
   parseSourceChangeFilter,
 } from "@neko/llm/workflows";
-import { graphjinQuery } from "@neko/llm/graphjin";
+import { graphjinQuery } from "@neko/llm/graphjin/client";
 import { getOrgId } from "@/lib/db";
 
 export const runtime = "nodejs";

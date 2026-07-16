@@ -406,8 +406,8 @@ describe("web channel — A2UI v1.0 configuration form", () => {
           { id: "kind", component: "ChoicePicker", label: "Source kind", options: [], value: { path: "/form/kind" }, variant: "mutuallyExclusive" },
           { id: "database", component: "Conditional", when: { path: "/form/kind" }, equals: "database", children: ["dbHost"] },
           { id: "dbHost", component: "TextField", label: "Database host" },
-          { id: "api", component: "Conditional", when: { path: "/form/kind" }, equals: "api", children: ["specsDir"] },
-          { id: "specsDir", component: "TextField", label: "OpenAPI specs directory" },
+          { id: "api", component: "Conditional", when: { path: "/form/kind" }, equals: "api", children: ["openApiSpec"] },
+          { id: "openApiSpec", component: "OpenApiSpecInput", label: "OpenAPI specification", value: { path: "/form/openApiSpec" } },
           { id: "file", component: "Conditional", when: { path: "/form/kind" }, equals: "file", children: ["bucket"] },
           { id: "bucket", component: "TextField", label: "Storage bucket" },
         ],
@@ -415,7 +415,8 @@ describe("web channel — A2UI v1.0 configuration form", () => {
     });
     const surface = surfaces.get("typed-source-form")!;
     const html = renderHtml(surface.components.get("root")!, surface);
-    expect(html).toContain("OpenAPI specs directory");
+    expect(html).toContain("OpenAPI specification");
+    expect(html).toContain("Hosted URL");
     expect(html).not.toContain("Database host");
     expect(html).not.toContain("Storage bucket");
     expect(html.match(/Source name/g)).toHaveLength(1);

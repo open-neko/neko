@@ -204,6 +204,27 @@ async function handle(
           runId: binding.runId,
         }),
       );
+    case "/v1/openapi/import":
+      return send(
+        res,
+        200,
+        await cp.importOpenApiSpec({
+          orgId: binding.orgId,
+          runId: binding.runId,
+          url: String(body.url ?? ""),
+          baseUrl: typeof body.baseUrl === "string" ? body.baseUrl : null,
+        }),
+      );
+    case "/v1/openapi/list":
+      return send(
+        res,
+        200,
+        await cp.listOpenApiSpecs({
+          orgId: binding.orgId,
+          runId: binding.runId,
+          limit: typeof body.limit === "number" ? body.limit : undefined,
+        }),
+      );
     case "/v1/source-config/agent":
       return send(
         res,

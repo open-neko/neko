@@ -16,8 +16,11 @@ describe("render_cards catalog", () => {
     expect(RENDER_CARDS_DESCRIPTION).toContain(
       '"label":"Files","value":"file"',
     );
-    expect(RENDER_CARDS_DESCRIPTION).toContain("OpenAPI specs directory");
+    expect(RENDER_CARDS_DESCRIPTION).toContain("OpenApiSpecInput");
+    expect(RENDER_CARDS_DESCRIPTION).toContain("ManagedFileSourceInput");
+    expect(RENDER_CARDS_DESCRIPTION).toContain("/form/openApiSpec/id");
     expect(RENDER_CARDS_DESCRIPTION).toContain("Storage backend");
+    expect(RENDER_CARDS_DESCRIPTION).toContain("/form/localFiles/sourceName");
   });
 
   it("gives the model a strict v1 component schema", () => {

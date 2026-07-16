@@ -111,6 +111,14 @@ function makeFakeControlPlane() {
       calls.push({ method: "source-secrets", input: input as Record<string, unknown> });
       return { names: [] };
     },
+    async importOpenApiSpec(input) {
+      calls.push({ method: "openapi-import", input: input as Record<string, unknown> });
+      return { error: "not exercised" };
+    },
+    async listOpenApiSpecs(input) {
+      calls.push({ method: "openapi-list", input: input as Record<string, unknown> });
+      return { assets: [] };
+    },
     async askSourceConfigAgent(input) {
       calls.push({ method: "source-config-agent", input: input as Record<string, unknown> });
       return { response: { status: "answered", answer: "read-only" } };

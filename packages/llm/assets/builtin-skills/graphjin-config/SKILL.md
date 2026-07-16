@@ -19,10 +19,21 @@ Use the source-config manager tools for GraphJin configuration requests.
    `mcp__neko_source_config_manager__list_source_secret_names` and use a stored
    name as `secretRef`. When the required name is absent, direct the admin to
    Admin > Settings > GraphJin Config to add it.
-5. For a supported edit, call
+5. For an API source, use the managed OpenAPI asset from the submitted card.
+   When the admin provides a hosted HTTPS URL in chat, call
+   `mcp__neko_source_config_manager__import_openapi_spec`. When they uploaded a
+   file, read the asset ID from the submitted values. When the submitted card
+   provides metadata only, call
+   `mcp__neko_source_config_manager__list_openapi_specs` to resolve its managed
+   asset ID.
+6. For a local file source, use the `localFiles` manifest from the submitted
+   card. For S3 or GCS, collect the bucket and applicable prefix, region,
+   endpoint, public base URL, and presign TTL; GraphJin uses the deployment
+   runtime identity for object-store credentials.
+7. For a supported edit, call
    `mcp__neko_source_config_manager__request_source_config_change` with the
    confirmed fields.
-6. Summarize the proposed change and its approval status.
+8. Summarize the proposed change and its approval status.
 
 A view or explanation succeeds when the response includes the redacted result
 from `ask_graphjin_config_agent`. An edit succeeds when the response includes
@@ -35,8 +46,10 @@ attention.
 
 - `register_source`: provide `name`, one of the customer source kinds
   (`database`, `api`, or `file`), and the fields for that kind. Database uses
-  connection metadata and a stored `secretRef`; API uses an OpenAPI specs
-  directory; file uses a backend plus a local root or object-store bucket.
+  connection metadata and a stored `secretRef`; API uses a managed OpenAPI
+  `specAssetId`; local file uses the card's managed `localFiles` manifest; S3
+  and GCS use an object-store bucket and deployment runtime identity. File
+  sources receive authenticated read-only access.
   A suitable database default is `read: authenticated`, `write: blocked`, and
   `delete: blocked`.
 - `set_source_access`: provide the source name and confirmed `read`, `write`,
@@ -44,7 +57,7 @@ attention.
 - `add_role`: provide the role name and the JWT match expression confirmed by
   the admin.
 
-Prefer additive changes: source registration upserts by source name, source
-access patches the named source, and role changes upsert by role name. Treat a
-full replacement as a separate configuration operation requiring the current
-configuration and explicit admin intent.
+Use an unused source name for registration. Source access patches the named
+source, and role changes upsert by role name. A full replacement is a separate
+configuration operation requiring the current configuration and explicit admin
+intent.

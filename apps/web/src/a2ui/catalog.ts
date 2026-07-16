@@ -38,6 +38,8 @@ export const ComponentTypes = {
   CheckBox: "CheckBox",
   ChoicePicker: "ChoicePicker",
   Conditional: "Conditional",
+  OpenApiSpecInput: "OpenApiSpecInput",
+  ManagedFileSourceInput: "ManagedFileSourceInput",
   // Dashboard / back-compat aliases (same renderers):
   Briefing: "Briefing",
   BriefingCard: "BriefingCard",
@@ -158,6 +160,8 @@ export interface ButtonProps {
       responsePath?: string;
     };
   };
+  /** When provided, the action stays disabled until this bound value exists. */
+  requires?: unknown;
 }
 
 export interface TextFieldProps {
@@ -190,6 +194,19 @@ export interface ConditionalProps {
   equals?: string | number | boolean;
   oneOf?: Array<string | number | boolean>;
   children: string[];
+}
+
+export interface OpenApiSpecInputProps {
+  component: "OpenApiSpecInput";
+  label?: string;
+  value?: unknown;
+}
+
+export interface ManagedFileSourceInputProps {
+  component: "ManagedFileSourceInput";
+  label?: string;
+  sourceName?: string;
+  value?: unknown;
 }
 
 export interface ConfirmationProps {
@@ -240,4 +257,6 @@ export type ComponentProps =
   | TextFieldProps
   | CheckBoxProps
   | ChoicePickerProps
-  | ConditionalProps;
+  | ConditionalProps
+  | OpenApiSpecInputProps
+  | ManagedFileSourceInputProps;

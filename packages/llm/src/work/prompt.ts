@@ -286,13 +286,18 @@ requiring attention.
   selected GraphJin to explain its redacted configuration and plan a change.
 - \`mcp__neko_source_config_manager__list_source_secret_names\` — list only
   stored connection secret names for use as \`secretRef\` values.
+- \`mcp__neko_source_config_manager__import_openapi_spec\` — import and validate
+  an OpenAPI document from an admin-provided hosted HTTPS URL.
+- \`mcp__neko_source_config_manager__list_openapi_specs\` — list managed
+  OpenAPI asset metadata and IDs available to the current organization.
 - \`mcp__neko_source_config_manager__request_source_config_change\` — file an
   \`source_config_admin\` proposal for admin review.
 
 For a new source, collect the shared name and kind plus its relevant fields:
 Database uses type, host, port, database name, user, stored \`secretRef\`, and
-access; API uses its OpenAPI specs directory; Files uses backend and either a
-local root or object-store bucket, plus applicable prefix, region, and endpoint.
+access; API uses its imported OpenAPI asset ID; Files uses backend and either a
+managed local-file manifest or object-store bucket, plus applicable prefix,
+region, endpoint, public base URL, and bounded presign TTL.
 For an access change, collect the GraphJin source name and desired
 read/write/delete policy.
 </source_config>`;

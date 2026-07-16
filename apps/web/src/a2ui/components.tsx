@@ -35,6 +35,8 @@ import type {
   ChoicePickerProps,
   ConditionalProps,
   LayoutProps,
+  ManagedFileSourceInputProps,
+  OpenApiSpecInputProps,
   TabsProps,
   TextFieldProps,
   TextProps,
@@ -303,7 +305,7 @@ registerComponent("Text", (comp: A2UIComponent) => {
 });
 
 const layoutRenderer = (direction: "row" | "column") =>
-  (comp: A2UIComponent, ctx: RenderContext) => {
+  function LayoutRenderer(comp: A2UIComponent, ctx: RenderContext) {
     const props = comp as unknown as LayoutProps & { id: string };
     const justify = {
       start: "flex-start",
@@ -470,6 +472,287 @@ registerComponent("Conditional", (comp: A2UIComponent, ctx: RenderContext) => {
   );
 });
 
+type ImportedOpenApiAsset = {
+  id: string;
+  originalName: string;
+  title: string;
+  version: string | null;
+  baseUrl: string;
+  operationCount: number;
+  readOperationCount: number;
+  mutatingOperationCount: number;
+  authSchemes: string[];
+  warnings: string[];
+  checksumSha256: string;
+};
+
+function OpenApiSpecInputView({
+  props,
+  ctx,
+}: {
+  props: OpenApiSpecInputProps & { id: string };
+  ctx: RenderContext;
+}) {
+  const path = bindingPath(ctx, props.id, "value");
+  const asset = props.value && typeof props.value === "object"
+    ? (props.value as ImportedOpenApiAsset)
+    : null;
+  const [mode, setMode] = React.useState<"url" | "upload">("url");
+  const [url, setUrl] = React.useState("");
+  const [baseUrl, setBaseUrl] = React.useState("");
+  const [file, setFile] = React.useState<File | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function importSpec() {
+    if (!path) return;
+    setBusy(true);
+    setError(null);
+    try {
+      let response: Response;
+      if (mode === "url") {
+        if (!url.trim()) throw new Error("Enter the hosted OpenAPI URL.");
+        response = await fetch("/api/settings/openapi-specs", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: url.trim(), baseUrl: baseUrl.trim() || undefined }),
+        });
+      } else {
+        if (!file) throw new Error("Choose an OpenAPI YAML or JSON file.");
+        const body = new FormData();
+        body.set("file", file);
+        if (baseUrl.trim()) body.set("baseUrl", baseUrl.trim());
+        response = await fetch("/api/settings/openapi-specs", {
+          method: "POST",
+          body,
+        });
+      }
+      const result = (await response.json().catch(() => ({}))) as {
+        asset?: ImportedOpenApiAsset;
+        error?: string;
+      };
+      if (!response.ok || !result.asset) {
+        throw new Error(result.error || "OpenAPI import failed.");
+      }
+      ctx.onDataChange?.(path, result.asset);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "OpenAPI import failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="work-openapi-import">
+      <div className="work-a2ui-label">{props.label ?? "OpenAPI specification"}</div>
+      <div className="work-openapi-mode" role="tablist" aria-label="OpenAPI import method">
+        <button type="button" role="tab" aria-selected={mode === "url"} onClick={() => setMode("url")}>
+          Hosted URL
+        </button>
+        <button type="button" role="tab" aria-selected={mode === "upload"} onClick={() => setMode("upload")}>
+          Upload file
+        </button>
+      </div>
+      {mode === "url" ? (
+        <label className="work-a2ui-field">
+          <span className="work-a2ui-label">OpenAPI YAML or JSON URL</span>
+          <input
+            className="work-a2ui-input"
+            type="url"
+            value={url}
+            placeholder="https://api.example.com/openapi.yaml"
+            onChange={(event) => setUrl(event.target.value)}
+          />
+        </label>
+      ) : (
+        <label className="work-a2ui-field">
+          <span className="work-a2ui-label">OpenAPI file</span>
+          <input
+            className="work-a2ui-input work-openapi-file"
+            type="file"
+            accept=".yaml,.yml,.json,application/yaml,application/json,text/yaml"
+            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          />
+        </label>
+      )}
+      <label className="work-a2ui-field">
+        <span className="work-a2ui-label">Base URL override (optional)</span>
+        <input
+          className="work-a2ui-input"
+          type="url"
+          value={baseUrl}
+          placeholder="https://api.example.com/v1"
+          onChange={(event) => setBaseUrl(event.target.value)}
+        />
+      </label>
+      <button
+        type="button"
+        className="work-a2ui-button"
+        disabled={busy}
+        onClick={() => void importSpec()}
+      >
+        {busy ? "Validating…" : asset ? "Replace imported spec" : "Import and validate"}
+      </button>
+      {error ? <div className="work-openapi-error" role="alert">{error}</div> : null}
+      {asset ? (
+        <div className="work-openapi-summary">
+          <div className="work-openapi-summary-head">
+            <div>
+              <strong>{asset.title}</strong>
+              <span>{asset.version ? `v${asset.version}` : asset.originalName}</span>
+            </div>
+            <span className="work-openapi-ready">Validated</span>
+          </div>
+          <dl>
+            <div><dt>Base URL</dt><dd>{asset.baseUrl}</dd></div>
+            <div><dt>Operations</dt><dd>{asset.operationCount} ({asset.readOperationCount} read, {asset.mutatingOperationCount} mutating)</dd></div>
+            <div><dt>Authentication</dt><dd>{asset.authSchemes.length ? asset.authSchemes.join(", ") : "Not declared"}</dd></div>
+            <div><dt>SHA-256</dt><dd className="work-openapi-checksum">{asset.checksumSha256}</dd></div>
+          </dl>
+          {asset.warnings.length ? (
+            <ul>{asset.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+registerComponent("OpenApiSpecInput", (comp: A2UIComponent, ctx: RenderContext) => (
+  <OpenApiSpecInputView
+    props={comp as unknown as OpenApiSpecInputProps & { id: string }}
+    ctx={ctx}
+  />
+));
+
+type ManagedLocalFileSet = {
+  sourceName: string;
+  ready: boolean;
+  files: Array<{
+    name: string;
+    size: number;
+    contentType: string;
+    checksumSha256: string;
+  }>;
+  totalSize: number;
+};
+
+function ManagedFileSourceInputView({
+  props,
+  ctx,
+}: {
+  props: ManagedFileSourceInputProps & { id: string };
+  ctx: RenderContext;
+}) {
+  const path = bindingPath(ctx, props.id, "value");
+  const sourceName = typeof props.sourceName === "string" ? props.sourceName.trim() : "";
+  const staged = props.value && typeof props.value === "object"
+    ? (props.value as ManagedLocalFileSet)
+    : null;
+  const current = staged?.sourceName === sourceName ? staged : null;
+  const [files, setFiles] = React.useState<File[]>([]);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function uploadFiles() {
+    if (!path) return;
+    if (!sourceName) {
+      setError("Enter a source name before uploading files.");
+      return;
+    }
+    if (files.length === 0) {
+      setError("Choose at least one file.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.set("sourceName", sourceName);
+      files.forEach((file) => body.append("files", file));
+      const response = await fetch("/api/settings/file-sources", {
+        method: "POST",
+        body,
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        managedLocalFiles?: ManagedLocalFileSet;
+        error?: string;
+      };
+      if (!response.ok || !result.managedLocalFiles) {
+        throw new Error(result.error || "Managed file upload failed.");
+      }
+      // The server returns the complete directory manifest so approval covers
+      // every file GraphJin will expose, including earlier upload batches.
+      ctx.onDataChange?.(path, result.managedLocalFiles);
+      setFiles([]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Managed file upload failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="work-openapi-import work-managed-files">
+      <div className="work-a2ui-label">{props.label ?? "Managed local files"}</div>
+      <div className="work-managed-files-note">
+        OpenNeko creates an isolated GraphJin directory for this source. Uploaded
+        files become readable to authenticated organization members after admin
+        approval. Upload only team-approved content.
+      </div>
+      <label className="work-a2ui-field">
+        <span className="work-a2ui-label">Files</span>
+        <input
+          className="work-a2ui-input work-openapi-file"
+          type="file"
+          multiple
+          onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
+        />
+      </label>
+      <button
+        type="button"
+        className="work-a2ui-button"
+        disabled={busy || !sourceName || files.length === 0}
+        onClick={() => void uploadFiles()}
+      >
+        {busy ? "Uploading securely…" : "Stage files"}
+      </button>
+      {staged && !current ? (
+        <div className="work-openapi-error" role="alert">
+          The source name changed. Stage files for “{sourceName || "the new source"}”.
+        </div>
+      ) : null}
+      {error ? <div className="work-openapi-error" role="alert">{error}</div> : null}
+      {current ? (
+        <div className="work-openapi-summary">
+          <div className="work-openapi-summary-head">
+            <div>
+              <strong>{current.files.length} staged file{current.files.length === 1 ? "" : "s"}</strong>
+              <span>{current.totalSize.toLocaleString()} bytes</span>
+            </div>
+            <span className="work-openapi-ready">Isolated</span>
+          </div>
+          <ul className="work-managed-files-list">
+            {current.files.map((file) => (
+              <li key={`${file.name}:${file.checksumSha256}`}>
+                <span>{file.name}</span>
+                <code>{file.checksumSha256.slice(0, 12)}…</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+registerComponent("ManagedFileSourceInput", (comp: A2UIComponent, ctx: RenderContext) => (
+  <ManagedFileSourceInputView
+    props={comp as unknown as ManagedFileSourceInputProps & { id: string }}
+    ctx={ctx}
+  />
+));
+
 registerComponent("Button", (comp: A2UIComponent, ctx: RenderContext) => {
   const props = comp as unknown as ButtonProps & { id: string };
   const event = props.action?.event;
@@ -482,10 +765,19 @@ registerComponent("Button", (comp: A2UIComponent, ctx: RenderContext) => {
   const label = resolvedLabel?.component === "Text"
     ? String(resolvedLabel.text ?? "")
     : null;
+  const requiresValue = props.requires;
+  const hasRequirement = Object.hasOwn(
+    ctx.surface.components.get(props.id) ?? {},
+    "requires",
+  );
+  const requirementSatisfied = Array.isArray(requiresValue)
+    ? requiresValue.length > 0 && requiresValue.every(Boolean)
+    : Boolean(requiresValue);
   return (
     <button
       type="button"
       className={`work-a2ui-button is-${props.variant ?? "default"}`}
+      disabled={hasRequirement && !requirementSatisfied}
       onClick={() => event && ctx.onAction?.(props.id, event.name, event.context)}
     >
       {label !== null

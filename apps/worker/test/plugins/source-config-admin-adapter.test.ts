@@ -5,8 +5,20 @@
 // customer engine, the hard boundary against the OpenNeko internal GraphJin,
 // and that connection secrets stay value-blind to the agent/payload/audit.
 
-import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   createTestOrg,
   dbReachable,
@@ -21,6 +33,7 @@ import {
   eq,
   GRAPHJIN_CONFIG_SCOPE,
   llm_provider_config,
+  openapi_spec_asset,
   pool,
   work_run,
   work_thread,
@@ -30,7 +43,12 @@ import {
   executeApprovedActionRequest,
 } from "@neko/llm/workflows";
 import { maybeEncryptSecret } from "@neko/llm/secrets";
-import { graphjinConfigPatchHash } from "@neko/llm/graphjin";
+import {
+  graphjinConfigPatchHash,
+  managedFileSourceRuntimeRoot,
+  managedOpenApiSpecFilename,
+  stageManagedFileSourceFiles,
+} from "@neko/llm/graphjin";
 import { inProcessControlPlane } from "@neko/llm/work";
 import { registerSourceConfigAdminAdapter } from "../../src/plugins/manage-adapters.js";
 
@@ -45,10 +63,16 @@ const CUSTOMER = "http://customer-gj:8080/api/v1/graphql";
 const INTERNAL = "http://127.0.0.1:8089";
 
 /** Stub global fetch to emulate the customer GraphJin gj_config/gj_catalog. */
-function installFetchMock() {
-  const calls: { url: string; body: { query: string } }[] = [];
+function installFetchMock(tableName = "api:pets:listPets") {
+  const calls: {
+    url: string;
+    body: { query: string; variables?: Record<string, unknown> };
+  }[] = [];
   const fn = vi.fn(async (url: string, init: { body: string }) => {
-    const body = JSON.parse(init.body) as { query: string };
+    const body = JSON.parse(init.body) as {
+      query: string;
+      variables?: Record<string, unknown>;
+    };
     calls.push({ url, body });
     const q = body.query;
     let payload: unknown;
@@ -69,7 +93,14 @@ function installFetchMock() {
       };
     } else if (q.includes("gj_catalog")) {
       const kind = q.match(/kind: \{ eq: "(\w+)" \}/)?.[1] ?? "database";
-      payload = { data: { gj_catalog: [{ id: `${kind}-1`, name: `${kind} one`, summary: "s" }] } };
+      payload = {
+        data: {
+          gj_catalog:
+            kind === "table"
+              ? [{ id: tableName, name: tableName, summary: "List pets" }]
+              : [{ id: `${kind}-1`, name: `${kind} one`, summary: "s" }],
+        },
+      };
     } else {
       payload = { data: { gj_config: { catalog_revision: "rev1" } } };
     }
@@ -81,10 +112,16 @@ function installFetchMock() {
 
 describeIfDb("source_config_admin adapter (OL5)", () => {
   const orgId = uniqueOrgId("srccfg");
+  const previousConfigFile = process.env.OPENNEKO_GRAPHJIN_CONFIG;
+  let configRoot = "";
+  let configFile = "";
 
   beforeAll(async () => {
     registerSourceConfigAdminAdapter();
     process.env.OPENNEKO_GRAPHJIN_URL = INTERNAL;
+    configRoot = await mkdtemp(join(tmpdir(), "openneko-source-config-"));
+    configFile = join(configRoot, "agentic.yml");
+    process.env.OPENNEKO_GRAPHJIN_CONFIG = configFile;
     await createTestOrg(orgId);
     await db().insert(llm_provider_config).values({
       org_id: orgId,
@@ -103,6 +140,25 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
     });
   });
 
+  beforeEach(async () => {
+    await writeFile(
+      configFile,
+      [
+        "production: true",
+        "sources:",
+        "  - name: graphjin",
+        "    kind: graphjin",
+        "  - name: adventureworks",
+        "    kind: database",
+        "    access:",
+        "      read: blocked",
+        "      write: blocked",
+        "      delete: blocked",
+        "",
+      ].join("\n"),
+    );
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -110,6 +166,12 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
   afterAll(async () => {
     await deleteTestOrg(orgId);
     await pool().end();
+    if (previousConfigFile === undefined) {
+      delete process.env.OPENNEKO_GRAPHJIN_CONFIG;
+    } else {
+      process.env.OPENNEKO_GRAPHJIN_CONFIG = previousConfigFile;
+    }
+    await rm(configRoot, { recursive: true, force: true });
   });
 
   async function setEndpoint(url: string) {
@@ -143,13 +205,13 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
       scope: "internal",
       kind: "source_config_admin",
       target: String(payload.action ?? ""),
-	      payload: approvedPayload,
-	      riskLevel: "high",
-	      status: "approved",
-	      summary: "test",
-	      actorUserId: "admin-user",
-	      actorRole: "admin",
-	    });
+      payload: approvedPayload,
+      riskLevel: "high",
+      status: "approved",
+      summary: "test",
+      actorUserId: "admin-user",
+      actorRole: "admin",
+    });
     const result = await executeApprovedActionRequest(orgId, request.id);
     return { request, result };
   }
@@ -228,6 +290,9 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
     expect(apply).toContain('mode: "apply"');
     expect(apply).toContain('preview_id: "pv1"');
     expect(apply).toContain("applied"); // selects `applied`, not `valid`
+    const durableConfig = await readFile(configFile, "utf8");
+    expect(durableConfig).toContain("name: adventureworks");
+    expect(durableConfig).toContain("read: authenticated");
   });
 
   it("register_source uses update_sources (upsert), never sources: (replace)", async () => {
@@ -248,6 +313,163 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
     // Must not wipe the meta-source via a full replace or a non-existent field.
     expect(preview).not.toContain("source_add");
     expect(preview).not.toMatch(/[^_]sources:/);
+    expect(await readFile(configFile, "utf8")).toContain("name: warehouse");
+  });
+
+  it("materializes, applies, and verifies a managed OpenAPI asset", async () => {
+    await setEndpoint(CUSTOMER);
+    const root = await mkdtemp(join(tmpdir(), "openneko-openapi-"));
+    const previousConfig = process.env.OPENNEKO_GRAPHJIN_CONFIG;
+    process.env.OPENNEKO_GRAPHJIN_CONFIG = join(root, "agentic.yml");
+    await writeFile(
+      process.env.OPENNEKO_GRAPHJIN_CONFIG,
+      "production: true\nsources:\n  - name: graphjin\n    kind: graphjin\n",
+    );
+    const content = [
+      "openapi: 3.0.3",
+      "info:",
+      "  title: Pets",
+      "  version: '1'",
+      "servers:",
+      "  - url: https://pets.example.com",
+      "paths:",
+      "  /pets:",
+      "    get:",
+      "      responses:",
+      "        '200': { description: ok }",
+      "",
+    ].join("\n");
+    const [asset] = await db()
+      .insert(openapi_spec_asset)
+      .values({
+        org_id: orgId,
+        source_type: "upload",
+        original_name: "pets.yaml",
+        content,
+        checksum_sha256: createHash("sha256").update(content).digest("hex"),
+        title: "Pets",
+        version: "1",
+        base_url: "https://pets.example.com",
+        operation_count: 1,
+        read_operation_count: 1,
+      })
+      .returning();
+    const tableName = managedOpenApiSpecFilename(orgId, "pets").replace(
+      /\.yaml$/,
+      "_list_pets",
+    );
+    const { calls } = installFetchMock(tableName);
+    try {
+      const { result } = await runAction({
+        action: "register_source",
+        name: "pets",
+        kind: "api",
+        specAssetId: asset!.id,
+      });
+      expect(result.ok, result.error).toBe(true);
+      expect(
+        calls.some((call) => call.body.query.includes('kind: "api"')),
+      ).toBe(true);
+      expect(
+        calls.some((call) => call.body.query.includes("/config/specs/")),
+      ).toBe(true);
+      const specPath = join(
+        root,
+        "specs",
+        managedOpenApiSpecFilename(orgId, "pets"),
+      );
+      expect(await readFile(specPath, "utf8")).toBe(content);
+      expect(
+        await readFile(process.env.OPENNEKO_GRAPHJIN_CONFIG, "utf8"),
+      ).toContain("name: pets");
+      const [stored] = await db()
+        .select({
+          status: openapi_spec_asset.status,
+          sourceName: openapi_spec_asset.source_name,
+        })
+        .from(openapi_spec_asset)
+        .where(eq(openapi_spec_asset.id, asset!.id));
+      expect(stored).toEqual({ status: "active", sourceName: "pets" });
+    } finally {
+      if (previousConfig === undefined) {
+        delete process.env.OPENNEKO_GRAPHJIN_CONFIG;
+      }
+      else process.env.OPENNEKO_GRAPHJIN_CONFIG = previousConfig;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("verifies, applies, and persists an isolated read-only local file source", async () => {
+    await setEndpoint(CUSTOMER);
+    const staged = await stageManagedFileSourceFiles({
+      configFile,
+      orgId,
+      sourceName: "documents",
+      files: [
+        {
+          name: "revenue.csv",
+          content: new TextEncoder().encode("quarter,revenue\nQ1,42\n"),
+          contentType: "text/csv",
+        },
+      ],
+    });
+    const localFiles = {
+      sourceName: "documents",
+      ready: true as const,
+      files: staged,
+      totalSize: staged.reduce((sum, file) => sum + file.size, 0),
+    };
+    const { calls } = installFetchMock("documents");
+    const { result } = await runAction({
+      action: "register_source",
+      name: "documents",
+      kind: "file",
+      backend: "local",
+      localFiles,
+    });
+    expect(result.ok, result.error).toBe(true);
+    const preview = calls.find((call) =>
+      call.body.query.includes('mode: "preview"'),
+    )!.body.query;
+    const runtimeRoot = managedFileSourceRuntimeRoot({
+      orgId,
+      sourceName: "documents",
+    });
+    expect(preview).toContain(runtimeRoot);
+    expect(preview).toContain("read_only: true");
+    expect(preview).toContain('read: "authenticated"');
+    const previewVariables = calls.find((call) =>
+      call.body.query.includes('mode: "preview"'),
+    )!.body.variables;
+    expect(previewVariables).toMatchObject({
+      json1: {
+        "files.list": true,
+        "files.read": true,
+        "files.write": false,
+        "files.delete": false,
+        "files.watch": false,
+      },
+    });
+    expect(
+      calls.some(
+        (call) =>
+          call.body.query.includes("gj_catalog") &&
+          call.body.query.includes('kind: { eq: "table" }'),
+      ),
+    ).toBe(true);
+    expect(result.outcome?.result).toMatchObject({
+      fileSource: {
+        backend: "local",
+        fileCount: 1,
+        totalSize: staged[0]!.size,
+        readOnly: true,
+      },
+    });
+    const durableConfig = await readFile(configFile, "utf8");
+    expect(durableConfig).toContain("name: documents");
+    expect(durableConfig).toContain(`root: ${runtimeRoot}`);
+    expect(durableConfig).toContain("read_only: true");
+    expect(durableConfig).not.toContain(configRoot);
   });
 
   it("BOUNDARY: refuses to configure the OpenNeko internal GraphJin", async () => {
@@ -301,6 +523,11 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
     // …nor in the adapter result (which carries the NAME only).
     expect(JSON.stringify(result)).not.toContain(SECRET_VALUE);
     expect(JSON.stringify(result)).toContain(SECRET_NAME);
+    const durableConfig = await readFile(configFile, "utf8");
+    expect(durableConfig).not.toContain(SECRET_VALUE);
+    expect(durableConfig).toContain(
+      "password: gjsecret://sources/warehouse2/password",
+    );
   });
 
   it("describeSourceGraph summarizes gj_catalog rows for the customer engine", async () => {

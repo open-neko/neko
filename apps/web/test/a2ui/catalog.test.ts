@@ -37,6 +37,8 @@ describe("A2UI catalog", () => {
       CheckBox: "CheckBox",
       ChoicePicker: "ChoicePicker",
       Conditional: "Conditional",
+      OpenApiSpecInput: "OpenApiSpecInput",
+      ManagedFileSourceInput: "ManagedFileSourceInput",
     });
   });
 

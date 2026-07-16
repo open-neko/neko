@@ -1,4 +1,12 @@
 import { createHash } from "node:crypto";
+import {
+  assertManagedFileSourceName,
+  validateFilePresignTtl,
+  validateObjectStoreBucket,
+  validateObjectStoreEndpoint,
+  validatePublicFileBaseUrl,
+} from "./file-source";
+import { parseManagedFileSourceManifest } from "./file-source-assets";
 
 export type ResolveSourceSecret = (name: string) => Promise<string>;
 
@@ -43,6 +51,43 @@ export function graphjinInputValue(value: unknown): string {
   return `{ ${entries.join(", ")} }`;
 }
 
+export function graphjinInputWithJsonVariables(value: unknown): {
+  literal: string;
+  variableDefinitions: string;
+  variables: Record<string, unknown>;
+} {
+  const variables: Record<string, unknown> = {};
+  let sequence = 0;
+  const encode = (item: unknown): string => {
+    if (item === null || item === undefined) return "null";
+    if (typeof item === "string") return JSON.stringify(item);
+    if (typeof item === "number" || typeof item === "boolean") {
+      return String(item);
+    }
+    if (Array.isArray(item)) return `[${item.map(encode).join(", ")}]`;
+    const record = item as Record<string, unknown>;
+    if (Object.keys(record).some((key) => !/^[_A-Za-z][_0-9A-Za-z]*$/.test(key))) {
+      const name = `json${++sequence}`;
+      variables[name] = record;
+      return `$${name}`;
+    }
+    return `{ ${Object.entries(record)
+      .filter(([, entry]) => entry !== undefined)
+      .map(([key, entry]) => `${key}: ${encode(entry)}`)
+      .join(", ")} }`;
+  };
+  const literal = encode(value);
+  const names = Object.keys(variables);
+  return {
+    literal,
+    variableDefinitions:
+      names.length > 0
+        ? `(${names.map((name) => `$${name}: JSON!`).join(", ")})`
+        : "",
+    variables,
+  };
+}
+
 /**
  * Convert OpenNeko's narrow, typed source-config proposal into GraphJin's
  * additive patch shape. The optional resolver is trusted host code; a secret
@@ -51,6 +96,10 @@ export function graphjinInputValue(value: unknown): string {
 export async function buildGraphjinConfigUpdate(
   payload: Record<string, unknown>,
   resolveSecret?: ResolveSourceSecret,
+  options?: {
+    managedOpenApiSpecsDir?: string;
+    managedLocalFilesRoot?: string;
+  },
 ): Promise<{ update: Record<string, unknown>; secretName: string | null }> {
   const action = String(payload.action ?? "");
   const update: Record<string, unknown> = {};
@@ -121,31 +170,82 @@ export async function buildGraphjinConfigUpdate(
       }
     }
     if (kind === "api") {
-      source.specs_dir = copyString("specsDir", "specs_dir") || "config/specs";
+      const specAssetId =
+        typeof payload.specAssetId === "string" ? payload.specAssetId.trim() : "";
+      if (!specAssetId) {
+        throw new Error("register_source api needs a managed specAssetId");
+      }
+      // This path is trusted deployment configuration, never model/user input.
+      source.specs_dir = options?.managedOpenApiSpecsDir ?? "/config/specs";
     }
     if (kind === "file") {
+      assertManagedFileSourceName(name);
       const backend = selectedString(payload.backend);
       if (backend) source.backend = backend;
       if (!["local", "s3", "gcs"].includes(backend)) {
         throw new Error("register_source file needs backend local, s3, or gcs");
       }
-      if (backend === "local" && !copyString("root")) {
-        throw new Error("register_source local file needs root");
+      if (typeof payload.root === "string" && payload.root.trim()) {
+        throw new Error(
+          "register_source local file roots are managed by OpenNeko and cannot be supplied in a proposal",
+        );
       }
-      if ((backend === "s3" || backend === "gcs") && !copyString("bucket")) {
-        throw new Error(`register_source ${backend} file needs bucket`);
+      if (backend === "local") {
+        parseManagedFileSourceManifest(payload.localFiles, name);
+        if (!options?.managedLocalFilesRoot) {
+          throw new Error(
+            "register_source local file needs OpenNeko managed storage",
+          );
+        }
+        source.root = options.managedLocalFilesRoot;
       }
-      copyString("prefix");
-      copyString("region");
-      copyString("endpoint");
-      copyString("publicBaseUrl", "public_base_url");
-      copyString("presignTtl", "presign_ttl");
+      if (backend === "s3" || backend === "gcs") {
+        const bucket = copyString("bucket");
+        if (!bucket) throw new Error(`register_source ${backend} file needs bucket`);
+        validateObjectStoreBucket(backend, bucket);
+        const prefix = copyString("prefix");
+        if (prefix.startsWith("/") || prefix.includes("\0")) {
+          throw new Error(
+            "register_source file prefix must be a relative object-key prefix",
+          );
+        }
+        if (backend === "s3") copyString("region");
+        if (typeof payload.endpoint === "string" && payload.endpoint.trim()) {
+          if (backend !== "s3") {
+            throw new Error("register_source file endpoint is supported only for S3");
+          }
+          source.endpoint = validateObjectStoreEndpoint(payload.endpoint.trim());
+        }
+        if (
+          typeof payload.publicBaseUrl === "string" &&
+          payload.publicBaseUrl.trim()
+        ) {
+          source.public_base_url = validatePublicFileBaseUrl(
+            payload.publicBaseUrl.trim(),
+          );
+        }
+        if (typeof payload.presignTtl === "string" && payload.presignTtl.trim()) {
+          source.presign_ttl = validateFilePresignTtl(payload.presignTtl.trim());
+        }
+      }
+      source.read_only = true;
+      source.max_list_page_size = 500;
+      source.capabilities = {
+        "files.list": true,
+        "files.read": true,
+        "files.write": false,
+        "files.delete": false,
+        "files.watch": false,
+      };
     }
-    source.access = {
-      read: String(payload.read ?? "authenticated"),
-      write: String(payload.write ?? "blocked"),
-      delete: String(payload.delete ?? "blocked"),
-    };
+    source.access =
+      kind === "file"
+        ? { read: "authenticated", write: "blocked", delete: "blocked" }
+        : {
+            read: String(payload.read ?? "authenticated"),
+            write: String(payload.write ?? "blocked"),
+            delete: String(payload.delete ?? "blocked"),
+          };
     update.update_sources = [source];
     return { update, secretName };
   }
