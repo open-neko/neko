@@ -726,11 +726,11 @@ function WorkflowDetail({
         ) : (
           <ul className="list-none p-0 mt-0 mb-1.5 flex flex-col gap-1.5">
             {policies.map((p) => (
-              <li key={p.id} className="flex items-center gap-2 text-[12.5px]">
-                <span className="font-mono text-[11.5px] text-text2">{p.name}</span>
+              <li key={p.id} className="flex min-w-0 items-start gap-2 text-[12.5px]">
+                <span className="min-w-0 flex-1 font-mono text-[11.5px] text-text2 [overflow-wrap:anywhere]">{p.name}</span>
                 <span
                   className={cn(
-                    "text-[9.5px] font-bold tracking-[0.13em] uppercase px-1.5 py-0.5 rounded-full ml-auto",
+                    "shrink-0 whitespace-nowrap text-[9.5px] font-bold tracking-[0.13em] uppercase px-1.5 py-0.5 rounded-full ml-auto",
                     policyModeClass(p.mode),
                   )}
                 >
@@ -787,15 +787,15 @@ function WorkflowDetail({
             {recentActions.map((a) => (
               <li key={a.id} className="border border-border bg-neutral-soft rounded-lg px-2.5 py-2">
                 <div className="flex items-center gap-2 flex-wrap text-[12.5px]">
-                  <span className="font-semibold text-text">{a.kind}</span>
+                  <span className="min-w-0 font-semibold text-text [overflow-wrap:anywhere]">{a.kind}</span>
                   {a.target && (
-                    <span className="font-mono text-[11.5px] text-text2">
+                    <span className="min-w-0 font-mono text-[11.5px] text-text2 [overflow-wrap:anywhere]">
                       {a.target}
                     </span>
                   )}
                   <span
                     className={cn(
-                      "ml-auto text-[10.5px] font-bold tracking-[0.08em] uppercase px-2 py-0.5 rounded-full",
+                      "ml-auto shrink-0 whitespace-nowrap text-[10.5px] font-bold tracking-[0.08em] uppercase px-2 py-0.5 rounded-full",
                       actionPillClass(a.status),
                     )}
                   >

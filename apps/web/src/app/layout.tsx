@@ -43,8 +43,10 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: DENSITY_INIT }} />
       </head>
       <body>
-        <DensityProvider>{children}</DensityProvider>
-        <CommandDock />
+        <DensityProvider>
+          {children}
+          <CommandDock />
+        </DensityProvider>
         <Toaster
           position="bottom-right"
           expand

@@ -137,7 +137,7 @@ export default function FindingCard({
       }}
     >
       <div className="flex items-start justify-between gap-3 mb-1.5">
-        <h3 className="font-display text-[17px] font-bold tracking-[-0.01em] text-text leading-snug m-0">
+        <h3 className="min-w-0 font-display text-[17px] font-bold tracking-[-0.01em] text-text leading-snug m-0 [overflow-wrap:anywhere]">
           {data.title}
         </h3>
         <Pill variant={pillVariant} className="flex-shrink-0">

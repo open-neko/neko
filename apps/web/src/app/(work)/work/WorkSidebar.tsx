@@ -25,11 +25,11 @@ export default function WorkSidebar() {
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [loadingThreads, setLoadingThreads] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
-  // Collapsed on mobile while a thread is open so the conversation, not the
-  // thread list, is the first thing on screen. Desktop ignores this (CSS).
-  const [threadsExpanded, setThreadsExpanded] = useState(true);
+  // Start collapsed on mobile so Ask opens directly onto the working surface.
+  // Desktop ignores this state because its thread list is always visible.
+  const [threadsExpanded, setThreadsExpanded] = useState(false);
   useEffect(() => {
-    setThreadsExpanded(!activeThreadId);
+    setThreadsExpanded(false);
   }, [activeThreadId]);
 
   const refresh = useCallback(async () => {

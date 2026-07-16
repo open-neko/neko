@@ -1,230 +1,540 @@
-/* ─────────────────────────────────────────────────────────────
-   COMMAND DOCK — thumb-first nav for small screens.
-   The phone form of the section nav: a floating, frosted bar of
-   five destinations pinned to the bottom reach-zone. Hidden above
-   720px, where the top-bar nav takes over. Brand tokens only;
-   the purple active dot reuses the nav's existing active motif.
-   ───────────────────────────────────────────────────────────── */
-
+/* Thumb-first app navigation. The dock exists only on phones; wider layouts
+   retain the existing header navigation. */
 .cdock-wrap {
   display: none;
 }
 
 @media (max-width: 720px) {
   .cdock-wrap {
-    display: block;
     position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: auto 0 0;
     z-index: 120;
-    padding: 8px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    display: block;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
     pointer-events: none;
   }
+
   .cdock-wrap > * {
     pointer-events: auto;
   }
 
   .cdock {
+    position: relative;
+    z-index: 2;
+    width: min(100%, 480px);
+    min-height: 68px;
+    margin: 0 auto;
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
     gap: 2px;
-    background: color-mix(in srgb, var(--card) 82%, transparent);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+    padding: 8px 8px 7px;
+    background: color-mix(in srgb, var(--card) 88%, transparent);
+    backdrop-filter: blur(18px) saturate(1.15);
+    -webkit-backdrop-filter: blur(18px) saturate(1.15);
+    border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
     border-radius: 24px;
-    padding: 9px 10px 8px;
     box-shadow:
       0 2px 8px rgba(20, 18, 12, 0.06),
       0 18px 40px -10px rgba(20, 18, 12, 0.22);
   }
 
   .cdock-item {
-    flex: 1;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  .cdock-item {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 50px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
-    position: relative;
-    padding: 3px 0 2px;
+    justify-content: center;
+    gap: 5px;
+    padding: 5px 2px 3px;
     border: 0;
+    border-radius: 14px;
     background: transparent;
     color: var(--text3);
     text-decoration: none;
     cursor: pointer;
-    transition: color 0.16s;
+    transition: color 0.16s ease, background 0.16s ease, transform 0.16s ease;
   }
+
   .cdock-item svg {
     width: 21px;
     height: 21px;
-    display: block;
+    flex: 0 0 auto;
   }
+
   .cdock-lbl {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-family: var(--font-body), "Manrope", sans-serif;
-    font-weight: 600;
     font-size: 9.5px;
-    letter-spacing: 0.01em;
+    font-weight: 600;
+    letter-spacing: 0;
     line-height: 1;
+    white-space: nowrap;
   }
+
   .cdock-item.is-active {
     color: var(--text);
   }
+
   .cdock-item.is-active .cdock-lbl {
-    font-weight: 700;
+    font-weight: 800;
   }
+
   .cdock-item.is-active::before {
     content: "";
     position: absolute;
-    top: -7px;
+    top: -5px;
     width: 5px;
     height: 5px;
     border-radius: 50%;
     background: var(--accent);
   }
 
-  /* Raised center action — Ask. */
-  .cdock-center {
-    flex: 0 0 auto;
-    margin: 0 4px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-decoration: none;
-  }
-  .cdock-fab {
-    width: 50px;
-    height: 50px;
-    border-radius: 17px;
-    background: var(--accent);
-    color: #fff;
-    display: grid;
-    place-items: center;
-    margin-top: -16px;
-    box-shadow: 0 4px 14px -2px color-mix(in srgb, var(--accent) 55%, transparent);
-    transition: transform 0.16s, box-shadow 0.16s;
-  }
-  .cdock-fab svg {
-    width: 23px;
-    height: 23px;
-  }
-  .cdock-fab:active {
-    transform: scale(0.95);
-  }
-  .cdock-fab.is-active {
-    background: var(--text);
-  }
-  .cdock-lbl-center {
-    margin-top: 3px;
-    color: var(--text);
-    font-weight: 700;
+  .cdock-item:active {
+    background: var(--neutral-soft);
+    transform: scale(0.97);
   }
 
-  /* Live pending-approvals badge. */
+  .cdock-item:focus-visible,
+  .cdock-sheet-row:focus-visible,
+  .cdock-sheet-close:focus-visible,
+  .cdock-sheet-out:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
   .cdock-badge {
     position: absolute;
-    top: -3px;
+    top: 0;
     right: 50%;
-    transform: translateX(20px);
-    min-width: 16px;
-    height: 16px;
-    padding: 0 4px;
-    border-radius: 999px;
-    background: var(--danger);
-    color: #fff;
-    font-weight: 600;
-    font-size: 9.5px;
-    line-height: 1;
+    transform: translateX(21px);
+    min-width: 17px;
+    height: 17px;
+    padding-inline: 4px;
     display: grid;
     place-items: center;
     border: 1.5px solid var(--card);
+    border-radius: 999px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1;
   }
 
-  /* "More" sheet — secondary destinations, popped above the dock. */
+  .cdock-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    border: 0;
+    background: rgba(31, 28, 23, 0.3);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: cdock-scrim-in 0.18s ease both;
+  }
+
   .cdock-sheet {
-    position: absolute;
-    right: 14px;
-    left: 14px;
-    bottom: calc(100% - 6px);
-    margin-bottom: 8px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    box-shadow:
-      0 2px 8px rgba(20, 18, 12, 0.06),
-      0 24px 60px -16px rgba(20, 18, 12, 0.28);
+    position: fixed;
+    z-index: 3;
+    left: max(12px, calc((100vw - 480px) / 2));
+    right: max(12px, calc((100vw - 480px) / 2));
+    bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+    max-height: min(72dvh, calc(100dvh - 112px - env(safe-area-inset-bottom, 0px)));
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    background: var(--card);
+    box-shadow:
+      0 2px 8px rgba(20, 18, 12, 0.08),
+      0 28px 70px -18px rgba(20, 18, 12, 0.38);
+    animation: cdock-rise 0.2s cubic-bezier(0.2, 0.75, 0.2, 1) both;
+  }
+
+  .cdock-sheet:focus {
+    outline: none;
+  }
+
+  .cdock-sheet-grab {
+    width: 36px;
+    height: 4px;
+    margin: 2px auto 8px;
+    border-radius: 999px;
+    background: var(--border);
+  }
+
+  .cdock-sheet-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 4px 8px 12px;
+  }
+
+  .cdock-sheet-head h2 {
+    margin: 0;
+    font-family: var(--font-display), "Archivo", sans-serif;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    color: var(--text);
+  }
+
+  .cdock-sheet-head p {
+    margin: 3px 0 0;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text3);
+  }
+
+  .cdock-sheet-close {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 12px;
+    background: var(--neutral-soft);
+    color: var(--text2);
+    cursor: pointer;
+  }
+
+  .cdock-sheet-close svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .cdock-sheet-list {
     display: grid;
     gap: 2px;
-    animation: cdock-rise 0.18s cubic-bezier(0.4, 0, 0.2, 1) both;
   }
-  @keyframes cdock-rise {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
+
   .cdock-sheet-row {
+    min-height: 58px;
     display: flex;
-    flex-direction: column;
-    gap: 1px;
-    padding: 11px 13px;
-    border-radius: 12px;
-    text-decoration: none;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 10px;
+    border-radius: 14px;
     color: var(--text);
-    transition: background 0.15s;
+    text-decoration: none;
+    transition: background 0.15s ease, transform 0.15s ease;
   }
+
   .cdock-sheet-row:active {
     background: var(--neutral-soft);
+    transform: scale(0.99);
   }
+
   .cdock-sheet-row.is-active {
     background: var(--accent-soft);
   }
-  .cdock-sheet-row.is-active .cdock-sheet-label {
-    color: var(--accent);
-  }
-  .cdock-sheet-label {
-    font-family: var(--font-display), "Archivo", sans-serif;
-    font-weight: 700;
-    font-size: 14px;
-    letter-spacing: -0.01em;
-  }
-  .cdock-sheet-desc {
-    font-size: 11.5px;
-    color: var(--text3);
-  }
-  .cdock-sheet-out {
-    margin-top: 4px;
-    padding: 12px;
-    border: 0;
-    border-top: 1px solid var(--border);
-    background: transparent;
-    color: var(--danger);
-    font-family: var(--font-display), "Archivo", sans-serif;
-    font-weight: 700;
-    font-size: 13.5px;
-    cursor: pointer;
-    border-radius: 0 0 10px 10px;
+
+  .cdock-sheet-icon {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: var(--neutral-soft);
+    color: var(--text2);
   }
 
-  /* The top-strip section nav is replaced by the dock on phones. The
-     `.app-header` prefix outranks the base `.topbar-nav` rule that would
-     otherwise re-show it via the cascade. The density toggle (no meaning at
-     one column — it lives in the More sheet) and the inline credit are
-     dropped too, leaving a clean brand + version header. */
-  .app-header .topbar-nav,
-  .app-header .density-seg,
-  .app-header .topbar-credit {
+  .cdock-sheet-row.is-active .cdock-sheet-icon {
+    background: color-mix(in srgb, var(--accent) 14%, var(--card));
+    color: var(--accent);
+  }
+
+  .cdock-sheet-icon svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .cdock-sheet-copy {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+
+  .cdock-sheet-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--font-display), "Archivo", sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+
+  .cdock-sheet-desc {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text3);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .cdock-sheet-chevron {
+    width: 16px;
+    height: 16px;
+    margin-left: auto;
+    flex: 0 0 auto;
+    color: var(--text3);
+  }
+
+  .cdock-sheet-settings {
+    margin-top: 8px;
+    padding: 12px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-top: 1px solid var(--border);
+    color: var(--text2);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .cdock-sheet-settings .density-seg {
+    display: inline-flex;
+  }
+
+  .cdock-sheet-settings .density-seg button {
+    min-width: 40px;
+    min-height: 36px;
+    justify-content: center;
+    padding-inline: 10px;
+  }
+
+  .cdock-sheet-settings .density-seg button span {
     display: none;
   }
 
-  /* Lift the sticky Ask composer clear of the dock so they never overlap. */
+  .cdock-sheet-out {
+    width: 100%;
+    min-height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 0;
+    border-radius: 13px;
+    background: var(--danger-soft);
+    color: var(--danger);
+    font-family: var(--font-display), "Archivo", sans-serif;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .cdock-sheet-out svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Mobile content hierarchy: the dock replaces the duplicated header nav.
+     Ask keeps an explicit, labeled thread control in the working surface. */
+  .app-header .topbar-nav,
+  .app-header > .topbar-inner > .density-seg,
+  .app-header .topbar-credit,
+  .app-header .topbar-signout {
+    display: none;
+  }
+
+  .app-header {
+    padding-block: 7px;
+  }
+
+  .app-header .topbar-inner {
+    min-height: 42px;
+    flex-wrap: nowrap;
+    gap: 9px;
+  }
+
+  .app-header .topbar-ver {
+    margin-left: auto;
+  }
+
+  .app-header .settings-backlink {
+    max-width: 44vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .app-header .topbar-inner:has(.settings-backlink) .topbar-brand,
+  .app-header .topbar-inner:has(.settings-backlink) .topbar-ver {
+    display: none;
+  }
+
+  .app-header .topbar-inner:has(.settings-backlink) .settings-backlink {
+    max-width: 100%;
+    margin-right: auto;
+  }
+
+  .work-layout {
+    width: 100%;
+    margin-left: 0;
+    transform: none;
+  }
+
+  .work-sidebar {
+    position: static;
+    max-height: none;
+    padding: 0;
+    gap: 8px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .work-layout:not(.has-rail) .work-sidebar {
+    display: none;
+  }
+
+  .work-sidebar-head {
+    min-height: 46px;
+    padding: 0;
+    gap: 8px;
+  }
+
+  .work-threads-toggle {
+    min-height: 44px;
+    flex: 1;
+    justify-content: flex-start;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--card);
+    color: var(--text2);
+    cursor: pointer;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .work-threads-toggle:active {
+    background: var(--neutral-soft);
+  }
+
+  .work-threads-chevron {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .work-sidebar-head .work-icon-btn.is-ghost {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 auto;
+    border-color: var(--border);
+    border-radius: 14px;
+    background: var(--card);
+    color: var(--accent);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .work-thread-list {
+    max-height: min(42dvh, 360px);
+    flex: none;
+    margin: 0;
+    padding: 7px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--card);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .work-thread-list.is-collapsed {
+    display: none;
+  }
+
+  .work-thread-row-main {
+    min-height: 52px;
+  }
+
+  .work-sidebar-footer {
+    display: none;
+  }
+
   .work-composer {
-    bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(86px + env(safe-area-inset-bottom, 0px));
+  }
+
+  html {
+    scroll-padding-bottom: calc(172px + env(safe-area-inset-bottom, 0px));
+  }
+
+  [data-sonner-toaster][data-y-position="bottom"] {
+    bottom: calc(92px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+@media (max-width: 360px) {
+  .cdock-wrap {
+    padding-inline: 8px;
+  }
+
+  .cdock {
+    padding-inline: 5px;
+  }
+
+  .cdock-item {
+    padding-inline: 0;
+  }
+
+  .cdock-sheet {
+    left: 8px;
+    right: 8px;
+  }
+}
+
+@media (max-width: 720px) and (max-height: 560px) {
+  .cdock-sheet {
+    max-height: calc(100dvh - 102px - env(safe-area-inset-bottom, 0px));
+  }
+
+  .cdock-sheet-head p {
+    display: none;
+  }
+
+  .cdock-sheet-row {
+    min-height: 52px;
+  }
+}
+
+@keyframes cdock-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes cdock-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cdock-item,
+  .cdock-sheet,
+  .cdock-scrim,
+  .cdock-sheet-row {
+    animation: none;
+    transition: none;
   }
 }

@@ -41,6 +41,7 @@ export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
   cleanup();
   return new Promise<boolean>((resolve) => {
     const container = document.createElement("div");
+    container.className = "confirm-modal-root";
     document.body.appendChild(container);
     activeContainer = container;
     const root = createRoot(container);

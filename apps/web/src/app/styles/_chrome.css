@@ -166,6 +166,14 @@ html {
 /* ─── PILLS (segmented tab/selector — e.g. business-profile, role views) ─── */
 .pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 38px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--font-body), 'Manrope', sans-serif;
   font-size: 13.5px;
   font-weight: 600;

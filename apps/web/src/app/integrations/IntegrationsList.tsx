@@ -72,7 +72,7 @@ export default function IntegrationsList({ initial }: { initial: Row[] }) {
           {rows.map((row) => (
             <li
               key={row.pluginName}
-              className="flex items-center gap-4 p-4 rounded-xl border border-border bg-bg"
+              className="flex items-center gap-4 p-4 rounded-xl border border-border bg-bg max-[480px]:items-stretch max-[480px]:flex-col"
             >
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-text">{row.providerLabel}</div>

@@ -3,69 +3,93 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { ChevronRight, Ellipsis, LogOut, X } from "lucide-react";
+import DensityToggle from "@/components/DensityToggle";
+import {
+  PRIMARY_NAV,
+  SECONDARY_NAV,
+  hideAppChrome,
+  isActive,
+  useApprovalsCount,
+  type NavDestination,
+} from "@/lib/nav";
 
-// Thumb-first navigation for small screens. Replaces the top-strip section nav
-// on phones: five primary destinations with Ask raised as a center action, a
-// live badge on Actions, and a "More" sheet that folds in the secondary
-// surfaces. Hidden on >720px (the top bar keeps its nav there) and on the
-// auth/onboarding routes, which have no app chrome.
-//
-// One nav model, ergonomically reshaped per size — the phone form of the same
-// rail the wider layouts use.
+type OpenSheet = "more" | null;
 
-const SECONDARY = [
-  { href: "/business-profile", label: "Business Profile", desc: "How your business runs" },
-  { href: "/memory", label: "Memory", desc: "Pinned facts & learned rules" },
-  { href: "/skills", label: "Skills", desc: "What OpenNeko can do" },
-  { href: "/integrations", label: "Integrations", desc: "Slack, Gmail, Stripe…" },
-  { href: "/admin", label: "Admin", desc: "Users, model, data sources" },
-];
+const dockDestination = (href: string) => {
+  const destination = PRIMARY_NAV.find((item) => item.href === href);
+  if (!destination) throw new Error(`Missing dock destination: ${href}`);
+  return destination;
+};
 
-function isActive(pathname: string, base: string) {
-  if (base === "/") return pathname === "/";
-  return pathname === base || pathname.startsWith(`${base}/`);
+const DASHBOARD = dockDestination("/");
+const WORKFLOWS = dockDestination("/workflows");
+const ASK = dockDestination("/work");
+const ACTIONS = dockDestination("/actions");
+
+function DockLink({
+  item,
+  pathname,
+  pending = 0,
+  onNavigate,
+}: {
+  item: NavDestination;
+  pathname: string;
+  pending?: number;
+  onNavigate: () => void;
+}) {
+  const active = isActive(pathname, item.href);
+  const Icon = item.icon;
+
+  return (
+    <Link
+      href={item.href}
+      className={`cdock-item${active ? " is-active" : ""}`}
+      aria-current={active ? "page" : undefined}
+      onClick={onNavigate}
+    >
+      <Icon aria-hidden="true" strokeWidth={1.9} />
+      <span className="cdock-lbl">{item.shortLabel}</span>
+      {item.href === "/actions" && pending > 0 ? (
+        <span className="cdock-badge font-mono" aria-label={`${pending} pending`}>
+          {pending > 99 ? "99+" : pending}
+        </span>
+      ) : null}
+    </Link>
+  );
 }
 
 export default function CommandDock() {
   const pathname = usePathname() ?? "/";
-  const [pending, setPending] = useState(0);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement | null>(null);
+  const hidden = hideAppChrome(pathname);
+  const pending = useApprovalsCount(!hidden);
+  const [openSheet, setOpenSheet] = useState<OpenSheet>(null);
+  const sheetRef = useRef<HTMLElement | null>(null);
+  const triggerRef = useRef<HTMLAnchorElement | HTMLButtonElement | null>(null);
 
-  // Pending-approvals badge — same poll the section nav uses, so the count
-  // stays live whether you reach Actions from the top bar or the dock.
   useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const res = await fetch("/api/approvals?countOnly=true", { cache: "no-store" });
-        if (cancelled || !res.ok) return;
-        const data = (await res.json()) as { count?: number };
-        setPending(data.count ?? 0);
-      } catch {
-        // best-effort; ignore network blips
+    if (!openSheet) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const frame = requestAnimationFrame(() => sheetRef.current?.focus());
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === "Escape" &&
+        !document.querySelector(".confirm-modal-root")
+      ) {
+        setOpenSheet(null);
       }
     };
-    void tick();
-    const id = setInterval(tick, 30_000);
+    document.addEventListener("keydown", onKeyDown);
+
     return () => {
-      cancelled = true;
-      clearInterval(id);
+      cancelAnimationFrame(frame);
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+      triggerRef.current?.focus({ preventScroll: true });
     };
-  }, []);
-
-  // Close the More sheet on outside taps. (Navigation closes it via the
-  // onClick handlers below, so there's no setState-in-effect on pathname.)
-  useEffect(() => {
-    if (!moreOpen) return;
-    const onDown = (e: PointerEvent) => {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
-        setMoreOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", onDown);
-    return () => document.removeEventListener("pointerdown", onDown);
-  }, [moreOpen]);
+  }, [openSheet]);
 
   async function handleSignOut() {
     try {
@@ -75,101 +99,123 @@ export default function CommandDock() {
     }
   }
 
-  // No app chrome on the auth / onboarding flows.
-  if (pathname.startsWith("/signin") || pathname.startsWith("/onboarding")) {
-    return null;
+  function closeSheet() {
+    setOpenSheet(null);
   }
 
-  const moreActive = SECONDARY.some((s) => isActive(pathname, s.href));
+  if (hidden) return null;
+
+  const moreActive = SECONDARY_NAV.some((item) => isActive(pathname, item.href));
+  const askActive = isActive(pathname, ASK.href);
+  const AskIcon = ASK.icon;
 
   return (
-    <div className="cdock-wrap" ref={moreRef}>
-      {moreOpen && (
-        <div className="cdock-sheet" role="menu" aria-label="More destinations">
-          {SECONDARY.map((s) => (
-            <Link
-              key={s.href}
-              href={s.href}
-              role="menuitem"
-              onClick={() => setMoreOpen(false)}
-              className={`cdock-sheet-row${isActive(pathname, s.href) ? " is-active" : ""}`}
-            >
-              <span className="cdock-sheet-label">{s.label}</span>
-              <span className="cdock-sheet-desc">{s.desc}</span>
-            </Link>
-          ))}
-          <button type="button" className="cdock-sheet-out" onClick={handleSignOut}>
-            Sign out
-          </button>
-        </div>
-      )}
+    <div className="cdock-wrap">
+      {openSheet ? (
+        <>
+          <button
+            type="button"
+            className="cdock-scrim"
+            aria-label="Close navigation sheet"
+            onClick={closeSheet}
+          />
+          <section
+            ref={sheetRef}
+            id="cdock-more-sheet"
+            className="cdock-sheet is-more"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cdock-more-title"
+            tabIndex={-1}
+          >
+            <div className="cdock-sheet-grab" aria-hidden="true" />
+            <div className="cdock-sheet-head">
+              <div>
+                <h2 id="cdock-more-title">More</h2>
+                <p>Knowledge, connections, and workspace settings.</p>
+              </div>
+              <button
+                type="button"
+                className="cdock-sheet-close"
+                aria-label="Close"
+                onClick={closeSheet}
+              >
+                <X aria-hidden="true" strokeWidth={2} />
+              </button>
+            </div>
 
-      <nav className="cdock" aria-label="Primary">
+            <nav className="cdock-sheet-list" aria-label="More destinations">
+              {SECONDARY_NAV.map((item) => {
+                const active = isActive(pathname, item.href);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={closeSheet}
+                    aria-current={active ? "page" : undefined}
+                    className={`cdock-sheet-row${active ? " is-active" : ""}`}
+                  >
+                    <span className="cdock-sheet-icon">
+                      <Icon aria-hidden="true" strokeWidth={1.9} />
+                    </span>
+                    <span className="cdock-sheet-copy">
+                      <span className="cdock-sheet-label">{item.label}</span>
+                      <span className="cdock-sheet-desc">{item.description}</span>
+                    </span>
+                    <ChevronRight className="cdock-sheet-chevron" aria-hidden="true" />
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="cdock-sheet-settings">
+              <span>Layout density</span>
+              <DensityToggle />
+            </div>
+            <button type="button" className="cdock-sheet-out" onClick={handleSignOut}>
+              <LogOut aria-hidden="true" strokeWidth={2} />
+              <span>Sign out</span>
+            </button>
+          </section>
+        </>
+      ) : null}
+
+      <nav className="cdock" aria-label="Primary navigation">
+        <DockLink item={DASHBOARD} pathname={pathname} onNavigate={closeSheet} />
+        <DockLink item={WORKFLOWS} pathname={pathname} onNavigate={closeSheet} />
+
         <Link
-          href="/"
-          onClick={() => setMoreOpen(false)}
-          className={`cdock-item${isActive(pathname, "/") ? " is-active" : ""}`}
+          href={ASK.href}
+          onClick={closeSheet}
+          className={`cdock-item cdock-ask${askActive ? " is-active" : ""}`}
+          aria-label="Ask OpenNeko"
+          aria-current={askActive ? "page" : undefined}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <path d="M4 11.5 12 4l8 7.5" />
-            <path d="M6 10v9h12v-9" strokeLinecap="round" />
-          </svg>
-          <span className="cdock-lbl">Briefing</span>
+          <AskIcon aria-hidden="true" strokeWidth={1.9} />
+          <span className="cdock-lbl">Ask</span>
         </Link>
 
-        <Link
-          href="/workflows"
-          onClick={() => setMoreOpen(false)}
-          className={`cdock-item${isActive(pathname, "/workflows") ? " is-active" : ""}`}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <rect x="3.5" y="6" width="17" height="11" rx="3" />
-            <path d="M8 20l3-3" strokeLinecap="round" />
-          </svg>
-          <span className="cdock-lbl">Workflows</span>
-        </Link>
-
-        <Link href="/work" onClick={() => setMoreOpen(false)} className="cdock-center" aria-label="Ask">
-          <span className={`cdock-fab${isActive(pathname, "/work") ? " is-active" : ""}`}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-              <path
-                d="M12 3a9 9 0 0 1 0 18 9.3 9.3 0 0 1-3.8-.8L3 21l1-4.4A9 9 0 0 1 12 3Z"
-                strokeLinejoin="round"
-              />
-              <path d="M8.5 11h7M8.5 14h4" strokeLinecap="round" />
-            </svg>
-          </span>
-          <span className="cdock-lbl cdock-lbl-center">Ask</span>
-        </Link>
-
-        <Link
-          href="/actions"
-          onClick={() => setMoreOpen(false)}
-          className={`cdock-item${isActive(pathname, "/actions") ? " is-active" : ""}`}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <path d="M5 12.5l4 4 10-10" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span className="cdock-lbl">Actions</span>
-          {pending > 0 && (
-            <span className="cdock-badge font-mono" aria-label={`${pending} pending`}>
-              {pending}
-            </span>
-          )}
-        </Link>
+        <DockLink
+          item={ACTIONS}
+          pathname={pathname}
+          pending={pending}
+          onNavigate={closeSheet}
+        />
 
         <button
+          ref={(node) => {
+            if (openSheet === "more") triggerRef.current = node;
+          }}
           type="button"
-          className={`cdock-item${moreActive || moreOpen ? " is-active" : ""}`}
-          aria-expanded={moreOpen}
-          aria-haspopup="menu"
-          onClick={() => setMoreOpen((v) => !v)}
+          className={`cdock-item${moreActive || openSheet === "more" ? " is-active" : ""}`}
+          aria-expanded={openSheet === "more"}
+          aria-controls="cdock-more-sheet"
+          onClick={(event) => {
+            triggerRef.current = event.currentTarget;
+            setOpenSheet((current) => (current === "more" ? null : "more"));
+          }}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <circle cx="6" cy="12" r="1.4" />
-            <circle cx="12" cy="12" r="1.4" />
-            <circle cx="18" cy="12" r="1.4" />
-          </svg>
+          <Ellipsis aria-hidden="true" strokeWidth={2.2} />
           <span className="cdock-lbl">More</span>
         </button>
       </nav>
