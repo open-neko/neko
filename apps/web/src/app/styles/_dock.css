@@ -1,0 +1,230 @@
+/* ─────────────────────────────────────────────────────────────
+   COMMAND DOCK — thumb-first nav for small screens.
+   The phone form of the section nav: a floating, frosted bar of
+   five destinations pinned to the bottom reach-zone. Hidden above
+   720px, where the top-bar nav takes over. Brand tokens only;
+   the purple active dot reuses the nav's existing active motif.
+   ───────────────────────────────────────────────────────────── */
+
+.cdock-wrap {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .cdock-wrap {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 120;
+    padding: 8px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    pointer-events: none;
+  }
+  .cdock-wrap > * {
+    pointer-events: auto;
+  }
+
+  .cdock {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 2px;
+    background: color-mix(in srgb, var(--card) 82%, transparent);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+    border-radius: 24px;
+    padding: 9px 10px 8px;
+    box-shadow:
+      0 2px 8px rgba(20, 18, 12, 0.06),
+      0 18px 40px -10px rgba(20, 18, 12, 0.22);
+  }
+
+  .cdock-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    position: relative;
+    padding: 3px 0 2px;
+    border: 0;
+    background: transparent;
+    color: var(--text3);
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.16s;
+  }
+  .cdock-item svg {
+    width: 21px;
+    height: 21px;
+    display: block;
+  }
+  .cdock-lbl {
+    font-family: var(--font-body), "Manrope", sans-serif;
+    font-weight: 600;
+    font-size: 9.5px;
+    letter-spacing: 0.01em;
+    line-height: 1;
+  }
+  .cdock-item.is-active {
+    color: var(--text);
+  }
+  .cdock-item.is-active .cdock-lbl {
+    font-weight: 700;
+  }
+  .cdock-item.is-active::before {
+    content: "";
+    position: absolute;
+    top: -7px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* Raised center action — Ask. */
+  .cdock-center {
+    flex: 0 0 auto;
+    margin: 0 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-decoration: none;
+  }
+  .cdock-fab {
+    width: 50px;
+    height: 50px;
+    border-radius: 17px;
+    background: var(--accent);
+    color: #fff;
+    display: grid;
+    place-items: center;
+    margin-top: -16px;
+    box-shadow: 0 4px 14px -2px color-mix(in srgb, var(--accent) 55%, transparent);
+    transition: transform 0.16s, box-shadow 0.16s;
+  }
+  .cdock-fab svg {
+    width: 23px;
+    height: 23px;
+  }
+  .cdock-fab:active {
+    transform: scale(0.95);
+  }
+  .cdock-fab.is-active {
+    background: var(--text);
+  }
+  .cdock-lbl-center {
+    margin-top: 3px;
+    color: var(--text);
+    font-weight: 700;
+  }
+
+  /* Live pending-approvals badge. */
+  .cdock-badge {
+    position: absolute;
+    top: -3px;
+    right: 50%;
+    transform: translateX(20px);
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--danger);
+    color: #fff;
+    font-weight: 600;
+    font-size: 9.5px;
+    line-height: 1;
+    display: grid;
+    place-items: center;
+    border: 1.5px solid var(--card);
+  }
+
+  /* "More" sheet — secondary destinations, popped above the dock. */
+  .cdock-sheet {
+    position: absolute;
+    right: 14px;
+    left: 14px;
+    bottom: calc(100% - 6px);
+    margin-bottom: 8px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow:
+      0 2px 8px rgba(20, 18, 12, 0.06),
+      0 24px 60px -16px rgba(20, 18, 12, 0.28);
+    padding: 8px;
+    display: grid;
+    gap: 2px;
+    animation: cdock-rise 0.18s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  @keyframes cdock-rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .cdock-sheet-row {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 11px 13px;
+    border-radius: 12px;
+    text-decoration: none;
+    color: var(--text);
+    transition: background 0.15s;
+  }
+  .cdock-sheet-row:active {
+    background: var(--neutral-soft);
+  }
+  .cdock-sheet-row.is-active {
+    background: var(--accent-soft);
+  }
+  .cdock-sheet-row.is-active .cdock-sheet-label {
+    color: var(--accent);
+  }
+  .cdock-sheet-label {
+    font-family: var(--font-display), "Archivo", sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: -0.01em;
+  }
+  .cdock-sheet-desc {
+    font-size: 11.5px;
+    color: var(--text3);
+  }
+  .cdock-sheet-out {
+    margin-top: 4px;
+    padding: 12px;
+    border: 0;
+    border-top: 1px solid var(--border);
+    background: transparent;
+    color: var(--danger);
+    font-family: var(--font-display), "Archivo", sans-serif;
+    font-weight: 700;
+    font-size: 13.5px;
+    cursor: pointer;
+    border-radius: 0 0 10px 10px;
+  }
+
+  /* The top-strip section nav is replaced by the dock on phones. The
+     `.app-header` prefix outranks the base `.topbar-nav` rule that would
+     otherwise re-show it via the cascade. The density toggle (no meaning at
+     one column — it lives in the More sheet) and the inline credit are
+     dropped too, leaving a clean brand + version header. */
+  .app-header .topbar-nav,
+  .app-header .density-seg,
+  .app-header .topbar-credit {
+    display: none;
+  }
+
+  /* Lift the sticky Ask composer clear of the dock so they never overlap. */
+  .work-composer {
+    bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+  }
+}

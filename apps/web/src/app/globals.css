@@ -14,6 +14,7 @@
 @import "./styles/_actions.css";
 @import "./styles/_act-card.css";
 @import "./styles/_responsive.css";
+@import "./styles/_dock.css";
 
 @theme {
   --color-bg: #FAFAF7;
