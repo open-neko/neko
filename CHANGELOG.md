@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.20.0](https://github.com/open-neko/openneko/compare/v2.19.0...v2.20.0) (2026-07-16)
+
+
+### Features
+
+* **web:** complete touch-first mobile navigation ([81b63a5](https://github.com/open-neko/openneko/commit/81b63a5d50555eae139859136d9dad50af5d9b3d))
+* **web:** improve mobile navigation and responsive layouts ([fecf8b8](https://github.com/open-neko/openneko/commit/fecf8b8125d9ba500dc85dcd51f01f4c505d6fc2))
+* **web:** thumb-first command dock for small screens ([708b9cf](https://github.com/open-neko/openneko/commit/708b9cf1fd9c9806ca21672e86c781558b89db5e))
+
 ## [2.19.0](https://github.com/open-neko/openneko/compare/v2.18.0...v2.19.0) (2026-07-16)
 
 
