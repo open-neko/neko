@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.19.0](https://github.com/open-neko/openneko/compare/v2.18.0...v2.19.0) (2026-07-16)
+
+
+### Features
+
+* add secure managed GraphJin sources ([16a2017](https://github.com/open-neko/openneko/commit/16a201724da6b14e1b02a9806cb430e2d53dd380))
+
+
+### Bug Fixes
+
+* **a2ui:** render source-specific GraphJin forms ([2b0dc5f](https://github.com/open-neko/openneko/commit/2b0dc5f2afe8a33b5c8c16a7b1c7563c0838afb1))
+
 ## [2.18.0](https://github.com/open-neko/openneko/compare/v2.17.0...v2.18.0) (2026-07-15)
 
 
