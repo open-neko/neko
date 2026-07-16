@@ -674,7 +674,9 @@ export function buildSourceConfigManagerServer(opts: {
       "Create a source_config_admin proposal for admin review:",
       "- add_role { name, match }: a GraphJin role selected by a JWT match expression.",
       "- set_source_access { source, read, write, delete }: access mode per source (one of public|authenticated|account|owner|admin|blocked; write/delete also accept blocked).",
-      "- register_source { name, kind, host?, port?, dbname?, user?, secretRef? }: add a source using connection metadata and a stored secretRef name.",
+      "- register_source database { name, kind, type?, host?, port?, dbname?, user?, secretRef? }.",
+      "- register_source api { name, kind, specsDir? } for OpenAPI specs available to the GraphJin server.",
+      "- register_source file { name, kind, backend, root? or bucket?, prefix?, region?, endpoint? }.",
       "After the tool returns, summarize the proposed change and its approval status.",
     ].join("\n"),
     {
@@ -690,7 +692,14 @@ export function buildSourceConfigManagerServer(opts: {
       write: z.enum(["authenticated", "account", "owner", "admin", "blocked"]).optional(),
       delete: z.enum(["authenticated", "account", "owner", "admin", "blocked"]).optional(),
       // register_source
-      kind: z.enum(["database", "graphjin", "api"]).optional(),
+      kind: z
+        .preprocess(
+          (value) =>
+            Array.isArray(value) && value.length === 1 ? value[0] : value,
+          z.enum(["database", "api", "file"]),
+        )
+        .optional(),
+      type: z.string().trim().min(1).max(40).optional(),
       host: z.string().trim().max(255).optional(),
       port: z.number().int().min(1).max(65535).optional(),
       dbname: z.string().trim().max(128).optional(),
@@ -701,6 +710,21 @@ export function buildSourceConfigManagerServer(opts: {
         .max(128)
         .regex(/^[A-Za-z0-9._-]*$/, "a secret name, not a value")
         .optional(),
+      specsDir: z.string().trim().max(500).optional(),
+      backend: z
+        .preprocess(
+          (value) =>
+            Array.isArray(value) && value.length === 1 ? value[0] : value,
+          z.enum(["local", "s3", "gcs"]),
+        )
+        .optional(),
+      root: z.string().trim().max(1000).optional(),
+      bucket: z.string().trim().max(255).optional(),
+      prefix: z.string().trim().max(500).optional(),
+      region: z.string().trim().max(100).optional(),
+      endpoint: z.string().url().max(1000).optional(),
+      publicBaseUrl: z.string().url().max(1000).optional(),
+      presignTtl: z.string().trim().max(40).optional(),
       dataSourceId: z.string().uuid().optional(),
       intent: z.string().trim().min(1).max(500),
     },

@@ -37,6 +37,7 @@ export const ComponentTypes = {
   TextField: "TextField",
   CheckBox: "CheckBox",
   ChoicePicker: "ChoicePicker",
+  Conditional: "Conditional",
   // Dashboard / back-compat aliases (same renderers):
   Briefing: "Briefing",
   BriefingCard: "BriefingCard",
@@ -183,6 +184,14 @@ export interface ChoicePickerProps {
   filterable?: boolean;
 }
 
+export interface ConditionalProps {
+  component: "Conditional";
+  when: unknown;
+  equals?: string | number | boolean;
+  oneOf?: Array<string | number | boolean>;
+  children: string[];
+}
+
 export interface ConfirmationProps {
   component: "Confirmation";
   label: string; // action eyebrow, e.g. "Created workflow"
@@ -230,4 +239,5 @@ export type ComponentProps =
   | ButtonProps
   | TextFieldProps
   | CheckBoxProps
-  | ChoicePickerProps;
+  | ChoicePickerProps
+  | ConditionalProps;

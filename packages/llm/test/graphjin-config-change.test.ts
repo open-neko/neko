@@ -41,6 +41,76 @@ describe("GraphJin config change compiler", () => {
     expect(JSON.stringify(result)).not.toContain("secretRef");
   });
 
+  it("builds an API source from OpenAPI-specific fields", async () => {
+    const result = await buildGraphjinConfigUpdate({
+      action: "register_source",
+      name: "billing-api",
+      kind: ["api"],
+      specsDir: "config/specs/billing",
+    });
+    expect(result.update).toEqual({
+      update_sources: [
+        {
+          name: "billing-api",
+          kind: "api",
+          specs_dir: "config/specs/billing",
+          access: {
+            read: "authenticated",
+            write: "blocked",
+            delete: "blocked",
+          },
+        },
+      ],
+    });
+  });
+
+  it("builds an S3 file source from storage-specific fields", async () => {
+    const result = await buildGraphjinConfigUpdate({
+      action: "register_source",
+      name: "documents",
+      kind: ["file"],
+      backend: ["s3"],
+      bucket: "company-documents",
+      prefix: "approved/",
+      region: "ap-south-1",
+      endpoint: "https://storage.example.com",
+    });
+    expect(result.update).toMatchObject({
+      update_sources: [
+        {
+          name: "documents",
+          kind: "file",
+          backend: "s3",
+          bucket: "company-documents",
+          prefix: "approved/",
+          region: "ap-south-1",
+          endpoint: "https://storage.example.com",
+        },
+      ],
+    });
+  });
+
+  it("requires the backend-specific file location", async () => {
+    await expect(
+      buildGraphjinConfigUpdate({
+        action: "register_source",
+        name: "documents",
+        kind: "file",
+        backend: "local",
+      }),
+    ).rejects.toThrow("register_source local file needs root");
+  });
+
+  it("rejects internal or unsupported source kinds", async () => {
+    await expect(
+      buildGraphjinConfigUpdate({
+        action: "register_source",
+        name: "system",
+        kind: "graphjin",
+      }),
+    ).rejects.toThrow("kind must be database, api, or file");
+  });
+
   it("escapes inline GraphQL input values", () => {
     expect(
       graphjinInputValue({ roles: [{ name: "admin", match: "role = \"admin\"" }] }),

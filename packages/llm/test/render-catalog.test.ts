@@ -10,8 +10,14 @@ describe("render_cards catalog", () => {
     expect(RENDER_CARDS_DESCRIPTION).toContain("urn:openneko:catalog:work:v2");
     expect(RENDER_CARDS_DESCRIPTION).toContain("TextField");
     expect(RENDER_CARDS_DESCRIPTION).toContain("ChoicePicker");
+    expect(RENDER_CARDS_DESCRIPTION).toContain("Conditional");
     expect(RENDER_CARDS_DESCRIPTION).toContain("Button");
     expect(RENDER_CARDS_DESCRIPTION).toContain('values\":{\"path\":\"/form\"}');
+    expect(RENDER_CARDS_DESCRIPTION).toContain(
+      '"label":"Files","value":"file"',
+    );
+    expect(RENDER_CARDS_DESCRIPTION).toContain("OpenAPI specs directory");
+    expect(RENDER_CARDS_DESCRIPTION).toContain("Storage backend");
   });
 
   it("gives the model a strict v1 component schema", () => {

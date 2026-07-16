@@ -15,7 +15,7 @@ Use the source-config manager tools for GraphJin configuration requests.
    user's configuration question or requested change.
 3. For a view or explanation, answer with the redacted configuration-agent
    result and the relevant source-graph details.
-4. For a source registration, call
+4. For a database source registration, call
    `mcp__neko_source_config_manager__list_source_secret_names` and use a stored
    name as `secretRef`. When the required name is absent, direct the admin to
    Admin > Settings > GraphJin Config to add it.
@@ -33,9 +33,12 @@ attention.
 
 ## Supported Edits
 
-- `register_source`: provide `name`, `kind`, optional database connection
-  metadata, and a stored `secretRef` name. A suitable database default is
-  `read: authenticated`, `write: blocked`, and `delete: blocked`.
+- `register_source`: provide `name`, one of the customer source kinds
+  (`database`, `api`, or `file`), and the fields for that kind. Database uses
+  connection metadata and a stored `secretRef`; API uses an OpenAPI specs
+  directory; file uses a backend plus a local root or object-store bucket.
+  A suitable database default is `read: authenticated`, `write: blocked`, and
+  `delete: blocked`.
 - `set_source_access`: provide the source name and confirmed `read`, `write`,
   and `delete` access modes.
 - `add_role`: provide the role name and the JWT match expression confirmed by

@@ -270,8 +270,10 @@ runtime, or reload impact, complete these steps in order:
 When an edit needs operator input, call \`list_source_secret_names\` as needed,
 then use \`render_cards\` to present a bound A2UI v1.0 form with the relevant
 fields and one proposal action. In the next turn, validate the submitted values
-and call \`request_source_config_change\`. Use stored \`secretRef\` names for
-database credentials.
+and call \`request_source_config_change\`. The source form offers Database, API,
+and Files. Use Conditional groups so the selected kind shows its own fields.
+ChoicePicker values arrive as one-item arrays; pass their selected item to the
+proposal tool. Use stored \`secretRef\` names for database credentials.
 
 Success for a view or explanation is a response containing the redacted result
 from step 2. Success for an edit is a response containing the proposal result
@@ -287,10 +289,12 @@ requiring attention.
 - \`mcp__neko_source_config_manager__request_source_config_change\` — file an
   \`source_config_admin\` proposal for admin review.
 
-For a new source, collect name, kind, host, port, database name, user, stored
-\`secretRef\`, and access policy fields relevant to that source kind. For an
-access change, collect the GraphJin source name and desired read/write/delete
-policy.
+For a new source, collect the shared name and kind plus its relevant fields:
+Database uses type, host, port, database name, user, stored \`secretRef\`, and
+access; API uses its OpenAPI specs directory; Files uses backend and either a
+local root or object-store bucket, plus applicable prefix, region, and endpoint.
+For an access change, collect the GraphJin source name and desired
+read/write/delete policy.
 </source_config>`;
 }
 

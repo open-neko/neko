@@ -84,20 +84,32 @@ export async function buildGraphjinConfigUpdate(
 
   if (action === "register_source") {
     const name = String(payload.name ?? "").trim();
-    const kind = String(payload.kind ?? "database");
+    const selectedString = (value: unknown, fallback = "") => {
+      const selected = Array.isArray(value) && value.length === 1 ? value[0] : value;
+      return typeof selected === "string" ? selected.trim() : fallback;
+    };
+    const kind = selectedString(payload.kind, "database");
     if (!name) throw new Error("register_source needs name");
+    if (!["database", "api", "file"].includes(kind)) {
+      throw new Error(
+        `register_source kind must be database, api, or file (received "${kind}")`,
+      );
+    }
     const source: Record<string, unknown> = { name, kind };
+    const copyString = (payloadKey: string, configKey = payloadKey) => {
+      const value =
+        typeof payload[payloadKey] === "string"
+          ? payload[payloadKey].trim()
+          : "";
+      if (value) source[configKey] = value;
+      return value;
+    };
     if (kind === "database") {
       source.type = String(payload.type ?? "postgres");
-      if (payload.host) source.host = String(payload.host);
+      copyString("host");
       if (payload.port) source.port = Number(payload.port);
-      if (payload.dbname) source.dbname = String(payload.dbname);
-      if (payload.user) source.user = String(payload.user);
-      source.access = {
-        read: String(payload.read ?? "authenticated"),
-        write: String(payload.write ?? "blocked"),
-        delete: String(payload.delete ?? "blocked"),
-      };
+      copyString("dbname");
+      copyString("user");
       const ref =
         typeof payload.secretRef === "string" ? payload.secretRef.trim() : "";
       if (ref) {
@@ -108,6 +120,32 @@ export async function buildGraphjinConfigUpdate(
         source.password = await resolveSecret(ref);
       }
     }
+    if (kind === "api") {
+      source.specs_dir = copyString("specsDir", "specs_dir") || "config/specs";
+    }
+    if (kind === "file") {
+      const backend = selectedString(payload.backend);
+      if (backend) source.backend = backend;
+      if (!["local", "s3", "gcs"].includes(backend)) {
+        throw new Error("register_source file needs backend local, s3, or gcs");
+      }
+      if (backend === "local" && !copyString("root")) {
+        throw new Error("register_source local file needs root");
+      }
+      if ((backend === "s3" || backend === "gcs") && !copyString("bucket")) {
+        throw new Error(`register_source ${backend} file needs bucket`);
+      }
+      copyString("prefix");
+      copyString("region");
+      copyString("endpoint");
+      copyString("publicBaseUrl", "public_base_url");
+      copyString("presignTtl", "presign_ttl");
+    }
+    source.access = {
+      read: String(payload.read ?? "authenticated"),
+      write: String(payload.write ?? "blocked"),
+      delete: String(payload.delete ?? "blocked"),
+    };
     update.update_sources = [source];
     return { update, secretName };
   }

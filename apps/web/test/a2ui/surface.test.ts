@@ -271,6 +271,29 @@ describe("bodyChildIds", () => {
     expect(bodyChildIds(surface, getRootComponent(surface)!)).toEqual(["intro", "details"]);
   });
 
+  it("falls back to top-level orphans without repeating nested form controls", () => {
+    let surfaces = applyMessage(new Map(), {
+      version: "v1.0",
+      createSurface: {
+        surfaceId: "source-form",
+        catalogId: "cat:2",
+        components: [
+          { id: "root", component: "Answer", title: "Configure source" },
+          { id: "note", component: "Callout", text: "Approval required" },
+          { id: "fields", component: "Column", children: ["name", "submit"] },
+          { id: "name", component: "TextField", label: "Source name" },
+          { id: "submitLabel", component: "Text", text: "Review" },
+          { id: "submit", component: "Button", child: "submitLabel" },
+        ],
+      },
+    });
+    const surface = surfaces.get("source-form")!;
+    expect(bodyChildIds(surface, getRootComponent(surface)!)).toEqual([
+      "note",
+      "fields",
+    ]);
+  });
+
   it("does not absorb orphans for a non-root container", () => {
     const surface = build({}, ["intro", "extra"]);
     expect(bodyChildIds(surface, surface.components.get("intro")!)).toEqual([]);

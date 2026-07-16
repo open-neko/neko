@@ -36,6 +36,7 @@ describe("A2UI catalog", () => {
       TextField: "TextField",
       CheckBox: "CheckBox",
       ChoicePicker: "ChoicePicker",
+      Conditional: "Conditional",
     });
   });
 

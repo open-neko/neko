@@ -33,6 +33,7 @@ import type {
   ButtonProps,
   CheckBoxProps,
   ChoicePickerProps,
+  ConditionalProps,
   LayoutProps,
   TabsProps,
   TextFieldProps,
@@ -405,7 +406,11 @@ registerComponent("ChoicePicker", (comp: A2UIComponent, ctx: RenderContext) => {
   const props = comp as unknown as ChoicePickerProps & { id: string };
   const path = bindingPath(ctx, props.id, "value");
   const options = Array.isArray(props.options) ? props.options : [];
-  const selected = Array.isArray(props.value) ? props.value : [];
+  const selected = Array.isArray(props.value)
+    ? props.value
+    : typeof props.value === "string" && props.value
+      ? [props.value]
+      : [];
   if (props.variant !== "multipleSelection") {
     return (
       <label className="work-a2ui-field">
@@ -443,6 +448,25 @@ registerComponent("ChoicePicker", (comp: A2UIComponent, ctx: RenderContext) => {
         })}
       </div>
     </fieldset>
+  );
+});
+
+registerComponent("Conditional", (comp: A2UIComponent, ctx: RenderContext) => {
+  const props = comp as unknown as ConditionalProps & { id: string };
+  const value = props.when;
+  const candidates = Array.isArray(value) ? value : [value];
+  const matches = Array.isArray(props.oneOf)
+    ? candidates.some((candidate) =>
+        props.oneOf?.some((allowed) => Object.is(candidate, allowed)),
+      )
+    : props.equals === undefined
+      ? Boolean(value)
+      : candidates.some((candidate) => Object.is(candidate, props.equals));
+  if (!matches) return null;
+  return (
+    <React.Fragment key={props.id}>
+      {renderChildren(Array.isArray(props.children) ? props.children : [], ctx)}
+    </React.Fragment>
   );
 });
 
