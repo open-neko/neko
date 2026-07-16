@@ -1133,3 +1133,59 @@ textarea.work-a2ui-input { resize: vertical; }
   border-color: var(--accent);
 }
 .work-a2ui-button.is-borderless { padding-inline: 0; background: transparent; border-color: transparent; }
+.work-a2ui-button:disabled { opacity: 0.52; cursor: not-allowed; }
+.work-openapi-import {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--card) 72%, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.work-openapi-mode { display: flex; gap: 6px; }
+.work-openapi-mode button {
+  padding: 6px 10px;
+  color: var(--text3);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.work-openapi-mode button[aria-selected="true"] {
+  color: var(--text);
+  background: var(--card);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.work-openapi-file { padding-block: 6px; }
+.work-openapi-error { color: var(--danger, #b42318); font-size: 12px; }
+.work-openapi-summary {
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.work-openapi-summary-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.work-openapi-summary-head strong { display: block; color: var(--text); font-size: 13px; }
+.work-openapi-summary-head span { color: var(--text3); font-size: 11px; }
+.work-openapi-summary-head .work-openapi-ready { color: var(--good, #067647); font-weight: 700; }
+.work-openapi-summary dl { display: grid; gap: 7px; margin: 12px 0 0; }
+.work-openapi-summary dl > div { display: grid; grid-template-columns: minmax(90px, 0.3fr) 1fr; gap: 10px; }
+.work-openapi-summary dt { color: var(--text3); font-size: 11px; }
+.work-openapi-summary dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text2); font-size: 11.5px; }
+.work-openapi-checksum { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.work-openapi-summary ul { margin: 10px 0 0; padding-left: 18px; color: var(--text3); font-size: 11.5px; }
+.work-managed-files-note {
+  color: var(--text3);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.work-managed-files-list { display: grid; gap: 5px; }
+.work-managed-files-list li { display: flex; justify-content: space-between; gap: 12px; }
+.work-managed-files-list code {
+  color: var(--text3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+}

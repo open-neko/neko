@@ -167,6 +167,18 @@ export class BrokerControlPlane implements AgentControlPlane {
     return this.post("/v1/source-secrets/names", input);
   }
 
+  importOpenApiSpec(
+    input: Parameters<AgentControlPlane["importOpenApiSpec"]>[0],
+  ): ReturnType<AgentControlPlane["importOpenApiSpec"]> {
+    return this.post("/v1/openapi/import", input);
+  }
+
+  listOpenApiSpecs(
+    input: Parameters<AgentControlPlane["listOpenApiSpecs"]>[0],
+  ): ReturnType<AgentControlPlane["listOpenApiSpecs"]> {
+    return this.post("/v1/openapi/list", input);
+  }
+
   askSourceConfigAgent(
     input: Parameters<AgentControlPlane["askSourceConfigAgent"]>[0],
   ): ReturnType<AgentControlPlane["askSourceConfigAgent"]> {

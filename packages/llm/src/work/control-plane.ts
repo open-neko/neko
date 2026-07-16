@@ -29,6 +29,7 @@ import type {
   GraphjinAgentResponse,
   GraphjinAgentStatus,
 } from "../graphjin/agent";
+import type { OpenApiSpecAssetView } from "../graphjin/openapi-assets";
 
 type PolicyRequestSubject = Parameters<typeof evaluateActionPolicy>[0];
 type PolicyDecision = ReturnType<typeof evaluateActionPolicy>;
@@ -157,6 +158,7 @@ export type SourceConfigPreviewResult = {
   denied?: boolean;
   error?: string;
   source?: { id: string; name: string; host: string | null };
+  specAsset?: OpenApiSpecAssetView;
   preview?: {
     valid: boolean;
     patchHash: string;
@@ -295,6 +297,29 @@ export interface AgentControlPlane {
     denied?: boolean;
     error?: string;
     names: Array<{ name: string; description: string | null; updatedAt: string }>;
+  }>;
+  /** Import a hosted OpenAPI document through the trusted SSRF-safe host. */
+  importOpenApiSpec(input: {
+    orgId: string;
+    runId?: string | null;
+    actorRole?: string | null;
+    url: string;
+    baseUrl?: string | null;
+  }): Promise<{
+    denied?: boolean;
+    error?: string;
+    asset?: OpenApiSpecAssetView;
+  }>;
+  /** List only the current org's managed OpenAPI asset metadata. */
+  listOpenApiSpecs(input: {
+    orgId: string;
+    runId?: string | null;
+    actorRole?: string | null;
+    limit?: number;
+  }): Promise<{
+    denied?: boolean;
+    error?: string;
+    assets: OpenApiSpecAssetView[];
   }>;
   /**
    * Ask the selected customer GraphJin's built-in server agent to inspect or
@@ -717,6 +742,58 @@ export class InProcessControlPlane implements AgentControlPlane {
     };
   }
 
+  async importOpenApiSpec(input: {
+    orgId: string;
+    runId?: string | null;
+    actorRole?: string | null;
+    url: string;
+    baseUrl?: string | null;
+  }) {
+    const gate = await requireSourceConfigAccess(input);
+    if (!gate.ok) return { denied: true, error: gate.error };
+    try {
+      const { createOpenApiSpecAssetFromUrl } = await import(
+        "../graphjin/openapi-assets"
+      );
+      return {
+        asset: await createOpenApiSpecAssetFromUrl({
+          orgId: input.orgId,
+          createdByUserId: gate.userId,
+          url: input.url,
+          baseUrl: input.baseUrl,
+        }),
+      };
+    } catch (error) {
+      return {
+        error: (error instanceof Error ? error.message : String(error)).slice(
+          0,
+          1_000,
+        ),
+      };
+    }
+  }
+
+  async listOpenApiSpecs(input: {
+    orgId: string;
+    runId?: string | null;
+    actorRole?: string | null;
+    limit?: number;
+  }) {
+    const gate = await requireSourceConfigAccess(input);
+    if (!gate.ok) {
+      return { denied: true, error: gate.error, assets: [] };
+    }
+    const { listOpenApiSpecAssets } = await import(
+      "../graphjin/openapi-assets"
+    );
+    return {
+      assets: await listOpenApiSpecAssets({
+        orgId: input.orgId,
+        limit: input.limit,
+      }),
+    };
+  }
+
   async askSourceConfigAgent(input: {
     orgId: string;
     runId?: string | null;
@@ -904,11 +981,72 @@ export class InProcessControlPlane implements AgentControlPlane {
 
     let secretValue = "";
     try {
+      let specAsset: OpenApiSpecAssetView | undefined;
+      const kind = Array.isArray(input.payload.kind)
+        ? input.payload.kind[0]
+        : input.payload.kind;
+      const backend = Array.isArray(input.payload.backend)
+        ? input.payload.backend[0]
+        : input.payload.backend;
+      const sourceName =
+        typeof input.payload.name === "string" ? input.payload.name.trim() : "";
+      const isManagedLocalFile =
+        input.payload.action === "register_source" &&
+        kind === "file" &&
+        backend === "local";
+      let localFileManifest:
+        | import("../graphjin/file-source-assets").ManagedFileSourceManifest
+        | undefined;
+      if (
+        input.payload.action === "register_source" &&
+        kind === "api"
+      ) {
+        const specAssetId =
+          typeof input.payload.specAssetId === "string"
+            ? input.payload.specAssetId
+            : "";
+        if (!specAssetId) {
+          return { source, error: "API source requires an imported OpenAPI specification" };
+        }
+        const { getOpenApiSpecAsset, openApiSpecAssetView } = await import(
+          "../graphjin/openapi-assets"
+        );
+        const row = await getOpenApiSpecAsset({
+          orgId: input.orgId,
+          assetId: specAssetId,
+        });
+        if (!row) {
+          return { source, error: "OpenAPI specification is not available" };
+        }
+        specAsset = openApiSpecAssetView(row);
+      }
+      if (isManagedLocalFile) {
+        const { parseManagedFileSourceManifest } = await import(
+          "../graphjin/file-source-assets"
+        );
+        localFileManifest = parseManagedFileSourceManifest(
+          input.payload.localFiles,
+          sourceName,
+        );
+      }
       const {
         buildGraphjinConfigUpdate,
         graphjinConfigPatchHash,
-        graphjinInputValue,
+        graphjinInputWithJsonVariables,
       } = await import("../graphjin/config-change");
+      const managedSpecsDir = specAsset
+        ? "/config/specs"
+        : undefined;
+      const managedLocalFilesRoot = localFileManifest
+        ? (
+            await import("../graphjin/file-source")
+          ).managedFileSourceRuntimeRoot({
+            orgId: input.orgId,
+            sourceName,
+            runtimeBase:
+              process.env.OPENNEKO_GRAPHJIN_FILES_DIR?.trim() || "/config/files",
+          })
+        : undefined;
       const { update } = await buildGraphjinConfigUpdate(
         input.payload,
         async (name) => {
@@ -931,6 +1069,16 @@ export class InProcessControlPlane implements AgentControlPlane {
           secretValue = maybeDecryptSecret(row.valueEnc);
           return secretValue;
         },
+        managedSpecsDir || managedLocalFilesRoot
+          ? {
+              ...(managedSpecsDir
+                ? { managedOpenApiSpecsDir: managedSpecsDir }
+                : {}),
+              ...(managedLocalFilesRoot
+                ? { managedLocalFilesRoot }
+                : {}),
+            }
+          : undefined,
       );
       // Hash only the credential-free, typed proposal. A password can be low
       // entropy; even its plain SHA-256 must never enter an approval payload.
@@ -946,11 +1094,11 @@ export class InProcessControlPlane implements AgentControlPlane {
       });
       const headers = { authorization: `Bearer ${token}` };
       const revisionResponse = await graphjinQuery<{
-        gj_config?: { catalog_revision?: string };
+        gj_config?: { catalog_revision?: string; sources?: unknown };
       }>({
         baseUrl: src.graphqlUrl,
         headers,
-        query: 'query { gj_config(id: "current") { catalog_revision } }',
+        query: 'query { gj_config(id: "current") { catalog_revision sources } }',
       });
       const revision = revisionResponse.data?.gj_config?.catalog_revision;
       if (!revision || revisionResponse.errors?.length) {
@@ -961,7 +1109,88 @@ export class InProcessControlPlane implements AgentControlPlane {
             "GraphJin did not return catalog_revision",
         };
       }
-      const literal = graphjinInputValue({
+      let currentSources = revisionResponse.data?.gj_config?.sources;
+      if (typeof currentSources === "string") {
+        try {
+          currentSources = JSON.parse(currentSources);
+        } catch {
+          currentSources = [];
+        }
+      }
+      if (
+        input.payload.action === "register_source" &&
+        Array.isArray(currentSources) &&
+        currentSources.some(
+          (candidate) =>
+            candidate &&
+            typeof candidate === "object" &&
+            !Array.isArray(candidate) &&
+            (candidate as Record<string, unknown>).name === sourceName,
+        )
+      ) {
+        return {
+          source,
+          error: `a GraphJin source named "${sourceName}" already exists`,
+        };
+      }
+      // The managed file is materialized only after approval. Local OpenAPI
+      // validation plus the live catalog revision form the proposal preview;
+      // the worker performs GraphJin's own two-phase preview after staging it.
+      if (specAsset) {
+        return {
+          source,
+          specAsset,
+          preview: {
+            valid: true,
+            patchHash,
+            catalogRevision: revision,
+            expiresAt: null,
+            scope: "managed_openapi",
+            reloadMode: "staged_reload",
+            changes: {
+              action: "register_source",
+              source: sourceName,
+              kind: "api",
+              title: specAsset.title,
+              version: specAsset.version,
+              baseUrl: specAsset.baseUrl,
+              operationCount: specAsset.operationCount,
+              authSchemes: specAsset.authSchemes,
+              checksumSha256: specAsset.checksumSha256,
+            },
+            findings: specAsset.warnings,
+            errors: null,
+          },
+        };
+      }
+      // The worker verifies the approved manifest against the shared volume,
+      // then asks GraphJin to preview and apply the staged directory.
+      if (localFileManifest) {
+        return {
+          source,
+          preview: {
+            valid: true,
+            patchHash,
+            catalogRevision: revision,
+            expiresAt: null,
+            scope: "managed_local_files",
+            reloadMode: "staged_reload",
+            changes: {
+              action: "register_source",
+              source: sourceName,
+              kind: "file",
+              backend: "local",
+              fileCount: localFileManifest.files.length,
+              totalSize: localFileManifest.totalSize,
+              readOnly: true,
+              access: "authenticated",
+            },
+            findings: [],
+            errors: null,
+          },
+        };
+      }
+      const previewInput = graphjinInputWithJsonVariables({
         mode: "preview",
         expected_catalog_revision: revision,
         ...update,
@@ -978,7 +1207,8 @@ export class InProcessControlPlane implements AgentControlPlane {
       }>({
         baseUrl: src.graphqlUrl,
         headers,
-        query: `mutation { gj_config(id: "current", update: ${literal}) { valid preview_id expires_at change_summary_json findings_json errors_json } }`,
+        query: `mutation${previewInput.variableDefinitions} { gj_config(id: "current", update: ${previewInput.literal}) { valid preview_id expires_at change_summary_json findings_json errors_json } }`,
+        variables: previewInput.variables,
       });
       if (response.errors?.length) {
         return {
@@ -993,6 +1223,7 @@ export class InProcessControlPlane implements AgentControlPlane {
           : value ?? "";
       return {
         source,
+        ...(specAsset ? { specAsset } : {}),
         preview: {
           valid: row?.valid === true && Boolean(row.preview_id),
           patchHash,

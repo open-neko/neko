@@ -176,5 +176,23 @@ export function getRootComponent(surface: SurfaceState): A2UIComponent | undefin
 export function bodyChildIds(surface: SurfaceState, root: A2UIComponent): string[] {
   const declared = Array.isArray(root.children) ? (root.children as string[]) : [];
   if (declared.length > 0 || root.id !== "root") return declared;
-  return Array.from(surface.components.keys()).filter((id) => id !== root.id);
+  const referenced = new Set<string>();
+  for (const component of surface.components.values()) {
+    if (Array.isArray(component.children)) {
+      for (const child of component.children) {
+        if (typeof child === "string") referenced.add(child);
+      }
+    }
+    if (typeof component.child === "string") referenced.add(component.child);
+    if (Array.isArray(component.tabs)) {
+      for (const tab of component.tabs) {
+        if (tab && typeof tab === "object" && typeof tab.child === "string") {
+          referenced.add(tab.child);
+        }
+      }
+    }
+  }
+  return Array.from(surface.components.keys()).filter(
+    (id) => id !== root.id && !referenced.has(id),
+  );
 }

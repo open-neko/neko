@@ -389,4 +389,58 @@ describe("web channel — A2UI v1.0 configuration form", () => {
       values: { name: "warehouse", kind: ["database"], port: 5432 },
     });
   });
+
+  it("renders only the field group matching the selected source kind", () => {
+    const surfaces = applyMessage(new Map(), {
+      version: "v1.0",
+      createSurface: {
+        surfaceId: "typed-source-form",
+        catalogId: WORK_CATALOG_ID,
+        dataModel: { form: { kind: ["api"] } },
+        components: [
+          // Gemini has emitted Answer roots without children. The renderer's
+          // top-level fallback must keep nested controls from appearing twice.
+          { id: "root", component: "Answer", title: "Add a source" },
+          { id: "common", component: "Column", children: ["name", "kind"] },
+          { id: "name", component: "TextField", label: "Source name" },
+          { id: "kind", component: "ChoicePicker", label: "Source kind", options: [], value: { path: "/form/kind" }, variant: "mutuallyExclusive" },
+          { id: "database", component: "Conditional", when: { path: "/form/kind" }, equals: "database", children: ["dbHost"] },
+          { id: "dbHost", component: "TextField", label: "Database host" },
+          { id: "api", component: "Conditional", when: { path: "/form/kind" }, equals: "api", children: ["openApiSpec"] },
+          { id: "openApiSpec", component: "OpenApiSpecInput", label: "OpenAPI specification", value: { path: "/form/openApiSpec" } },
+          { id: "file", component: "Conditional", when: { path: "/form/kind" }, equals: "file", children: ["bucket"] },
+          { id: "bucket", component: "TextField", label: "Storage bucket" },
+        ],
+      },
+    });
+    const surface = surfaces.get("typed-source-form")!;
+    const html = renderHtml(surface.components.get("root")!, surface);
+    expect(html).toContain("OpenAPI specification");
+    expect(html).toContain("Hosted URL");
+    expect(html).not.toContain("Database host");
+    expect(html).not.toContain("Storage bucket");
+    expect(html.match(/Source name/g)).toHaveLength(1);
+  });
+
+  it("matches a Conditional oneOf branch against a one-item picker array", () => {
+    const surfaces = applyMessage(new Map(), {
+      version: "v1.0",
+      createSurface: {
+        surfaceId: "storage-form",
+        catalogId: WORK_CATALOG_ID,
+        dataModel: { form: { backend: ["gcs"] } },
+        components: [
+          { id: "root", component: "Column", children: ["object", "s3"] },
+          { id: "object", component: "Conditional", when: { path: "/form/backend" }, oneOf: ["s3", "gcs"], children: ["bucket"] },
+          { id: "bucket", component: "TextField", label: "Storage bucket" },
+          { id: "s3", component: "Conditional", when: { path: "/form/backend" }, equals: "s3", children: ["region"] },
+          { id: "region", component: "TextField", label: "S3 region" },
+        ],
+      },
+    });
+    const surface = surfaces.get("storage-form")!;
+    const html = renderHtml(surface.components.get("root")!, surface);
+    expect(html).toContain("Storage bucket");
+    expect(html).not.toContain("S3 region");
+  });
 });

@@ -231,7 +231,7 @@ const INSPECT_SOURCE_GRAPH_SEED =
   "Inspect the live GraphJin source graph. Use describe_source_graph first, then summarize the current databases, capabilities, namespaces, source-mode readiness, and RBAC posture.";
 
 const REGISTER_SOURCE_SEED =
-  "Help me register a new GraphJin source. Use list_source_secret_names, collect connection metadata and a stored secretRef name, then create a source_config_admin register_source proposal for admin approval.";
+  "Help me register a new GraphJin source. Present Database, API, and Files as the source kinds, collect only the fields relevant to the selected kind, and create a source_config_admin register_source proposal for admin approval. Use list_source_secret_names when Database credentials need a stored secretRef name.";
 
 const UPDATE_ACCESS_SEED =
   "Review GraphJin source access. Use describe_source_graph first, ask me to confirm the source name and desired read/write/delete access, then create a source_config_admin set_source_access proposal.";

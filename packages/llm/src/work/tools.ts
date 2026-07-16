@@ -668,13 +668,65 @@ export function buildSourceConfigManagerServer(opts: {
     }),
   );
 
+  const importOpenApi = tool(
+    "import_openapi_spec",
+    [
+      "Import and validate a hosted OpenAPI 3.x YAML or JSON document for",
+      "the current organization. Use this when an admin supplies an HTTPS",
+      "URL in chat. The trusted host fetches it and returns a managed asset ID.",
+    ].join(" "),
+    {
+      url: z.string().url().max(2_000),
+      baseUrl: z.string().url().max(2_000).optional(),
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            await controlPlane.importOpenApiSpec({
+              orgId: opts.orgId,
+              runId: opts.runId ?? null,
+              url: args.url,
+              baseUrl: args.baseUrl,
+            }),
+          ),
+        },
+      ],
+    }),
+  );
+
+  const listOpenApi = tool(
+    "list_openapi_specs",
+    "List this organization's recently imported OpenAPI asset metadata and IDs.",
+    { limit: z.number().int().min(1).max(100).optional() },
+    async (args) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            await controlPlane.listOpenApiSpecs({
+              orgId: opts.orgId,
+              runId: opts.runId ?? null,
+              limit: args.limit,
+            }),
+          ),
+        },
+      ],
+    }),
+  );
+
   const requestChange = tool(
     "request_source_config_change",
     [
       "Create a source_config_admin proposal for admin review:",
       "- add_role { name, match }: a GraphJin role selected by a JWT match expression.",
       "- set_source_access { source, read, write, delete }: access mode per source (one of public|authenticated|account|owner|admin|blocked; write/delete also accept blocked).",
-      "- register_source { name, kind, host?, port?, dbname?, user?, secretRef? }: add a source using connection metadata and a stored secretRef name.",
+      "- register_source database { name, kind, type?, host?, port?, dbname?, user?, secretRef? }.",
+      "- register_source api { name, kind, specAssetId } using an OpenAPI document already imported by URL or upload.",
+      "- register_source file local { name, kind, backend, localFiles } using OpenNeko-managed isolated storage.",
+      "- register_source file s3|gcs { name, kind, backend, bucket, prefix?, region?, endpoint?, publicBaseUrl?, presignTtl? } using deployment runtime credentials.",
+      "File sources are provisioned read-only for authenticated organization members.",
       "After the tool returns, summarize the proposed change and its approval status.",
     ].join("\n"),
     {
@@ -690,7 +742,14 @@ export function buildSourceConfigManagerServer(opts: {
       write: z.enum(["authenticated", "account", "owner", "admin", "blocked"]).optional(),
       delete: z.enum(["authenticated", "account", "owner", "admin", "blocked"]).optional(),
       // register_source
-      kind: z.enum(["database", "graphjin", "api"]).optional(),
+      kind: z
+        .preprocess(
+          (value) =>
+            Array.isArray(value) && value.length === 1 ? value[0] : value,
+          z.enum(["database", "api", "file"]),
+        )
+        .optional(),
+      type: z.string().trim().min(1).max(40).optional(),
       host: z.string().trim().max(255).optional(),
       port: z.number().int().min(1).max(65535).optional(),
       dbname: z.string().trim().max(128).optional(),
@@ -700,6 +759,38 @@ export function buildSourceConfigManagerServer(opts: {
         .trim()
         .max(128)
         .regex(/^[A-Za-z0-9._-]*$/, "a secret name, not a value")
+        .optional(),
+      specAssetId: z.string().uuid().optional(),
+      backend: z
+        .preprocess(
+          (value) =>
+            Array.isArray(value) && value.length === 1 ? value[0] : value,
+          z.enum(["local", "s3", "gcs"]),
+        )
+        .optional(),
+      bucket: z.string().trim().max(255).optional(),
+      prefix: z.string().trim().max(500).optional(),
+      region: z.string().trim().max(100).optional(),
+      endpoint: z.string().url().max(1000).optional(),
+      publicBaseUrl: z.string().url().max(1000).optional(),
+      presignTtl: z.string().trim().max(40).optional(),
+      localFiles: z
+        .object({
+          sourceName: z.string().trim().min(1).max(64),
+          ready: z.literal(true),
+          files: z
+            .array(
+              z.object({
+                name: z.string().trim().min(1).max(128),
+                size: z.number().int().min(1).max(10 * 1024 * 1024),
+                contentType: z.string().trim().min(1).max(200),
+                checksumSha256: z.string().regex(/^[a-f0-9]{64}$/),
+              }),
+            )
+            .min(1)
+            .max(500),
+          totalSize: z.number().int().min(1).max(100 * 1024 * 1024),
+        })
         .optional(),
       dataSourceId: z.string().uuid().optional(),
       intent: z.string().trim().min(1).max(500),
@@ -750,6 +841,7 @@ export function buildSourceConfigManagerServer(opts: {
         intent,
         payload: {
           ...changePayload,
+          ...(preview.specAsset ? { specSummary: preview.specAsset } : {}),
           preview: {
             source: preview.source,
             ...preview.preview,
@@ -762,7 +854,14 @@ export function buildSourceConfigManagerServer(opts: {
   return createSdkMcpServer({
     name: "neko_source_config_manager",
     version: "1.1.0",
-    tools: [describe, askConfigAgent, listSecretNames, requestChange],
+    tools: [
+      describe,
+      askConfigAgent,
+      listSecretNames,
+      importOpenApi,
+      listOpenApi,
+      requestChange,
+    ],
   });
 }
 

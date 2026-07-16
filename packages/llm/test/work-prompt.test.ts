@@ -174,6 +174,10 @@ describe("buildWorkPrompt workflow + policy management", () => {
     expect(enabled).toContain("Call `ask_graphjin_config_agent`");
     expect(enabled).toContain("Success for a view or explanation");
     expect(enabled).toContain("source_config_admin");
+    expect(enabled).toContain("Database, API,\nand Files");
+    expect(enabled).toContain("Conditional groups");
+    expect(enabled).toContain("imported OpenAPI asset ID");
+    expect(enabled).toContain("managed local-file manifest or object-store bucket");
     expect(enabled).not.toContain("trusted host");
     expect(enabled).not.toContain("globally read-only");
     expect(enabled).not.toContain("outside the sandbox");

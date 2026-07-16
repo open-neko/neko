@@ -370,6 +370,64 @@ export const data_source_secret = pgTable(
   }),
 );
 
+// Managed OpenAPI documents imported by an admin. The original document is
+// normalized and kept org-scoped in metadata storage; only the approval worker
+// materializes it into the customer GraphJin config volume.
+export const openapi_spec_asset = pgTable(
+  "openapi_spec_asset",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    created_by_user_id: text("created_by_user_id").references(
+      () => app_user.id,
+      { onDelete: "set null" },
+    ),
+    source_type: text("source_type").notNull(),
+    original_name: text("original_name").notNull(),
+    source_url: text("source_url"),
+    content: text("content").notNull(),
+    checksum_sha256: text("checksum_sha256").notNull(),
+    document_format: text("document_format").notNull().default("yaml"),
+    title: text("title").notNull(),
+    version: text("version"),
+    base_url: text("base_url").notNull(),
+    server_urls: text("server_urls")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    auth_schemes: text("auth_schemes")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    warnings: text("warnings")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    operation_count: integer("operation_count").notNull().default(0),
+    read_operation_count: integer("read_operation_count").notNull().default(0),
+    mutating_operation_count: integer("mutating_operation_count")
+      .notNull()
+      .default(0),
+    status: text("status").notNull().default("staged"),
+    source_name: text("source_name"),
+    activated_at: ts("activated_at"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    org_created_idx: index("openapi_spec_asset_org_created_idx").on(
+      t.org_id,
+      t.created_at.desc(),
+    ),
+    org_checksum_idx: index("openapi_spec_asset_org_checksum_idx").on(
+      t.org_id,
+      t.checksum_sha256,
+    ),
+  }),
+);
+
 // CH3 — channel→app_user mapping. One row per channel-native identity
 // an org has seen; linking (SSO email match or admin-map) binds it to
 // an app_user. Unlinked identities act as anonymous members.

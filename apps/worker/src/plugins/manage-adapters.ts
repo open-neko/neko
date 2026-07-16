@@ -7,12 +7,25 @@ import {
   runInstall,
   writeManifest,
 } from "@open-neko/plugin-install";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import { registerActionAdapter } from "@neko/llm/workflows";
 import {
   buildGraphjinConfigUpdate,
+  acquireGraphjinConfigLock,
+  acquireManagedFileSourceLock,
+  assertManagedFileSourceMutable,
   graphjinConfigPatchHash,
+  graphjinInputWithJsonVariables,
   graphjinInputValue,
+  managedFileSourceLocalDirectory,
+  managedFileSourceRuntimeRoot,
+  managedOpenApiSpecFilename,
+  markManagedFileSourceApproved,
+  parseManagedFileSourceManifest,
+  persistGraphjinSourceConfigUpdate,
+  verifyManagedFileSourceManifest,
 } from "@neko/llm/graphjin";
 
 /**
@@ -362,12 +375,14 @@ export function registerSourceConfigAdminAdapter(): void {
     const {
       data_source,
       data_source_secret,
+      openapi_spec_asset,
       app_user,
       and,
       db,
       desc,
       eq,
       getGraphjinConfigSettingsForOrg,
+      ne,
     } = await import("@neko/db");
     const { graphjinQuery, mintGraphjinToken } = await import("@neko/llm/graphjin");
     const payload = request.payload as Record<string, unknown>;
@@ -419,6 +434,99 @@ export function registerSourceConfigAdminAdapter(): void {
       );
     }
 
+    const selectedKind = Array.isArray(payload.kind)
+      ? payload.kind[0]
+      : payload.kind;
+    const selectedBackend = Array.isArray(payload.backend)
+      ? payload.backend[0]
+      : payload.backend;
+    const isManagedOpenApi =
+      action === "register_source" && selectedKind === "api";
+    const isManagedLocalFile =
+      action === "register_source" &&
+      selectedKind === "file" &&
+      selectedBackend === "local";
+    const needsDurableSourceConfig =
+      action === "register_source" || action === "set_source_access";
+    const sourceName = typeof payload.name === "string" ? payload.name.trim() : "";
+    let specAsset: typeof openapi_spec_asset.$inferSelect | null = null;
+    let managedRuntimeDir: string | undefined;
+    let managedLocalFile: string | null = null;
+    let managedLocalFilesRoot: string | undefined;
+    let managedLocalFilesDirectory: string | undefined;
+    let localFileManifest:
+      | ReturnType<typeof parseManagedFileSourceManifest>
+      | undefined;
+    const durableConfigFile = needsDurableSourceConfig
+      ? process.env.OPENNEKO_GRAPHJIN_CONFIG?.trim() || null
+      : null;
+    if (needsDurableSourceConfig && !durableConfigFile) {
+      throw new Error(
+        "source_config_admin: source changes require the worker to share GraphJin's config volume",
+      );
+    }
+    if (isManagedOpenApi) {
+      const specAssetId =
+        typeof payload.specAssetId === "string" ? payload.specAssetId : "";
+      if (!specAssetId) {
+        throw new Error("source_config_admin: API source has no managed OpenAPI asset");
+      }
+      [specAsset] = await db()
+        .select()
+        .from(openapi_spec_asset)
+        .where(
+          and(
+            eq(openapi_spec_asset.org_id, orgId),
+            eq(openapi_spec_asset.id, specAssetId),
+          ),
+        )
+        .limit(1);
+      if (!specAsset) {
+        throw new Error("source_config_admin: managed OpenAPI asset is unavailable");
+      }
+      const actualChecksum = createHash("sha256")
+        .update(specAsset.content)
+        .digest("hex");
+      if (actualChecksum !== specAsset.checksum_sha256) {
+        throw new Error("source_config_admin: managed OpenAPI asset failed its integrity check");
+      }
+      const runtimeRoot =
+        process.env.OPENNEKO_GRAPHJIN_SPECS_DIR?.replace(/\/+$/, "") ||
+        "/config/specs";
+      managedRuntimeDir = runtimeRoot;
+      managedLocalFile = join(
+        dirname(durableConfigFile!),
+        "specs",
+        managedOpenApiSpecFilename(orgId, sourceName),
+      );
+    }
+    if (isManagedLocalFile) {
+      localFileManifest = parseManagedFileSourceManifest(
+        payload.localFiles,
+        sourceName,
+      );
+      managedLocalFilesRoot = managedFileSourceRuntimeRoot({
+        orgId,
+        sourceName,
+        runtimeBase:
+          process.env.OPENNEKO_GRAPHJIN_FILES_DIR?.trim() || "/config/files",
+      });
+      managedLocalFilesDirectory = managedFileSourceLocalDirectory({
+        configFile: durableConfigFile!,
+        orgId,
+        sourceName,
+        localBase:
+          process.env.OPENNEKO_GRAPHJIN_FILES_LOCAL_DIR?.trim() || undefined,
+      });
+      if (
+        basename(managedLocalFilesDirectory) !== basename(managedLocalFilesRoot)
+      ) {
+        throw new Error(
+          "source_config_admin: managed file storage paths are inconsistent",
+        );
+      }
+    }
+
     const { update, secretName } = await buildGraphjinConfigUpdate(
       payload,
       async (ref) => {
@@ -440,6 +548,16 @@ export function registerSourceConfigAdminAdapter(): void {
         const { maybeDecryptSecret } = await import("@neko/llm/secrets");
         return maybeDecryptSecret(row.valueEnc);
       },
+      managedRuntimeDir || managedLocalFilesRoot
+        ? {
+            ...(managedRuntimeDir
+              ? { managedOpenApiSpecsDir: managedRuntimeDir }
+              : {}),
+            ...(managedLocalFilesRoot
+              ? { managedLocalFilesRoot }
+              : {}),
+          }
+        : undefined,
     );
     const approvedPreview =
       payload.preview && typeof payload.preview === "object"
@@ -452,6 +570,7 @@ export function registerSourceConfigAdminAdapter(): void {
     }
     const credentialFreePayload = { ...payload };
     delete credentialFreePayload.preview;
+    delete credentialFreePayload.specSummary;
     const patchHash = graphjinConfigPatchHash(credentialFreePayload);
     if (approvedPreview.patchHash !== patchHash) {
       throw new Error(
@@ -488,88 +607,436 @@ export function registerSourceConfigAdminAdapter(): void {
     });
     const headers = { authorization: `Bearer ${adminToken}` };
 
-    // Phase 0: read the current catalog_revision — the two-phase apply needs
-    // it for optimistic concurrency (a stale value rejects the apply).
-    const revRes = await graphjinQuery<{
-      gj_config?: { catalog_revision?: string };
-    }>({
-      baseUrl: endpoint,
-      headers,
-      query: 'query { gj_config(id: "current") { catalog_revision } }',
-    });
-    const rev = revRes.data?.gj_config?.catalog_revision;
-    if (!rev) {
-      throw new Error(
-        `source_config_admin: could not read catalog_revision: ${revRes.errors?.map((e) => e.message).join("; ") ?? "no revision"}`,
-      );
-    }
-    if (approvedPreview.catalogRevision !== rev) {
-      throw new Error(
-        "source_config_admin: GraphJin configuration changed after approval; create and approve a fresh preview",
-      );
-    }
+    let restoreManagedSpec: (() => Promise<void>) | null = null;
+    let restoreManagedConfig: (() => Promise<void>) | null = null;
+    let appliedCatalogRevision: string | null = null;
+    let liveRegisteredSource = false;
+    let releaseGraphjinConfigLock: (() => Promise<void>) | null = null;
+    let releaseManagedFileLock: (() => Promise<void>) | null = null;
+    try {
+      if (durableConfigFile) {
+        releaseGraphjinConfigLock = await acquireGraphjinConfigLock({
+          configFile: durableConfigFile,
+        });
+      }
+      if (localFileManifest) {
+        const localBase =
+          process.env.OPENNEKO_GRAPHJIN_FILES_LOCAL_DIR?.trim() || undefined;
+        releaseManagedFileLock = await acquireManagedFileSourceLock({
+          configFile: durableConfigFile!,
+          orgId,
+          sourceName,
+          localBase,
+        });
+      }
+      if (specAsset && managedLocalFile) {
+        await mkdir(dirname(managedLocalFile), { recursive: true });
+        let previousContent: Buffer | null = null;
+        try {
+          previousContent = await readFile(managedLocalFile);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        const temporary = `${managedLocalFile}.${randomUUID()}.tmp`;
+        // The worker and GraphJin images run as different non-root users. The
+        // shared Docker volume is private to the stack, while the document must
+        // remain readable by the GraphJin process.
+        await writeFile(temporary, specAsset.content, { mode: 0o644 });
+        await rename(temporary, managedLocalFile);
+        restoreManagedSpec = async () => {
+          if (previousContent) {
+            const rollback = `${managedLocalFile}.${randomUUID()}.rollback`;
+            await writeFile(rollback, previousContent, { mode: 0o644 });
+            await rename(rollback, managedLocalFile);
+          } else {
+            await rm(managedLocalFile, { force: true });
+          }
+        };
+      }
+      if (localFileManifest) {
+        await assertManagedFileSourceMutable({
+          configFile: durableConfigFile!,
+          orgId,
+          sourceName,
+          localBase:
+            process.env.OPENNEKO_GRAPHJIN_FILES_LOCAL_DIR?.trim() || undefined,
+        });
+        await verifyManagedFileSourceManifest({
+          configFile: durableConfigFile!,
+          orgId,
+          sourceName,
+          localBase:
+            process.env.OPENNEKO_GRAPHJIN_FILES_LOCAL_DIR?.trim() || undefined,
+          files: localFileManifest.files,
+          totalSize: localFileManifest.totalSize,
+        });
+      }
+      // Phase 0: read the current catalog_revision — the two-phase apply needs
+      // it for optimistic concurrency (a stale value rejects the apply).
+      const revRes = await graphjinQuery<{
+        gj_config?: { catalog_revision?: string; sources?: unknown };
+      }>({
+        baseUrl: endpoint,
+        headers,
+        query: 'query { gj_config(id: "current") { catalog_revision sources } }',
+      });
+      const rev = revRes.data?.gj_config?.catalog_revision;
+      if (!rev) {
+        throw new Error(
+          `source_config_admin: could not read catalog_revision: ${revRes.errors?.map((e) => e.message).join("; ") ?? "no revision"}`,
+        );
+      }
+      if (approvedPreview.catalogRevision !== rev) {
+        throw new Error(
+          "source_config_admin: GraphJin configuration changed after approval; create and approve a fresh preview",
+        );
+      }
+      let currentSources = revRes.data?.gj_config?.sources;
+      if (typeof currentSources === "string") {
+        try {
+          currentSources = JSON.parse(currentSources);
+        } catch {
+          currentSources = [];
+        }
+      }
+      if (
+        action === "register_source" &&
+        Array.isArray(currentSources) &&
+        currentSources.some(
+          (source) =>
+            source &&
+            typeof source === "object" &&
+            !Array.isArray(source) &&
+            (source as Record<string, unknown>).name === sourceName,
+        )
+      ) {
+        throw new Error(
+          `source_config_admin: a GraphJin source named "${sourceName}" already exists`,
+        );
+      }
 
-    // Phase 1: preview (validates without applying). Inline object syntax —
-    // introspection is off, so no typed `$update` variable.
-    const previewInline = graphjinInputValue({ mode: "preview", expected_catalog_revision: rev, ...update });
-    const preview = await graphjinQuery<{
-      gj_config?: {
-        valid?: boolean;
-        preview_id?: string;
-        change_summary_json?: string;
-        errors_json?: string;
+      // Phase 1: preview (validates without applying). Inline object syntax —
+      // introspection is off, so no typed `$update` variable.
+      const previewInput = graphjinInputWithJsonVariables({
+        mode: "preview",
+        expected_catalog_revision: rev,
+        ...update,
+      });
+      const preview = await graphjinQuery<{
+        gj_config?: {
+          valid?: boolean;
+          preview_id?: string;
+          change_summary_json?: string;
+          errors_json?: string;
+        };
+      }>({
+        baseUrl: endpoint,
+        headers,
+        query: `mutation${previewInput.variableDefinitions} { gj_config(id: "current", update: ${previewInput.literal}) { valid preview_id change_summary_json errors_json } }`,
+        variables: previewInput.variables,
+      });
+      if (preview.errors?.length) {
+        throw new Error(
+          `source_config_admin preview failed: ${preview.errors.map((e) => e.message).join("; ")}`,
+        );
+      }
+      const pv = preview.data?.gj_config;
+      if (!pv?.valid || !pv.preview_id) {
+        throw new Error(
+          `source_config_admin preview invalid: ${pv?.errors_json ?? "no preview_id returned"}`,
+        );
+      }
+
+      // Phase 2: apply with the same preview_id + identical payload.
+      const applyInput = graphjinInputWithJsonVariables({
+        mode: "apply",
+        preview_id: pv.preview_id,
+        expected_catalog_revision: rev,
+        ...update,
+      });
+      const applied = await graphjinQuery<{
+        gj_config?: {
+          applied?: boolean;
+          catalog_revision?: string;
+          errors_json?: string;
+        };
+      }>({
+        baseUrl: endpoint,
+        headers,
+        query: `mutation${applyInput.variableDefinitions} { gj_config(id: "current", update: ${applyInput.literal}) { applied catalog_revision errors_json } }`,
+        variables: applyInput.variables,
+      });
+      if (applied.errors?.length) {
+        throw new Error(
+          `source_config_admin apply failed: ${applied.errors.map((e) => e.message).join("; ")}`,
+        );
+      }
+      const av = applied.data?.gj_config;
+      if (!av?.applied) {
+        throw new Error(
+          `source_config_admin apply rejected: ${av?.errors_json ?? "unknown"}`,
+        );
+      }
+      appliedCatalogRevision = av.catalog_revision ?? null;
+      liveRegisteredSource = action === "register_source";
+
+      if (durableConfigFile) {
+        const previousConfig = await readFile(durableConfigFile);
+        const previousMode = (await stat(durableConfigFile)).mode & 0o777;
+        await persistGraphjinSourceConfigUpdate({
+          configFile: durableConfigFile,
+          update,
+        });
+        restoreManagedConfig = async () => {
+          const rollback = `${durableConfigFile}.${randomUUID()}.rollback`;
+          await writeFile(rollback, previousConfig, { mode: previousMode });
+          await rename(rollback, durableConfigFile);
+        };
+      }
+
+      if (localFileManifest) {
+        await verifyManagedFileSourceManifest({
+          configFile: durableConfigFile!,
+          orgId,
+          sourceName,
+          localBase:
+            process.env.OPENNEKO_GRAPHJIN_FILES_LOCAL_DIR?.trim() || undefined,
+          files: localFileManifest.files,
+          totalSize: localFileManifest.totalSize,
+        });
+      }
+
+      let verifiedOperations: Array<{ id: string; name: string; summary: string }> = [];
+      if (specAsset) {
+        const operationPrefix = managedOpenApiSpecFilename(orgId, sourceName)
+          .replace(/\.yaml$/i, "_");
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          const catalog = await graphjinQuery<{
+            gj_catalog?: Array<{ id: string; name: string; summary: string }>;
+          }>({
+            baseUrl: endpoint,
+            headers,
+            query:
+              'query { gj_catalog(where: { kind: { eq: "table" } }, limit: 500) { id name summary } }',
+          });
+          if (catalog.errors?.length) {
+            throw new Error(
+              `source_config_admin: catalog verification failed: ${catalog.errors.map((item) => item.message).join("; ")}`,
+            );
+          }
+          verifiedOperations = (catalog.data?.gj_catalog ?? []).filter(
+            (item) =>
+              item.id.startsWith(operationPrefix) ||
+              item.name.startsWith(operationPrefix),
+          );
+          if (verifiedOperations.length > 0) break;
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        if (verifiedOperations.length === 0) {
+          throw new Error(
+            "source_config_admin: GraphJin applied the source but exposed no operations from its OpenAPI document",
+          );
+        }
+        const database = db();
+        await database.transaction(async (tx) => {
+          await tx
+            .update(openapi_spec_asset)
+            .set({ status: "superseded", updated_at: new Date() })
+            .where(
+              and(
+                eq(openapi_spec_asset.org_id, orgId),
+                eq(openapi_spec_asset.source_name, sourceName),
+                eq(openapi_spec_asset.status, "active"),
+                ne(openapi_spec_asset.id, specAsset!.id),
+              ),
+            );
+          await tx
+            .update(openapi_spec_asset)
+            .set({
+              status: "active",
+              source_name: sourceName,
+              activated_at: new Date(),
+              updated_at: new Date(),
+            })
+            .where(
+              and(
+                eq(openapi_spec_asset.org_id, orgId),
+                eq(openapi_spec_asset.id, specAsset!.id),
+              ),
+            );
+        });
+      }
+
+      let verifiedFileSource = false;
+      if (localFileManifest) {
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          const catalog = await graphjinQuery<{
+            gj_catalog?: Array<{ id: string; name: string; summary: string }>;
+          }>({
+            baseUrl: endpoint,
+            headers,
+            query:
+              'query { gj_catalog(where: { kind: { eq: "table" } }, limit: 500) { id name summary } }',
+          });
+          if (catalog.errors?.length) {
+            throw new Error(
+              `source_config_admin: file catalog verification failed: ${catalog.errors.map((item) => item.message).join("; ")}`,
+            );
+          }
+          verifiedFileSource = (catalog.data?.gj_catalog ?? []).some(
+            (item) => item.id === sourceName || item.name === sourceName,
+          );
+          if (verifiedFileSource) break;
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        if (!verifiedFileSource) {
+          throw new Error(
+            "source_config_admin: GraphJin applied the local file source but did not expose its virtual table",
+          );
+        }
+        await markManagedFileSourceApproved({
+          configFile: durableConfigFile!,
+          orgId,
+          sourceName,
+          localBase:
+            process.env.OPENNEKO_GRAPHJIN_FILES_LOCAL_DIR?.trim() || undefined,
+        });
+      }
+
+      return {
+        commandOrOperation: `${action} on customer GraphJin (${endpointHost})`,
+        result: {
+          action,
+          host: endpointHost,
+          changeSummary: pv.change_summary_json ?? null,
+          catalogRevision: av.catalog_revision ?? null,
+          ...(specAsset
+            ? {
+                openApi: {
+                  assetId: specAsset.id,
+                  title: specAsset.title,
+                  version: specAsset.version,
+                  operationCount: verifiedOperations.length,
+                  checksumSha256: specAsset.checksum_sha256,
+                },
+              }
+            : {}),
+          ...(localFileManifest
+            ? {
+                fileSource: {
+                  backend: "local",
+                  fileCount: localFileManifest.files.length,
+                  totalSize: localFileManifest.totalSize,
+                  readOnly: true,
+                },
+              }
+            : {}),
+          // Name only — never the value.
+          ...(secretName ? { secretRef: secretName } : {}),
+        },
       };
-    }>({
-      baseUrl: endpoint,
-      headers,
-      query: `mutation { gj_config(id: "current", update: ${previewInline}) { valid preview_id change_summary_json errors_json } }`,
-    });
-    if (preview.errors?.length) {
-      throw new Error(
-        `source_config_admin preview failed: ${preview.errors.map((e) => e.message).join("; ")}`,
-      );
+    } catch (error) {
+      const rollbackFailures: string[] = [];
+      let liveRollbackFailed = false;
+      if (liveRegisteredSource && appliedCatalogRevision && sourceName) {
+        try {
+          const rollbackUpdate = { remove_sources: [sourceName] };
+          const rollbackPreviewInline = graphjinInputValue({
+            mode: "preview",
+            expected_catalog_revision: appliedCatalogRevision,
+            ...rollbackUpdate,
+          });
+          const rollbackPreview = await graphjinQuery<{
+            gj_config?: { valid?: boolean; preview_id?: string; errors_json?: string };
+          }>({
+            baseUrl: endpoint,
+            headers,
+            query: `mutation { gj_config(id: "current", update: ${rollbackPreviewInline}) { valid preview_id errors_json } }`,
+          });
+          const rollbackRow = rollbackPreview.data?.gj_config;
+          if (
+            rollbackPreview.errors?.length ||
+            !rollbackRow?.valid ||
+            !rollbackRow.preview_id
+          ) {
+            throw new Error(
+              rollbackPreview.errors?.map((item) => item.message).join("; ") ||
+                rollbackRow?.errors_json ||
+                "rollback preview was rejected",
+            );
+          }
+          const rollbackApplyInline = graphjinInputValue({
+            mode: "apply",
+            preview_id: rollbackRow.preview_id,
+            expected_catalog_revision: appliedCatalogRevision,
+            ...rollbackUpdate,
+          });
+          const rollbackApply = await graphjinQuery<{
+            gj_config?: { applied?: boolean; errors_json?: string };
+          }>({
+            baseUrl: endpoint,
+            headers,
+            query: `mutation { gj_config(id: "current", update: ${rollbackApplyInline}) { applied errors_json } }`,
+          });
+          if (
+            rollbackApply.errors?.length ||
+            rollbackApply.data?.gj_config?.applied !== true
+          ) {
+            throw new Error(
+              rollbackApply.errors?.map((item) => item.message).join("; ") ||
+                rollbackApply.data?.gj_config?.errors_json ||
+                "rollback apply was rejected",
+            );
+          }
+        } catch (rollbackError) {
+          liveRollbackFailed = true;
+          rollbackFailures.push(
+            `GraphJin live-source rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+          );
+        }
+      }
+      if (restoreManagedSpec) {
+        try {
+          await restoreManagedSpec();
+        } catch (rollbackError) {
+          rollbackFailures.push(
+            `OpenAPI file rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+          );
+        }
+      }
+      if (restoreManagedConfig) {
+        try {
+          await restoreManagedConfig();
+        } catch (rollbackError) {
+          rollbackFailures.push(
+            `GraphJin config rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+          );
+        }
+      }
+      if (liveRollbackFailed && localFileManifest) {
+        try {
+          await markManagedFileSourceApproved({
+            configFile: durableConfigFile!,
+            orgId,
+            sourceName,
+            localBase:
+              process.env.OPENNEKO_GRAPHJIN_FILES_LOCAL_DIR?.trim() || undefined,
+          });
+        } catch (freezeError) {
+          rollbackFailures.push(
+            `managed file source freeze failed: ${freezeError instanceof Error ? freezeError.message : String(freezeError)}`,
+          );
+        }
+      }
+      if (rollbackFailures.length > 0) {
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)}; ${rollbackFailures.join("; ")}`,
+        );
+      }
+      throw error;
+    } finally {
+      await releaseManagedFileLock?.();
+      await releaseGraphjinConfigLock?.();
     }
-    const pv = preview.data?.gj_config;
-    if (!pv?.valid || !pv.preview_id) {
-      throw new Error(
-        `source_config_admin preview invalid: ${pv?.errors_json ?? "no preview_id returned"}`,
-      );
-    }
-
-    // Phase 2: apply with the same preview_id + identical payload.
-    const applyInline = graphjinInputValue({
-      mode: "apply",
-      preview_id: pv.preview_id,
-      expected_catalog_revision: rev,
-      ...update,
-    });
-    const applied = await graphjinQuery<{
-      gj_config?: { applied?: boolean; catalog_revision?: string; errors_json?: string };
-    }>({
-      baseUrl: endpoint,
-      headers,
-      query: `mutation { gj_config(id: "current", update: ${applyInline}) { applied catalog_revision errors_json } }`,
-    });
-    if (applied.errors?.length) {
-      throw new Error(
-        `source_config_admin apply failed: ${applied.errors.map((e) => e.message).join("; ")}`,
-      );
-    }
-    const av = applied.data?.gj_config;
-    if (!av?.applied) {
-      throw new Error(`source_config_admin apply rejected: ${av?.errors_json ?? "unknown"}`);
-    }
-
-    return {
-      commandOrOperation: `${action} on customer GraphJin (${endpointHost})`,
-      result: {
-        action,
-        host: endpointHost,
-        changeSummary: pv.change_summary_json ?? null,
-        catalogRevision: av.catalog_revision ?? null,
-        // Name only — never the value.
-        ...(secretName ? { secretRef: secretName } : {}),
-      },
-    };
   });
 }
