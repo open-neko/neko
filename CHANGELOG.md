@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.20.1](https://github.com/open-neko/openneko/compare/v2.20.0...v2.20.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **llm:** recover from orphaned sandbox collisions ([602a466](https://github.com/open-neko/openneko/commit/602a4667ca695d459f98ed32160a0aff3810fa76))
+* **llm:** recover from orphaned sandbox collisions ([1dd37a0](https://github.com/open-neko/openneko/commit/1dd37a03a75cd8fc02aea764c5b87e2d38745f58))
+
 ## [2.20.0](https://github.com/open-neko/openneko/compare/v2.19.0...v2.20.0) (2026-07-16)
 
 
