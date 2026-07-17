@@ -22,10 +22,13 @@ import type { RunWorkflowAgentBackendInput } from "../src/workflows/agent-core";
  */
 const h = vi.hoisted(() => {
   const calls: { args: string[] }[] = [];
-  const state = { holdExec: false };
+  const state = { holdExec: false, collideOnNextCreate: false };
   function spawn(_cmd: string, args: string[]) {
     calls.push({ args });
     const isExec = args.includes("exec");
+    const createCollision =
+      args.includes("create") && state.collideOnNextCreate;
+    if (createCollision) state.collideOnNextCreate = false;
     const reg = (store: Record<string, Array<(...a: unknown[]) => void>>) =>
       (ev: string, cb: (...a: unknown[]) => void) => {
         (store[ev] ??= []).push(cb);
@@ -36,7 +39,11 @@ const h = vi.hoisted(() => {
       ...a: unknown[]
     ) => (store[ev] ?? []).forEach((cb) => cb(...a));
     const ch: Record<string, Array<(...a: unknown[]) => void>> = {};
-    const stderr = Readable.from([]);
+    const stderr = Readable.from(
+      createCollision
+        ? ["Error: × sandbox 'work-run-1' already exists\n"]
+        : [],
+    );
     const lines = isExec
       ? [
           'noise before\n',
@@ -48,7 +55,7 @@ const h = vi.hoisted(() => {
     const closeOnce = () => {
       if (closed) return;
       closed = true;
-      fire(ch, "close", 0);
+      fire(ch, "close", createCollision ? 1 : 0);
     };
     const stdout = Readable.from(lines);
     if (!isExec || !state.holdExec) {
@@ -338,6 +345,7 @@ describe("makeSandboxRunCore", () => {
   beforeEach(() => {
     h.calls.length = 0;
     h.state.holdExec = false;
+    h.state.collideOnNextCreate = false;
     jobCapture.jobs.length = 0;
     jobCapture.policies.length = 0;
   });
@@ -398,6 +406,32 @@ describe("makeSandboxRunCore", () => {
     expect(execCall?.args.join(" ")).toContain("agent-sandbox/entry.ts");
     // the credential alias references the OpenShell-injected var at runtime, never a value:
     expect(execCall?.args.join(" ")).toContain('export GEMINI_API_KEY="$api_key"');
+  });
+
+  it("replaces an orphaned sandbox when a durable retry collides on the run name", async () => {
+    h.state.collideOnNextCreate = true;
+    const runCore = makeSandboxRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    await runCore(fakeInput(async () => {}));
+
+    const lifecycle = h.calls
+      .map((call) =>
+        call.args.find((arg) =>
+          ["create", "exec", "download", "delete"].includes(arg),
+        ),
+      )
+      .filter(Boolean);
+    expect(lifecycle).toEqual([
+      "create",
+      "delete",
+      "create",
+      "exec",
+      "download",
+      "delete",
+    ]);
   });
 
   it("aborts the live exec and deletes the whole sandbox without downloading artifacts", async () => {

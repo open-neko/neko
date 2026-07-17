@@ -596,29 +596,40 @@ function makeSandboxCore(
         type: "status",
         message: "Starting secure agent sandbox…",
       });
-      await run(
-        [
-          "sandbox",
-          "create",
-          "--name",
-          name,
-          "--from",
-          opts.agentImage,
-          "--no-tty",
-          "--no-auto-providers",
-          ...(opts.modelProvider ? ["--provider", opts.modelProvider] : []),
-          "--policy",
-          policyFile,
-          "--upload",
-          // OpenShell nests basename(LOCAL_PATH) under SANDBOX_PATH.
-          `${staged.orgRoot}:${path.posix.dirname(boxOrgRoot)}`,
-          "--no-git-ignore",
-          "--",
-          "node",
-          "--version",
-        ],
-        180_000,
-      );
+      const createArgs = [
+        "sandbox",
+        "create",
+        "--name",
+        name,
+        "--from",
+        opts.agentImage,
+        "--no-tty",
+        "--no-auto-providers",
+        ...(opts.modelProvider ? ["--provider", opts.modelProvider] : []),
+        "--policy",
+        policyFile,
+        "--upload",
+        // OpenShell nests basename(LOCAL_PATH) under SANDBOX_PATH.
+        `${staged.orgRoot}:${path.posix.dirname(boxOrgRoot)}`,
+        "--no-git-ignore",
+        "--",
+        "node",
+        "--version",
+      ];
+      try {
+        await run(createArgs, 180_000);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes("already exists")) throw error;
+
+        // Run names are deterministic so a durable queue retry can collide
+        // with an OpenShell sandbox orphaned by a worker restart or deploy.
+        // Replace only that exact run sandbox, then let the normal finally
+        // path own cleanup for the newly created instance.
+        log(`replacing stale agent sandbox after name collision: ${name}`);
+        await runCleanup(["sandbox", "delete", name], 60_000);
+        await run(createArgs, 180_000);
+      }
       sandboxCreated = true;
 
       log(
