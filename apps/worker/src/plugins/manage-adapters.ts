@@ -35,20 +35,37 @@ export function packageInstallCommand(
   if (pnpmWorkspace && args[0] === "install") {
     return {
       command: "pnpm",
-      args: ["add", "--workspace-root", ...args.slice(1)],
+      // Run from the worker package directory. pnpm locates the workspace
+      // root itself and adds the plugin where the worker resolves it.
+      args: ["add", ...args.slice(1)],
     };
   }
   return { command: "npm", args };
+}
+
+export async function findPnpmWorkspaceRoot(
+  startDirectory: string,
+): Promise<string | null> {
+  let current = startDirectory;
+  while (true) {
+    const marker = await stat(join(current, "pnpm-workspace.yaml"))
+      .then((entry) => entry.isFile())
+      .catch(() => false);
+    if (marker) return current;
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
 }
 
 async function runWorkspaceAwarePackageInstall(
   args: string[],
   cwd: string,
 ): Promise<void> {
-  const pnpmWorkspace = await stat(join(cwd, "pnpm-workspace.yaml"))
-    .then((entry) => entry.isFile())
-    .catch(() => false);
-  const invocation = packageInstallCommand(args, pnpmWorkspace);
+  const invocation = packageInstallCommand(
+    args,
+    Boolean(await findPnpmWorkspaceRoot(cwd)),
+  );
   await new Promise<void>((resolve, reject) => {
     execFile(
       invocation.command,
