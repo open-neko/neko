@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.21.0](https://github.com/open-neko/openneko/compare/v2.20.1...v2.21.0) (2026-07-23)
+
+
+### Features
+
+* **admin:** align plugin registry layout ([44ae79d](https://github.com/open-neko/openneko/commit/44ae79d14a4acc95f911da8bc934a560d43c58dc))
+* rethink OpenNeko agent-first interface ([bf3fd8b](https://github.com/open-neko/openneko/commit/bf3fd8bb6ec9da95a7def1c25facb67a0e1b8b72))
+* rethink OpenNeko agentic interface ([7fd07cd](https://github.com/open-neko/openneko/commit/7fd07cdb1aeb6a9c11156357f23bd94066a2864f))
+* **work:** make agent answers self-contained and recoverable ([7059f08](https://github.com/open-neko/openneko/commit/7059f08ba8a944f016e283caf38e6301f82c7d0f))
+* **work:** unify agent actions and interface headers ([b797197](https://github.com/open-neko/openneko/commit/b79719778e4c6145eefa6f202cf951670e3df4ba))
+
+
+### Bug Fixes
+
+* **web:** tighten mobile knowledge layouts ([18d39d1](https://github.com/open-neko/openneko/commit/18d39d106cae7f6e4ca1a58a41845f18e43015da))
+* **worker:** detect pnpm workspaces for plugin installs ([327b9bb](https://github.com/open-neko/openneko/commit/327b9bb9c1d6428377efb63bd4ebeb9daa96697e))
+* **work:** reconcile completed action approvals ([33b0d18](https://github.com/open-neko/openneko/commit/33b0d189c6c7546da50e6b228acdde10b57f7940))
+
 ## [2.20.1](https://github.com/open-neko/openneko/compare/v2.20.0...v2.20.1) (2026-07-17)
 
 
