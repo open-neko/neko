@@ -2650,6 +2650,69 @@ function AnswerRunFooter({
   );
 }
 
+type ActionRequestSnapshot = {
+  status: string;
+  result: ApprovalItem["result"];
+};
+
+async function fetchActionRequestSnapshot(
+  actionRequestId: string,
+  actionKind: string,
+): Promise<ActionRequestSnapshot | null> {
+  const res = await fetch(`/api/action-requests/${actionRequestId}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const body = (await res.json()) as {
+    actionRequest?: {
+      status?: string;
+      rejectionReason?: string | null;
+    };
+    executions?: Array<{
+      status?: string;
+      result?: Record<string, unknown> | null;
+      externalRef?: string | null;
+      commandOrOperation?: string | null;
+      error?: string | null;
+    }>;
+  };
+  const status = body.actionRequest?.status ?? "pending_approval";
+  const execution = body.executions?.at(-1);
+  let result: ApprovalItem["result"] = null;
+  if (status === "executed") {
+    result = {
+      type: "action_request_result",
+      action_request_id: actionRequestId,
+      kind: actionKind,
+      status: "succeeded",
+      outcome: {
+        result: execution?.result ?? null,
+        externalRef: execution?.externalRef ?? null,
+        commandOrOperation: execution?.commandOrOperation ?? null,
+      },
+    };
+  } else if (status === "failed") {
+    result = {
+      type: "action_request_result",
+      action_request_id: actionRequestId,
+      kind: actionKind,
+      status: "failed",
+      error: execution?.error ?? "Action execution failed.",
+    };
+  } else if (status === "rejected") {
+    result = {
+      type: "action_request_result",
+      action_request_id: actionRequestId,
+      kind: actionKind,
+      status: "rejected",
+      ...(body.actionRequest?.rejectionReason
+        ? { rejection_reason: body.actionRequest.rejectionReason }
+        : {}),
+    };
+  }
+  return { status, result };
+}
+
 function ActionApprovalCard({
   threadId,
   runId,
@@ -2663,13 +2726,57 @@ function ActionApprovalCard({
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
+  const [localDecision, setLocalDecision] = useState<
+    "approve" | "reject" | null
+  >(null);
+  const [localStatus, setLocalStatus] = useState<string | null>(null);
+  const [localResult, setLocalResult] =
+    useState<ApprovalItem["result"]>(null);
+
+  useEffect(() => {
+    if (approval.result) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const sync = async () => {
+      const snapshot = await fetchActionRequestSnapshot(
+        approval.actionRequestId,
+        approval.actionKind,
+      );
+      if (cancelled || !snapshot) return;
+      setLocalStatus(snapshot.status);
+      setLocalResult(snapshot.result);
+      if (snapshot.status === "approved") {
+        timer = setTimeout(() => void sync(), 1_000);
+      }
+    };
+    void sync();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [
+    approval.actionKind,
+    approval.actionRequestId,
+    approval.result,
+    localDecision,
+  ]);
 
   const headline =
     approval.intent ??
     approval.summary ??
     `Agent wants to run "${approval.actionKind}".`;
-  const pending = approval.decision === "pending_approval" && !approval.result;
-  const settled = approval.result !== null;
+  const effectiveResult = approval.result ?? localResult;
+  const pending =
+    approval.decision === "pending_approval" &&
+    !effectiveResult &&
+    !localDecision &&
+    (localStatus === null || localStatus === "pending_approval");
+  const processing =
+    !effectiveResult &&
+    (approval.decision === "auto_approved" ||
+      localDecision === "approve" ||
+      localStatus === "approved");
+  const settled = effectiveResult !== null;
 
   async function decide(decision: "approve" | "reject") {
     if (!runId) {
@@ -2694,11 +2801,34 @@ function ActionApprovalCard({
         },
       );
       if (!res.ok) {
+        if (res.status === 409) {
+          const snapshot = await fetchActionRequestSnapshot(
+            approval.actionRequestId,
+            approval.actionKind,
+          );
+          if (snapshot) {
+            setLocalStatus(snapshot.status);
+            setLocalResult(snapshot.result);
+            setLocalDecision(decision);
+            return;
+          }
+        }
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         setLocalError(
           body.error ?? `Request failed (${res.status} ${res.statusText})`,
         );
+        return;
       }
+      const body = (await res.json().catch(() => ({}))) as {
+        status?: string;
+        decision?: string;
+      };
+      setLocalStatus(
+        body.status ??
+          (decision === "approve" ? "approved" : "rejected"),
+      );
+      setLocalDecision(decision);
+      setRejectMode(false);
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -2773,14 +2903,14 @@ function ActionApprovalCard({
         </div>
       ) : null}
 
-      {approval.decision === "auto_approved" && !settled ? (
+      {processing && !settled ? (
         <div className="text-text3 text-[12px] flex items-center gap-1.5">
           <Loader2 className="work-status-spin" size={11} />
-          Queued — running in the background…
+          Approved — running in the background…
         </div>
       ) : null}
 
-      {settled ? <ActionResultStrip result={approval.result!} /> : null}
+      {settled ? <ActionResultStrip result={effectiveResult!} /> : null}
 
       {localError ? (
         <div className="text-danger text-[12px]">{localError}</div>
