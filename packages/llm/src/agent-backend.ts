@@ -40,6 +40,18 @@ export type AgentArtifact = {
 
 export type OutputMood = "good" | "watch" | "act";
 
+export type AgentVital = {
+  label: string;
+  value: string;
+  sub?: string;
+  /** How the figure was obtained. Missing on historical events. */
+  basis?: "observed" | "calculated" | "estimated";
+  /** Human-readable freshness, for example "as of 23 Jul 2026". */
+  asOf?: string;
+  /** Short source name, never a fabricated citation. */
+  source?: string;
+};
+
 export type AgentEvent =
   // Delta of real prose since the last message event. Backends MUST NOT emit
   // structured-output payloads (a2ui fences, tool-call JSON, etc.) here — use
@@ -52,6 +64,20 @@ export type AgentEvent =
   | { type: "artifact"; artifact: AgentArtifact }
   | { type: "status"; message: string }
   | { type: "error"; message: string }
+  | {
+      /**
+       * A sandbox capability was refused by policy. This is host-derived from
+       * the tool result, not prose authored by the model, so every channel can
+       * offer an honest recovery path without scraping the answer text.
+       */
+      type: "capability_denied";
+      capability: "network_egress";
+      reason: "policy_denied";
+      host: string;
+      port?: number;
+      method?: string;
+      path?: string;
+    }
   | { type: "done"; result?: unknown }
   | { type: "output_emit"; output_id: string; kind: string }
   | {
@@ -103,7 +129,7 @@ export type AgentEvent =
   // emitted once at the end of a /work run via a `neko_vitals` fence. Each
   // channel renders them its own way (the web rail as a tile grid, a chat
   // channel as a one-line recap, a voice channel by reading them aloud).
-  | { type: "vitals"; items: { label: string; value: string; sub?: string }[] };
+  | { type: "vitals"; items: AgentVital[] };
 
 export type AgentChatMessage = {
   id?: string;

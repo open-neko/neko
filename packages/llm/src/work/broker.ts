@@ -12,6 +12,27 @@ import { inProcessControlPlane, type AgentControlPlane } from "./control-plane";
 export interface RunBinding {
   runId: string;
   orgId: string;
+  /** Present for chat/workflow runs so broker-emitted events can be persisted. */
+  threadId?: string;
+}
+
+export type AgentBrokerEventSink = (event: AgentEvent) => Promise<void>;
+
+const runEventSinks = new Map<string, AgentBrokerEventSink>();
+
+/**
+ * Attach the host run's normal event sink to MCP bridge emissions. This keeps
+ * approval cards, builder confirmations, and other tool-authored events on the
+ * same scrubbed/persisted/live-SSE path as backend events.
+ */
+export function registerAgentBrokerEventSink(
+  runId: string,
+  sink: AgentBrokerEventSink,
+): () => void {
+  runEventSinks.set(runId, sink);
+  return () => {
+    if (runEventSinks.get(runId) === sink) runEventSinks.delete(runId);
+  };
 }
 
 export interface AgentBrokerDeps {
@@ -473,6 +494,7 @@ export function ensureAgentBroker(): Promise<AgentBrokerHandle | undefined> {
       controlPlane: inProcessControlPlane,
       hostAlias: process.env.OPENNEKO_BROKER_HOST_ALIAS || undefined,
       port: pinned || 4199,
+      onEvents: routeBrokerEvents,
     })
       .catch((e: NodeJS.ErrnoException) => {
         // Unpinned default only: web + worker on one host (dev) both reach
@@ -484,6 +506,7 @@ export function ensureAgentBroker(): Promise<AgentBrokerHandle | undefined> {
           controlPlane: inProcessControlPlane,
           hostAlias: process.env.OPENNEKO_BROKER_HOST_ALIAS || undefined,
           port: 0,
+          onEvents: routeBrokerEvents,
         });
       })
       .then((h) => {
@@ -496,4 +519,34 @@ export function ensureAgentBroker(): Promise<AgentBrokerHandle | undefined> {
       });
   }
   return brokerStarting;
+}
+
+async function routeBrokerEvents(
+  binding: RunBinding,
+  events: AgentEvent[],
+): Promise<void> {
+  const sink = runEventSinks.get(binding.runId);
+  if (sink) {
+    for (const event of events) await sink(event);
+    return;
+  }
+
+  // Job callers should register their scrubbed sink. Keep a durable fallback
+  // for short-lived hosts or a process race so a successfully-created action
+  // request never loses its inline approval event.
+  if (!binding.threadId) {
+    console.warn(
+      `[agent-broker] dropped ${events.length} event(s) for ${binding.runId}: no event sink or thread binding`,
+    );
+    return;
+  }
+  const { appendWorkRunEvent } = await import("./store");
+  for (const event of events) {
+    await appendWorkRunEvent({
+      orgId: binding.orgId,
+      threadId: binding.threadId,
+      runId: binding.runId,
+      event,
+    });
+  }
 }

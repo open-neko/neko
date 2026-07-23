@@ -80,6 +80,18 @@ const mapOne = (event: AgentEvent, gen: IdGen): InteractionEvent[] => {
       return [{ kind: "resolve", id: event.action_request_id, ref: event.action_request_id, status: event.status, summary: resultSummary(event) }];
     case "needs_input":
       return [{ kind: "ask", id: gen(), ask: event.options?.length ? "choice" : "freeform", prompt: event.question, decisionRef: gen(), ...(event.options?.length ? { options: event.options.map((label, i) => ({ id: `opt-${i}`, label })) } : {}) }];
+    case "capability_denied":
+      return [{
+        kind: "inform",
+        id: gen(),
+        mood: "watch",
+        title: `Network access blocked: ${event.host}`,
+        body: "Live data was not retrieved. Use an approved integration or contact an administrator.",
+        evidence: [{
+          label: "Denied by sandbox policy",
+          detail: `${event.method ?? "REQUEST"} ${event.host}${event.port ? `:${event.port}` : ""}${event.path ?? "/"}`,
+        }],
+      }];
     case "error":
       return [{ kind: "inform", id: gen(), mood: "act", title: "Something went wrong", body: event.message }];
     default:

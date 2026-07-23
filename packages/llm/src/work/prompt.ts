@@ -6,6 +6,7 @@ import {
   buildMemorySection,
 } from "../prompts/sections";
 import type { InstalledSkill } from "./workspace";
+import type { PluginCatalog } from "./control-plane";
 
 // Re-export so external callers (and tests) that import GRAPHJIN_DATE_RULE
 // from "@neko/llm/work" don't break.
@@ -30,10 +31,64 @@ function formatTranscript(messages: AgentChatMessage[]): string {
 function buildRenderingSection(supportsCardTool: boolean): string {
   const tool = supportsCardTool ? "mcp__neko_ui__render_cards" : "render_cards";
   return `<rendering>
-Call \`${tool}\` to compose an interface that fits the current request. Its
-description carries the available components and protocol. Use the smallest
-useful combination of narrative, data, layout, inputs, and actions.
+Call \`${tool}\` for every web answer that contains two or more figures, a
+comparison, a table, findings, a decision, a form, or an error-recovery path.
+Its description carries the available components and protocol. Compose an
+interface that fits the current request, using the smallest useful combination
+of narrative, data, layout, inputs, and actions.
+The surface is the canonical answer: after rendering it, do not repeat the
+same prose or figures in the final message. A short prose-only answer may skip
+the tool.
 </rendering>`;
+}
+
+function buildPluginManagementSection(
+  supportsTool: boolean,
+  catalog?: PluginCatalog,
+): string {
+  if (supportsTool) {
+    return `<plugin_management>
+When the operator needs a capability OpenNeko does not have, use
+\`mcp__neko_plugin_manager__list_plugins\` to inspect installed integrations
+and the official marketplace. If an exact marketplace plugin fits, use
+\`mcp__neko_plugin_manager__request_plugin_install\`. Installation is never
+silent: it creates an approval request the web channel renders inline.
+After a network policy denial, file that request in the same answer when an
+exact plugin fits; the approval card is the operator's yes/no question.
+Never guess a package name and never ask for credentials in chat.
+</plugin_management>`;
+  }
+  const available = catalog?.available ?? [];
+  const rows = available.length
+    ? JSON.stringify(available)
+    : "(official marketplace unavailable for this turn)";
+  return `<plugin_management>
+You can propose an exact official integration install through the same action
+approval system used by every other mutation. The official marketplace
+snapshot for this turn is:
+
+${rows}
+
+Choose only an exact \`name\` from that snapshot. To propose installation,
+emit:
+
+\`\`\`neko_action_request
+{
+  "scope": "internal",
+  "kind": "plugin_install",
+  "target": "<exact marketplace name>",
+  "payload": { "spec": "<exact marketplace name>" },
+  "risk_level": "high",
+  "summary": "Install <title> so OpenNeko can <specific capability>."
+}
+\`\`\`
+
+This creates an inline approval request; it does not install silently. If no
+listed plugin fits, say so and point the operator to plugin administration.
+After a network policy denial, emit the request in the same answer when an
+exact plugin fits; the approval card is the operator's yes/no question.
+Never invent a package name and never request credentials in chat.
+</plugin_management>`;
 }
 
 function buildNativeDelegationSection(backend: AgentBackendId): string {
@@ -373,6 +428,11 @@ when you reference content from the file.
 const RULES_SECTION = `<conduct>
 - Keep answers concise and useful.
 ${GRAPHJIN_DATE_RULE}
+- A sandbox network denial means live data is unavailable. Never replace a
+  denied live request with seasonal norms, remembered values, or invented
+  figures. State exactly what could not be reached and offer an approved
+  integration. Only provide an estimate when the operator explicitly asks for
+  one, and label every estimated figure as estimated.
 </conduct>`;
 
 // Closing contract shared by both backends: two JSON blocks the runtime parses
@@ -401,13 +461,15 @@ turn ran long; never drop it.
 2. The two to four numbers that carry this answer — the figures the operator
    would repeat to their team. Give each a short label, the value with its
    unit, and a one-line comparison or context where it sharpens the figure.
+   Add \`basis\` (\`observed\`, \`calculated\`, or \`estimated\`), plus \`asOf\`
+   and \`source\` whenever known. Never call an estimate observed.
    When the answer turns on no specific numbers, send an empty list:
 
 \`\`\`neko_vitals
 { "vitals": [
-  { "label": "Top-10 share", "value": "48%", "sub": "down from 53%" },
-  { "label": "#1 account", "value": "$1.2M", "sub": "Acme · 9.4%" },
-  { "label": "YoY revenue", "value": "+14%", "sub": "$12.8M YTD" }
+  { "label": "Top-10 share", "value": "48%", "sub": "down from 53%", "basis": "calculated", "asOf": "Q2 2026", "source": "sales orders" },
+  { "label": "#1 account", "value": "$1.2M", "sub": "Acme · 9.4%", "basis": "calculated", "asOf": "YTD", "source": "sales orders" },
+  { "label": "YoY revenue", "value": "+14%", "sub": "$12.8M YTD", "basis": "calculated", "asOf": "23 Jul 2026", "source": "sales orders" }
 ] }
 \`\`\`
 
@@ -531,6 +593,8 @@ export function buildWorkPrompt(args: {
   supportsWorkflowTool: boolean;
   supportsPolicyTool: boolean;
   supportsSourceConfigTool: boolean;
+  supportsPluginManagerTool?: boolean;
+  pluginCatalog?: PluginCatalog;
   // True when prior turns must be inlined into the system prompt because the
   // backend can't reload them out-of-band (i.e. no session resume).
   inlineTranscript: boolean;
@@ -554,6 +618,8 @@ export function buildWorkPrompt(args: {
     supportsWorkflowTool,
     supportsPolicyTool,
     supportsSourceConfigTool,
+    supportsPluginManagerTool = false,
+    pluginCatalog,
     inlineTranscript,
     pluginActions,
   } = args;
@@ -579,6 +645,7 @@ that flags churn risk every Monday."
     buildWorkflowToolsSection(supportsWorkflowTool, shellTool),
     buildPoliciesSection(supportsPolicyTool),
     buildSourceConfigSection(supportsSourceConfigTool, workspace),
+    buildPluginManagementSection(supportsPluginManagerTool, pluginCatalog),
     buildNativeDelegationSection(backend),
     buildDataAccessSection({
       shellTool,

@@ -245,6 +245,178 @@
   animation: spin 1s linear infinite;
   color: var(--accent);
 }
+
+/* Host-authored capability denial. This is deliberately architectural rather
+   than alarm-card chrome: a hard rule, the exact blocked endpoint, and a
+   permission-aware recovery column. */
+.work-capability-denied {
+  border-top: 3px solid var(--watch);
+  border-bottom: 1px solid var(--text);
+  background: color-mix(in srgb, var(--watch-soft) 48%, var(--card));
+}
+.work-capability-kicker {
+  padding: 10px 14px 8px;
+  color: var(--warn-ink);
+  font-family: var(--font-display), 'Archivo', sans-serif;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+.work-capability-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(230px, 0.75fr);
+  border-top: 1px solid color-mix(in srgb, var(--watch) 34%, var(--border));
+}
+.work-capability-grid > div {
+  min-width: 0;
+  padding: 17px 18px 18px;
+}
+.work-capability-grid > div + div {
+  border-left: 1px solid color-mix(in srgb, var(--watch) 34%, var(--border));
+}
+.work-capability-denied h3 {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--font-display), 'Archivo', sans-serif;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+.work-capability-denied p {
+  margin: 8px 0 0;
+  color: var(--text2);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.work-capability-denied code {
+  display: block;
+  margin-top: 13px;
+  color: var(--warn-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+}
+.work-capability-recovery > span {
+  color: var(--text3);
+  font-family: var(--font-display), 'Archivo', sans-serif;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+.work-capability-recovery button,
+.work-capability-recovery a {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  padding: 8px 11px;
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.work-capability-recovery button {
+  width: 100%;
+  border: 1px solid var(--text);
+  border-radius: 2px 11px 2px 11px;
+  background: var(--success);
+  cursor: pointer;
+}
+.work-capability-recovery button:hover {
+  box-shadow: 3px 3px 0 var(--text);
+  transform: translate(-1px, -1px);
+}
+.work-capability-recovery a {
+  padding-inline: 0;
+  color: var(--text2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.work-capability-recovery button:focus-visible,
+.work-capability-recovery a:focus-visible,
+.work-answer-evidence a:focus-visible,
+.work-answer-followups button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+/* Evidence and next questions belong to the answer that produced them. */
+.work-answer-footer {
+  margin-top: 7px;
+  border-top: 1px solid var(--text);
+}
+.work-answer-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+}
+.work-answer-evidence > * {
+  min-width: 150px;
+  flex: 1 1 180px;
+  padding: 10px 14px 11px 0;
+  color: inherit;
+  text-decoration: none;
+}
+.work-answer-evidence > * + * {
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+}
+.work-answer-evidence span,
+.work-answer-followups > span {
+  display: block;
+  color: var(--text3);
+  font-family: var(--font-display), 'Archivo', sans-serif;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.work-answer-evidence strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text2);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.work-answer-evidence a:hover strong {
+  color: var(--accent);
+}
+.work-answer-followups {
+  padding-top: 12px;
+}
+.work-answer-followups > div {
+  display: grid;
+  margin-top: 5px;
+}
+.work-answer-followups button {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 9px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+.work-answer-followups button:hover {
+  color: var(--accent);
+}
+.work-answer-followups button span {
+  color: var(--accent);
+}
 /* Tool cluster: the closed header is a compact inline pill that recedes
    into the transcript flow. When expanded the body becomes a bordered
    card containing the individual tool rows. */
@@ -570,6 +742,72 @@
   margin-top: 14px;
 }
 
+/* Key figures are evidence, not dashboard cards. One rule binds the figures
+   to their answer; column rules make comparison fast without introducing a
+   detached tile grid. */
+.work-key-figures {
+  margin-top: 20px;
+  border-top: 1px solid var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.work-key-figures-label {
+  padding: 9px 0 8px;
+  color: var(--text3);
+  font-family: var(--font-display), 'Archivo', sans-serif;
+  font-size: 9.5px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.work-key-figures-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+.work-key-figure {
+  min-width: 0;
+  padding: 15px 18px 16px 0;
+}
+.work-key-figure + .work-key-figure {
+  padding-left: 18px;
+  border-left: 1px solid var(--border);
+}
+.work-key-figure dt {
+  color: var(--text3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+.work-key-figure dd {
+  margin: 7px 0 0;
+  color: var(--text);
+  font-family: var(--font-display), 'Archivo', sans-serif;
+  font-size: clamp(24px, 3vw, 36px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 850;
+  letter-spacing: -0.055em;
+  line-height: 0.95;
+  overflow-wrap: anywhere;
+}
+.work-key-figure-sub {
+  margin-top: 7px;
+  color: var(--text2);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.work-key-figure-proof {
+  margin-top: 8px;
+  color: var(--text3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
 /* In-thread KPI card. The dashboard's .icard is a standalone grid tile —
    heavy border, shadow, hover-lift, big "01" ordinal — which reads as a
    box-in-a-box once it sits inside an answer card. Re-skin it as a flat
@@ -785,8 +1023,42 @@
 .work-surface > .work-section,
 .work-surface > .work-callout,
 .work-surface > .work-choice,
-.work-surface > .work-divider {
+.work-surface > .work-divider,
+.work-surface > .work-key-figures {
   margin-top: 14px;
+}
+
+@media (max-width: 620px) {
+  .work-key-figures-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .work-key-figure {
+    padding: 13px 0;
+  }
+  .work-key-figure + .work-key-figure {
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+  .work-capability-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .work-capability-grid > div + div {
+    border-top: 1px solid color-mix(in srgb, var(--watch) 34%, var(--border));
+    border-left: 0;
+  }
+  .work-answer-evidence {
+    display: grid;
+  }
+  .work-answer-evidence > * {
+    min-width: 0;
+    padding: 10px 0;
+  }
+  .work-answer-evidence > * + * {
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
 }
 
 /* ─── A2UI v1 form + layout primitives ─── */

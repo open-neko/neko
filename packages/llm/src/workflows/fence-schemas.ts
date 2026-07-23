@@ -181,6 +181,9 @@ export const VITALS_SCHEMA = z.object({
         label: z.string().trim().min(1).max(28),
         value: z.string().trim().min(1).max(18),
         sub: z.string().trim().max(36).optional(),
+        basis: z.enum(["observed", "calculated", "estimated"]).optional(),
+        asOf: z.string().trim().min(1).max(48).optional(),
+        source: z.string().trim().min(1).max(64).optional(),
       }),
     )
     .max(4),

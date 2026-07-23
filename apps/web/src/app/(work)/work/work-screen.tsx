@@ -18,6 +18,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 // Matches paths to agent-generated/uploaded files inside the per-org workspace.
@@ -118,13 +119,17 @@ import { renderComponent, renderChildren } from "@/a2ui/renderer";
 import { applyMessage, getRootComponent, setDataModelValue } from "@/a2ui/surface";
 import { buildActionFollowUp } from "@/a2ui/action";
 import type { SurfaceState, A2UIMessage } from "@/a2ui/types";
-import {
-  useWorkShell,
-  type RailArtifact,
-  type RailSource,
-  type RailVital,
-} from "../work-shell-context";
-import { ANALYSIS_FLOOR_MIN, formatSavedShort } from "@/lib/hours-saved";
+import { useWorkShell } from "../work-shell-context";
+import { formatSavedShort } from "@/lib/hours-saved";
+
+type AnswerVital = {
+  label: string;
+  value: string;
+  sub?: string;
+  basis?: "observed" | "calculated" | "estimated";
+  asOf?: string;
+  source?: string;
+};
 
 type MessageRecord = {
   id: string;
@@ -142,6 +147,8 @@ type RunRecord = {
   createdAt: string;
   finishedAt: string | null;
   analysisMinutesSaved?: number | null;
+  analysisMinutesBasis?: string | null;
+  actorRole?: "admin" | "member" | "service" | null;
 };
 
 type WorkEvent =
@@ -157,6 +164,15 @@ type WorkEvent =
   | { type: "artifact"; artifact: { path: string; label: string; mimeType?: string } }
   | { type: "status"; message: string }
   | { type: "error"; message: string }
+  | {
+      type: "capability_denied";
+      capability: "network_egress";
+      reason: "policy_denied";
+      host: string;
+      port?: number;
+      method?: string;
+      path?: string;
+    }
   | {
       type: "action_request_emit";
       action_request_id: string;
@@ -181,7 +197,7 @@ type WorkEvent =
       rejection_reason?: string;
     }
   | { type: "followups"; items: string[] }
-  | { type: "vitals"; items: RailVital[] }
+  | { type: "vitals"; items: AnswerVital[] }
   | { type: "done"; result?: unknown };
 
 type ThreadBundle = {
@@ -309,8 +325,6 @@ export default function WorkScreen() {
     typeof params?.threadId === "string" ? params.threadId : null;
   const {
     setActiveRunId,
-    setRailArtifacts,
-    setRailContext,
     insertComposerRef,
     submitFollowUpRef,
   } = useWorkShell();
@@ -450,93 +464,6 @@ export default function WorkScreen() {
       submitFollowUpRef.current = null;
     };
   });
-
-  // Derive this thread's rail context from the run's own output. Vitals and
-  // follow-ups are channel-agnostic CONTENT the agent emits (the web channel
-  // renders them as a tile grid / chips — another channel could read them
-  // aloud). Sources touched are parsed from the data tools the agent actually
-  // called (a fact about the run); artifacts come from artifact events. The
-  // latest answer in the thread wins for vitals and follow-ups.
-  useEffect(() => {
-    if (!bundle) {
-      setRailArtifacts([]);
-      setRailContext({ vitals: [], sources: [], followups: [] });
-      return;
-    }
-    const arts: RailArtifact[] = [];
-    const seenArt = new Set<string>();
-    const sourceMap = new Map<string, RailSource>();
-    let vitals: RailVital[] = [];
-    let followups: string[] = [];
-    const addSource = (raw: string) => {
-      const name = raw.trim().toLowerCase();
-      if (name.length < 2 || sourceMap.has(name)) return;
-      sourceMap.set(name, { name });
-    };
-    for (const events of Object.values(bundle.eventsByRun)) {
-      for (const ev of events) {
-        if (ev.type === "artifact" && ev.artifact && !seenArt.has(ev.artifact.path)) {
-          seenArt.add(ev.artifact.path);
-          arts.push({
-            path: ev.artifact.path,
-            label: ev.artifact.label,
-            mimeType: ev.artifact.mimeType,
-          });
-        } else if (ev.type === "tool_start") {
-          const title =
-            typeof (ev.input as { title?: unknown })?.title === "string"
-              ? (ev.input as { title: string }).title
-              : "";
-          if (title) {
-            // graphjin table args: {"table":"x"} / {"from_table":"x"} / {"to_table":"x"}
-            for (const m of title.matchAll(
-              /"(?:from_table|to_table|table)"\s*:\s*"([a-z0-9_]+)"/gi,
-            )) {
-              addSource(m[1]);
-            }
-            // execute_graphql root field: {"query":"{ <table>( …
-            const q = title.match(/"query"\s*:\s*"\{\s*([a-z_][a-z0-9_]*)/i);
-            if (q) addSource(q[1]);
-          }
-        } else if (ev.type === "followups" && Array.isArray(ev.items)) {
-          followups = ev.items;
-        } else if (ev.type === "vitals" && Array.isArray(ev.items)) {
-          vitals = ev.items;
-        }
-      }
-    }
-    setRailArtifacts(arts);
-    // Hours saved is the product's signature tile: it ALWAYS holds the last
-    // vital slot. The run's self-estimate is preferred (latest run wins); when
-    // a substantive answer completed but the agent skipped its estimate (the
-    // closing value block occasionally gets dropped on long turns), fall back
-    // to a conservative display floor so the slot is never blank. Content
-    // vitals fill the first three slots before it.
-    let savedMinutes: number | null = null;
-    let hasCompletedRun = false;
-    for (const run of bundle.runs) {
-      if (run.status === "completed") hasCompletedRun = true;
-      if (typeof run.analysisMinutesSaved === "number") {
-        savedMinutes = run.analysisMinutesSaved;
-      }
-    }
-    const contentVitals = vitals.slice(0, 3);
-    const substantive = contentVitals.length > 0 || sourceMap.size > 0;
-    const savedValue =
-      savedMinutes && savedMinutes > 0
-        ? savedMinutes
-        : hasCompletedRun && substantive
-          ? ANALYSIS_FLOOR_MIN
-          : null;
-    const savedVital: RailVital | null = savedValue
-      ? { label: "Hours saved", value: formatSavedShort(savedValue) }
-      : null;
-    setRailContext({
-      vitals: savedVital ? [...contentVitals, savedVital] : contentVitals,
-      sources: [...sourceMap.values()].slice(0, 6),
-      followups,
-    });
-  }, [bundle, setRailArtifacts, setRailContext]);
 
   // Auto-grow the textarea up to its max-height (~9 lines); past that the
   // textarea scrolls internally. CSS alone can't do this — `rows={1}` is
@@ -881,9 +808,10 @@ export default function WorkScreen() {
       await loadThread(threadId);
       return;
     }
-    const { runId, backend } = (await res.json()) as {
+    const { runId, backend, actorRole } = (await res.json()) as {
       runId: string;
       backend: string;
+      actorRole?: RunRecord["actorRole"];
     };
     if (!mountedRef.current) return;
 
@@ -917,6 +845,9 @@ export default function WorkScreen() {
                 error: null,
                 createdAt: new Date().toISOString(),
                 finishedAt: null,
+                analysisMinutesSaved: null,
+                analysisMinutesBasis: null,
+                actorRole: actorRole ?? null,
               },
             ],
           }
@@ -1831,24 +1762,369 @@ type ApprovalItem = {
 type TimelineItem =
   | { kind: "text"; content: string }
   | { kind: "tools"; tools: ToolItem[] }
+  | { kind: "surface"; messages: A2UIMessage[] }
+  | {
+      kind: "capability";
+      denial: Extract<WorkEvent, { type: "capability_denied" }>;
+    }
   | { kind: "approval"; approval: ApprovalItem }
   | { kind: "error"; message: string };
+
+type RunArtifact = Extract<WorkEvent, { type: "artifact" }>["artifact"];
+
+function surfaceComponents(messages: A2UIMessage[]) {
+  const components: Array<Record<string, unknown>> = [];
+  for (const message of messages) {
+    if ("createSurface" in message && Array.isArray(message.createSurface.components)) {
+      components.push(
+        ...(message.createSurface.components as Array<Record<string, unknown>>),
+      );
+    }
+    if ("updateComponents" in message) {
+      components.push(
+        ...(message.updateComponents.components as Array<Record<string, unknown>>),
+      );
+    }
+  }
+  const latest = new Map<string, Record<string, unknown>>();
+  for (const component of components) {
+    if (typeof component.id === "string") latest.set(component.id, component);
+  }
+  return latest;
+}
+
+function surfaceIdOf(messages: A2UIMessage[]): string | null {
+  for (const message of messages) {
+    if ("createSurface" in message) return message.createSurface.surfaceId;
+    if ("updateComponents" in message) return message.updateComponents.surfaceId;
+    if ("updateDataModel" in message) return message.updateDataModel.surfaceId;
+    if ("deleteSurface" in message) return message.deleteSurface.surfaceId;
+  }
+  return null;
+}
+
+function isCanonicalAnswerSurface(messages: A2UIMessage[]): boolean {
+  const components = surfaceComponents(messages);
+  const hasAnswer = [...components.values()].some(
+    (component) => component.component === "Answer",
+  );
+  const carriesAnswer = [...components.values()].some((component) =>
+    ["Markdown", "Table", "KeyFigures", "MetricCard", "Callout"].includes(
+      String(component.component),
+    ),
+  );
+  return hasAnswer && carriesAnswer;
+}
+
+function canonicalSurfaceContainsNarrative(messages: A2UIMessage[]): boolean {
+  return [...surfaceComponents(messages).values()].some((component) =>
+    [
+      "Markdown",
+      "Table",
+      "Callout",
+      "Text",
+      "Confirmation",
+      "Choice",
+      "ChoicePicker",
+    ].includes(String(component.component)),
+  );
+}
+
+function withVitalProvenance(
+  items: AnswerVital[],
+  sources: string[],
+  deniedNetwork: boolean,
+): AnswerVital[] {
+  return items.map((item) => ({
+    ...item,
+    basis:
+      item.basis ??
+      (deniedNetwork && sources.length === 0 ? "estimated" : "calculated"),
+    source: item.source ?? sources[0],
+  }));
+}
+
+/**
+ * Existing answers used a Row of MetricCards. Replay them as the new ruled
+ * KeyFigures component, and add missing per-run vitals to otherwise complete
+ * Answer surfaces. Persisted protocol messages stay immutable.
+ */
+function ownVitalsBySurface(
+  messages: A2UIMessage[],
+  vitals: AnswerVital[],
+  sources: string[],
+  deniedNetwork: boolean,
+): A2UIMessage[] {
+  if (!isCanonicalAnswerSurface(messages)) return messages;
+  const components = surfaceComponents(messages);
+  const figures = withVitalProvenance(vitals, sources, deniedNetwork);
+  const metricCards = [...components.values()].filter(
+    (component) => component.component === "MetricCard",
+  );
+  const fallbackFigures: AnswerVital[] = metricCards.map((card) => ({
+    label: typeof card.label === "string" ? card.label : "Figure",
+    value: typeof card.metric === "string" ? card.metric : "—",
+    sub: typeof card.text === "string" ? card.text : undefined,
+    basis: deniedNetwork ? "estimated" : "calculated",
+    source: sources[0],
+  }));
+  const ownedFigures = figures.length > 0 ? figures : fallbackFigures;
+  if (ownedFigures.length === 0) return messages;
+
+  const existing = [...components.values()].find(
+    (component) => component.component === "KeyFigures",
+  );
+  const metricRow = [...components.values()].find((component) => {
+    if (component.component !== "Row" || !Array.isArray(component.children)) {
+      return false;
+    }
+    return (
+      component.children.length > 0 &&
+      component.children.every(
+        (id) => components.get(String(id))?.component === "MetricCard",
+      )
+    );
+  });
+  const answer = [...components.values()].find(
+    (component) => component.component === "Answer",
+  );
+  const surfaceId = surfaceIdOf(messages);
+  if (!surfaceId || !answer) return messages;
+
+  if (existing || metricRow) {
+    const target = existing ?? metricRow!;
+    return [
+      ...messages,
+      {
+        version: "v1.0",
+        updateComponents: {
+          surfaceId,
+          components: [
+            {
+              id: String(target.id),
+              component: "KeyFigures",
+              items: ownedFigures,
+            },
+          ],
+        },
+      },
+    ];
+  }
+
+  const children = Array.isArray(answer.children)
+    ? answer.children.map(String)
+    : [];
+  return [
+    ...messages,
+    {
+      version: "v1.0",
+      updateComponents: {
+        surfaceId,
+          components: [
+            {
+              ...answer,
+              id: String(answer.id),
+              component: "Answer",
+              children: [...children, "__run_key_figures"],
+            },
+          {
+            id: "__run_key_figures",
+            component: "KeyFigures",
+            items: ownedFigures,
+          },
+        ],
+      },
+    },
+  ];
+}
+
+function fallbackAnswerSurface(
+  runId: string,
+  raw: string,
+  vitals: AnswerVital[],
+  sources: string[],
+  deniedNetwork: boolean,
+): A2UIMessage[] {
+  const text = stripNekoFences(raw).trim();
+  const figures = withVitalProvenance(vitals, sources, deniedNetwork);
+  const children = [
+    ...(text ? ["__fallback_markdown"] : []),
+    ...(figures.length > 0 ? ["__fallback_figures"] : []),
+  ];
+  if (children.length === 0) return [];
+  return [
+    {
+      version: "v1.0",
+      createSurface: {
+        surfaceId: `answer-${runId}`,
+        catalogId: "urn:openneko:catalog:work:v2",
+        components: [
+          {
+            id: "root",
+            component: "Answer",
+            title: "",
+            children,
+          },
+          ...(text
+            ? [
+                {
+                  id: "__fallback_markdown",
+                  component: "Markdown",
+                  text,
+                },
+              ]
+            : []),
+          ...(figures.length > 0
+            ? [
+                {
+                  id: "__fallback_figures",
+                  component: "KeyFigures",
+                  items: figures,
+                },
+              ]
+            : []),
+        ],
+        dataModel: {},
+      },
+    },
+  ];
+}
+
+function policyDenialFromToolEnd(
+  event: Extract<WorkEvent, { type: "tool_end" }>,
+): Extract<WorkEvent, { type: "capability_denied" }> | null {
+  const raw = [
+    event.error ?? "",
+    typeof event.result === "string"
+      ? event.result
+      : JSON.stringify(event.result ?? ""),
+  ].join("\n");
+  if (!/policy_denied|not permitted by policy/i.test(raw)) return null;
+  const match = raw.match(
+    /\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+([a-z0-9.-]+)(?::(\d+))?(\/[^\s"'\\]*)?\s+not permitted by policy/i,
+  );
+  if (!match) return null;
+  return {
+    type: "capability_denied",
+    capability: "network_egress",
+    reason: "policy_denied",
+    host: match[2].toLowerCase(),
+    ...(match[3] ? { port: Number(match[3]) } : {}),
+    method: match[1].toUpperCase(),
+    ...(match[4] ? { path: match[4] } : {}),
+  };
+}
+
+function parseNestedToolResult(value: unknown): Record<string, unknown> | null {
+  let current = value;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (typeof current === "string") {
+      try {
+        current = JSON.parse(current);
+        continue;
+      } catch {
+        return null;
+      }
+    }
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return null;
+    }
+    const record = current as Record<string, unknown>;
+    if (
+      typeof record.result === "string" &&
+      !("action_request_id" in record)
+    ) {
+      current = record.result;
+      continue;
+    }
+    return record;
+  }
+  return null;
+}
+
+/**
+ * Older sandbox brokers persisted the action request but dropped the
+ * action_request_emit event. Recover the approval from the successful MCP
+ * tool result so historical pending requests remain actionable.
+ */
+function approvalFromToolResult(
+  tool: ToolItem | undefined,
+  event: Extract<WorkEvent, { type: "tool_end" }>,
+): ApprovalItem | null {
+  if (!tool) return null;
+  const input =
+    tool.input && typeof tool.input === "object"
+      ? (tool.input as Record<string, unknown>)
+      : {};
+  const title = `${tool.name} ${String(input.title ?? "")}`.toLowerCase();
+  const isInstall = title.includes("plugin_manager_request_plugin_install");
+  const isUninstall = title.includes("plugin_manager_request_plugin_uninstall");
+  if (!isInstall && !isUninstall) return null;
+
+  const result = parseNestedToolResult(event.result);
+  const actionRequestId =
+    typeof result?.action_request_id === "string"
+      ? result.action_request_id
+      : null;
+  if (!actionRequestId || result?.ok !== true) return null;
+  const rawInput =
+    input.rawInput && typeof input.rawInput === "object"
+      ? (input.rawInput as Record<string, unknown>)
+      : {};
+  const intent =
+    typeof rawInput.intent === "string" ? rawInput.intent : null;
+  return {
+    actionRequestId,
+    actionKind: isInstall ? "plugin_install" : "plugin_uninstall",
+    intent,
+    summary: intent,
+    decision:
+      result.decision === "approved"
+        ? "auto_approved"
+        : "pending_approval",
+    result: null,
+  };
+}
+
+function toolSources(event: Extract<WorkEvent, { type: "tool_start" }>): string[] {
+  const raw =
+    typeof (event.input as { title?: unknown })?.title === "string"
+      ? String((event.input as { title: string }).title)
+      : JSON.stringify(event.input ?? "");
+  const found: string[] = [];
+  for (const match of raw.matchAll(
+    /"(?:from_table|to_table|table)"\s*:\s*"([a-z0-9_]+)"/gi,
+  )) {
+    found.push(match[1].toLowerCase());
+  }
+  const rootField = raw.match(/"query"\s*:\s*"\{\s*([a-z_][a-z0-9_]*)/i);
+  if (rootField) found.push(rootField[1].toLowerCase());
+  return found;
+}
 
 // Walks a run's event stream chronologically and produces an interleaved
 // timeline: text segments split at tool boundaries, with each tool placed
 // inline where it ran. Backends emit `message` events as deltas (new text
 // since the previous event), so segments build by appending — no string
 // archaeology needed.
-function buildRunTimeline(events: WorkEvent[]): {
+function buildRunTimeline(events: WorkEvent[], runId: string): {
   items: TimelineItem[];
   lastStatus: string | null;
-  surfaceMessages: A2UIMessage[];
   isDone: boolean;
+  vitals: AnswerVital[];
+  followups: string[];
+  sources: string[];
+  artifacts: RunArtifact[];
 } {
   const items: TimelineItem[] = [];
   const toolsById = new Map<string, ToolItem>();
   const approvalIndexByRequest = new Map<string, number>();
-  const surfaceMessages: A2UIMessage[] = [];
+  let surfaceItem: Extract<TimelineItem, { kind: "surface" }> | null = null;
+  const denialKeys = new Set<string>();
+  const sources = new Set<string>();
+  const artifacts: RunArtifact[] = [];
+  let vitals: AnswerVital[] = [];
+  let followups: string[] = [];
   let pendingText = "";
   let lastStatus: string | null = null;
   let isDone = false;
@@ -1884,6 +2160,7 @@ function buildRunTimeline(events: WorkEvent[]): {
           deltas: [],
         };
         toolsById.set(event.id, item);
+        for (const source of toolSources(event)) sources.add(source);
         // Cluster consecutive tool calls (no text/error between them) into a
         // single collapsible group — keeps long tool runs from dominating the
         // transcript while preserving the start of a new group when the model
@@ -1904,6 +2181,27 @@ function buildRunTimeline(events: WorkEvent[]): {
       case "tool_end": {
         const item = toolsById.get(event.id);
         if (item) item.end = event;
+        const recoveredApproval = approvalFromToolResult(item, event);
+        if (
+          recoveredApproval &&
+          !approvalIndexByRequest.has(recoveredApproval.actionRequestId)
+        ) {
+          flushTextSegment();
+          approvalIndexByRequest.set(
+            recoveredApproval.actionRequestId,
+            items.length,
+          );
+          items.push({ kind: "approval", approval: recoveredApproval });
+        }
+        const denial = policyDenialFromToolEnd(event);
+        if (denial) {
+          const key = `${denial.host}:${denial.port ?? 443}`;
+          if (!denialKeys.has(key)) {
+            denialKeys.add(key);
+            flushTextSegment();
+            items.push({ kind: "capability", denial });
+          }
+        }
         break;
       }
       case "status": {
@@ -1916,7 +2214,33 @@ function buildRunTimeline(events: WorkEvent[]): {
         break;
       }
       case "surface": {
-        for (const msg of event.messages) surfaceMessages.push(msg);
+        flushTextSegment();
+        if (!surfaceItem) {
+          surfaceItem = { kind: "surface", messages: [] };
+          items.push(surfaceItem);
+        }
+        surfaceItem.messages.push(...event.messages);
+        break;
+      }
+      case "capability_denied": {
+        const key = `${event.host}:${event.port ?? 443}`;
+        if (!denialKeys.has(key)) {
+          denialKeys.add(key);
+          flushTextSegment();
+          items.push({ kind: "capability", denial: event });
+        }
+        break;
+      }
+      case "artifact": {
+        artifacts.push(event.artifact);
+        break;
+      }
+      case "vitals": {
+        vitals = event.items;
+        break;
+      }
+      case "followups": {
+        followups = event.items;
         break;
       }
       case "action_request_emit": {
@@ -1929,6 +2253,20 @@ function buildRunTimeline(events: WorkEvent[]): {
           decision: event.decision,
           result: null,
         };
+        const existingIndex = approvalIndexByRequest.get(
+          event.action_request_id,
+        );
+        if (existingIndex != null) {
+          const existing = items[existingIndex];
+          if (existing?.kind === "approval") {
+            existing.approval = {
+              ...existing.approval,
+              ...approval,
+              result: existing.approval.result,
+            };
+          }
+          break;
+        }
         approvalIndexByRequest.set(event.action_request_id, items.length);
         items.push({ kind: "approval", approval });
         break;
@@ -1950,6 +2288,52 @@ function buildRunTimeline(events: WorkEvent[]): {
     }
   }
   flushTextSegment();
+  const sourceList = [...sources];
+  const deniedNetwork = denialKeys.size > 0;
+  if (surfaceItem) {
+    surfaceItem.messages = ownVitalsBySurface(
+      surfaceItem.messages,
+      vitals,
+      sourceList,
+      deniedNetwork,
+    );
+    if (
+      isCanonicalAnswerSurface(surfaceItem.messages) &&
+      canonicalSurfaceContainsNarrative(surfaceItem.messages)
+    ) {
+      // The surface is the complete answer. Tool rows retain the work trace;
+      // model prose anywhere around the surface is duplicate delivery.
+      for (let index = items.length - 1; index >= 0; index -= 1) {
+        if (items[index]?.kind === "text") items.splice(index, 1);
+      }
+    }
+  } else if (isDone) {
+    let finalTextStart = items.length;
+    while (finalTextStart > 0 && items[finalTextStart - 1]?.kind === "text") {
+      finalTextStart -= 1;
+    }
+    const finalText = items
+      .slice(finalTextStart)
+      .filter(
+        (item): item is Extract<TimelineItem, { kind: "text" }> =>
+          item.kind === "text",
+      )
+      .map((item) => item.content)
+      .join("");
+    const fallback = fallbackAnswerSurface(
+      runId,
+      finalText,
+      vitals,
+      sourceList,
+      deniedNetwork,
+    );
+    if (fallback.length > 0) {
+      items.splice(finalTextStart, items.length - finalTextStart, {
+        kind: "surface",
+        messages: fallback,
+      });
+    }
+  }
   // Synthesize an end for any tool that never got a tool_end before the run
   // terminated. Without this, ACP runs that miss the final tool_call_update
   // notification (Hermes occasionally drops it for read tools) leave the
@@ -1965,7 +2349,15 @@ function buildRunTimeline(events: WorkEvent[]): {
       }
     }
   }
-  return { items, lastStatus, surfaceMessages, isDone };
+  return {
+    items,
+    lastStatus,
+    isDone,
+    vitals,
+    followups,
+    sources: sourceList,
+    artifacts,
+  };
 }
 
 function FenceAwareBubble({
@@ -2022,20 +2414,39 @@ function RunTimeline({
   pending: boolean;
   fallbackContent: string;
 }) {
-  const { items, lastStatus, surfaceMessages } = useMemo(
-    () => buildRunTimeline(events),
-    [events],
+  const { insertComposerRef } = useWorkShell();
+  const presentation = useMemo(
+    () => buildRunTimeline(events, run?.id ?? "pending"),
+    [events, run?.id],
   );
-
-  const hasContent = items.length > 0 || surfaceMessages.length > 0;
+  const hasSurface = presentation.items.some((item) => item.kind === "surface");
+  const persistedSurface = useMemo(
+    () =>
+      !pending && !hasSurface && fallbackContent.trim()
+        ? fallbackAnswerSurface(
+            run?.id ?? "persisted",
+            fallbackContent,
+            presentation.vitals,
+            presentation.sources,
+            presentation.items.some((item) => item.kind === "capability"),
+          )
+        : [],
+    [
+      fallbackContent,
+      hasSurface,
+      pending,
+      presentation.items,
+      presentation.sources,
+      presentation.vitals,
+      run?.id,
+    ],
+  );
+  const hasContent =
+    presentation.items.length > 0 || persistedSurface.length > 0;
 
   return (
     <div className="work-timeline flex flex-col gap-2.5 mt-1">
-      {!hasContent && !pending && fallbackContent.trim() ? (
-        <FenceAwareBubble keyPrefix="fallback" raw={fallbackContent} />
-      ) : null}
-
-      {items.map((item, index) => {
+      {presentation.items.map((item, index) => {
         if (item.kind === "text") {
           return (
             <FenceAwareBubble
@@ -2049,6 +2460,19 @@ function RunTimeline({
           return (
             <ToolGroup key={`tools-${index}`} tools={item.tools} />
 
+          );
+        }
+        if (item.kind === "surface") {
+          return <SurfaceBlock key={`surface-${index}`} messages={item.messages} />;
+        }
+        if (item.kind === "capability") {
+          return (
+            <CapabilityDeniedNotice
+              key={`capability-${item.denial.host}-${index}`}
+              denial={item.denial}
+              canAdminister={run?.actorRole === "admin"}
+              onRequest={(prompt) => insertComposerRef.current?.(prompt)}
+            />
           );
         }
         if (item.kind === "approval") {
@@ -2068,18 +2492,161 @@ function RunTimeline({
         );
       })}
 
-      {surfaceMessages.length > 0 ? (
-        <SurfaceBlock messages={surfaceMessages} />
+      {persistedSurface.length > 0 ? (
+        <SurfaceBlock messages={persistedSurface} />
       ) : null}
 
       {pending ? (
         <div className="work-status-row">
           <Loader2 className="work-status-spin" size={12} />
-          <span>{lastStatus ?? "Running…"}</span>
+          <span>{presentation.lastStatus ?? "Running…"}</span>
         </div>
       ) : null}
       {!pending && run?.error ? <div className="border border-warn/40 bg-warn-soft text-warn-ink rounded-2xl px-3 py-2.5 text-[13px]">{run.error}</div> : null}
+      {!pending && hasContent ? (
+        <AnswerRunFooter
+          run={run}
+          sources={presentation.sources}
+          artifacts={presentation.artifacts}
+          followups={presentation.followups}
+          onFollowup={(prompt) => insertComposerRef.current?.(prompt)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function CapabilityDeniedNotice({
+  denial,
+  canAdminister,
+  onRequest,
+}: {
+  denial: Extract<WorkEvent, { type: "capability_denied" }>;
+  canAdminister: boolean;
+  onRequest: (prompt: string) => void;
+}) {
+  const endpoint = `${denial.host}${denial.port ? `:${denial.port}` : ""}`;
+  const requestPrompt = [
+    `Find an appropriate approved integration that can securely access ${endpoint}`,
+    "for the request I just made.",
+    "Show me the exact integration and file an approval-gated install request.",
+    "Do not enable blanket network access.",
+  ].join(" ");
+  return (
+    <section className="work-capability-denied" role="status">
+      <div className="work-capability-kicker">Network access blocked</div>
+      <div className="work-capability-grid">
+        <div>
+          <h3>{endpoint} is outside this workspace</h3>
+          <p>
+            OpenNeko did not receive live data. The sandbox stayed
+            default-deny, so this answer must not present fallback estimates as
+            current facts.
+          </p>
+          <code>
+            {denial.method ?? "REQUEST"} {denial.path ?? "/"}
+          </code>
+        </div>
+        <div className="work-capability-recovery">
+          <span>Safe recovery</span>
+          {canAdminister ? (
+            <>
+              <p>
+                Ask OpenNeko to find the right integration. Installation will
+                still require your explicit approval.
+              </p>
+              <button type="button" onClick={() => onRequest(requestPrompt)}>
+                Request secure integration
+              </button>
+            </>
+          ) : (
+            <p>
+              Contact an OpenNeko administrator to install an integration
+              approved for this host.
+            </p>
+          )}
+          <Link href={canAdminister ? "/admin/plugins" : "/integrations"}>
+            {canAdminister ? "Review plugins" : "View integrations"} →
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function artifactHref(path: string): string {
+  return `/api/work/files/${path.replace(
+    /^.*\/(runs|uploads|skills|memory)\//,
+    "$1/",
+  )}`;
+}
+
+function AnswerRunFooter({
+  run,
+  sources,
+  artifacts,
+  followups,
+  onFollowup,
+}: {
+  run: RunRecord | null;
+  sources: string[];
+  artifacts: RunArtifact[];
+  followups: string[];
+  onFollowup: (prompt: string) => void;
+}) {
+  const saved =
+    typeof run?.analysisMinutesSaved === "number" &&
+    run.analysisMinutesSaved > 0
+      ? formatSavedShort(run.analysisMinutesSaved)
+      : null;
+  const hasEvidence = sources.length > 0 || artifacts.length > 0 || saved;
+  if (!hasEvidence && followups.length === 0) return null;
+  return (
+    <footer className="work-answer-footer">
+      {hasEvidence ? (
+        <div className="work-answer-evidence">
+          {sources.length > 0 ? (
+            <div>
+              <span>Evidence</span>
+              <strong>{sources.join(" · ")}</strong>
+            </div>
+          ) : null}
+          {artifacts.map((artifact) => (
+            <a
+              key={artifact.path}
+              href={artifactHref(artifact.path)}
+              title={artifact.path}
+            >
+              <span>Artifact</span>
+              <strong>{artifact.label}</strong>
+            </a>
+          ))}
+          {saved ? (
+            <div title={run?.analysisMinutesBasis ?? undefined}>
+              <span>Analysis avoided</span>
+              <strong>{saved}</strong>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {followups.length > 0 ? (
+        <div className="work-answer-followups">
+          <span>Continue</span>
+          <div>
+            {followups.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => onFollowup(prompt)}
+              >
+                {prompt}
+                <span aria-hidden="true">↗</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </footer>
   );
 }
 

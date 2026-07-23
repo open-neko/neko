@@ -27,7 +27,9 @@ export {
 export {
   createAgentBroker,
   ensureAgentBroker,
+  registerAgentBrokerEventSink,
   startAgentBroker,
+  type AgentBrokerEventSink,
   type AgentBrokerDeps,
   type AgentBrokerHandle,
   type RunBinding,

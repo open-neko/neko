@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentWorkspace } from "../src/agent-backend";
 import type { KnowledgePackContents } from "../src/knowledge-pack";
+import type { PluginCatalog } from "../src/work/control-plane";
 import { buildWorkPrompt } from "../src/work/prompt";
 
 const workspace: AgentWorkspace = {
@@ -35,6 +36,8 @@ function build(
     supportsWorkflowTool?: boolean;
     supportsPolicyTool?: boolean;
     supportsSourceConfigTool?: boolean;
+    supportsPluginManagerTool?: boolean;
+    pluginCatalog?: PluginCatalog;
     installedSkills?: Array<{ name: string; description: string }>;
   } = {},
 ): string {
@@ -51,6 +54,8 @@ function build(
     supportsWorkflowTool: overrides.supportsWorkflowTool ?? false,
     supportsPolicyTool: overrides.supportsPolicyTool ?? false,
     supportsSourceConfigTool: overrides.supportsSourceConfigTool ?? false,
+    supportsPluginManagerTool: overrides.supportsPluginManagerTool ?? false,
+    pluginCatalog: overrides.pluginCatalog,
     installedSkills: overrides.installedSkills,
     inlineTranscript: false,
   });
@@ -189,6 +194,45 @@ describe("buildWorkPrompt workflow + policy management", () => {
   it("frames /work as the single chat surface for everything", () => {
     const prompt = build("claude-agent");
     expect(prompt).toMatch(/only chat surface/i);
+  });
+});
+
+describe("buildWorkPrompt capability recovery", () => {
+  it("uses the plugin manager approval tool when MCP tools are available", () => {
+    const prompt = build("claude-agent", {
+      supportsPluginManagerTool: true,
+    });
+
+    expect(prompt).toContain("mcp__neko_plugin_manager__list_plugins");
+    expect(prompt).toContain(
+      "mcp__neko_plugin_manager__request_plugin_install",
+    );
+    expect(prompt).toMatch(/approval request.*inline/i);
+    expect(prompt).toMatch(/same answer/i);
+    expect(prompt).toMatch(/operator's yes\/no question/i);
+  });
+
+  it("gives Hermes exact marketplace names and an approval-gated action fence", () => {
+    const prompt = build("hermes", {
+      pluginCatalog: {
+        installed: [],
+        available: [
+          {
+            name: "@openneko/weather",
+            title: "Weather",
+            description: "Live weather data.",
+            version: "1.0.0",
+          },
+        ],
+      },
+    });
+
+    expect(prompt).toContain("@openneko/weather");
+    expect(prompt).toContain('"kind": "plugin_install"');
+    expect(prompt).toContain('"risk_level": "high"');
+    expect(prompt).toMatch(/does not install silently/i);
+    expect(prompt).toMatch(/same answer/i);
+    expect(prompt).toMatch(/operator's yes\/no question/i);
   });
 });
 

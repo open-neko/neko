@@ -70,9 +70,13 @@ export interface SandboxLauncherOptions {
   graphjinBinaryInBox?: string;
   /** Broker coords for the claude MCP-tool path (omitted for hermes). */
   brokerUrl?: string;
-  /** Mint a per-run bearer token bound to {runId, orgId} (the broker forces
+  /** Mint a per-run bearer token bound to {runId, orgId, threadId} (the broker forces
    *  org/run from the binding, never the request body). */
-  brokerTokenFor?: (binding: { runId: string; orgId: string }) => string;
+  brokerTokenFor?: (binding: {
+    runId: string;
+    orgId: string;
+    threadId?: string;
+  }) => string;
   /** Release the run's token after it finishes (called in the run's finally). */
   brokerRelease?: (runId: string) => void;
   execTimeoutMs?: number;
@@ -650,6 +654,7 @@ function makeSandboxCore(
                   OPENNEKO_BROKER_TOKEN: opts.brokerTokenFor({
                     runId: input.runId,
                     orgId: input.orgId,
+                    threadId,
                   }),
                 }
               : {}),
@@ -823,14 +828,17 @@ export function buildScopedEgressArgs(
  * tests inject their own in-process runCore via deps. Env-wired for now;
  * per-org auto-sync (provider/egress/key-var from the org row) is a follow-up.
  *
- * `broker` (optional) wires the claude MCP-tool path: the caller starts a host
- * broker (startAgentBroker) bound to its control plane and passes the handle so
- * the sandbox can reach the control plane mid-turn. Omit for the hermes-only
- * path (hermes emits fences parsed host-side; it needs no broker).
+ * `broker` wires the sandbox MCP-tool path: the caller starts a host broker
+ * bound to its control plane and passes the handle so every backend can reach
+ * policy-gated host capabilities and return their UI events mid-turn.
  */
 export function agentRuntimeDepsFromEnv(broker?: {
   url: string;
-  tokenFor: (binding: { runId: string; orgId: string }) => string;
+  tokenFor: (binding: {
+    runId: string;
+    orgId: string;
+    threadId?: string;
+  }) => string;
   release?: (runId: string) => void;
 }): Pick<Partial<RunChatTurnDeps>, "runCore"> {
   return {
@@ -840,7 +848,11 @@ export function agentRuntimeDepsFromEnv(broker?: {
 
 export function workflowRuntimeDepsFromEnv(broker?: {
   url: string;
-  tokenFor: (binding: { runId: string; orgId: string }) => string;
+  tokenFor: (binding: {
+    runId: string;
+    orgId: string;
+    threadId?: string;
+  }) => string;
   release?: (runId: string) => void;
 }): Pick<Partial<RunWorkflowTurnDeps>, "runCore"> {
   return {
@@ -850,7 +862,11 @@ export function workflowRuntimeDepsFromEnv(broker?: {
 
 function sandboxLauncherOptionsFromEnv(broker?: {
   url: string;
-  tokenFor: (binding: { runId: string; orgId: string }) => string;
+  tokenFor: (binding: {
+    runId: string;
+    orgId: string;
+    threadId?: string;
+  }) => string;
   release?: (runId: string) => void;
 }): SandboxLauncherOptions {
   // Comma-separated: the model endpoint AND any resolution hosts (hermes needs
