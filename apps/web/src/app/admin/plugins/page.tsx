@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { connection } from "next/server";
 import { getCurrentActor } from "@/lib/actor";
 import { getPluginActionDescriptors, getPluginStatus } from "@/lib/auth";
@@ -20,105 +21,130 @@ export default async function AdminPluginsPage() {
       back={{ href: "/admin", label: "Admin" }}
       wide
     >
-      <div className="grid gap-3 md:grid-cols-4">
-        <Stat label="Loaded" value={status.loaded.length} />
-        <Stat
-          label="Flagged"
-          value={status.flagged.length}
-          warn={status.flagged.length > 0}
-        />
-        <Stat label="Action kinds" value={status.kinds.length} />
-        <Stat label="VMs" value={status.vmsRunning} />
-      </div>
-
-      <div className="grid gap-4 mt-6 lg:grid-cols-2">
-        <section className="settings-card">
-          <div className="settings-card-head">
-            <div>
-              <h2 className="settings-card-title">Registry</h2>
-              <p className="settings-card-copy">
-                Loaded, skipped, and flagged plugin packages.
-              </p>
-            </div>
-            <div className="settings-source">
-              <strong className={status.flagged.length > 0 ? "is-warn" : "is-ok"}>
-                {status.flagged.length > 0 ? "Needs review" : "Clean"}
-              </strong>
-            </div>
-          </div>
-          <ListBlock label="Loaded" values={status.loaded} />
-          <ListBlock
-            label="Skipped"
-            values={status.skipped.map((item) => `${item.name}: ${item.reason}`)}
+      <section
+        aria-label="Plugin status"
+        className="overflow-hidden rounded-[var(--radius)] border border-border bg-border shadow-soft"
+      >
+        <div className="grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-4">
+          <Stat label="Loaded" value={status.loaded.length} />
+          <Stat
+            label="Flagged"
+            value={status.flagged.length}
+            warn={status.flagged.length > 0}
           />
-          <ListBlock
+          <Stat label="Action kinds" value={status.kinds.length} />
+          <Stat label="VMs" value={status.vmsRunning} />
+        </div>
+      </section>
+
+      <section className="settings-card !mt-5">
+        <div className="settings-card-head">
+          <div className="min-w-0">
+            <h2 className="settings-card-title">Registry</h2>
+            <p className="settings-card-copy">
+              The package inventory OpenNeko accepted, skipped, or marked for
+              review.
+            </p>
+          </div>
+          <div className="settings-source shrink-0">
+            <strong className={status.flagged.length > 0 ? "is-warn" : "is-ok"}>
+              {status.flagged.length > 0 ? "Needs review" : "Clean"}
+            </strong>
+          </div>
+        </div>
+
+        <div className="grid border-t border-border md:grid-cols-3">
+          <RegistryColumn label="Loaded" values={status.loaded} />
+          <RegistryColumn
+            label="Skipped"
+            values={status.skipped.map(
+              (item) => `${item.name}: ${item.reason}`,
+            )}
+          />
+          <RegistryColumn
             label="Flagged"
             values={status.flagged.map(
               (item) => `${item.pluginName}: ${item.reason}`,
             )}
             warn
           />
-        </section>
+        </div>
+      </section>
 
-        <section className="settings-card">
-          <div className="settings-card-head">
-            <div>
-              <h2 className="settings-card-title">Providers</h2>
-              <p className="settings-card-copy">
-                Auth and channel capabilities declared by installed plugins.
-              </p>
-            </div>
+      <section className="settings-card">
+        <div className="settings-card-head">
+          <div className="min-w-0">
+            <h2 className="settings-card-title">Capability surface</h2>
+            <p className="settings-card-copy">
+              Provider entry points and action kinds exposed by installed
+              plugins.
+            </p>
           </div>
-          <ListBlock
+        </div>
+
+        <div className="grid border-y border-border sm:grid-cols-2">
+          <Capability
             label="Auth provider"
             values={status.authProvider ? [status.authProvider] : []}
           />
-          <ListBlock
+          <Capability
             label="Channels"
             values={status.channels.map(
               (channel) => `${channel.providerLabel} (${channel.pluginId})`,
             )}
           />
-        </section>
-      </div>
+        </div>
 
-      <section className="settings-card">
-        <div className="settings-card-head">
+        <div className="mt-7 flex items-end justify-between gap-4">
           <div>
-            <h2 className="settings-card-title">Action descriptors</h2>
-            <p className="settings-card-copy">
-              Registered plugin action kinds and their default approval modes.
+            <h3 className="font-display text-base font-bold text-text">
+              Action descriptors
+            </h3>
+            <p className="mt-1 text-sm leading-6 text-text2">
+              Registered action kinds and their default approval modes.
             </p>
           </div>
+          <div className="shrink-0 font-mono text-xs tabular-nums text-text3">
+            {descriptors.length.toString().padStart(2, "0")} registered
+          </div>
         </div>
+
         {descriptors.length === 0 ? (
-          <p className="text-sm text-text2">No plugin actions registered.</p>
+          <div className="mt-4 border-y border-border py-5 text-sm text-text3">
+            No plugin actions registered.
+          </div>
         ) : (
-        <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead className="text-[10px] uppercase tracking-[0.12em] text-text3">
-                <tr>
-                  <th className="border-b border-border px-3 py-2 font-bold">Kind</th>
-                  <th className="border-b border-border px-3 py-2 font-bold">Mode</th>
-                  <th className="border-b border-border px-3 py-2 font-bold">Description</th>
-                </tr>
-              </thead>
-              <tbody>
-                {descriptors.map((descriptor) => (
-                  <tr key={descriptor.kind} className="border-b border-border last:border-0">
-                    <td className="px-3 py-3 font-mono text-xs text-text">
-                      {descriptor.kind}
-                    </td>
-                    <td className="px-3 py-3 text-xs text-text2">
-                      {formatMode(descriptor.default_mode)}
-                    </td>
-                    <td className="px-3 py-3 text-text2">
-                      {descriptor.description}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="mt-4 border-t border-border">
+            <div
+              className="hidden grid-cols-[minmax(0,0.9fr)_120px_minmax(0,1.5fr)] gap-5 border-b border-border py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-text3 md:grid"
+              aria-hidden="true"
+            >
+              <div>Kind</div>
+              <div>Mode</div>
+              <div>Description</div>
+            </div>
+            {descriptors.map((descriptor) => (
+              <div
+                key={descriptor.kind}
+                className="grid gap-3 border-b border-border py-4 last:border-b-0 md:grid-cols-[minmax(0,0.9fr)_120px_minmax(0,1.5fr)] md:gap-5"
+              >
+                <DescriptorField label="Kind">
+                  <span className="font-mono text-xs font-semibold text-text">
+                    {descriptor.kind}
+                  </span>
+                </DescriptorField>
+                <DescriptorField label="Mode">
+                  <span className="text-xs font-semibold text-text2">
+                    {formatMode(descriptor.default_mode)}
+                  </span>
+                </DescriptorField>
+                <DescriptorField label="Description">
+                  <span className="text-sm leading-6 text-text2">
+                    {descriptor.description}
+                  </span>
+                </DescriptorField>
+              </div>
+            ))}
           </div>
         )}
       </section>
@@ -126,24 +152,32 @@ export default async function AdminPluginsPage() {
   );
 }
 
-function Stat({ label, value, warn = false }: { label: string; value: number; warn?: boolean }) {
+function Stat({
+  label,
+  value,
+  warn = false,
+}: {
+  label: string;
+  value: number;
+  warn?: boolean;
+}) {
   return (
-    <div className="rounded-[14px] border border-border bg-card px-4 py-3 shadow-soft">
+    <div className="flex min-h-[92px] items-end justify-between gap-4 bg-card px-5 py-4">
       <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-text3">
         {label}
       </div>
       <div
-        className={`mt-2 font-display text-2xl font-bold ${
+        className={`font-display text-3xl font-bold leading-none tabular-nums ${
           warn ? "text-danger" : "text-text"
         }`}
       >
-        {value}
+        {value.toString().padStart(2, "0")}
       </div>
     </div>
   );
 }
 
-function ListBlock({
+function RegistryColumn({
   label,
   values,
   warn = false,
@@ -153,21 +187,30 @@ function ListBlock({
   warn?: boolean;
 }) {
   return (
-    <div className="mb-4 last:mb-0">
-      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-text3">
-        {label}
+    <div className="border-b border-border py-5 last:border-b-0 md:border-b-0 md:border-l md:px-5 md:first:border-l-0 md:first:pl-0 md:last:pr-0">
+      <div className="flex items-center justify-between gap-3">
+        <h3
+          className={`text-[10px] font-bold uppercase tracking-[0.12em] ${
+            warn && values.length > 0 ? "text-danger" : "text-text3"
+          }`}
+        >
+          {label}
+        </h3>
+        <span className="font-mono text-xs tabular-nums text-text3">
+          {values.length.toString().padStart(2, "0")}
+        </span>
       </div>
       {values.length === 0 ? (
-        <div className="border-l border-border pl-3 py-1 text-sm text-text3">
+        <div className="mt-4 text-sm text-text3">
           None
         </div>
       ) : (
-        <ul className="m-0 list-none space-y-1 p-0">
+        <ul className="m-0 mt-3 list-none border-t border-border p-0">
           {values.map((value) => (
             <li
               key={value}
-              className={`border-l pl-3 text-sm leading-6 ${
-                warn ? "border-danger text-danger" : "border-border text-text2"
+              className={`border-b border-border py-3 font-mono text-xs leading-5 last:border-b-0 ${
+                warn ? "text-danger" : "text-text2"
               }`}
             >
               {value}
@@ -175,6 +218,42 @@ function ListBlock({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function Capability({
+  label,
+  values,
+}: {
+  label: string;
+  values: string[];
+}) {
+  return (
+    <div className="border-b border-border py-4 last:border-b-0 sm:border-b-0 sm:border-l sm:px-5 sm:first:border-l-0 sm:first:pl-0 sm:last:pr-0">
+      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-text3">
+        {label}
+      </div>
+      <div className="mt-2 text-sm font-semibold leading-6 text-text">
+        {values.length > 0 ? values.join(", ") : "Not installed"}
+      </div>
+    </div>
+  );
+}
+
+function DescriptorField({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 text-[9px] font-bold uppercase tracking-[0.12em] text-text3 md:hidden">
+        {label}
+      </div>
+      {children}
     </div>
   );
 }
