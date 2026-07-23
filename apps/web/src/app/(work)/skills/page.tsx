@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, FileText, Trash2 } from "lucide-react";
 import { confirmDialog } from "@/components/ConfirmModal";
+import PageHeading from "@/components/PageHeading";
 
 type SkillSummary = {
   name: string;
@@ -92,22 +93,22 @@ export default function SkillsPage() {
 
   return (
     <div className="library-page skills-library">
-      <header className="library-head">
-        <div className="library-head-title">
-          <span>Knowledge / agent capabilities</span>
-          <h1>Skills</h1>
-        </div>
-        <div className="library-head-stats" aria-label="Skill inventory">
-          <div>
-            <strong>{String(skills.length).padStart(2, "0")}</strong>
-            <span>installed</span>
+      <PageHeading
+        eyebrow="Knowledge"
+        title="Skills"
+        actions={
+          <div className="library-head-stats" aria-label="Skill inventory">
+            <div>
+              <strong>{String(skills.length).padStart(2, "0")}</strong>
+              <span>installed</span>
+            </div>
+            <div>
+              <strong>{String(totalFiles).padStart(2, "0")}</strong>
+              <span>files</span>
+            </div>
           </div>
-          <div>
-            <strong>{String(totalFiles).padStart(2, "0")}</strong>
-            <span>files</span>
-          </div>
-        </div>
-      </header>
+        }
+      />
 
       <main className="library-main">
         {error ? (

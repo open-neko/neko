@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import CreatorCredit from "@/components/CreatorCredit";
+import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 
 type PolicyDetail = {
@@ -66,21 +67,18 @@ export default function PolicyDetailClient({ policyId }: { policyId: string }) {
         className="root"
         style={{ "--page-width": "min(900px, 100%)" } as React.CSSProperties}
       >
-        <AppHeader>
+        <AppHeader back={{ href: "/admin/rules", label: "Rules" }}>
           <SectionNav current="admin" />
         </AppHeader>
 
-        <div className="mt-1 mb-3.5 font-mono text-[12.5px] text-text3 flex items-center gap-2">
-          <button
-            type="button"
-            className="bg-transparent border-0 text-text3 cursor-pointer font-[inherit] p-0 hover:text-accent"
-            onClick={() => router.push("/admin/rules")}
-          >
-            ← Rules
-          </button>
-          <span className="opacity-50">/</span>
-          <span>{policy?.name ?? "…"}</span>
-        </div>
+        <PageHeading
+          eyebrow="Approval rule"
+          title={policy?.name ?? "Loading rule"}
+          description={policy?.description}
+          meta={
+            policy ? (policy.enabled ? "enabled" : "disabled") : undefined
+          }
+        />
 
         {error ? (
           <div className="text-danger text-sm">Couldn&apos;t load rule: {error}</div>
@@ -88,27 +86,6 @@ export default function PolicyDetailClient({ policyId }: { policyId: string }) {
           <div className="text-text3 text-sm">Loading rule…</div>
         ) : (
           <article className="bg-card border border-border rounded-2xl p-6">
-            <header className="flex items-baseline justify-between gap-4 mb-4 pb-4 border-b border-border">
-              <h1 className="font-display text-2xl font-extrabold tracking-[-0.02em] text-text">
-                {policy.name}
-              </h1>
-              <span
-                className={`text-[10px] font-bold tracking-[0.12em] uppercase px-2.5 py-[3px] rounded-full ${
-                  policy.enabled
-                    ? "bg-success-soft text-success-mid"
-                    : "bg-neutral text-text3"
-                }`}
-              >
-                {policy.enabled ? "enabled" : "disabled"}
-              </span>
-            </header>
-
-            {policy.description && (
-              <Field label="Description">
-                <p className="leading-[1.55]">{policy.description}</p>
-              </Field>
-            )}
-
             <Field label="Mode">
               <code className="font-mono text-[13px] text-text2">{policy.mode}</code>
             </Field>

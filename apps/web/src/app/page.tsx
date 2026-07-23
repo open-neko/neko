@@ -17,6 +17,7 @@ import ActCard, {
 import AppHeader from "@/components/AppHeader";
 import CreatorCredit from "@/components/CreatorCredit";
 import SectionNav from "@/components/SectionNav";
+import PageHeading from "@/components/PageHeading";
 import HoursSavedHero, {
   type HoursSavedItem,
   type HoursSavedValue,
@@ -561,40 +562,35 @@ export default function Dashboard() {
                 Example metrics · set up your own →
               </Link>
             )}
-            <div
-              className="dash-operator-head"
-              style={{ animation: "fadeUp 0.45s ease both" }}
-            >
-              <div className="dash-operator-copy">
-                <div className="dash-operator-state">
-                  {personalMode ? "Personal workspace" : "Workspace brief"}
-                </div>
-                <h1>Briefing</h1>
-                <p>
-                  {awaiting && awaiting.count > 0
-                    ? `${awaiting.count} decision${awaiting.count === 1 ? "" : "s"} need your judgment.`
-                    : "No decisions are waiting."}
-                </p>
-              </div>
-              {!personalMode && roles.length > 0 ? (
-                <div className="dash-role-control" aria-label="Briefing role">
-                  <span>Briefing view</span>
-                  <div className="dash-role-list">
-                    {roles.map((kind) => (
-                      <button
-                        key={kind}
-                        type="button"
-                        className={cn(role === kind && "is-active")}
-                        aria-pressed={role === kind}
-                        onClick={() => setRole(kind)}
-                      >
-                        {kind}
-                      </button>
-                    ))}
+            <PageHeading
+              eyebrow={personalMode ? "Personal workspace" : "Workspace brief"}
+              title="Briefing"
+              description={
+                awaiting && awaiting.count > 0
+                  ? `${awaiting.count} decision${awaiting.count === 1 ? "" : "s"} need your judgment.`
+                  : "No decisions are waiting."
+              }
+              actions={
+                !personalMode && roles.length > 0 ? (
+                  <div className="dash-role-control" aria-label="Briefing role">
+                    <span>Briefing view</span>
+                    <div className="dash-role-list">
+                      {roles.map((kind) => (
+                        <button
+                          key={kind}
+                          type="button"
+                          className={cn(role === kind && "is-active")}
+                          aria-pressed={role === kind}
+                          onClick={() => setRole(kind)}
+                        >
+                          {kind}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ) : null}
-            </div>
+                ) : null
+              }
+            />
 
             <AgentLauncher />
 

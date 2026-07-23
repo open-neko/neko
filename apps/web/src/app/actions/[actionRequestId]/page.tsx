@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import CreatorCredit from "@/components/CreatorCredit";
+import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import { cn } from "@/lib/cn";
 
@@ -17,20 +18,6 @@ function actionStatusClasses(status: string): string {
     case "executed":
     case "succeeded":
       return "bg-success-soft text-success-mid";
-    default:
-      return "bg-accent-soft text-accent";
-  }
-}
-
-function actionRiskBoxClasses(risk: string): string {
-  switch (risk) {
-    case "low":
-      return "bg-success-soft text-success-mid";
-    case "medium":
-      return "bg-watch-soft text-warn-ink";
-    case "high":
-    case "critical":
-      return "bg-danger-soft text-danger";
     default:
       return "bg-accent-soft text-accent";
   }
@@ -240,62 +227,38 @@ export default function ActionPage() {
   return (
     <>
       <div className="root run-root">
-        <AppHeader>
+        <AppHeader
+          back={{
+            href: backToActionsHref(ar.status),
+            label: backToActionsLabel(ar.status),
+          }}
+        >
           <SectionNav current="actions" />
         </AppHeader>
 
-        <div className="mt-1 mb-3.5 font-mono text-[12.5px] text-text3">
-          <button
-            type="button"
-            className="bg-transparent border-0 text-text3 cursor-pointer font-inherit p-0 hover:text-accent"
-            onClick={() => router.push(backToActionsHref(ar.status))}
-          >
-            ← {backToActionsLabel(ar.status)}
-          </button>
-        </div>
-
-        <div className="mb-[18px]">
-          <div className="flex items-start justify-between gap-4 mb-1.5">
-            <h1 className="font-display text-[26px] font-extrabold tracking-[-0.02em] text-text">{ar.summary || ar.kind}</h1>
+        <PageHeading
+          eyebrow="Action request"
+          title={ar.summary || ar.kind}
+          meta={statusLabel(ar.status)}
+          description={[
+            ar.kind,
+            ar.target,
+            ar.riskLevel ? `risk ${ar.riskLevel}` : null,
+            formatRelative(ar.createdAt),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          actions={
             <button
               type="button"
-              className="shrink-0 mt-1 px-3.5 py-[7px] rounded-full border-[1.5px] border-border bg-white/60 font-body text-[12.5px] font-semibold text-text2 cursor-pointer transition hover:border-accent hover:text-accent hover:bg-accent-soft"
+              className="shrink-0 px-3.5 py-[7px] rounded-full border-[1.5px] border-border bg-white/60 font-body text-[12.5px] font-semibold text-text2 cursor-pointer transition hover:border-accent hover:text-accent hover:bg-accent-soft"
               onClick={askFollowUp}
               title="Open an Ask thread pre-loaded with this action's context"
             >
               Ask a follow-up →
             </button>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-text2">
-            <span className={cn(
-              "inline-block px-2 py-0.5 rounded-full text-[11.5px] font-semibold tracking-[0.04em] uppercase",
-              actionStatusClasses(ar.status),
-            )}>
-              {statusLabel(ar.status)}
-            </span>
-            <span className="text-text3/70">·</span>
-            <span className="font-mono">{ar.kind}</span>
-            {ar.target && (
-              <>
-                <span className="text-text3/70">·</span>
-                <span className="font-mono">{ar.target}</span>
-              </>
-            )}
-            {ar.riskLevel && (
-              <>
-                <span className="text-text3/70">·</span>
-                <span className={cn(
-                  "inline-block px-[7px] py-px rounded-md text-[11.5px] font-semibold uppercase tracking-[0.04em]",
-                  actionRiskBoxClasses(ar.riskLevel),
-                )}>
-                  risk {ar.riskLevel}
-                </span>
-              </>
-            )}
-            <span className="text-text3/70">·</span>
-            <span className="font-mono">{formatRelative(ar.createdAt)}</span>
-          </div>
-        </div>
+          }
+        />
 
         <Section title="Receipt">
           <dl className="grid gap-3.5 m-0">

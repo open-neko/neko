@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Archive, Pin } from "lucide-react";
 import { confirmDialog } from "@/components/ConfirmModal";
+import PageHeading from "@/components/PageHeading";
 
 type MemoryRow = {
   id: string;
@@ -150,22 +151,22 @@ export default function MemoryPage() {
 
   return (
     <div className="library-page memory-library">
-      <header className="library-head">
-        <div className="library-head-title">
-          <span>Knowledge / retained context</span>
-          <h1>Memory</h1>
-        </div>
-        <div className="library-head-stats" aria-label="Memory status">
-          <div>
-            <strong>{String(active.length).padStart(2, "0")}</strong>
-            <span>active</span>
+      <PageHeading
+        eyebrow="Knowledge"
+        title="Memory"
+        actions={
+          <div className="library-head-stats" aria-label="Memory status">
+            <div>
+              <strong>{String(active.length).padStart(2, "0")}</strong>
+              <span>active</span>
+            </div>
+            <div data-state={pending.length > 0 ? "attention" : "clear"}>
+              <strong>{String(pending.length).padStart(2, "0")}</strong>
+              <span>pending</span>
+            </div>
           </div>
-          <div data-state={pending.length > 0 ? "attention" : "clear"}>
-            <strong>{String(pending.length).padStart(2, "0")}</strong>
-            <span>pending</span>
-          </div>
-        </div>
-      </header>
+        }
+      />
 
       <main className="library-main">
         {error ? (

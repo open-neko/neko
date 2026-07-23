@@ -567,6 +567,174 @@ html[data-density="compact"] .operations-root .operations-layout {
   background: var(--neutral-soft);
 }
 
+.work-action-row {
+  border-left-color: var(--accent) !important;
+}
+
+.work-action-row-done {
+  border-left-color: var(--success-mid) !important;
+}
+
+.work-action-row-failed {
+  border-left-color: var(--danger) !important;
+}
+
+.work-action-row-rejected {
+  border-left-color: var(--text3) !important;
+}
+
+.work-action-row-head {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto auto;
+  min-height: 58px;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.work-action-row-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.work-action-row .work-tool-row-subtitle {
+  overflow: visible;
+  color: var(--text2);
+  font-family: inherit;
+  line-height: 1.4;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.work-tool-row-icon-approval {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.work-tool-row-icon-rejected {
+  color: var(--text3);
+  background: var(--neutral-soft);
+}
+
+.work-action-row-state {
+  align-self: center;
+  color: var(--text3);
+  font-family: var(--font-display), 'Archivo', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.work-action-row-state.is-approval,
+.work-action-row-state.is-running {
+  color: var(--accent);
+}
+
+.work-action-row-state.is-done {
+  color: var(--success-mid);
+}
+
+.work-action-row-state.is-failed {
+  color: var(--danger);
+}
+
+.work-action-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.work-action-button,
+.work-action-row-detail-toggle {
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--card);
+  color: var(--text2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 7px 11px;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.work-action-button:hover,
+.work-action-row-detail-toggle:hover {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: var(--neutral-soft);
+  color: var(--text);
+}
+
+.work-action-button.is-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.work-action-button.is-primary:hover {
+  background: #5a4cd1;
+  color: white;
+}
+
+.work-action-button.is-danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: white;
+}
+
+.work-action-button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.work-action-row-detail-toggle {
+  align-self: center;
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--text3);
+  font-size: 10.5px;
+  padding: 4px 2px;
+}
+
+.work-action-row-decision {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px 13px 44px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent-soft) 38%, var(--card));
+}
+
+.work-action-row-decision input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  outline: none;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.work-action-row-decision input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.work-action-row-error {
+  padding: 0 14px 11px 44px;
+  color: var(--danger);
+  font-size: 11.5px;
+}
+
 .work-confirm {
   padding: 15px 18px;
   border: 0;
@@ -1650,6 +1818,47 @@ html[data-density="compact"] .operations-root .operations-layout {
   .work-transcript {
     gap: 28px;
     padding: 36px 0 30px;
+  }
+
+  .work-action-row-head {
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .work-action-row-state {
+    padding-top: 2px;
+  }
+
+  .work-action-row-actions {
+    grid-column: 2 / -1;
+    flex-wrap: wrap;
+  }
+
+  .work-action-row-detail-toggle {
+    grid-column: 2 / -1;
+    justify-self: start;
+    min-height: 44px;
+    margin-block: -7px;
+  }
+
+  .work-action-button {
+    min-height: 44px;
+    padding-inline: 14px;
+  }
+
+  .work-action-row-decision {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px;
+  }
+
+  .work-action-row-decision input {
+    min-height: 44px;
+  }
+
+  .work-action-row-error {
+    padding: 0 12px 12px 40px;
   }
 
   .work-empty {
@@ -2745,5 +2954,162 @@ html[data-density="compact"] .operations-root .operations-layout {
 
   .operations-root.is-workflows .is-overview .workflows-row-main {
     min-height: 96px;
+  }
+}
+
+/* Canonical page header: Workflows now shares Ask's compact command-bar
+   hierarchy. The status counts remain controls, not a second dashboard. */
+.operations-root.is-workflows .page-heading {
+  margin-bottom: 0;
+  padding-right: clamp(16px, 3vw, 40px);
+  padding-left: clamp(16px, 3vw, 40px);
+}
+
+.operations-root.is-workflows .page-heading .workflows-ops-status {
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  grid-template-columns: none;
+  grid-template-rows: none;
+  margin: 0;
+  border: 0;
+}
+
+.operations-root.is-workflows .page-heading .workflows-ops-status > div {
+  min-width: 74px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}
+
+.operations-root.is-workflows .page-heading .workflows-ops-status strong {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 850;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.operations-root.is-workflows
+  .page-heading
+  .workflows-ops-status
+  > div[data-state="clear"]
+  strong {
+  color: var(--success-mid);
+}
+
+.operations-root.is-workflows
+  .page-heading
+  .workflows-ops-status
+  > div
+  span {
+  color: var(--text3);
+  font-size: 7.5px;
+}
+
+.operations-root.is-workflows
+  .page-heading
+  .workflows-ops-status
+  .workflows-new-btn {
+  grid-column: auto;
+  grid-row: auto;
+  width: auto;
+  min-height: 44px;
+  align-self: center;
+  justify-content: center;
+  gap: 8px;
+  margin-left: 8px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--success-mid) 38%, var(--border));
+  border-radius: 10px;
+  background: var(--success);
+  color: var(--success-ink);
+  font-size: 11px;
+}
+
+.operations-root.is-workflows
+  .page-heading
+  .workflows-ops-status
+  .workflows-new-btn
+  svg {
+  order: 0;
+  width: 15px;
+  height: 15px;
+}
+
+.operations-root.is-workflows
+  .page-heading
+  .workflows-ops-status
+  .workflows-new-btn:hover {
+  border-color: var(--success-mid);
+  background: color-mix(in srgb, var(--success) 76%, var(--card));
+  color: var(--success-ink);
+  transform: translateY(-1px);
+}
+
+.operations-root.is-workflows .workflows-workspace {
+  min-height: calc(100svh - var(--page-head-height));
+}
+
+@media (max-width: 760px) {
+  .operations-root.is-workflows .page-heading {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .operations-root.is-workflows
+    .page-heading
+    .workflows-ops-status
+    > div {
+    min-width: 43px;
+    gap: 0;
+    padding-inline: 7px;
+  }
+
+  .operations-root.is-workflows
+    .page-heading
+    .workflows-ops-status
+    > div
+    span {
+    display: none;
+  }
+
+  .operations-root.is-workflows
+    .page-heading
+    .workflows-ops-status
+    .workflows-new-btn {
+    width: 44px;
+    padding: 0;
+  }
+
+  .operations-root.is-workflows
+    .page-heading
+    .workflows-ops-status
+    .workflows-new-btn
+    svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .operations-root.is-workflows
+    .page-heading
+    .workflows-ops-status
+    .workflows-new-btn {
+    font-size: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .operations-root.is-workflows .page-heading-eyebrow {
+    display: none;
+  }
+
+  .operations-root.is-workflows .page-heading-copy {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "title";
   }
 }

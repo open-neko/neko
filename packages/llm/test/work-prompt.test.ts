@@ -131,6 +131,32 @@ describe("per-channel rendering gate", () => {
   });
 });
 
+describe("tool-result grounding", () => {
+  it("forbids unsupported figures and failed sources in prose, cards, and vitals", () => {
+    const prompt = build("claude-agent", {
+      wantsCards: true,
+      supportsCardTool: true,
+    });
+
+    expect(prompt).toContain("A failed source is unavailable");
+    expect(prompt).toContain("Never invent per-day, per-period, or per-entity values");
+    expect(prompt).toContain("Preserve the source's actual granularity");
+    expect(prompt).toContain("Two daily rows plus a five-day aggregate is not a seven-day forecast");
+    expect(prompt).toContain("use an");
+    expect(prompt).toContain("available fetch or detail action");
+    expect(prompt).toContain("state the exact");
+    expect(prompt).toContain("coverage obtained");
+    expect(prompt).toContain("Every claim and figure in the");
+    expect(prompt).toContain("Omit unsupported numbers");
+    expect(prompt).toContain("attribute each claim, figure, or row");
+    expect(prompt).toContain("use a shared source label only when every named");
+    expect(prompt).toContain("displayed rows must reconcile");
+    expect(prompt).toContain("explicitly stated multi-day summaries");
+    expect(prompt).toContain("use it instead of");
+    expect(prompt).toContain("direct network access from the terminal");
+  });
+});
+
 describe("buildWorkPrompt workflow + policy management", () => {
   it("advertises workflow tools when supportsWorkflowTool is true", () => {
     const prompt = build("claude-agent", { supportsWorkflowTool: true });

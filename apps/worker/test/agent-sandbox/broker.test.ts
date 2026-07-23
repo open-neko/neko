@@ -30,6 +30,13 @@ function makeFakeControlPlane() {
     async enqueueActionExecute(input) {
       calls.push({ method: "enqueue", input });
     },
+    async waitForActionExecution(input) {
+      calls.push({ method: "wait", input });
+      return {
+        status: "succeeded",
+        outcome: { result: { text: "live result" } },
+      };
+    },
     async rememberWorkMemory(input) {
       calls.push({ method: "remember", input: input as Record<string, unknown> });
       return { id: "m1" };
@@ -208,9 +215,24 @@ describe("agent broker", () => {
       } as Parameters<AgentControlPlane["createActionRequest"]>[0]),
     ).toEqual({ id: "ar1" });
     await cp.enqueueActionExecute({ orgId: "ignored", actionRequestId: "ar1" });
+    expect(
+      await cp.waitForActionExecution({
+        orgId: "ignored",
+        actionRequestId: "ar1",
+        timeoutMs: 1234,
+      }),
+    ).toEqual({
+      status: "succeeded",
+      outcome: { result: { text: "live result" } },
+    });
     expect(fake.calls.find((c) => c.method === "enqueue")?.input).toEqual({
       orgId: "o1",
       actionRequestId: "ar1",
+    });
+    expect(fake.calls.find((c) => c.method === "wait")?.input).toEqual({
+      orgId: "o1",
+      actionRequestId: "ar1",
+      timeoutMs: 1234,
     });
   });
 

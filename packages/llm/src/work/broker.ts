@@ -105,6 +105,18 @@ async function handle(
         actionRequestId: String(body.actionRequestId),
       });
       return send(res, 200, { ok: true });
+    case "/v1/action/wait":
+      return send(
+        res,
+        200,
+        await cp.waitForActionExecution({
+          orgId: binding.orgId,
+          actionRequestId: String(body.actionRequestId),
+          ...(typeof body.timeoutMs === "number"
+            ? { timeoutMs: body.timeoutMs }
+            : {}),
+        }),
+      );
     case "/v1/memory/remember":
       // CV2: the memory layer is derived server-side from the bound run's
       // actor — an agent-supplied userId is never trusted.

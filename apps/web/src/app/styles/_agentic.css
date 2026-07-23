@@ -2,37 +2,54 @@
    _tokens.css; this layer only gives the existing colors clearer jobs. */
 
 .page-heading {
-  display: flex;
-  align-items: flex-end;
+  --page-heading-top: 0px;
+  position: sticky;
+  top: var(--page-heading-top);
+  z-index: var(--page-head-z);
+  min-height: var(--page-head-height);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   justify-content: space-between;
-  gap: 28px;
-  margin: 4px 0 28px;
-  padding: 8px 0 22px;
+  gap: clamp(16px, 3vw, 36px);
+  margin: 0 0 24px;
+  padding: 9px 0;
   border-bottom: 1px solid var(--border);
-  animation: fadeUp 0.38s ease both;
+  background: var(--page-head-bg);
+  box-shadow: 0 -10px 0 var(--page-head-bg);
 }
 
 .page-heading-copy {
   min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "eyebrow title"
+    "description description";
+  align-items: center;
+  column-gap: 13px;
+  row-gap: 3px;
 }
 
 .page-heading-eyebrow {
+  grid-area: eyebrow;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 9px;
   color: var(--text2);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 850;
-  letter-spacing: 0.13em;
+  letter-spacing: 0.14em;
+  line-height: 1;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .page-heading-mark {
-  width: 16px;
-  height: 2px;
-  border-radius: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
   background: var(--accent);
 }
 
@@ -52,45 +69,107 @@
 }
 
 .page-heading h1 {
+  grid-area: title;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: clamp(32px, 4.2vw, 48px);
-  font-weight: 900;
-  letter-spacing: -0.05em;
-  line-height: 0.98;
+  font-size: var(--page-head-title-size);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .page-heading p {
-  max-width: 66ch;
-  margin: 10px 0 0;
+  grid-area: description;
+  min-width: 0;
+  max-width: 76ch;
+  margin: 0;
+  overflow: hidden;
   color: var(--text2);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 11.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .page-heading-actions {
+  min-width: 0;
+  min-height: 44px;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
+}
+
+.page-heading-actions :where(button, a) {
+  min-height: 44px;
+}
+
+.page-heading-eyebrow a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.page-heading-eyebrow a:hover {
+  color: var(--accent);
+}
+
+.root > .app-header + .page-heading {
+  --page-heading-top: 62px;
+}
+
+@media (max-width: 768px) {
+  .root > .app-header + .page-heading {
+    --page-heading-top: 57px;
+  }
+}
+
+@media (min-width: 960px) {
+  body:has(> .app-rail-wrap)
+    .root
+    > .app-header.is-nav-only
+    + .page-heading {
+    --page-heading-top: 0px;
+  }
 }
 
 @media (max-width: 600px) {
   .page-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 16px;
-    margin-bottom: 22px;
-    padding-bottom: 18px;
+    min-height: 62px;
+    gap: 10px;
+    margin-bottom: 18px;
+    padding-block: 8px;
   }
 
-  .page-heading h1 {
-    font-size: 34px;
+  .page-heading-copy {
+    column-gap: 9px;
+  }
+
+  .page-heading p {
+    max-width: 52vw;
+  }
+
+  .page-heading-eyebrow {
+    font-size: 8px;
+  }
+
+  .page-heading-meta {
+    max-width: 78px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .page-heading-actions {
-    width: 100%;
+    gap: 4px;
   }
 }
 
@@ -179,55 +258,31 @@
   outline-offset: 2px;
 }
 
-.dash-operator-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 32px;
-  padding: 6px 0 22px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid var(--border);
-}
-
-.dash-operator-copy {
-  min-width: 0;
-}
-
-.dash-operator-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 9px;
-  color: var(--text2);
-  font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-}
-
-.dash-operator-head h1 {
-  margin: 0;
-  color: var(--text);
-  font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: clamp(38px, 5vw, 62px);
-  font-weight: 900;
-  letter-spacing: -0.055em;
-  line-height: 0.92;
-}
-
-.dash-operator-head p {
-  margin: 11px 0 0;
-  color: var(--text2);
-  font-size: 13.5px;
-  line-height: 1.5;
-}
-
 .dash-role-control {
   display: grid;
   flex: 0 1 auto;
   gap: 7px;
   min-width: 180px;
+}
+
+.page-heading .dash-role-control {
+  min-width: 0;
+  max-width: 48vw;
+  display: block;
+}
+
+.page-heading .dash-role-control > span {
+  display: none;
+}
+
+.page-heading .dash-role-list {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.page-heading .dash-role-list::-webkit-scrollbar {
+  display: none;
 }
 
 .dash-role-control > span {
@@ -489,12 +544,6 @@
   .dash-system-state button {
     grid-column: 1 / -1;
     min-height: 44px;
-  }
-
-  .dash-operator-head {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 18px;
   }
 
   .dash-role-control {

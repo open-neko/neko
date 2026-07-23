@@ -11,6 +11,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  ShieldCheck,
   Square,
   Workflow,
   X,
@@ -151,7 +152,7 @@ type RunRecord = {
   actorRole?: "admin" | "member" | "service" | null;
 };
 
-type WorkEvent =
+export type WorkEvent =
   | { type: "hello"; runId: string; threadId: string; backend?: RunRecord["backend"] }
   // `content` is a delta — concatenating all message events for a run
   // reconstructs the full assistant text. Mirrors `AgentEvent.message` in
@@ -1746,6 +1747,7 @@ type ToolItem = {
   input?: unknown;
   deltas: unknown[];
   end?: Extract<WorkEvent, { type: "tool_end" }>;
+  approval?: ApprovalItem;
 };
 
 type ApprovalItem = {
@@ -1767,7 +1769,6 @@ type TimelineItem =
       kind: "capability";
       denial: Extract<WorkEvent, { type: "capability_denied" }>;
     }
-  | { kind: "approval"; approval: ApprovalItem }
   | { kind: "error"; message: string };
 
 type RunArtifact = Extract<WorkEvent, { type: "artifact" }>["artifact"];
@@ -2107,7 +2108,7 @@ function toolSources(event: Extract<WorkEvent, { type: "tool_start" }>): string[
 // inline where it ran. Backends emit `message` events as deltas (new text
 // since the previous event), so segments build by appending — no string
 // archaeology needed.
-function buildRunTimeline(events: WorkEvent[], runId: string): {
+export function buildRunTimeline(events: WorkEvent[], runId: string): {
   items: TimelineItem[];
   lastStatus: string | null;
   isDone: boolean;
@@ -2118,7 +2119,7 @@ function buildRunTimeline(events: WorkEvent[], runId: string): {
 } {
   const items: TimelineItem[] = [];
   const toolsById = new Map<string, ToolItem>();
-  const approvalIndexByRequest = new Map<string, number>();
+  const approvalToolByRequest = new Map<string, ToolItem>();
   let surfaceItem: Extract<TimelineItem, { kind: "surface" }> | null = null;
   const denialKeys = new Set<string>();
   const sources = new Set<string>();
@@ -2184,14 +2185,14 @@ function buildRunTimeline(events: WorkEvent[], runId: string): {
         const recoveredApproval = approvalFromToolResult(item, event);
         if (
           recoveredApproval &&
-          !approvalIndexByRequest.has(recoveredApproval.actionRequestId)
+          item &&
+          !approvalToolByRequest.has(recoveredApproval.actionRequestId)
         ) {
-          flushTextSegment();
-          approvalIndexByRequest.set(
+          item.approval = recoveredApproval;
+          approvalToolByRequest.set(
             recoveredApproval.actionRequestId,
-            items.length,
+            item,
           );
-          items.push({ kind: "approval", approval: recoveredApproval });
         }
         const denial = policyDenialFromToolEnd(event);
         if (denial) {
@@ -2244,7 +2245,11 @@ function buildRunTimeline(events: WorkEvent[], runId: string): {
         break;
       }
       case "action_request_emit": {
-        flushTextSegment();
+        // Auto-approved actions are ordinary tool execution. Their tool row
+        // already carries running/completed/failed state, so a second
+        // approval-shaped entry would only duplicate the call.
+        if (event.decision === "auto_approved") break;
+
         const approval: ApprovalItem = {
           actionRequestId: event.action_request_id,
           actionKind: event.kind,
@@ -2253,30 +2258,44 @@ function buildRunTimeline(events: WorkEvent[], runId: string): {
           decision: event.decision,
           result: null,
         };
-        const existingIndex = approvalIndexByRequest.get(
+        const existingTool = approvalToolByRequest.get(
           event.action_request_id,
         );
-        if (existingIndex != null) {
-          const existing = items[existingIndex];
-          if (existing?.kind === "approval") {
-            existing.approval = {
-              ...existing.approval,
-              ...approval,
-              result: existing.approval.result,
-            };
-          }
+        if (existingTool) {
+          existingTool.approval = {
+            ...existingTool.approval,
+            ...approval,
+            result: existingTool.approval?.result ?? null,
+          };
           break;
         }
-        approvalIndexByRequest.set(event.action_request_id, items.length);
-        items.push({ kind: "approval", approval });
+
+        // The broker emits the request while the corresponding MCP tool is
+        // still open. Attach the decision state to that row. Fence-based and
+        // historical events may have no tool_start, so synthesize the same row
+        // shape instead of falling back to a different card component.
+        const activeTool = [...toolsById.values()]
+          .reverse()
+          .find((tool) => !tool.end);
+        const targetTool: ToolItem =
+          activeTool ?? {
+            id: `approval-${event.action_request_id}`,
+            name: event.kind,
+            deltas: [],
+          };
+        targetTool.approval = approval;
+        approvalToolByRequest.set(event.action_request_id, targetTool);
+        if (!activeTool) {
+          flushTextSegment();
+          toolsById.set(targetTool.id, targetTool);
+          items.push({ kind: "tools", tools: [targetTool] });
+        }
         break;
       }
       case "action_request_result": {
-        const idx = approvalIndexByRequest.get(event.action_request_id);
-        if (idx == null) break;
-        const target = items[idx];
-        if (target?.kind !== "approval") break;
-        target.approval = { ...target.approval, result: event };
+        const targetTool = approvalToolByRequest.get(event.action_request_id);
+        if (!targetTool?.approval) break;
+        targetTool.approval = { ...targetTool.approval, result: event };
         break;
       }
       case "done": {
@@ -2458,8 +2477,12 @@ function RunTimeline({
         }
         if (item.kind === "tools") {
           return (
-            <ToolGroup key={`tools-${index}`} tools={item.tools} />
-
+            <ToolGroup
+              key={`tools-${index}`}
+              tools={item.tools}
+              threadId={threadId}
+              runId={run?.id ?? ""}
+            />
           );
         }
         if (item.kind === "surface") {
@@ -2472,16 +2495,6 @@ function RunTimeline({
               denial={item.denial}
               canAdminister={run?.actorRole === "admin"}
               onRequest={(prompt) => insertComposerRef.current?.(prompt)}
-            />
-          );
-        }
-        if (item.kind === "approval") {
-          return (
-            <ActionApprovalCard
-              key={`approval-${item.approval.actionRequestId}`}
-              threadId={threadId}
-              runId={run?.id ?? ""}
-              approval={item.approval}
             />
           );
         }
@@ -2713,16 +2726,18 @@ async function fetchActionRequestSnapshot(
   return { status, result };
 }
 
-function ActionApprovalCard({
+function ActionApprovalRow({
   threadId,
   runId,
-  approval,
+  tool,
 }: {
   threadId: string;
   runId: string;
-  approval: ApprovalItem;
+  tool: ToolItem;
 }) {
+  const approval = tool.approval!;
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -2776,7 +2791,37 @@ function ActionApprovalCard({
     (approval.decision === "auto_approved" ||
       localDecision === "approve" ||
       localStatus === "approved");
-  const settled = effectiveResult !== null;
+  const failed = effectiveResult?.status === "failed";
+  const rejected = effectiveResult?.status === "rejected";
+  const succeeded = effectiveResult?.status === "succeeded";
+  const visualStatus = failed
+    ? "failed"
+    : rejected
+      ? "rejected"
+      : succeeded
+        ? "done"
+        : processing
+          ? "running"
+          : "approval";
+  const stateLabel = failed
+    ? "Failed"
+    : rejected
+      ? "Rejected"
+      : succeeded
+        ? "Done"
+        : processing
+          ? "Running"
+          : "Approval required";
+  const summary = failed
+    ? (effectiveResult?.error ?? "The action failed.")
+    : rejected
+      ? (effectiveResult?.rejection_reason ?? "The request was rejected.")
+      : headline;
+  const hasDetail =
+    tool.input !== undefined ||
+    tool.deltas.length > 0 ||
+    tool.end?.result !== undefined ||
+    tool.end?.error !== undefined;
 
   async function decide(decision: "approve" | "reject") {
     if (!runId) {
@@ -2837,54 +2882,80 @@ function ActionApprovalCard({
   }
 
   return (
-    <div className="border border-border bg-card rounded-2xl px-4 py-3.5 text-[13px] flex flex-col gap-2.5">
-      <div className="flex min-w-0 items-baseline justify-between gap-3 max-[480px]:items-start max-[480px]:flex-col max-[480px]:gap-1">
-        <div className="font-display text-[11px] font-bold uppercase tracking-[0.14em] text-text3">
-          Agent says
-        </div>
-        <code className="min-w-0 max-w-full font-mono text-[11px] text-text3 [overflow-wrap:anywhere]">
-          {approval.actionKind}
-        </code>
+    <div
+      className={`work-tool-row work-action-row work-action-row-${visualStatus}`}
+    >
+      <div className="work-tool-row-head work-action-row-head">
+        <span
+          className={`work-tool-row-icon work-tool-row-icon-${visualStatus}`}
+          aria-hidden="true"
+        >
+          {processing ? (
+            <Loader2 className="work-status-spin" size={12} />
+          ) : failed || rejected ? (
+            <X size={12} />
+          ) : succeeded ? (
+            <Check size={12} />
+          ) : (
+            <ShieldCheck size={12} />
+          )}
+        </span>
+        <span className="work-action-row-copy">
+          <span className="work-tool-row-name">
+            {approvalActionLabel(approval.actionKind)}
+          </span>
+          <span className="work-tool-row-subtitle">{summary}</span>
+        </span>
+        <span className={`work-action-row-state is-${visualStatus}`}>
+          {stateLabel}
+        </span>
+        {pending && !rejectMode ? (
+          <span className="work-action-row-actions">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => decide("approve")}
+              className="work-action-button is-primary"
+            >
+              {busy ? "Approving…" : "Approve"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setRejectMode(true)}
+              className="work-action-button"
+            >
+              Reject
+            </button>
+          </span>
+        ) : null}
+        {hasDetail ? (
+          <button
+            type="button"
+            className="work-action-row-detail-toggle"
+            onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+          >
+            {open ? "Hide details" : "Details"}
+          </button>
+        ) : null}
       </div>
-      <div className="text-text leading-[1.45] italic">“{headline}”</div>
-
-      {pending && !rejectMode ? (
-        <div className="flex items-center gap-2 pt-1">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => decide("approve")}
-            className="px-3 py-1.5 rounded-[10px] bg-accent text-white font-display font-bold text-[12px] tracking-[-0.01em] hover:bg-[#5a4cd1] disabled:opacity-50 cursor-pointer"
-          >
-            {busy ? "Approving…" : "Approve"}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setRejectMode(true)}
-            className="px-3 py-1.5 rounded-[10px] border border-border text-text2 font-medium text-[12px] hover:bg-neutral-soft disabled:opacity-50 cursor-pointer"
-          >
-            Reject
-          </button>
-        </div>
-      ) : null}
 
       {pending && rejectMode ? (
-        <div className="flex flex-col gap-2 pt-1">
+        <div className="work-action-row-decision">
           <input
             type="text"
             placeholder="Reason (optional, shown to the agent)"
             value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
+            onChange={(event) => setRejectReason(event.target.value)}
             disabled={busy}
-            className="w-full px-2.5 py-1.5 rounded-[8px] border border-border bg-white text-text text-[12px] focus:outline-none focus:border-accent"
           />
-          <div className="flex items-center gap-2">
+          <div className="work-action-row-actions">
             <button
               type="button"
               disabled={busy}
               onClick={() => decide("reject")}
-              className="px-3 py-1.5 rounded-[10px] bg-danger text-white font-display font-bold text-[12px] tracking-[-0.01em] hover:opacity-90 disabled:opacity-50 cursor-pointer"
+              className="work-action-button is-danger"
             >
               {busy ? "Rejecting…" : "Confirm reject"}
             </button>
@@ -2895,7 +2966,7 @@ function ActionApprovalCard({
                 setRejectMode(false);
                 setRejectReason("");
               }}
-              className="px-3 py-1.5 rounded-[10px] border border-border text-text2 font-medium text-[12px] hover:bg-neutral-soft cursor-pointer"
+              className="work-action-button"
             >
               Cancel
             </button>
@@ -2903,58 +2974,47 @@ function ActionApprovalCard({
         </div>
       ) : null}
 
-      {processing && !settled ? (
-        <div className="text-text3 text-[12px] flex items-center gap-1.5">
-          <Loader2 className="work-status-spin" size={11} />
-          Approved — running in the background…
-        </div>
-      ) : null}
-
-      {settled ? <ActionResultStrip result={effectiveResult!} /> : null}
-
       {localError ? (
-        <div className="text-danger text-[12px]">{localError}</div>
+        <div className="work-action-row-error">{localError}</div>
       ) : null}
+
+      {open ? <ToolDetail tool={tool} /> : null}
     </div>
   );
 }
 
-function ActionResultStrip({
-  result,
+function approvalActionLabel(kind: string): string {
+  const known: Record<string, string> = {
+    plugin_install: "Install integration",
+    plugin_uninstall: "Remove integration",
+    web_fetch: "Fetch from web",
+    web_search: "Search the web",
+    send_slack_message: "Send Slack message",
+  };
+  if (known[kind]) return known[kind];
+  const words = kind
+    .replace(/^mcp[_:.-]*/i, "")
+    .split(/[_:.-]+/)
+    .filter(Boolean);
+  if (words.length === 0) return "Run action";
+  return words
+    .map((word, index) =>
+      index === 0
+        ? `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`
+        : word.toLowerCase(),
+    )
+    .join(" ");
+}
+
+function ToolGroup({
+  tools,
+  threadId,
+  runId,
 }: {
-  result: Extract<WorkEvent, { type: "action_request_result" }>;
+  tools: ToolItem[];
+  threadId: string;
+  runId: string;
 }) {
-  const tone =
-    result.status === "succeeded"
-      ? "border-success-mid/40 bg-success-soft text-success-ink"
-      : result.status === "rejected"
-        ? "border-border bg-neutral-soft text-text2"
-        : "border-warn/40 bg-warn-soft text-warn-ink";
-  const label =
-    result.status === "succeeded"
-      ? "Done"
-      : result.status === "rejected"
-        ? "Rejected"
-        : "Failed";
-  return (
-    <div className={`mt-1 rounded-[10px] border px-3 py-2 text-[12px] ${tone}`}>
-      <span className="font-display font-bold uppercase tracking-[0.1em] text-[10px] mr-2">
-        {label}
-      </span>
-      <span>
-        {result.status === "rejected"
-          ? (result.rejection_reason ?? "Operator rejected the request.")
-          : result.status === "failed"
-            ? (result.error ?? "The plugin returned an error.")
-            : (result.outcome?.externalRef
-                ? `ref: ${result.outcome.externalRef}`
-                : "The action completed.")}
-      </span>
-    </div>
-  );
-}
-
-function ToolGroup({ tools }: { tools: ToolItem[] }) {
   const inflight = tools.filter((t) => !t.end).length;
   const failed = tools.filter((t) => t.end?.error).length;
   const showHeader = tools.length > 1;
@@ -2967,7 +3027,7 @@ function ToolGroup({ tools }: { tools: ToolItem[] }) {
   if (!showHeader) {
     return (
       <div className="work-tool-group work-tool-group-single">
-        <ToolRow tool={tools[0]} />
+        <ToolRow tool={tools[0]} threadId={threadId} runId={runId} />
       </div>
     );
   }
@@ -2998,7 +3058,12 @@ function ToolGroup({ tools }: { tools: ToolItem[] }) {
       {open ? (
         <div className="work-tool-group-body">
           {tools.map((tool) => (
-            <ToolRow key={tool.id} tool={tool} />
+            <ToolRow
+              key={tool.id}
+              tool={tool}
+              threadId={threadId}
+              runId={runId}
+            />
           ))}
         </div>
       ) : null}
@@ -3006,7 +3071,24 @@ function ToolGroup({ tools }: { tools: ToolItem[] }) {
   );
 }
 
-function ToolRow({ tool }: { tool: ToolItem }) {
+function ToolRow({
+  tool,
+  threadId,
+  runId,
+}: {
+  tool: ToolItem;
+  threadId: string;
+  runId: string;
+}) {
+  if (tool.approval) {
+    return (
+      <ActionApprovalRow threadId={threadId} runId={runId} tool={tool} />
+    );
+  }
+  return <RegularToolRow tool={tool} />;
+}
+
+function RegularToolRow({ tool }: { tool: ToolItem }) {
   const [open, setOpen] = useState(false);
   const status: "running" | "done" | "failed" = tool.end?.error
     ? "failed"
@@ -3041,35 +3123,41 @@ function ToolRow({ tool }: { tool: ToolItem }) {
         <span className="work-tool-row-name">{tool.name}</span>
         {subtitle ? <span className="work-tool-row-subtitle">{subtitle}</span> : null}
       </button>
-      {open ? (
-        <div className="work-tool-row-detail">
-          {tool.input !== undefined ? (
-            <>
-              <div className="work-tool-row-section-label">Input</div>
-              <pre className="work-tool-row-pre">{formatToolPayload(tool.input)}</pre>
-            </>
-          ) : null}
-          {tool.deltas
-            .map((d) => describeToolDelta(d))
-            .filter(Boolean)
-            .map((text, i) => (
-              <div key={i} className="work-tool-delta">
-                {text}
-              </div>
-            ))}
-          {tool.end?.result ? (
-            <>
-              <div className="work-tool-row-section-label">Output</div>
-              <pre className="work-tool-row-pre">{formatToolPayload(tool.end.result)}</pre>
-            </>
-          ) : null}
-          {tool.end?.error ? (
-            <>
-              <div className="work-tool-row-section-label">Error</div>
-              <pre className="work-tool-row-pre work-tool-row-pre-error">{tool.end.error}</pre>
-            </>
-          ) : null}
-        </div>
+      {open ? <ToolDetail tool={tool} /> : null}
+    </div>
+  );
+}
+
+function ToolDetail({ tool }: { tool: ToolItem }) {
+  return (
+    <div className="work-tool-row-detail">
+      {tool.input !== undefined ? (
+        <>
+          <div className="work-tool-row-section-label">Input</div>
+          <pre className="work-tool-row-pre">{formatToolPayload(tool.input)}</pre>
+        </>
+      ) : null}
+      {tool.deltas
+        .map((delta) => describeToolDelta(delta))
+        .filter(Boolean)
+        .map((text, index) => (
+          <div key={index} className="work-tool-delta">
+            {text}
+          </div>
+        ))}
+      {tool.end?.result ? (
+        <>
+          <div className="work-tool-row-section-label">Output</div>
+          <pre className="work-tool-row-pre">{formatToolPayload(tool.end.result)}</pre>
+        </>
+      ) : null}
+      {tool.end?.error ? (
+        <>
+          <div className="work-tool-row-section-label">Error</div>
+          <pre className="work-tool-row-pre work-tool-row-pre-error">
+            {tool.end.error}
+          </pre>
+        </>
       ) : null}
     </div>
   );

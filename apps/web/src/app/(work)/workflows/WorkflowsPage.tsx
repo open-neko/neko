@@ -9,6 +9,7 @@ import { confirmDialog } from "@/components/ConfirmModal";
 import { describeSchedule } from "@/lib/cron-english";
 import { formatSavedShort } from "@/lib/hours-saved";
 import { Sparkline } from "@/components/Sparkline";
+import PageHeading from "@/components/PageHeading";
 
 type WorkflowListItem = {
   id: string;
@@ -246,47 +247,43 @@ export default function WorkflowsPage() {
 
   return (
     <>
-      <header className="workflows-ops-head">
-        <div className="workflows-ops-title">
-          <h1>
-            Workflows<span aria-hidden="true">.</span>
-          </h1>
-          <div className="workflows-ops-eyebrow">
-            <span className="workflows-live-mark" aria-hidden="true" />
-            <span>
-              {workflows === null
-                ? "loading"
-                : `${String(totalCount).padStart(2, "0")} routes`}
-            </span>
+      <PageHeading
+        eyebrow="Agent operations"
+        title="Workflows"
+        meta={
+          workflows === null
+            ? "loading"
+            : `${String(totalCount).padStart(2, "0")} routes`
+        }
+        actions={
+          <div className="workflows-ops-status" aria-label="Workflow status">
+            <div>
+              <strong>{String(grouped.active.length).padStart(2, "0")}</strong>
+              <span>active</span>
+            </div>
+            <div>
+              <strong>{String(grouped.paused.length).padStart(2, "0")}</strong>
+              <span>paused</span>
+            </div>
+            <div data-state={grouped.broken.length > 0 ? "attention" : "clear"}>
+              <strong>{String(grouped.broken.length).padStart(2, "0")}</strong>
+              <span>attention</span>
+            </div>
+            <button
+              type="button"
+              className="workflows-new-btn"
+              onClick={() =>
+                router.push(
+                  `/work?seed=${encodeURIComponent("Set up a new workflow that ")}`,
+                )
+              }
+            >
+              <Plus aria-hidden="true" />
+              New workflow
+            </button>
           </div>
-        </div>
-        <div className="workflows-ops-status" aria-label="Workflow status">
-          <div>
-            <strong>{String(grouped.active.length).padStart(2, "0")}</strong>
-            <span>active</span>
-          </div>
-          <div>
-            <strong>{String(grouped.paused.length).padStart(2, "0")}</strong>
-            <span>paused</span>
-          </div>
-          <div data-state={grouped.broken.length > 0 ? "attention" : "clear"}>
-            <strong>{String(grouped.broken.length).padStart(2, "0")}</strong>
-            <span>attention</span>
-          </div>
-          <button
-            type="button"
-            className="workflows-new-btn"
-            onClick={() =>
-              router.push(
-                `/work?seed=${encodeURIComponent("Set up a new workflow that ")}`,
-              )
-            }
-          >
-            <Plus aria-hidden="true" />
-            New workflow
-          </button>
-        </div>
-      </header>
+        }
+      />
 
       {error ? (
         <div className="workflow-page-state is-error" role="alert">

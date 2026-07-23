@@ -1,6 +1,8 @@
 import { enqueue, QUEUE } from "@neko/db/jobs";
 import {
   createActionRequest,
+  getActionRequest,
+  listActionExecutions,
   listAllPolicies,
   listEnabledPolicies,
   upsertActionPolicyByName,
@@ -8,6 +10,7 @@ import {
   type CreateActionPolicyInput,
   type UpsertActionPolicyResult,
 } from "../workflows/action-store";
+import type { ActionExecutionOutcome } from "../workflows/action-executor";
 import { evaluateActionPolicy } from "../workflows/policy-engine";
 import {
   saveWorkflowWithTrigger,
@@ -177,6 +180,19 @@ export type WorkflowListEntry = Wire<WorkflowRecord> & {
   when: Record<string, unknown> | null;
 };
 
+export type WaitForActionExecutionResult =
+  | {
+      status: "succeeded";
+      outcome: ActionExecutionOutcome;
+    }
+  | {
+      status: "failed";
+      error: string;
+    }
+  | {
+      status: "timeout";
+    };
+
 /**
  * The narrow control-plane surface an agent turn touches: policy eval,
  * action-request create + enqueue, the two memory ops, and the builder
@@ -194,6 +210,16 @@ export interface AgentControlPlane {
     orgId: string;
     actionRequestId: string;
   }): Promise<void>;
+  /**
+   * Wait for a worker-owned action adapter to finish without exposing the
+   * worker or database to the agent sandbox. Auto-mode read actions use this
+   * so their actual result returns to the model in the same tool call.
+   */
+  waitForActionExecution(input: {
+    orgId: string;
+    actionRequestId: string;
+    timeoutMs?: number;
+  }): Promise<WaitForActionExecutionResult>;
   rememberWorkMemory(input: RememberWorkMemoryInput): Promise<{ id: string }>;
   searchWorkMemoryByContext(
     args: WorkMemorySearchArgs,
@@ -449,6 +475,60 @@ export class InProcessControlPlane implements AgentControlPlane {
     actionRequestId: string;
   }): Promise<void> {
     await enqueue(QUEUE.ACTION_EXECUTE, input);
+  }
+
+  async waitForActionExecution(input: {
+    orgId: string;
+    actionRequestId: string;
+    timeoutMs?: number;
+  }): Promise<WaitForActionExecutionResult> {
+    const timeoutMs = Math.min(
+      Math.max(input.timeoutMs ?? 45_000, 1_000),
+      120_000,
+    );
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const request = await getActionRequest(
+        input.orgId,
+        input.actionRequestId,
+      );
+      if (!request) {
+        return {
+          status: "failed",
+          error: "Action request disappeared before execution completed.",
+        };
+      }
+
+      if (request.status === "executed") {
+        const [execution] = await listActionExecutions(request.id);
+        return {
+          status: "succeeded",
+          outcome: {
+            result: execution?.result ?? null,
+            externalRef: execution?.externalRef ?? null,
+            commandOrOperation: execution?.commandOrOperation ?? null,
+          },
+        };
+      }
+
+      if (request.status === "failed" || request.status === "rejected") {
+        const [execution] = await listActionExecutions(request.id);
+        return {
+          status: "failed",
+          error:
+            execution?.error ??
+            request.rejectionReason ??
+            (request.status === "rejected"
+              ? "Action request was rejected."
+              : "Action execution failed."),
+        };
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    return { status: "timeout" };
   }
 
   async rememberWorkMemory(

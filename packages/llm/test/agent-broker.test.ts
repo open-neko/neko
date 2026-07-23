@@ -17,6 +17,8 @@ function stubControlPlane(): AgentControlPlane {
     evaluateActionPolicy: unused as AgentControlPlane["evaluateActionPolicy"],
     createActionRequest: unused as AgentControlPlane["createActionRequest"],
     enqueueActionExecute: unused as AgentControlPlane["enqueueActionExecute"],
+    waitForActionExecution:
+      unused as AgentControlPlane["waitForActionExecution"],
     rememberWorkMemory: unused as AgentControlPlane["rememberWorkMemory"],
     searchWorkMemoryByContext:
       unused as AgentControlPlane["searchWorkMemoryByContext"],

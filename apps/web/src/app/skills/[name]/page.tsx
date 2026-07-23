@@ -4,6 +4,7 @@ import { use as usePromise, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, FileText } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import PageHeading from "@/components/PageHeading";
 
 function stripFrontmatter(markdown: string): string {
   return markdown.replace(/^---\n[\s\S]*?\n---\n?/, "").trimStart();
@@ -78,15 +79,15 @@ export default function SkillDetailPage({ params }: PageProps) {
   if (state !== "ready" || !skill) {
     return (
       <div className="library-page skill-detail-page">
-        <header className="library-head skill-detail-head">
-          <div className="library-head-title">
+        <PageHeading
+          eyebrow={
             <Link href="/skills" className="skill-back-link">
               <ArrowLeft aria-hidden="true" strokeWidth={2} />
               Skills
             </Link>
-            <h1>{state === "loading" ? "Loading skill" : "Skill unavailable"}</h1>
-          </div>
-        </header>
+          }
+          title={state === "loading" ? "Loading skill" : "Skill unavailable"}
+        />
         <main className="library-main">
           {state === "loading" ? (
             <div className="library-loading" role="status" aria-label="Loading skill">
@@ -120,26 +121,28 @@ export default function SkillDetailPage({ params }: PageProps) {
 
   return (
     <div className="library-page skill-detail-page">
-      <header className="library-head skill-detail-head">
-        <div className="library-head-title">
+      <PageHeading
+        eyebrow={
           <Link href="/skills" className="skill-back-link">
             <ArrowLeft aria-hidden="true" strokeWidth={2} />
             Skills
           </Link>
-          <h1>{skill.name}</h1>
-          {skill.description ? <p>{skill.description}</p> : null}
-        </div>
-        <div className="library-head-stats" aria-label="Skill details">
-          <div>
-            <strong>{String(skill.fileCount).padStart(2, "0")}</strong>
-            <span>{skill.fileCount === 1 ? "file" : "files"}</span>
+        }
+        title={skill.name}
+        description={skill.description || undefined}
+        actions={
+          <div className="library-head-stats" aria-label="Skill details">
+            <div>
+              <strong>{String(skill.fileCount).padStart(2, "0")}</strong>
+              <span>{skill.fileCount === 1 ? "file" : "files"}</span>
+            </div>
+            <div>
+              <strong>{formatShortDate(skill.updatedAt)}</strong>
+              <span>updated</span>
+            </div>
           </div>
-          <div>
-            <strong>{formatShortDate(skill.updatedAt)}</strong>
-            <span>updated</span>
-          </div>
-        </div>
-      </header>
+        }
+      />
 
       <main className="skill-detail-workspace">
         <aside className="skill-manifest">

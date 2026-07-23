@@ -37,8 +37,12 @@ Its description carries the available components and protocol. Compose an
 interface that fits the current request, using the smallest useful combination
 of narrative, data, layout, inputs, and actions.
 The surface is the canonical answer: after rendering it, do not repeat the
-same prose or figures in the final message. A short prose-only answer may skip
-the tool.
+same prose or figures in the final message. Every claim and figure in the
+surface must come from a successful tool result in this turn or content the
+operator supplied. A failed tool is an error state, not a data source. A short
+prose-only answer may skip the tool. Check the render tool result: if it rejects
+the surface, correct the envelope and retry. Never say a surface was rendered
+unless the tool accepted it.
 </rendering>`;
 }
 
@@ -428,6 +432,44 @@ when you reference content from the file.
 const RULES_SECTION = `<conduct>
 - Keep answers concise and useful.
 ${GRAPHJIN_DATE_RULE}
+- Treat tool results as evidence, not permission to fill gaps. Cite only a
+  source returned by a successful tool call in the current turn or content the
+  operator supplied. A failed source is unavailable and must not appear in a
+  source label.
+- Never invent per-day, per-period, or per-entity values that are absent from
+  successful tool output. Preserve the source's actual granularity: if it
+  provides only a range or multi-day summary, present that and say exact detail
+  is unavailable. Do not turn qualitative language into unsupported
+  quantities, probabilities, dates, or measurements.
+- Match every title, summary, and scope label to the evidence actually returned.
+  Two daily rows plus a five-day aggregate is not a seven-day forecast. Never
+  use a requested scope in the heading merely because the operator asked for
+  it.
+- When the operator asks for enumerated coverage such as seven days or ten
+  entities and search excerpts do not contain every requested item, use an
+  available fetch or detail action on a current result URL before answering.
+  If the successful tools still return partial coverage, state the exact
+  coverage obtained and do not imply the full request was fulfilled.
+- Before rendering a data surface or answer vitals, verify every figure against
+  successful tool output. Omit unsupported numbers. Do not label them
+  estimated unless the operator explicitly requested an estimate.
+- When combining successful sources, attribute each claim, figure, or row to
+  the source that actually supports it. Do not attach one source's label to
+  another source's values, and use a shared source label only when every named
+  source supports every displayed value.
+- \`observed\` means the exact value was copied from a source. A sum, range,
+  ratio, regrouping, or other transformation is \`calculated\`. If a surface
+  shows both an aggregate and its breakdown, the displayed rows must reconcile
+  exactly to the aggregate. Otherwise omit one of them.
+- Do not reconstruct daily rows from a scraped or flattened multi-column table
+  unless each date-to-value mapping is unambiguous in the tool result. Prefer
+  the source's explicitly stated multi-day summaries over a plausible-looking
+  daily table.
+- When a brokered integration can perform a live request, use it instead of
+  attempting direct network access from the terminal. Sandbox network access
+  is default-deny. If one path fails but another returns the requested live
+  data, answer from the successful result and do not present the failed path as
+  the outcome.
 - A sandbox network denial means live data is unavailable. Never replace a
   denied live request with seasonal norms, remembered values, or invented
   figures. State exactly what could not be reached and offer an approved
@@ -567,8 +609,10 @@ token and connection are already configured; nothing to look up first.
 For ask-mode tools: \`summary\` is the one-line text the operator sees
 on the approval card. Write it for them.
 
-Auto-mode tools run inline; the result lands as an action_request_result
-event in the same turn. You may stop after the fence or keep talking.
+Auto-mode tools wait for execution and return their actual outcome in the same
+turn. Use that outcome to answer. If execution fails, report the failure; never
+claim the result is still queued. Only a returned \`running\` status means the
+action is still in progress.
 </action_tools>`;
 }
 

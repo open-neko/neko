@@ -1,5 +1,5 @@
 type PageHeadingProps = {
-  eyebrow: string;
+  eyebrow: React.ReactNode;
   title: string;
   description?: string;
   meta?: React.ReactNode;

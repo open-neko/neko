@@ -1220,3 +1220,97 @@
     opacity: 1;
   }
 }
+
+/* Canonical page header: the knowledge pages use the same compact,
+   persistent command bar as Ask instead of a second poster-style masthead. */
+.library-page > .page-heading {
+  margin-bottom: 0;
+  padding-right: clamp(16px, 3vw, 40px);
+  padding-left: clamp(16px, 3vw, 40px);
+}
+
+.library-page .library-head-stats {
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  grid-template-columns: none;
+  padding: 0;
+}
+
+.library-page .library-head-stats > div {
+  min-width: 74px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  border-left: 1px solid var(--border);
+}
+
+.library-page .library-head-stats strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 850;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-page .library-head-stats span {
+  margin: 0;
+  color: var(--text3);
+  font-size: 7.5px;
+}
+
+.library-page .library-head-stats [data-state="clear"] strong {
+  color: var(--success-mid);
+}
+
+.library-page .page-heading .skill-back-link {
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  color: inherit;
+}
+
+.library-page .page-heading .skill-back-link svg {
+  width: 12px;
+  height: 12px;
+}
+
+.skill-detail-page .skill-manifest {
+  min-height: calc(100svh - var(--page-head-height));
+}
+
+@media (max-width: 680px) {
+  .library-page > .page-heading {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .library-page .library-head-stats > div {
+    min-width: 54px;
+    gap: 5px;
+    padding-inline: 8px;
+  }
+
+  .library-page .library-head-stats strong {
+    font-size: 14px;
+  }
+
+  .library-page .library-head-stats span {
+    display: none;
+  }
+}
+
+@media (max-width: 430px) {
+  .library-page .page-heading-copy {
+    column-gap: 7px;
+  }
+
+  .library-page .page-heading-mark {
+    display: none;
+  }
+}

@@ -71,6 +71,12 @@ export class BrokerControlPlane implements AgentControlPlane {
     await this.post("/v1/action/enqueue", input);
   }
 
+  waitForActionExecution(
+    input: Parameters<AgentControlPlane["waitForActionExecution"]>[0],
+  ): ReturnType<AgentControlPlane["waitForActionExecution"]> {
+    return this.post("/v1/action/wait", input);
+  }
+
   rememberWorkMemory(
     input: Parameters<AgentControlPlane["rememberWorkMemory"]>[0],
   ): ReturnType<AgentControlPlane["rememberWorkMemory"]> {
