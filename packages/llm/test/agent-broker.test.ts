@@ -1,6 +1,10 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { AgentControlPlane } from "../src/work/control-plane";
-import { ensureAgentBroker, startAgentBroker } from "../src/work/broker";
+import {
+  ensureAgentBroker,
+  registerAgentBrokerEventSink,
+  startAgentBroker,
+} from "../src/work/broker";
 
 // /v1/events is the only path exercised here and it never touches the control
 // plane (it routes to deps.onEvents), so a stub that satisfies the interface
@@ -13,6 +17,8 @@ function stubControlPlane(): AgentControlPlane {
     evaluateActionPolicy: unused as AgentControlPlane["evaluateActionPolicy"],
     createActionRequest: unused as AgentControlPlane["createActionRequest"],
     enqueueActionExecute: unused as AgentControlPlane["enqueueActionExecute"],
+    waitForActionExecution:
+      unused as AgentControlPlane["waitForActionExecution"],
     rememberWorkMemory: unused as AgentControlPlane["rememberWorkMemory"],
     searchWorkMemoryByContext:
       unused as AgentControlPlane["searchWorkMemoryByContext"],
@@ -43,11 +49,15 @@ function stubControlPlane(): AgentControlPlane {
   };
 }
 
-function postEvents(port: number, token: string): Promise<Response> {
+function postEvents(
+  port: number,
+  token: string,
+  events: unknown[] = [],
+): Promise<Response> {
   return fetch(new URL("/v1/events", `http://127.0.0.1:${port}`), {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ events: [] }),
+    body: JSON.stringify({ events }),
   });
 }
 
@@ -104,6 +114,19 @@ describe("ensureAgentBroker (SEC9: always on)", () => {
       const b = await ensureAgentBroker();
       expect(a).toBeDefined();
       expect(b).toBe(a);
+      const received: unknown[] = [];
+      const unregister = registerAgentBrokerEventSink("r-live", async (event) => {
+        received.push(event);
+      });
+      const token = a!.tokenFor({
+        runId: "r-live",
+        orgId: "o1",
+        threadId: "t1",
+      });
+      const event = { type: "status", message: "Approval pending" };
+      expect((await postEvents(a!.port, token, [event])).status).toBe(200);
+      expect(received).toEqual([event]);
+      unregister();
       await a?.close();
     } finally {
       if (prevPort === undefined) delete process.env.OPENNEKO_BROKER_PORT;

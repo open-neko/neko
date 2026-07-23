@@ -21,6 +21,7 @@ export const WORK_CATALOG_ID = "urn:openneko:catalog:work:v2";
 // an Answer (BriefingCard stays for the dashboard + already-stored surfaces).
 export const ComponentTypes = {
   Answer: "Answer",
+  KeyFigures: "KeyFigures",
   MetricCard: "MetricCard",
   Confirmation: "Confirmation",
   Markdown: "Markdown",
@@ -82,6 +83,20 @@ export interface AnswerProps {
 export interface MarkdownProps {
   component: "Markdown";
   text: string;
+}
+
+export interface KeyFigure {
+  label: string;
+  value: string;
+  sub?: string;
+  basis?: "observed" | "calculated" | "estimated";
+  asOf?: string;
+  source?: string;
+}
+
+export interface KeyFiguresProps {
+  component: "KeyFigures";
+  items: KeyFigure[];
 }
 
 export interface TableColumn {
@@ -245,6 +260,7 @@ export type ComponentProps =
   | BriefingCardProps
   | ConfirmationProps
   | MarkdownProps
+  | KeyFiguresProps
   | TableProps
   | SectionProps
   | CalloutProps

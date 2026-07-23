@@ -26,15 +26,15 @@ export type NavDestination = {
 export const PRIMARY_NAV: NavDestination[] = [
   {
     href: "/",
-    label: "Dashboard",
-    shortLabel: "Dashboard",
+    label: "Briefing",
+    shortLabel: "Brief",
     description: "Today, decisions, and signals",
     icon: Home,
     group: "primary",
   },
   {
     href: "/work",
-    label: "Ask",
+    label: "Ask OpenNeko",
     shortLabel: "Ask",
     description: "Ask OpenNeko anything",
     icon: MessageCircle,
@@ -42,7 +42,7 @@ export const PRIMARY_NAV: NavDestination[] = [
   },
   {
     href: "/workflows",
-    label: "Workflows",
+    label: "Agent workflows",
     shortLabel: "Flows",
     description: "Watchers and automation",
     icon: MonitorPlay,
@@ -50,8 +50,8 @@ export const PRIMARY_NAV: NavDestination[] = [
   },
   {
     href: "/actions",
-    label: "Actions",
-    shortLabel: "Actions",
+    label: "Review queue",
+    shortLabel: "Review",
     description: "Approvals and receipts",
     icon: CheckCircle2,
     group: "primary",

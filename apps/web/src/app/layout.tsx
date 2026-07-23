@@ -2,8 +2,11 @@ import type { Metadata, Viewport } from "next";
 import { Archivo, Manrope } from "next/font/google";
 import { Toaster } from "sonner";
 import { DensityProvider } from "@/components/DensityProvider";
+import AppRail from "@/components/AppRail";
 import CommandDock from "@/components/CommandDock";
 import "./globals.css";
+import "./styles/_operations.css";
+import "./styles/_library.css";
 
 // Set data-density before paint from the persisted choice (default compact),
 // so the dense layout never flashes the comfortable one on load.
@@ -44,6 +47,7 @@ export default function RootLayout({
       </head>
       <body>
         <DensityProvider>
+          <AppRail />
           {children}
           <CommandDock />
         </DensityProvider>

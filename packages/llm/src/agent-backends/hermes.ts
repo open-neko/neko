@@ -35,6 +35,18 @@ const RENDER_MCP_SERVER_NAME = "neko_render";
 // hermes surfaces MCP tool calls as `mcp_<server>_<tool>` (verified via spike).
 const RENDER_TOOL_TITLE = `mcp_${RENDER_MCP_SERVER_NAME}_render_cards`;
 const RENDER_MCP_STUB_SOURCE = `let b="";
+const rec=v=>!!v&&typeof v==="object"&&!Array.isArray(v);
+const str=(v,k)=>typeof v[k]==="string"&&v[k].length>0;
+const cmp=v=>rec(v)&&str(v,"id")&&str(v,"component");
+const msg=v=>{
+if(!rec(v)||v.version!=="v1.0")return false;
+if(rec(v.createSurface))return str(v.createSurface,"surfaceId")&&str(v.createSurface,"catalogId")&&
+(!Array.isArray(v.createSurface.components)||v.createSurface.components.every(cmp));
+if(rec(v.updateComponents))return str(v.updateComponents,"surfaceId")&&
+Array.isArray(v.updateComponents.components)&&v.updateComponents.components.every(cmp);
+if(rec(v.updateDataModel))return str(v.updateDataModel,"surfaceId");
+if(rec(v.deleteSurface))return str(v.deleteSurface,"surfaceId");
+return false};
 process.stdin.on("data",c=>{b+=c;let i;while((i=b.indexOf("\\n"))>=0){
 const l=b.slice(0,i).trim();b=b.slice(i+1);if(!l)continue;
 let r;try{r=JSON.parse(l)}catch{continue}const{id,method}=r;
@@ -46,11 +58,14 @@ else if(method==="tools/list")w({tools:[${JSON.stringify({
   description: RENDER_CARDS_DESCRIPTION,
   inputSchema: RENDER_CARDS_INPUT_SCHEMA,
 })}]});
-else if(method==="tools/call")w({content:[{type:"text",text:'{"ok":true}'}]});
+else if(method==="tools/call"){const ms=r?.params?.arguments?.messages;
+const accepted=Array.isArray(ms)?ms.filter(msg).length:0;
+if(accepted===0)w({content:[{type:"text",text:'{"ok":false,"error":"No valid A2UI v1.0 surface messages were accepted. Correct the envelope and call render_cards again."}'}],isError:true});
+else w({content:[{type:"text",text:JSON.stringify({ok:true,accepted})}]})}
 else w({})}});
 `;
 let renderStubPath: string | null = null;
-function ensureRenderStub(): string {
+export function ensureRenderStub(): string {
   if (!renderStubPath) {
     const p = join(tmpdir(), "neko-render-mcp-server.mjs");
     writeFileSync(p, RENDER_MCP_STUB_SOURCE);

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { data_source, db, eq, hasCustomPassword } from "@neko/db";
 import AppHeader from "@/components/AppHeader";
+import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import { AdminDenied } from "@/app/admin/AdminShell";
 import { getCurrentActor } from "@/lib/actor";
@@ -147,12 +148,13 @@ export default async function SettingsPage() {
       <AppHeader>
         <SectionNav current="admin" />
       </AppHeader>
-      <div className="greet">Workspace settings.</div>
-      <div className="greet-sub mb-6">
-        Operator-side configuration. The business onboarding lives at /onboarding.
-      </div>
+      <PageHeading
+        eyebrow="Administration"
+        title="Workspace settings"
+        description="Configure the agent runtime, data access, research, and trust policy."
+      />
 
-      <div className="flex flex-col gap-4 mt-6">
+      <div className="flex flex-col gap-4">
         {cards.map((card) => (
           <Link key={card.href} href={card.href} className="settings-card block no-underline">
             <div className="settings-card-head">

@@ -1,42 +1,70 @@
 import type { ReactNode } from "react";
+import EntryShell from "@/components/EntryShell";
 
 type OnboardingUnavailableProps = {
   retryAction?: ReactNode;
+  mode?: "database" | "workspace";
 };
 
 export default function OnboardingUnavailable({
   retryAction,
+  mode = "database",
 }: OnboardingUnavailableProps) {
+  if (mode === "workspace") {
+    return (
+      <EntryShell
+        eyebrow="Workspace setup"
+        title="An admin needs to finish setup."
+        description="Your personal workspace will open after the organization model has been created."
+      >
+        <div className="entry-section-head">
+          <p className="entry-section-kicker">Waiting for an administrator</p>
+          <h2>Organization setup is incomplete</h2>
+          <p>
+            Ask an OpenNeko admin to finish the business setup. Your own role
+            and priorities come next.
+          </p>
+        </div>
+        <div className="entry-actions is-end">
+          <a href="/onboarding" className="entry-button is-primary">
+            Check again
+          </a>
+        </div>
+      </EntryShell>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-bg px-5 py-10 text-text">
-      <section className="mx-auto mt-[12vh] w-full max-w-[520px] rounded-lg border border-border bg-card p-6 shadow-soft">
-        <p className="m-0 text-[11px] font-bold uppercase tracking-[0.12em] text-text3">
-          Onboarding
-        </p>
-        <h1 className="mt-3 font-display text-[28px] font-extrabold leading-tight text-text">
-          Onboarding is unavailable.
-        </h1>
-        <p className="mt-3 text-[14px] leading-6 text-text2">
+    <EntryShell
+      eyebrow="Recovery"
+      title="Setup needs a connection."
+      description="OpenNeko keeps failure states explicit so configuration problems are recoverable."
+    >
+      <div className="entry-section-head">
+        <p className="entry-section-kicker">Onboarding unavailable</p>
+        <h2>Workspace state could not be read</h2>
+        <p>
           OpenNeko could not read the workspace setup state. Check the database
           settings, then retry.
         </p>
-        <div className="mt-6 flex flex-wrap items-center gap-3">
+      </div>
+      <div className="entry-error" role="alert">
+        The database connection is unavailable. Your onboarding data has not
+        been changed.
+      </div>
+      <div className="entry-actions">
+        <a href="/admin/settings" className="entry-button">
+          Admin settings
+        </a>
+        {retryAction ?? (
           <a
-            href="/admin/settings"
-            className="inline-flex h-10 items-center rounded-control border border-text bg-text px-4 text-[13px] font-semibold text-bg no-underline"
+            href="/onboarding"
+            className="entry-button is-primary"
           >
-            Admin settings
+            Retry
           </a>
-          {retryAction ?? (
-            <a
-              href="/onboarding"
-              className="inline-flex h-10 items-center rounded-control border border-border bg-card px-4 text-[13px] font-semibold text-text no-underline hover:border-text3"
-            >
-              Retry
-            </a>
-          )}
-        </div>
-      </section>
-    </main>
+        )}
+      </div>
+    </EntryShell>
   );
 }

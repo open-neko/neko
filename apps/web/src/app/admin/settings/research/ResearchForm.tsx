@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import AppHeader from "@/components/AppHeader";
+import PageHeading from "@/components/PageHeading";
 import { toast } from "sonner";
 import Select from "@/components/Select";
 import { Button } from "@/components/ui/Button";
@@ -112,10 +113,11 @@ export default function ResearchForm({ initial }: { initial: SettingsPayload }) 
   return (
     <div className="root">
       <AppHeader back={{ href: "/admin/settings", label: "All settings" }} />
-      <div className="greet">Industry research.</div>
-      <div className="greet-sub mb-6">
-        Optional. When enabled, OpenNeko enriches the business profile with industry context during onboarding.
-      </div>
+      <PageHeading
+        eyebrow="Settings · Enrichment"
+        title="Industry research"
+        description="Optionally enrich the business profile with current industry context during onboarding."
+      />
 
       <section className="settings-card">
         <label className="inline-flex items-center gap-2.5 mt-[18px] text-text2 text-[15px]">

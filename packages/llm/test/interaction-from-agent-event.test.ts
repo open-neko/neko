@@ -148,4 +148,34 @@ describe("toInteractionEvents", () => {
   it("drops an empty vitals event entirely", () => {
     expect(toInteractionEvents([{ type: "vitals", items: [] }])).toEqual([]);
   });
+
+  it("maps a sandbox network denial to an honest recovery event", () => {
+    expect(
+      toInteractionEvents([
+        {
+          type: "capability_denied",
+          capability: "network_egress",
+          reason: "policy_denied",
+          host: "wttr.in",
+          port: 80,
+          method: "GET",
+          path: "/Igatpuri",
+        },
+      ]),
+    ).toEqual([
+      {
+        kind: "inform",
+        id: "ie-1",
+        mood: "watch",
+        title: "Network access blocked: wttr.in",
+        body: "Live data was not retrieved. Use an approved integration or contact an administrator.",
+        evidence: [
+          {
+            label: "Denied by sandbox policy",
+            detail: "GET wttr.in:80/Igatpuri",
+          },
+        ],
+      },
+    ]);
+  });
 });

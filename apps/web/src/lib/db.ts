@@ -27,6 +27,7 @@ export type MetricsProgress = {
 
 export type OnboardingStatus =
   | { state: "needs_wizard" }
+  | { state: "needs_persona" }
   | {
       state: "processing";
       jobId: string;
@@ -37,6 +38,7 @@ export type OnboardingStatus =
       state: "ready";
       profileVersion: number;
       seats: string[];
+      mode: "shared" | "personal";
       metricsProgress?: MetricsProgress;
     }
   | { state: "failed"; jobId: string; message: string }

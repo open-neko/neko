@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import DensityToggle from "@/components/DensityToggle";
@@ -71,9 +72,13 @@ export default function AppHeader({ back, children }: AppHeaderProps) {
 
   const updateAvailable =
     latestVersion !== null && latestVersion !== APP_VERSION;
+  const isNavOnly = !back;
+  const hasContext = Boolean(back);
 
   return (
-    <header className="app-header">
+    <header
+      className={`app-header${isNavOnly ? " is-nav-only" : ""}${hasContext ? " has-context" : ""}`}
+    >
       <div className="topbar-inner">
         <a
           className="topbar-brand"
@@ -82,7 +87,7 @@ export default function AppHeader({ back, children }: AppHeaderProps) {
           rel="noreferrer"
           aria-label="OpenNeko — open marketing site in a new tab"
         >
-          <img className="topbar-logo" src="/cat.png" alt="" width={22} height={22} />
+          <Image className="topbar-logo" src="/cat.png" alt="" width={22} height={23} />
           <span className="topbar-name">OpenNeko</span>
         </a>
 

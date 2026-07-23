@@ -48,8 +48,8 @@ export const LLM_RETRY_OPTIONS = {
 function defaultPrimaryConfig(): ResolvedPrimaryProviderConfig {
   return {
     source: "default",
-    provider: "openai",
-    model: getDefaultPrimaryModel("openai"),
+    provider: "google-gemini",
+    model: getDefaultPrimaryModel("google-gemini"),
     enabled: true,
     label: null,
     config: {},

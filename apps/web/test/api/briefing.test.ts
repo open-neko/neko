@@ -149,6 +149,50 @@ describeIfDb("/api/briefing GET", () => {
     expect((card as { chartData?: unknown[] }).chartData).toHaveLength(1);
   });
 
+  it("combines organization signals for a personal SSO workspace", async () => {
+    await db().insert(metric).values([
+      {
+        org_id: orgId,
+        role: "CEO",
+        slug: "company-revenue",
+        source: "bootstrap",
+        title: "Company revenue",
+        why: "Top-line health",
+        chart_hint: "kpi",
+        active: true,
+      },
+      {
+        org_id: orgId,
+        role: "COO",
+        slug: "order-backlog",
+        source: "bootstrap",
+        title: "Order backlog",
+        why: "Delivery pressure",
+        chart_hint: "bar",
+        active: true,
+      },
+    ]);
+
+    const res = await callRoute(GET, {
+      url: "http://localhost/api/briefing?role=__overview__",
+    });
+    const messages = res.body as A2UIMessage[];
+    const create = messages[0] as Extract<A2UIMessage, { createSurface: unknown }>;
+    expect(create.createSurface.surfaceId).toBe("briefing-overview");
+
+    const data = (
+      messages[1] as Extract<A2UIMessage, { updateDataModel: unknown }>
+    ).updateDataModel.value as {
+      role: string;
+      insights: Record<string, unknown>;
+    };
+    expect(data.role).toBe("Overview");
+    expect(Object.keys(data.insights)).toEqual([
+      "company-revenue",
+      "order-backlog",
+    ]);
+  });
+
   it("renders state='pending' when a metric has no snapshot yet", async () => {
     await db().insert(metric).values({
       org_id: orgId,

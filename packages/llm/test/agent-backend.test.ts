@@ -38,8 +38,8 @@ describe("AGENT_BACKEND_OPTIONS / AGENT_BACKEND_IDS integrity", () => {
 });
 
 describe("default concurrency cap", () => {
-  it("globalCap default is positive", () => {
-    expect(AGENT_DEFAULT_GLOBAL_CAP).toBeGreaterThan(0);
+  it("starts three jobs concurrently", () => {
+    expect(AGENT_DEFAULT_GLOBAL_CAP).toBe(3);
   });
 });
 

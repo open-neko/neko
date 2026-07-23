@@ -4,6 +4,7 @@ import {
   appendWorkRunEvent,
   ensureAgentBroker,
   getWorkRun,
+  registerAgentBrokerEventSink,
   runChatTurn,
   scrubAgentEvent,
   type RunChannel,
@@ -65,19 +66,24 @@ export async function runWorkRun(
     getPluginRegistryInstance()?.getRegisteredActionDescriptors() ?? [];
 
   const broker = await ensureAgentBroker();
-
-  const result = await runChatTurn(
-    {
-      orgId,
-      threadId,
-      runId,
-      message,
-      channel,
-      emit,
-      pluginActions,
-    },
-    agentRuntimeDepsFromEnv(broker),
-  );
+  const unregisterBrokerEvents = registerAgentBrokerEventSink(runId, emit);
+  let result;
+  try {
+    result = await runChatTurn(
+      {
+        orgId,
+        threadId,
+        runId,
+        message,
+        channel,
+        emit,
+        pluginActions,
+      },
+      agentRuntimeDepsFromEnv(broker),
+    );
+  } finally {
+    unregisterBrokerEvents();
+  }
 
   // Channel-initiated runs have no other return path — send the reply back to
   // the sender. Web runs (no channelPlugin) stream over SSE instead.

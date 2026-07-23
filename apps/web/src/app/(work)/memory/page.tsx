@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Brain, Pin, Trash2 } from "lucide-react";
+import { Archive, Pin } from "lucide-react";
 import { confirmDialog } from "@/components/ConfirmModal";
+import PageHeading from "@/components/PageHeading";
 
 type MemoryRow = {
   id: string;
@@ -16,7 +17,6 @@ type MemoryRow = {
   lastUsedAt?: string | null;
   archivedAt?: string | null;
   createdAt?: string;
-  updatedAt?: string;
 };
 
 type PendingRow = {
@@ -28,43 +28,90 @@ type PendingRow = {
   reasoning: string | null;
 };
 
+async function fetchMemoryData(signal?: AbortSignal) {
+  const [memoryResponse, pendingResponse] = await Promise.all([
+    fetch("/api/work/memories", { cache: "no-store", signal }),
+    fetch("/api/work/memories/pending", { cache: "no-store", signal }),
+  ]);
+  if (!memoryResponse.ok || !pendingResponse.ok) {
+    throw new Error("Memory could not be loaded.");
+  }
+  const [memoryData, pendingData] = await Promise.all([
+    memoryResponse.json() as Promise<{ memories?: MemoryRow[] }>,
+    pendingResponse.json() as Promise<{ pending?: PendingRow[] }>,
+  ]);
+  return {
+    memories: memoryData.memories ?? [],
+    pending: pendingData.pending ?? [],
+  };
+}
+
 export default function MemoryPage() {
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [pending, setPending] = useState<PendingRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [mRes, pRes] = await Promise.all([
-      fetch("/api/work/memories", { cache: "no-store" }).then((r) => r.json()),
-      fetch("/api/work/memories/pending", { cache: "no-store" }).then((r) => r.json()),
-    ]);
-    setMemories((mRes.memories as MemoryRow[]) ?? []);
-    setPending((pRes.pending as PendingRow[]) ?? []);
-    setLoading(false);
+    setLoading(true);
+    try {
+      const data = await fetchMemoryData();
+      setMemories(data.memories);
+      setPending(data.pending);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Memory could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    const controller = new AbortController();
+    void fetchMemoryData(controller.signal)
+      .then((data) => {
+        setMemories(data.memories);
+        setPending(data.pending);
+        setError(null);
+      })
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted) return;
+        setError(
+          cause instanceof Error ? cause.message : "Memory could not be loaded.",
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, []);
 
   const archive = useCallback(
     async (id: string) => {
       const ok = await confirmDialog({
         title: "Archive this memory?",
-        description: "It stops being injected into future runs.",
+        description: "It will stop being added to future agent runs.",
         confirmLabel: "Archive",
         destructive: true,
       });
       if (!ok) return;
       setBusyId(id);
       try {
-        const res = await fetch(`/api/work/memories/${encodeURIComponent(id)}`, {
-          method: "DELETE",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ reason: "manual archive from /memory" }),
-        });
-        if (res.ok) await refresh();
+        const response = await fetch(
+          `/api/work/memories/${encodeURIComponent(id)}`,
+          {
+            method: "DELETE",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ reason: "manual archive from /memory" }),
+          },
+        );
+        if (!response.ok) throw new Error("Memory could not be archived.");
+        await refresh();
+      } catch (cause) {
+        setError(
+          cause instanceof Error ? cause.message : "Memory could not be archived.",
+        );
       } finally {
         setBusyId(null);
       }
@@ -73,15 +120,26 @@ export default function MemoryPage() {
   );
 
   const decide = useCallback(
-    async (id: string, action: "accept" | "decline", overrides?: { scope?: string; scopeId?: string | null }) => {
+    async (id: string, action: "accept" | "decline") => {
       setBusyId(id);
       try {
-        const res = await fetch("/api/work/memories/decide", {
+        const response = await fetch("/api/work/memories/decide", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ id, action, ...overrides }),
+          body: JSON.stringify({
+            id,
+            action,
+            ...(action === "accept" ? { scope: "global" } : {}),
+          }),
         });
-        if (res.ok) await refresh();
+        if (!response.ok) throw new Error("Memory review could not be saved.");
+        await refresh();
+      } catch (cause) {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Memory review could not be saved.",
+        );
       } finally {
         setBusyId(null);
       }
@@ -92,117 +150,175 @@ export default function MemoryPage() {
   const active = memories.filter((memory) => !memory.archivedAt);
 
   return (
-    <>
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-9 h-9 rounded-xl bg-accent-soft text-accent inline-flex items-center justify-center shrink-0">
-          <Brain size={16} strokeWidth={2} />
-        </div>
-        <div>
-          <div className="font-display text-2xl font-bold leading-[1.1] text-text">Memory</div>
-          <div className="text-[13px] text-text3 mt-0.5">
-            {loading ? "Loading…" : `${active.length} active · ${pending.length} pending`}
+    <div className="library-page memory-library">
+      <PageHeading
+        eyebrow="Knowledge"
+        title="Memory"
+        actions={
+          <div className="library-head-stats" aria-label="Memory status">
+            <div>
+              <strong>{String(active.length).padStart(2, "0")}</strong>
+              <span>active</span>
+            </div>
+            <div data-state={pending.length > 0 ? "attention" : "clear"}>
+              <strong>{String(pending.length).padStart(2, "0")}</strong>
+              <span>pending</span>
+            </div>
           </div>
-        </div>
-      </div>
+        }
+      />
 
-      {pending.length > 0 ? (
-        <section className="mt-7">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-text3 mb-2.5">Pending review · {pending.length}</div>
-          <div className="flex flex-col gap-2.5">
-            {pending.map((item) => (
-              <div key={item.id} className="border border-[#f4d27a] bg-[#fff7e0] rounded-2xl px-4 py-3.5">
-                <div className="flex items-center justify-between gap-3 mb-1.5">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8b6512]">{item.draftKind.replace(/_/g, " ")}</span>
-                  <span className="text-[11px] text-[#b18128] tabular-nums">~{Math.round(item.confidence * 100)}%</span>
-                </div>
-                <div className="text-[13.5px] leading-[1.5] text-[#4a3a16] italic">&ldquo;{item.draftText}&rdquo;</div>
-                {item.reasoning ? (
-                  <div className="mt-1.5 text-xs text-[#8b6512]">{item.reasoning}</div>
-                ) : null}
-                <div className="mt-2.5 flex gap-1.5 flex-wrap">
-                  <button
-                    type="button"
-                    disabled={busyId === item.id}
-                    onClick={() => void decide(item.id, "accept", { scope: "global" })}
-                    className="text-xs px-[11px] py-[5px] rounded-lg border border-[#8b6512] bg-[#8b6512] text-white cursor-pointer transition hover:enabled:bg-[#6b4d10] disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    Save globally
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busyId === item.id}
-                    onClick={() => void decide(item.id, "decline")}
-                    className="text-xs px-[11px] py-[5px] rounded-lg border border-[#e5b95a] bg-white text-[#6b4d10] cursor-pointer transition hover:enabled:bg-[#fff2cc] disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    Decline
-                  </button>
-                </div>
+      <main className="library-main">
+        {error ? (
+          <div className="library-error" role="alert">
+            <div>
+              <strong>Memory unavailable</strong>
+              <span>{error}</span>
+            </div>
+            <button type="button" onClick={() => void refresh()}>
+              Retry
+            </button>
+          </div>
+        ) : null}
+
+        {pending.length > 0 ? (
+          <section className="library-section memory-review">
+            <header className="library-section-head">
+              <div>
+                <span>Review queue</span>
+                <h2>Pending suggestions</h2>
               </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      <section className="mt-7">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-text3 mb-2.5">Saved memories · {active.length}</div>
-        {active.length === 0 ? (
-          <div className="bg-card border border-dashed border-border rounded-2xl px-4 py-3.5 text-[13px] leading-[1.55] text-text3">
-            Nothing saved yet. Memories appear here when you tell the agent to remember something,
-            or when the auto-classifier promotes a turn into a stable rule.
-          </div>
-        ) : (
-          <ul className="list-none p-0 m-0 flex flex-col gap-2">
-            {active.map((memory) => (
-              <li key={memory.id} className="group relative flex items-start gap-2 p-1 bg-card border border-border rounded-2xl text-inherit list-none">
-                <div className="flex-1 min-w-0 flex flex-col gap-1 px-3 py-2.5 rounded-[10px]">
-                  <div className="flex flex-wrap items-center gap-2.5 text-[11.5px] text-text3">
-                    <span className="inline-flex items-center gap-1 bg-black/5 text-text2 px-2 py-0.5 rounded-full text-[11px] font-medium">{memory.kind.replace(/_/g, " ")}</span>
-                    <span>
-                      {memory.scope}
-                      {memory.scopeId ? `:${memory.scopeId.slice(0, 8)}` : ""}
-                    </span>
-                    {memory.pinned ? (
-                      <span className="inline-flex items-center gap-1 bg-black/5 text-text2 px-2 py-0.5 rounded-full text-[11px] font-medium">
-                        <Pin size={11} strokeWidth={2} /> pinned
-                      </span>
-                    ) : null}
-                    {memory.useCount && memory.useCount > 0 ? (
-                      <span>used {memory.useCount}×</span>
-                    ) : null}
+              <strong>{String(pending.length).padStart(2, "0")}</strong>
+            </header>
+            <ol className="memory-review-list">
+              {pending.map((item, index) => (
+                <li key={item.id} className="memory-review-row">
+                  <span className="library-index">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <div className="memory-review-copy">
+                    <div className="memory-review-meta">
+                      <span>{humanize(item.draftKind)}</span>
+                      <span>{item.draftScope}</span>
+                      <span>{Math.round(item.confidence * 100)}% confidence</span>
+                    </div>
+                    <p>{item.draftText}</p>
+                    {item.reasoning ? <small>{item.reasoning}</small> : null}
                   </div>
-                  <div className="text-[13.5px] leading-[1.5] text-text my-0.5">{memory.text}</div>
-                  {memory.createdAt ? (
-                    <div className="flex flex-wrap items-center gap-2.5 text-[11.5px] text-text3">
-                      <span>created {formatDate(memory.createdAt)}</span>
-                      {memory.lastUsedAt ? (
-                        <span>last used {formatDate(memory.lastUsedAt)}</span>
+                  <div className="memory-review-actions">
+                    <button
+                      type="button"
+                      className="is-primary"
+                      disabled={busyId === item.id}
+                      onClick={() => void decide(item.id, "accept")}
+                    >
+                      Save globally
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId === item.id}
+                      onClick={() => void decide(item.id, "decline")}
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
+
+        <section className="library-section memory-saved">
+          <header className="library-section-head">
+            <div>
+              <span>Agent context</span>
+              <h2>Saved memories</h2>
+            </div>
+            <strong>{String(active.length).padStart(2, "0")}</strong>
+          </header>
+
+          {loading ? (
+            <div className="library-loading" role="status" aria-label="Loading memories">
+              <span />
+              <span />
+              <span />
+            </div>
+          ) : active.length === 0 ? (
+            <div className="library-empty">
+              <strong>No saved memory</strong>
+              <span>
+                Stable facts and instructions appear here after you ask OpenNeko
+                to remember them.
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="memory-table-head" aria-hidden="true">
+                <span />
+                <span>Kind</span>
+                <span>Memory</span>
+                <span>Scope</span>
+                <span>Usage</span>
+                <span />
+              </div>
+              <ol className="memory-index">
+                {active.map((memory, index) => (
+                  <li key={memory.id} className="memory-index-row">
+                    <span className="library-index">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <div className="memory-kind">
+                      <span>{humanize(memory.kind)}</span>
+                      {memory.pinned ? (
+                        <small>
+                          <Pin aria-hidden="true" strokeWidth={2} />
+                          pinned
+                        </small>
                       ) : null}
                     </div>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  disabled={busyId === memory.id}
-                  onClick={() => void archive(memory.id)}
-                  aria-label="Archive memory"
-                  title="Archive memory"
-                  className="mt-1.5 mr-1.5 w-9 h-9 rounded-[9px] bg-transparent border-0 text-text3 inline-flex items-center justify-center transition opacity-0 pointer-events-none cursor-pointer hover:bg-[rgba(220,53,69,0.1)] hover:text-[var(--danger-hover)] disabled:opacity-50 disabled:cursor-not-allowed group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto [@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto"
-                >
-                  <Trash2 size={14} strokeWidth={2} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </>
+                    <p>{memory.text}</p>
+                    <div className="memory-scope">
+                      <span>{memory.scope}</span>
+                      {memory.scopeId ? <small>{memory.scopeId.slice(0, 8)}</small> : null}
+                    </div>
+                    <div className="memory-usage">
+                      <span>{memory.useCount ?? 0} uses</span>
+                      <small>
+                        {memory.lastUsedAt
+                          ? `last ${formatDate(memory.lastUsedAt)}`
+                          : memory.createdAt
+                            ? `saved ${formatDate(memory.createdAt)}`
+                            : "not used"}
+                      </small>
+                    </div>
+                    <button
+                      type="button"
+                      className="memory-archive"
+                      disabled={busyId === memory.id}
+                      onClick={() => void archive(memory.id)}
+                      aria-label="Archive memory"
+                      title="Archive memory"
+                    >
+                      <Archive aria-hidden="true" strokeWidth={1.9} />
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+        </section>
+      </main>
+    </div>
   );
+}
+
+function humanize(value: string): string {
+  return value.replace(/_/g, " ");
 }
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString("en-IN", {
     month: "short",
     day: "numeric",
-    year: "numeric",
   });
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import AppHeader from "@/components/AppHeader";
+import PageHeading from "@/components/PageHeading";
 import { Button } from "@/components/ui/Button";
 
 type Row = {
@@ -56,12 +57,11 @@ export default function IntegrationsList({ initial }: { initial: Row[] }) {
   return (
     <div className="root">
       <AppHeader />
-      <div className="greet">Integrations.</div>
-      <div className="greet-sub mb-6">
-        Connect external accounts so OpenNeko can act on your behalf.
-        Each operator connects independently — credentials never leave
-        your deployment.
-      </div>
+      <PageHeading
+        eyebrow="Workspace connections"
+        title="Integrations"
+        description="Connect external accounts for agent actions. Each operator authorizes independently, and credentials remain in this deployment."
+      />
       {rows.length === 0 ? (
         <p className="text-[14px] text-text3 mt-4">
           No connect-capable plugins installed. Install one with{" "}

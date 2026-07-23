@@ -23,19 +23,25 @@ import {
 import {
   customer_profile,
   db,
+  operator_profile,
   pool,
   processing_job,
 } from "@neko/db";
 import { callRoute } from "../_helpers/route";
 
-const { mockGetOrgId } = vi.hoisted(() => ({
+const { mockGetOrgId, mockGetCurrentActor } = vi.hoisted(() => ({
   mockGetOrgId: vi.fn(),
+  mockGetCurrentActor: vi.fn(),
 }));
 
 vi.mock("@/lib/db", async () => {
   const actual = await vi.importActual<typeof import("@/lib/db")>("@/lib/db");
   return { ...actual, getOrgId: mockGetOrgId };
 });
+
+vi.mock("@/lib/actor", () => ({
+  getCurrentActor: mockGetCurrentActor,
+}));
 
 const reachable = await dbReachable();
 const describeIfDb = reachable ? describe : describe.skip;
@@ -87,6 +93,7 @@ describeIfDb("/api/onboarding/status GET (enriched)", () => {
     orgId = uniqueOrgId("api-onboarding-status");
     await createTestOrg(orgId);
     mockGetOrgId.mockResolvedValue(orgId);
+    mockGetCurrentActor.mockResolvedValue({ userId: null, role: "admin" });
   });
 
   afterEach(async () => {
@@ -176,6 +183,48 @@ describeIfDb("/api/onboarding/status GET (enriched)", () => {
       total: 2,
       completed: 0,
       failed: 0,
+    });
+  });
+
+  it("requires an exact personal persona for an SSO user", async () => {
+    await db().insert(customer_profile).values({
+      org_id: orgId,
+      version: 1,
+      is_current: true,
+      business_profile: "test",
+    });
+    mockGetCurrentActor.mockResolvedValue({
+      userId: "user-personal",
+      role: "member",
+    });
+
+    const res = await callRoute(GET);
+    expect(res.body).toEqual({ state: "needs_persona" });
+  });
+
+  it("removes shared role views after an SSO user defines their persona", async () => {
+    await db().insert(customer_profile).values({
+      org_id: orgId,
+      version: 1,
+      is_current: true,
+      business_profile: "test",
+    });
+    await db().insert(operator_profile).values({
+      org_id: orgId,
+      user_id: "user-personal",
+      role_template: "Head of EU wholesale operations",
+      focus_areas: ["Stock-outs"],
+    });
+    mockGetCurrentActor.mockResolvedValue({
+      userId: "user-personal",
+      role: "member",
+    });
+
+    const res = await callRoute(GET);
+    expect(res.body).toMatchObject({
+      state: "ready",
+      mode: "personal",
+      seats: [],
     });
   });
 });

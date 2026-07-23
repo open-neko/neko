@@ -60,7 +60,11 @@ import {
 import type { PluginActionDescriptor } from "./tools";
 import { createToolOutputRecorder } from "./tool-output/metrics";
 import { runAgentBackend } from "./agent-core";
-import type { AgentControlPlane } from "./control-plane";
+import {
+  inProcessControlPlane,
+  type AgentControlPlane,
+  type PluginCatalog,
+} from "./control-plane";
 import {
   ensureWorkWorkspace as defaultEnsureWorkWorkspace,
   listInstalledSkills as defaultListInstalledSkills,
@@ -139,6 +143,47 @@ function stripDanglingToolCalls(text: string): string {
     .trim();
 }
 
+function collectStrings(value: unknown, depth = 0): string[] {
+  if (depth > 5 || value == null) return [];
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectStrings(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).flatMap((item) =>
+      collectStrings(item, depth + 1),
+    );
+  }
+  return [];
+}
+
+/**
+ * OpenShell returns policy denials inside tool output JSON. Convert that
+ * implementation detail into a channel-neutral event while the exact host is
+ * still available. Exported for focused regression tests.
+ */
+export function extractNetworkPolicyDenial(
+  event: AgentEvent,
+): Extract<AgentEvent, { type: "capability_denied" }> | null {
+  if (event.type !== "tool_end") return null;
+  const text = [event.error ?? "", ...collectStrings(event.result)].join("\n");
+  if (!/policy_denied|not permitted by policy/i.test(text)) return null;
+  const match = text.match(
+    /\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+([a-z0-9.-]+)(?::(\d+))?(\/[^\s"'\\]*)?\s+not permitted by policy/i,
+  );
+  if (!match) return null;
+  const port = match[3] ? Number(match[3]) : undefined;
+  return {
+    type: "capability_denied",
+    capability: "network_egress",
+    reason: "policy_denied",
+    host: match[2].toLowerCase(),
+    ...(Number.isFinite(port) ? { port } : {}),
+    method: match[1].toUpperCase(),
+    ...(match[4] ? { path: match[4] } : {}),
+  };
+}
+
 export async function runChatTurn(
   opts: RunChatTurnOptions,
   deps: Partial<RunChatTurnDeps> = {},
@@ -189,12 +234,21 @@ export async function runChatTurn(
   // and record output size. Flag-gated (OPENNEKO_TOOL_OUTPUT_METRICS) — see
   // work/tool-output/metrics.ts.
   const toolRecorder = createToolOutputRecorder();
+  const emittedCapabilityDenials = new Set<string>();
   const wrappedEmit = async (event: AgentEvent): Promise<void> => {
     if (event.type === "message" && event.role === "assistant") {
       assistantText += event.content;
     }
     toolRecorder.observe(event);
     await emit(event);
+    const denial = extractNetworkPolicyDenial(event);
+    if (denial) {
+      const key = `${denial.host}:${denial.port ?? 443}`;
+      if (!emittedCapabilityDenials.has(key)) {
+        emittedCapabilityDenials.add(key);
+        await emit(denial);
+      }
+    }
   };
 
   const graphjinBinary = await resolveBinaryOnPath("graphjin");
@@ -263,6 +317,7 @@ export async function runChatTurn(
     const supportsMemoryTool = backend.capabilities.mcpTools;
     const supportsWorkflowTool = backend.capabilities.mcpTools;
     const supportsPolicyTool = backend.capabilities.mcpTools;
+    const supportsPluginManagerTool = backend.capabilities.mcpTools;
     const sourceConfigSettings = await getGraphjinConfigSettingsForOrg(orgId);
     const supportsSourceConfigTool =
       backend.capabilities.mcpTools &&
@@ -320,6 +375,26 @@ export async function runChatTurn(
       getOperatorProfile(orgId, actor.userId),
     ]);
     const operatorProfile = buildOperatorProfileSection(profile);
+    let pluginCatalog: PluginCatalog | undefined;
+    const mayNeedCapabilityRecovery =
+      /\b(integration|plugin|network|egress|live data|external api|weather)\b/i.test(
+        message,
+      );
+    if (
+      !supportsPluginManagerTool &&
+      actor.role === "admin" &&
+      mayNeedCapabilityRecovery
+    ) {
+      try {
+        pluginCatalog = await (opts.controlPlane ?? inProcessControlPlane).listPlugins({
+          orgId,
+        });
+      } catch (error) {
+        console.warn(
+          `[work-run] marketplace lookup failed: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
 
     const prompt = buildWorkPrompt({
       backend: backend.id,
@@ -338,6 +413,8 @@ export async function runChatTurn(
       supportsWorkflowTool,
       supportsPolicyTool,
       supportsSourceConfigTool,
+      supportsPluginManagerTool,
+      pluginCatalog,
       inlineTranscript,
       pluginActions: opts.pluginActions ?? [],
     });
@@ -533,9 +610,9 @@ export async function runChatTurn(
     }
 
     // The answer's headline numbers — channel-agnostic content, emitted as an
-    // event each channel renders its own way (the web rail as a tile grid).
+    // event each channel renders in the answer that produced them.
     const vitals = extractVitalsFence(fenceSource);
-    if (vitals.payload && vitals.payload.vitals.length > 0) {
+    if (vitals.payload) {
       await wrappedEmit({
         type: "vitals",
         items: vitals.payload.vitals,

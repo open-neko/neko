@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
+import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import EditableMarkdown from "@/components/EditableMarkdown";
 import { Button } from "@/components/ui/Button";
@@ -51,6 +52,7 @@ export default function ProcessingPage() {
   const [profile, setProfile] = useState("");
   const [insights, setInsights] = useState("");
   const [insightsStatus, setInsightsStatus] = useState<InsightsStatus>("processing");
+  const [needsPersona, setNeedsPersona] = useState(false);
   const profileEditedRef = useRef(false);
   const insightsEditedRef = useRef(false);
 
@@ -107,7 +109,8 @@ export default function ProcessingPage() {
         try {
           const res = await fetch("/api/onboarding/status");
           const status = await res.json();
-          if (status.state === "ready") {
+          if (status.state === "ready" || status.state === "needs_persona") {
+            setNeedsPersona(status.state === "needs_persona");
             const pRes = await fetch("/api/profile");
             if (pRes.ok) {
               const data = await pRes.json();
@@ -233,12 +236,16 @@ export default function ProcessingPage() {
       message = FALLBACK_DEFAULT;
     }
     return (
-      <div className="root" style={{ textAlign: "center" }}>
+      <div className="root">
         <AppHeader>
           <SectionNav current="business-profile" />
         </AppHeader>
-        <div className="greet" style={{ marginTop: 48 }}>Setting things up.</div>
-        <div className="greet-sub">Check back in a moment.</div>
+        <PageHeading
+          eyebrow="Knowledge · Business model"
+          title="Building the profile"
+          description="OpenNeko is turning your onboarding brief into operating context for future answers and monitoring."
+          meta="in progress"
+        />
         <StageStrip current={stageKind} />
         <div
           key={message}
@@ -258,16 +265,16 @@ export default function ProcessingPage() {
       <AppHeader>
         <SectionNav current="business-profile" />
       </AppHeader>
-      <div className="greet" style={{ marginTop: 40, animation: "fadeUp 0.5s ease 0.1s both" }}>
-        Here&apos;s what we found.
-      </div>
-      <div className="greet-sub" style={{ animation: "fadeUp 0.5s ease 0.15s both" }}>
-        A quick look at your business before we continue.
-      </div>
+      <PageHeading
+        eyebrow="Knowledge · Business model"
+        title="Business profile"
+        description="Review and refine the operating context OpenNeko uses in briefings, answers, and agent runs."
+        meta={insightsPending ? "research running" : "ready"}
+      />
 
       <div
         className="pills"
-        style={{ marginTop: 24, animation: "fadeUp 0.5s ease 0.2s both" }}
+        style={{ animation: "fadeUp 0.5s ease 0.12s both" }}
       >
         <button
           className={`pill${tab === "profile" ? " on" : ""}`}
@@ -353,10 +360,10 @@ export default function ProcessingPage() {
           className="px-8 py-3.5 text-[15px]"
           onClick={async () => {
             await flushAll();
-            router.replace("/");
+            router.replace(needsPersona ? "/onboarding" : "/");
           }}
         >
-          Continue to your briefing
+          {needsPersona ? "Continue to personal setup" : "Continue to your briefing"}
         </Button>
         {insights && insightsStatus !== "disabled" && (
           <Button

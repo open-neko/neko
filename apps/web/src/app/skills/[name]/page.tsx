@@ -2,10 +2,9 @@
 
 import { use as usePromise, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { FileText, Sparkles } from "lucide-react";
+import { ArrowLeft, FileText } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import AppHeader from "@/components/AppHeader";
-import CreatorCredit from "@/components/CreatorCredit";
+import PageHeading from "@/components/PageHeading";
 
 function stripFrontmatter(markdown: string): string {
   return markdown.replace(/^---\n[\s\S]*?\n---\n?/, "").trimStart();
@@ -16,7 +15,6 @@ type SkillDetail = {
   description: string;
   fileCount: number;
   updatedAt: string;
-  path: string;
   skillMarkdown: string;
   files: Array<{ path: string; bytes: number }>;
 };
@@ -25,103 +23,169 @@ type PageProps = {
   params: Promise<{ name: string }>;
 };
 
+async function fetchSkill(
+  name: string,
+  signal?: AbortSignal,
+): Promise<SkillDetail | null> {
+  const response = await fetch(`/api/work/skills/${encodeURIComponent(name)}`, {
+    cache: "no-store",
+    signal,
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("Skill could not be loaded.");
+  const data = (await response.json()) as { skill: SkillDetail };
+  return data.skill;
+}
+
 export default function SkillDetailPage({ params }: PageProps) {
   const { name } = usePromise(params);
   const [skill, setSkill] = useState<SkillDetail | null>(null);
-  const [notFound, setNotFound] = useState(false);
+  const [state, setState] = useState<"loading" | "ready" | "missing" | "error">(
+    "loading",
+  );
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/work/skills/${encodeURIComponent(name)}`, { cache: "no-store" });
-    if (!res.ok) {
-      setNotFound(true);
-      return;
+    setState("loading");
+    try {
+      const nextSkill = await fetchSkill(name);
+      if (!nextSkill) {
+        setState("missing");
+        return;
+      }
+      setSkill(nextSkill);
+      setState("ready");
+    } catch {
+      setState("error");
     }
-    const data = (await res.json()) as { skill: SkillDetail };
-    setSkill(data.skill);
   }, [name]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    const controller = new AbortController();
+    void fetchSkill(name, controller.signal)
+      .then((nextSkill) => {
+        if (!nextSkill) {
+          setState("missing");
+          return;
+        }
+        setSkill(nextSkill);
+        setState("ready");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setState("error");
+      });
+    return () => controller.abort();
+  }, [name]);
 
-  if (notFound) {
+  if (state !== "ready" || !skill) {
     return (
-      <>
-        <div className="root">
-          <AppHeader back={{ href: "/skills", label: "All skills" }} />
-          <div className="bg-card border border-dashed border-border rounded-2xl px-[22px] py-5 text-[13.5px] leading-[1.55] text-text3">
-            Skill not found.{" "}
-            <Link href="/skills" className="text-accent no-underline hover:underline">
-              Back to skills
+      <div className="library-page skill-detail-page">
+        <PageHeading
+          eyebrow={
+            <Link href="/skills" className="skill-back-link">
+              <ArrowLeft aria-hidden="true" strokeWidth={2} />
+              Skills
             </Link>
-            .
-          </div>
-        </div>
-        <CreatorCredit />
-      </>
-    );
-  }
-
-  if (!skill) {
-    return (
-      <>
-        <div className="root">
-          <AppHeader back={{ href: "/skills", label: "All skills" }} />
-          <div className="bg-card border border-dashed border-border rounded-2xl px-[22px] py-5 text-[13.5px] leading-[1.55] text-text3">Loading…</div>
-        </div>
-        <CreatorCredit />
-      </>
+          }
+          title={state === "loading" ? "Loading skill" : "Skill unavailable"}
+        />
+        <main className="library-main">
+          {state === "loading" ? (
+            <div className="library-loading" role="status" aria-label="Loading skill">
+              <span />
+              <span />
+              <span />
+            </div>
+          ) : (
+            <div className="library-error" role="alert">
+              <div>
+                <strong>{state === "missing" ? "Skill not found" : "Load failed"}</strong>
+                <span>
+                  {state === "missing"
+                    ? "This skill is no longer in the organization workspace."
+                    : "OpenNeko could not read this skill."}
+                </span>
+              </div>
+              {state === "error" ? (
+                <button type="button" onClick={() => void load()}>
+                  Retry
+                </button>
+              ) : (
+                <Link href="/skills">All skills</Link>
+              )}
+            </div>
+          )}
+        </main>
+      </div>
     );
   }
 
   return (
-    <>
-      <div className="root">
-        <AppHeader back={{ href: "/skills", label: "All skills" }} />
-
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-9 h-9 rounded-xl bg-accent-soft text-accent inline-flex items-center justify-center shrink-0">
-            <Sparkles size={16} strokeWidth={2} />
+    <div className="library-page skill-detail-page">
+      <PageHeading
+        eyebrow={
+          <Link href="/skills" className="skill-back-link">
+            <ArrowLeft aria-hidden="true" strokeWidth={2} />
+            Skills
+          </Link>
+        }
+        title={skill.name}
+        actions={
+          <div className="library-head-stats" aria-label="Skill details">
+            <div>
+              <strong>{String(skill.fileCount).padStart(2, "0")}</strong>
+              <span>{skill.fileCount === 1 ? "file" : "files"}</span>
+            </div>
+            <div>
+              <strong>{formatShortDate(skill.updatedAt)}</strong>
+              <span>updated</span>
+            </div>
           </div>
-          <div>
-            <div className="font-display text-2xl font-bold leading-[1.1] text-text">{skill.name}</div>
-            {skill.description ? (
-              <div className="text-[13px] text-text3 mt-0.5">{skill.description}</div>
-            ) : null}
-          </div>
-        </div>
+        }
+      />
 
-        <section className="mt-7">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-text3 mb-2.5">Location</div>
-          <div className="font-mono text-xs text-text2 bg-card border border-border rounded-xl px-3 py-2.5 break-all">{skill.path}</div>
-        </section>
+      <main className="skill-detail-workspace">
+        <aside className="skill-manifest">
+          <section>
+            <span className="skill-detail-label">Files</span>
+            <ol>
+              {skill.files.map((file, index) => (
+                <li key={file.path}>
+                  <span className="library-index">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <FileText aria-hidden="true" strokeWidth={1.9} />
+                  <span>{file.path}</span>
+                  <small>{formatBytes(file.bytes)}</small>
+                </li>
+              ))}
+            </ol>
+          </section>
+        </aside>
 
-        <section className="mt-7">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-text3 mb-2.5">Files</div>
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
-            {skill.files.map((file) => (
-              <div
-                key={file.path}
-                className="flex items-center justify-between gap-3 px-3 py-2 text-[12.5px] border-t border-border first:border-t-0"
-              >
-                <span className="inline-flex items-center gap-2 text-text font-mono text-xs min-w-0">
-                  <FileText size={12} strokeWidth={2} className="text-text3 shrink-0" />
-                  <span className="whitespace-nowrap overflow-hidden text-ellipsis">{file.path}</span>
-                </span>
-                <span className="font-mono text-[11.5px] text-text3 tabular-nums shrink-0">{file.bytes.toLocaleString()} B</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="mt-7">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-text3 mb-2.5">SKILL.md</div>
+        <article className="skill-instructions">
+          {skill.description ? (
+            <p className="skill-detail-summary">{skill.description}</p>
+          ) : null}
+          <header>
+            <span>Primary instruction</span>
+            <h2>SKILL.md</h2>
+          </header>
           <div className="library-markdown">
             <ReactMarkdown>{stripFrontmatter(skill.skillMarkdown)}</ReactMarkdown>
           </div>
-        </section>
-      </div>
-      <CreatorCredit />
-    </>
+        </article>
+      </main>
+    </div>
   );
+}
+
+function formatShortDate(value: string): string {
+  return new Date(value)
+    .toLocaleDateString("en-IN", { month: "short", day: "numeric" })
+    .toUpperCase();
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(bytes < 10_240 ? 1 : 0)} KB`;
 }

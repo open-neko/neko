@@ -7,6 +7,7 @@ import {
 import {
   appendWorkRunEvent,
   ensureAgentBroker,
+  registerAgentBrokerEventSink,
   scrubAgentEvent,
   workflowRuntimeDepsFromEnv,
 } from "@neko/llm/work";
@@ -63,6 +64,10 @@ export async function runWorkflowRunFire(
   // (not a hard failure with an opaque "ACP client disposed" error).
   const abort = new AbortController();
   const unregister = registerAgentCanceller(() => abort.abort());
+  const unregisterBrokerEvents = registerAgentBrokerEventSink(
+    prepared.workRunId,
+    emit,
+  );
   let result;
   try {
     result = await runWorkflowTurn(
@@ -77,6 +82,7 @@ export async function runWorkflowRunFire(
       workflowRuntimeDepsFromEnv(broker),
     );
   } finally {
+    unregisterBrokerEvents();
     unregister();
   }
 

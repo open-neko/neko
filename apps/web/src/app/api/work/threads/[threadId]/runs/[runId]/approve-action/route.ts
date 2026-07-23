@@ -87,6 +87,21 @@ export async function POST(request: NextRequest, context: RouteContext) {
     );
   }
   if (req.status !== "pending_approval") {
+    if (
+      (decision === "approve" &&
+        (req.status === "approved" ||
+          req.status === "executed" ||
+          req.status === "failed")) ||
+      (decision === "reject" && req.status === "rejected")
+    ) {
+      return NextResponse.json({
+        ok: true,
+        decision:
+          decision === "approve" ? "already_approved" : "already_rejected",
+        action_request_id: req.id,
+        status: req.status,
+      });
+    }
     return NextResponse.json(
       {
         error: `action_request status is "${req.status}"; only pending_approval can be approved or rejected`,

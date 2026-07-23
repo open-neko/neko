@@ -20,7 +20,7 @@ export default function OnboardingError({
         <button
           type="button"
           onClick={reset}
-          className="inline-flex h-10 cursor-pointer items-center rounded-control border border-border bg-card px-4 font-body text-[13px] font-semibold text-text hover:border-text3"
+          className="entry-button is-primary"
         >
           Retry
         </button>

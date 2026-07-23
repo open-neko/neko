@@ -6,6 +6,7 @@ import {
 import {
   ensureAgentBroker,
   getWorkRun,
+  registerAgentBrokerEventSink,
   workflowRuntimeDepsFromEnv,
 } from "@neko/llm/work";
 import {
@@ -69,6 +70,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   const pluginActions = await getPluginActionDescriptors();
   const broker = await ensureAgentBroker();
+  const unregisterBrokerEvents = registerAgentBrokerEventSink(
+    prepared.workRunId,
+    emit,
+  );
 
   void runWorkflowTurn(
     {
@@ -104,6 +109,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
     })
     .finally(async () => {
+      unregisterBrokerEvents();
       try {
         await finalize();
       } catch (err) {

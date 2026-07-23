@@ -5,10 +5,13 @@ import {
   ArrowUp,
   Check,
   Copy,
+  History,
   Loader2,
   Paperclip,
   Pencil,
+  Plus,
   RefreshCw,
+  ShieldCheck,
   Square,
   Workflow,
   X,
@@ -16,6 +19,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 // Matches paths to agent-generated/uploaded files inside the per-org workspace.
@@ -96,6 +100,7 @@ import {
   linkifyWorkspacePaths,
 } from "@/lib/linkify-workspace-paths";
 import BriefingCard from "@/components/BriefingCard";
+import WorkHistoryDrawer from "@/components/WorkHistoryDrawer";
 import {
   ActionRequestCard,
   RuleSavedCard,
@@ -115,13 +120,17 @@ import { renderComponent, renderChildren } from "@/a2ui/renderer";
 import { applyMessage, getRootComponent, setDataModelValue } from "@/a2ui/surface";
 import { buildActionFollowUp } from "@/a2ui/action";
 import type { SurfaceState, A2UIMessage } from "@/a2ui/types";
-import {
-  useWorkShell,
-  type RailArtifact,
-  type RailSource,
-  type RailVital,
-} from "../work-shell-context";
-import { ANALYSIS_FLOOR_MIN, formatSavedShort } from "@/lib/hours-saved";
+import { useWorkShell } from "../work-shell-context";
+import { formatSavedShort } from "@/lib/hours-saved";
+
+type AnswerVital = {
+  label: string;
+  value: string;
+  sub?: string;
+  basis?: "observed" | "calculated" | "estimated";
+  asOf?: string;
+  source?: string;
+};
 
 type MessageRecord = {
   id: string;
@@ -139,9 +148,11 @@ type RunRecord = {
   createdAt: string;
   finishedAt: string | null;
   analysisMinutesSaved?: number | null;
+  analysisMinutesBasis?: string | null;
+  actorRole?: "admin" | "member" | "service" | null;
 };
 
-type WorkEvent =
+export type WorkEvent =
   | { type: "hello"; runId: string; threadId: string; backend?: RunRecord["backend"] }
   // `content` is a delta — concatenating all message events for a run
   // reconstructs the full assistant text. Mirrors `AgentEvent.message` in
@@ -154,6 +165,15 @@ type WorkEvent =
   | { type: "artifact"; artifact: { path: string; label: string; mimeType?: string } }
   | { type: "status"; message: string }
   | { type: "error"; message: string }
+  | {
+      type: "capability_denied";
+      capability: "network_egress";
+      reason: "policy_denied";
+      host: string;
+      port?: number;
+      method?: string;
+      path?: string;
+    }
   | {
       type: "action_request_emit";
       action_request_id: string;
@@ -178,7 +198,7 @@ type WorkEvent =
       rejection_reason?: string;
     }
   | { type: "followups"; items: string[] }
-  | { type: "vitals"; items: RailVital[] }
+  | { type: "vitals"; items: AnswerVital[] }
   | { type: "done"; result?: unknown };
 
 type ThreadBundle = {
@@ -229,16 +249,6 @@ function fileExtension(name: string): string {
   const idx = name.lastIndexOf(".");
   return idx > 0 ? name.slice(idx).toLowerCase() : "";
 }
-
-type MemoryRecord = {
-  id: string;
-  kind: string;
-  scope: string;
-  scopeId: string | null;
-  text: string;
-  pinned: boolean;
-  confidence: number;
-};
 
 type PendingMemory = {
   id: string;
@@ -316,8 +326,6 @@ export default function WorkScreen() {
     typeof params?.threadId === "string" ? params.threadId : null;
   const {
     setActiveRunId,
-    setRailArtifacts,
-    setRailContext,
     insertComposerRef,
     submitFollowUpRef,
   } = useWorkShell();
@@ -325,7 +333,6 @@ export default function WorkScreen() {
   const [gateError, setGateError] = useState<string | null>(null);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [bundle, setBundle] = useState<ThreadBundle | null>(null);
-  const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [pendingMemories, setPendingMemories] = useState<PendingMemory[]>([]);
   const [draft, setDraft] = useState(() => searchParams?.get("seed") ?? "");
   const [files, setFiles] = useState<File[]>([]);
@@ -343,6 +350,7 @@ export default function WorkScreen() {
   const [sending, setSending] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [activeRunId, setActiveRunIdState] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -383,7 +391,10 @@ export default function WorkScreen() {
           setGateChecked(true);
           return;
         }
-        if (status.state === "needs_wizard") {
+        if (
+          status.state === "needs_wizard" ||
+          status.state === "needs_persona"
+        ) {
           router.replace("/onboarding");
           return;
         }
@@ -404,11 +415,6 @@ export default function WorkScreen() {
     })();
     return () => { cancelled = true; };
   }, [router]);
-
-  useEffect(() => {
-    if (!gateChecked || gateError) return;
-    void loadMemories();
-  }, [gateChecked, gateError]);
 
   // React to URL thread changes. The /work page (no threadId) is the new-thread
   // state: clear the screen and let the composer create a thread on first send.
@@ -460,93 +466,6 @@ export default function WorkScreen() {
     };
   });
 
-  // Derive this thread's rail context from the run's own output. Vitals and
-  // follow-ups are channel-agnostic CONTENT the agent emits (the web channel
-  // renders them as a tile grid / chips — another channel could read them
-  // aloud). Sources touched are parsed from the data tools the agent actually
-  // called (a fact about the run); artifacts come from artifact events. The
-  // latest answer in the thread wins for vitals and follow-ups.
-  useEffect(() => {
-    if (!bundle) {
-      setRailArtifacts([]);
-      setRailContext({ vitals: [], sources: [], followups: [] });
-      return;
-    }
-    const arts: RailArtifact[] = [];
-    const seenArt = new Set<string>();
-    const sourceMap = new Map<string, RailSource>();
-    let vitals: RailVital[] = [];
-    let followups: string[] = [];
-    const addSource = (raw: string) => {
-      const name = raw.trim().toLowerCase();
-      if (name.length < 2 || sourceMap.has(name)) return;
-      sourceMap.set(name, { name });
-    };
-    for (const events of Object.values(bundle.eventsByRun)) {
-      for (const ev of events) {
-        if (ev.type === "artifact" && ev.artifact && !seenArt.has(ev.artifact.path)) {
-          seenArt.add(ev.artifact.path);
-          arts.push({
-            path: ev.artifact.path,
-            label: ev.artifact.label,
-            mimeType: ev.artifact.mimeType,
-          });
-        } else if (ev.type === "tool_start") {
-          const title =
-            typeof (ev.input as { title?: unknown })?.title === "string"
-              ? (ev.input as { title: string }).title
-              : "";
-          if (title) {
-            // graphjin table args: {"table":"x"} / {"from_table":"x"} / {"to_table":"x"}
-            for (const m of title.matchAll(
-              /"(?:from_table|to_table|table)"\s*:\s*"([a-z0-9_]+)"/gi,
-            )) {
-              addSource(m[1]);
-            }
-            // execute_graphql root field: {"query":"{ <table>( …
-            const q = title.match(/"query"\s*:\s*"\{\s*([a-z_][a-z0-9_]*)/i);
-            if (q) addSource(q[1]);
-          }
-        } else if (ev.type === "followups" && Array.isArray(ev.items)) {
-          followups = ev.items;
-        } else if (ev.type === "vitals" && Array.isArray(ev.items)) {
-          vitals = ev.items;
-        }
-      }
-    }
-    setRailArtifacts(arts);
-    // Hours saved is the product's signature tile: it ALWAYS holds the last
-    // vital slot. The run's self-estimate is preferred (latest run wins); when
-    // a substantive answer completed but the agent skipped its estimate (the
-    // closing value block occasionally gets dropped on long turns), fall back
-    // to a conservative display floor so the slot is never blank. Content
-    // vitals fill the first three slots before it.
-    let savedMinutes: number | null = null;
-    let hasCompletedRun = false;
-    for (const run of bundle.runs) {
-      if (run.status === "completed") hasCompletedRun = true;
-      if (typeof run.analysisMinutesSaved === "number") {
-        savedMinutes = run.analysisMinutesSaved;
-      }
-    }
-    const contentVitals = vitals.slice(0, 3);
-    const substantive = contentVitals.length > 0 || sourceMap.size > 0;
-    const savedValue =
-      savedMinutes && savedMinutes > 0
-        ? savedMinutes
-        : hasCompletedRun && substantive
-          ? ANALYSIS_FLOOR_MIN
-          : null;
-    const savedVital: RailVital | null = savedValue
-      ? { label: "Hours saved", value: formatSavedShort(savedValue) }
-      : null;
-    setRailContext({
-      vitals: savedVital ? [...contentVitals, savedVital] : contentVitals,
-      sources: [...sourceMap.values()].slice(0, 6),
-      followups,
-    });
-  }, [bundle, setRailArtifacts, setRailContext]);
-
   // Auto-grow the textarea up to its max-height (~9 lines); past that the
   // textarea scrolls internally. CSS alone can't do this — `rows={1}` is
   // the floor and there's no `content-size` for textareas. Keep the cap in
@@ -591,13 +510,6 @@ export default function WorkScreen() {
     } finally {
       setLoadingThread(false);
     }
-  }
-
-  async function loadMemories() {
-    const res = await fetch("/api/work/memories");
-    if (!res.ok) return;
-    const data = (await res.json()) as { memories: MemoryRecord[] };
-    setMemories(data.memories ?? []);
   }
 
   async function loadPendingMemories(threadId: string) {
@@ -897,9 +809,10 @@ export default function WorkScreen() {
       await loadThread(threadId);
       return;
     }
-    const { runId, backend } = (await res.json()) as {
+    const { runId, backend, actorRole } = (await res.json()) as {
       runId: string;
       backend: string;
+      actorRole?: RunRecord["actorRole"];
     };
     if (!mountedRef.current) return;
 
@@ -933,6 +846,9 @@ export default function WorkScreen() {
                 error: null,
                 createdAt: new Date().toISOString(),
                 finishedAt: null,
+                analysisMinutesSaved: null,
+                analysisMinutesBasis: null,
+                actorRole: actorRole ?? null,
               },
             ],
           }
@@ -983,11 +899,10 @@ export default function WorkScreen() {
 
     setSending(false);
     updateActiveRunId(null);
-    await Promise.all([loadThread(threadId), loadMemories()]);
+    await loadThread(threadId);
     window.setTimeout(() => {
       if (!mountedRef.current || activeThreadIdRef.current !== threadId) return;
       void loadPendingMemories(threadId);
-      void loadMemories();
     }, 1500);
   }
 
@@ -1114,7 +1029,6 @@ export default function WorkScreen() {
     });
     if (!res.ok) return;
     if (activeThreadId) await loadPendingMemories(activeThreadId);
-    await loadMemories();
   }
 
   const runLookup = useMemo(() => {
@@ -1122,27 +1036,43 @@ export default function WorkScreen() {
     for (const run of bundle?.runs ?? []) map.set(run.id, run);
     return map;
   }, [bundle?.runs]);
+  const workPhase =
+    sending || activeRunId
+      ? "running"
+      : bundle?.messages.length
+        ? "result"
+        : "prompt";
+  const workStateLabel =
+    workPhase === "running"
+      ? "OpenNeko is working"
+      : workPhase === "result"
+        ? "Answer available"
+        : "Waiting for your prompt";
+  const threadTitle =
+    !bundle?.messages.length ||
+    !bundle.thread.title.trim() ||
+    /^untitled thread$/i.test(bundle.thread.title.trim())
+      ? "New work"
+      : bundle.thread.title;
 
   if (!gateChecked) {
     return (
-      <div style={{ padding: "40px 0", textAlign: "center", color: "var(--text3)" }}>
-        Loading…
+      <div className="work-gate-state" role="status">
+        <span className="work-gate-mark" aria-hidden="true" />
+        <strong>Loading work</strong>
+        <p>Checking your workspace and agent context.</p>
       </div>
     );
   }
 
   if (gateError) {
     return (
-      <div style={{ padding: "40px 0", textAlign: "center", color: "var(--text3)" }}>
-        <div style={{ marginBottom: 8, color: "var(--text2)" }}>
-          Can&apos;t reach the database right now.
-        </div>
-        <div style={{ fontSize: 13 }}>
-          Work will load once the connection is back.
-        </div>
+      <div className="work-gate-state is-error" role="alert">
+        <span className="work-gate-mark" aria-hidden="true" />
+        <strong>Workspace unavailable</strong>
+        <p>OpenNeko cannot reach the database. No work has been started.</p>
         <button
           onClick={() => { setGateError(null); setGateChecked(false); window.location.reload(); }}
-          style={{ marginTop: 16, padding: "6px 14px", fontSize: 13, cursor: "pointer" }}
         >
           Retry
         </button>
@@ -1151,10 +1081,71 @@ export default function WorkScreen() {
   }
 
   return (
-    <>
-      <div className="flex-1 min-h-[460px] flex flex-col gap-7 pt-2 pb-6">
+    <div className="work-command-surface">
+      <header className="work-command-head">
+        <div className="work-command-copy">
+          <div className="work-command-eyebrow">
+            <span>Work</span>
+            <span className="work-command-slash" aria-hidden="true">/</span>
+            <span data-phase={workPhase}>{workStateLabel}</span>
+          </div>
+          <h1 title={threadTitle}>{threadTitle}</h1>
+        </div>
+        <ol className="work-phase-rail" aria-label={`Current stage: ${workStateLabel}`}>
+          {(["Prompt", "Agent", "Result"] as const).map((label, index) => {
+            const activeIndex =
+              workPhase === "prompt" ? 0 : workPhase === "running" ? 1 : 2;
+            return (
+              <li
+                key={label}
+                className={
+                  index === activeIndex
+                    ? "is-current"
+                    : index < activeIndex
+                      ? "is-complete"
+                      : ""
+                }
+              >
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                {label}
+              </li>
+            );
+          })}
+        </ol>
+        <div className="work-command-actions">
+          <button
+            type="button"
+            className="work-command-action"
+            onClick={() => setHistoryOpen(true)}
+            aria-expanded={historyOpen}
+            aria-haspopup="dialog"
+          >
+            <History aria-hidden="true" strokeWidth={1.9} />
+            <span>History</span>
+          </button>
+          <button
+            type="button"
+            className="work-command-action is-primary"
+            onClick={() => router.push("/work")}
+            disabled={!activeThreadId && !bundle?.messages.length}
+          >
+            <Plus aria-hidden="true" strokeWidth={2} />
+            <span>New work</span>
+          </button>
+        </div>
+      </header>
+
+      <WorkHistoryDrawer
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+      />
+
+      <div className="work-transcript">
         {loadingThread ? (
-          <div className="text-text3 text-[13px] py-3 px-1">Loading thread…</div>
+          <div className="work-loading-state" role="status">
+            <span />
+            Loading the work trace
+          </div>
         ) : !bundle?.messages.length ? (
           <EmptyAsk
             onPick={(text) => {
@@ -1276,7 +1267,7 @@ export default function WorkScreen() {
         ) : null}
 
         {streamError ? (
-          <div className="border border-warn/40 bg-warn-soft text-warn-ink rounded-2xl px-3 py-2.5 text-[13px]">{streamError}</div>
+          <div className="work-stream-error" role="alert">{streamError}</div>
         ) : null}
         <div ref={endRef} />
       </div>
@@ -1358,7 +1349,11 @@ export default function WorkScreen() {
           <textarea
             ref={textareaRef}
             className="work-input"
-            placeholder={sending ? "Working…" : "Send a message…"}
+            placeholder={
+              sending
+                ? "OpenNeko is working…"
+                : "Describe the job, decision, or question…"
+            }
             value={draft}
             onChange={(event) =>
               handleDraftChange(
@@ -1436,10 +1431,12 @@ export default function WorkScreen() {
               </button>
               <span className="work-composer-hint" aria-live="polite">
                 {sending ? (
-                  <span className="work-composer-pulse">Working</span>
+                  <span className="work-composer-pulse">OpenNeko is working</span>
                 ) : files.length > 0 ? (
                   <>{files.length} of {MAX_ATTACHMENTS} attached</>
-                ) : null}
+                ) : (
+                  <>Enter to dispatch · Shift + Enter for a new line</>
+                )}
               </span>
             </div>
             {sending ? (
@@ -1458,9 +1455,9 @@ export default function WorkScreen() {
                 type="button"
                 onClick={() => void sendMessage()}
                 disabled={!draft.trim() && files.length === 0}
-                aria-label="Send"
+                aria-label="Dispatch to OpenNeko"
               >
-                <span>Send</span>
+                <span>Dispatch</span>
                 <ArrowUp size={14} strokeWidth={2.5} aria-hidden />
               </button>
             )}
@@ -1506,7 +1503,7 @@ export default function WorkScreen() {
           }}
         />
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1518,30 +1515,31 @@ const EMPTY_PROMPTS: Array<{ label: string; text: string }> = [
 
 function EmptyAsk({ onPick }: { onPick: (text: string) => void }) {
   return (
-    <div className="flex flex-col gap-[18px] pt-2 pb-1">
-      <div className="flex flex-col gap-2 max-w-[620px]">
-        <h1 className="font-body text-[22px] font-semibold tracking-[-0.005em] text-text m-0 leading-[1.25]">
-          What do you want to know?
-        </h1>
-        <p className="text-[13.5px] leading-[1.55] text-text2 m-0">
-          Ask anything about your business data. I&apos;ll query the database,
-          read anything you attach, and answer with charts or tables.
+    <div className="work-empty">
+      <div className="work-empty-statement">
+        <span className="work-empty-index" aria-hidden="true">01—03</span>
+        <h2>Give OpenNeko a job.</h2>
+        <p>
+          Ask for an answer, investigation, file, or recurring workflow.
+          OpenNeko shows its work while it runs.
         </p>
       </div>
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-2">
-        {EMPTY_PROMPTS.map((prompt) => (
+      <div className="work-empty-prompts" aria-label="Example jobs">
+        {EMPTY_PROMPTS.map((prompt, index) => (
           <button
             key={prompt.label}
             type="button"
-            className="work-empty-prompt flex flex-col gap-1 px-[13px] py-[11px] bg-white/55 border border-border rounded-xl cursor-pointer text-left font-inherit text-inherit transition-[border-color,background,transform] duration-[180ms]"
+            className="work-empty-prompt"
             onClick={() => onPick(prompt.text)}
           >
-            <span className="text-[10px] font-bold tracking-[0.1em] uppercase text-accent">
-              {prompt.label}
+            <span className="work-empty-prompt-no">
+              {String(index + 1).padStart(2, "0")}
             </span>
-            <span className="text-[12.5px] leading-[1.4] text-text2">
-              {prompt.text}
+            <span className="work-empty-prompt-copy">
+              <strong>{prompt.label}</strong>
+              <span>{prompt.text}</span>
             </span>
+            <span className="work-empty-prompt-arrow" aria-hidden="true">↗</span>
           </button>
         ))}
       </div>
@@ -1749,6 +1747,7 @@ type ToolItem = {
   input?: unknown;
   deltas: unknown[];
   end?: Extract<WorkEvent, { type: "tool_end" }>;
+  approval?: ApprovalItem;
 };
 
 type ApprovalItem = {
@@ -1765,24 +1764,368 @@ type ApprovalItem = {
 type TimelineItem =
   | { kind: "text"; content: string }
   | { kind: "tools"; tools: ToolItem[] }
-  | { kind: "approval"; approval: ApprovalItem }
+  | { kind: "surface"; messages: A2UIMessage[] }
+  | {
+      kind: "capability";
+      denial: Extract<WorkEvent, { type: "capability_denied" }>;
+    }
   | { kind: "error"; message: string };
+
+type RunArtifact = Extract<WorkEvent, { type: "artifact" }>["artifact"];
+
+function surfaceComponents(messages: A2UIMessage[]) {
+  const components: Array<Record<string, unknown>> = [];
+  for (const message of messages) {
+    if ("createSurface" in message && Array.isArray(message.createSurface.components)) {
+      components.push(
+        ...(message.createSurface.components as Array<Record<string, unknown>>),
+      );
+    }
+    if ("updateComponents" in message) {
+      components.push(
+        ...(message.updateComponents.components as Array<Record<string, unknown>>),
+      );
+    }
+  }
+  const latest = new Map<string, Record<string, unknown>>();
+  for (const component of components) {
+    if (typeof component.id === "string") latest.set(component.id, component);
+  }
+  return latest;
+}
+
+function surfaceIdOf(messages: A2UIMessage[]): string | null {
+  for (const message of messages) {
+    if ("createSurface" in message) return message.createSurface.surfaceId;
+    if ("updateComponents" in message) return message.updateComponents.surfaceId;
+    if ("updateDataModel" in message) return message.updateDataModel.surfaceId;
+    if ("deleteSurface" in message) return message.deleteSurface.surfaceId;
+  }
+  return null;
+}
+
+function isCanonicalAnswerSurface(messages: A2UIMessage[]): boolean {
+  const components = surfaceComponents(messages);
+  const hasAnswer = [...components.values()].some(
+    (component) => component.component === "Answer",
+  );
+  const carriesAnswer = [...components.values()].some((component) =>
+    ["Markdown", "Table", "KeyFigures", "MetricCard", "Callout"].includes(
+      String(component.component),
+    ),
+  );
+  return hasAnswer && carriesAnswer;
+}
+
+function canonicalSurfaceContainsNarrative(messages: A2UIMessage[]): boolean {
+  return [...surfaceComponents(messages).values()].some((component) =>
+    [
+      "Markdown",
+      "Table",
+      "Callout",
+      "Text",
+      "Confirmation",
+      "Choice",
+      "ChoicePicker",
+    ].includes(String(component.component)),
+  );
+}
+
+function withVitalProvenance(
+  items: AnswerVital[],
+  sources: string[],
+  deniedNetwork: boolean,
+): AnswerVital[] {
+  return items.map((item) => ({
+    ...item,
+    basis:
+      item.basis ??
+      (deniedNetwork && sources.length === 0 ? "estimated" : "calculated"),
+    source: item.source ?? sources[0],
+  }));
+}
+
+/**
+ * Existing answers used a Row of MetricCards. Replay them as the new ruled
+ * KeyFigures component, and add missing per-run vitals to otherwise complete
+ * Answer surfaces. Persisted protocol messages stay immutable.
+ */
+function ownVitalsBySurface(
+  messages: A2UIMessage[],
+  vitals: AnswerVital[],
+  sources: string[],
+  deniedNetwork: boolean,
+): A2UIMessage[] {
+  if (!isCanonicalAnswerSurface(messages)) return messages;
+  const components = surfaceComponents(messages);
+  const figures = withVitalProvenance(vitals, sources, deniedNetwork);
+  const metricCards = [...components.values()].filter(
+    (component) => component.component === "MetricCard",
+  );
+  const fallbackFigures: AnswerVital[] = metricCards.map((card) => ({
+    label: typeof card.label === "string" ? card.label : "Figure",
+    value: typeof card.metric === "string" ? card.metric : "—",
+    sub: typeof card.text === "string" ? card.text : undefined,
+    basis: deniedNetwork ? "estimated" : "calculated",
+    source: sources[0],
+  }));
+  const ownedFigures = figures.length > 0 ? figures : fallbackFigures;
+  if (ownedFigures.length === 0) return messages;
+
+  const existing = [...components.values()].find(
+    (component) => component.component === "KeyFigures",
+  );
+  const metricRow = [...components.values()].find((component) => {
+    if (component.component !== "Row" || !Array.isArray(component.children)) {
+      return false;
+    }
+    return (
+      component.children.length > 0 &&
+      component.children.every(
+        (id) => components.get(String(id))?.component === "MetricCard",
+      )
+    );
+  });
+  const answer = [...components.values()].find(
+    (component) => component.component === "Answer",
+  );
+  const surfaceId = surfaceIdOf(messages);
+  if (!surfaceId || !answer) return messages;
+
+  if (existing || metricRow) {
+    const target = existing ?? metricRow!;
+    return [
+      ...messages,
+      {
+        version: "v1.0",
+        updateComponents: {
+          surfaceId,
+          components: [
+            {
+              id: String(target.id),
+              component: "KeyFigures",
+              items: ownedFigures,
+            },
+          ],
+        },
+      },
+    ];
+  }
+
+  const children = Array.isArray(answer.children)
+    ? answer.children.map(String)
+    : [];
+  return [
+    ...messages,
+    {
+      version: "v1.0",
+      updateComponents: {
+        surfaceId,
+          components: [
+            {
+              ...answer,
+              id: String(answer.id),
+              component: "Answer",
+              children: [...children, "__run_key_figures"],
+            },
+          {
+            id: "__run_key_figures",
+            component: "KeyFigures",
+            items: ownedFigures,
+          },
+        ],
+      },
+    },
+  ];
+}
+
+function fallbackAnswerSurface(
+  runId: string,
+  raw: string,
+  vitals: AnswerVital[],
+  sources: string[],
+  deniedNetwork: boolean,
+): A2UIMessage[] {
+  const text = stripNekoFences(raw).trim();
+  const figures = withVitalProvenance(vitals, sources, deniedNetwork);
+  const children = [
+    ...(text ? ["__fallback_markdown"] : []),
+    ...(figures.length > 0 ? ["__fallback_figures"] : []),
+  ];
+  if (children.length === 0) return [];
+  return [
+    {
+      version: "v1.0",
+      createSurface: {
+        surfaceId: `answer-${runId}`,
+        catalogId: "urn:openneko:catalog:work:v2",
+        components: [
+          {
+            id: "root",
+            component: "Answer",
+            title: "",
+            children,
+          },
+          ...(text
+            ? [
+                {
+                  id: "__fallback_markdown",
+                  component: "Markdown",
+                  text,
+                },
+              ]
+            : []),
+          ...(figures.length > 0
+            ? [
+                {
+                  id: "__fallback_figures",
+                  component: "KeyFigures",
+                  items: figures,
+                },
+              ]
+            : []),
+        ],
+        dataModel: {},
+      },
+    },
+  ];
+}
+
+function policyDenialFromToolEnd(
+  event: Extract<WorkEvent, { type: "tool_end" }>,
+): Extract<WorkEvent, { type: "capability_denied" }> | null {
+  const raw = [
+    event.error ?? "",
+    typeof event.result === "string"
+      ? event.result
+      : JSON.stringify(event.result ?? ""),
+  ].join("\n");
+  if (!/policy_denied|not permitted by policy/i.test(raw)) return null;
+  const match = raw.match(
+    /\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+([a-z0-9.-]+)(?::(\d+))?(\/[^\s"'\\]*)?\s+not permitted by policy/i,
+  );
+  if (!match) return null;
+  return {
+    type: "capability_denied",
+    capability: "network_egress",
+    reason: "policy_denied",
+    host: match[2].toLowerCase(),
+    ...(match[3] ? { port: Number(match[3]) } : {}),
+    method: match[1].toUpperCase(),
+    ...(match[4] ? { path: match[4] } : {}),
+  };
+}
+
+function parseNestedToolResult(value: unknown): Record<string, unknown> | null {
+  let current = value;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (typeof current === "string") {
+      try {
+        current = JSON.parse(current);
+        continue;
+      } catch {
+        return null;
+      }
+    }
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return null;
+    }
+    const record = current as Record<string, unknown>;
+    if (
+      typeof record.result === "string" &&
+      !("action_request_id" in record)
+    ) {
+      current = record.result;
+      continue;
+    }
+    return record;
+  }
+  return null;
+}
+
+/**
+ * Older sandbox brokers persisted the action request but dropped the
+ * action_request_emit event. Recover the approval from the successful MCP
+ * tool result so historical pending requests remain actionable.
+ */
+function approvalFromToolResult(
+  tool: ToolItem | undefined,
+  event: Extract<WorkEvent, { type: "tool_end" }>,
+): ApprovalItem | null {
+  if (!tool) return null;
+  const input =
+    tool.input && typeof tool.input === "object"
+      ? (tool.input as Record<string, unknown>)
+      : {};
+  const title = `${tool.name} ${String(input.title ?? "")}`.toLowerCase();
+  const isInstall = title.includes("plugin_manager_request_plugin_install");
+  const isUninstall = title.includes("plugin_manager_request_plugin_uninstall");
+  if (!isInstall && !isUninstall) return null;
+
+  const result = parseNestedToolResult(event.result);
+  const actionRequestId =
+    typeof result?.action_request_id === "string"
+      ? result.action_request_id
+      : null;
+  if (!actionRequestId || result?.ok !== true) return null;
+  const rawInput =
+    input.rawInput && typeof input.rawInput === "object"
+      ? (input.rawInput as Record<string, unknown>)
+      : {};
+  const intent =
+    typeof rawInput.intent === "string" ? rawInput.intent : null;
+  return {
+    actionRequestId,
+    actionKind: isInstall ? "plugin_install" : "plugin_uninstall",
+    intent,
+    summary: intent,
+    decision:
+      result.decision === "approved"
+        ? "auto_approved"
+        : "pending_approval",
+    result: null,
+  };
+}
+
+function toolSources(event: Extract<WorkEvent, { type: "tool_start" }>): string[] {
+  const raw =
+    typeof (event.input as { title?: unknown })?.title === "string"
+      ? String((event.input as { title: string }).title)
+      : JSON.stringify(event.input ?? "");
+  const found: string[] = [];
+  for (const match of raw.matchAll(
+    /"(?:from_table|to_table|table)"\s*:\s*"([a-z0-9_]+)"/gi,
+  )) {
+    found.push(match[1].toLowerCase());
+  }
+  const rootField = raw.match(/"query"\s*:\s*"\{\s*([a-z_][a-z0-9_]*)/i);
+  if (rootField) found.push(rootField[1].toLowerCase());
+  return found;
+}
 
 // Walks a run's event stream chronologically and produces an interleaved
 // timeline: text segments split at tool boundaries, with each tool placed
 // inline where it ran. Backends emit `message` events as deltas (new text
 // since the previous event), so segments build by appending — no string
 // archaeology needed.
-function buildRunTimeline(events: WorkEvent[]): {
+export function buildRunTimeline(events: WorkEvent[], runId: string): {
   items: TimelineItem[];
   lastStatus: string | null;
-  surfaceMessages: A2UIMessage[];
   isDone: boolean;
+  vitals: AnswerVital[];
+  followups: string[];
+  sources: string[];
+  artifacts: RunArtifact[];
 } {
   const items: TimelineItem[] = [];
   const toolsById = new Map<string, ToolItem>();
-  const approvalIndexByRequest = new Map<string, number>();
-  const surfaceMessages: A2UIMessage[] = [];
+  const approvalToolByRequest = new Map<string, ToolItem>();
+  let surfaceItem: Extract<TimelineItem, { kind: "surface" }> | null = null;
+  const denialKeys = new Set<string>();
+  const sources = new Set<string>();
+  const artifacts: RunArtifact[] = [];
+  let vitals: AnswerVital[] = [];
+  let followups: string[] = [];
   let pendingText = "";
   let lastStatus: string | null = null;
   let isDone = false;
@@ -1818,6 +2161,7 @@ function buildRunTimeline(events: WorkEvent[]): {
           deltas: [],
         };
         toolsById.set(event.id, item);
+        for (const source of toolSources(event)) sources.add(source);
         // Cluster consecutive tool calls (no text/error between them) into a
         // single collapsible group — keeps long tool runs from dominating the
         // transcript while preserving the start of a new group when the model
@@ -1838,6 +2182,27 @@ function buildRunTimeline(events: WorkEvent[]): {
       case "tool_end": {
         const item = toolsById.get(event.id);
         if (item) item.end = event;
+        const recoveredApproval = approvalFromToolResult(item, event);
+        if (
+          recoveredApproval &&
+          item &&
+          !approvalToolByRequest.has(recoveredApproval.actionRequestId)
+        ) {
+          item.approval = recoveredApproval;
+          approvalToolByRequest.set(
+            recoveredApproval.actionRequestId,
+            item,
+          );
+        }
+        const denial = policyDenialFromToolEnd(event);
+        if (denial) {
+          const key = `${denial.host}:${denial.port ?? 443}`;
+          if (!denialKeys.has(key)) {
+            denialKeys.add(key);
+            flushTextSegment();
+            items.push({ kind: "capability", denial });
+          }
+        }
         break;
       }
       case "status": {
@@ -1850,11 +2215,41 @@ function buildRunTimeline(events: WorkEvent[]): {
         break;
       }
       case "surface": {
-        for (const msg of event.messages) surfaceMessages.push(msg);
+        flushTextSegment();
+        if (!surfaceItem) {
+          surfaceItem = { kind: "surface", messages: [] };
+          items.push(surfaceItem);
+        }
+        surfaceItem.messages.push(...event.messages);
+        break;
+      }
+      case "capability_denied": {
+        const key = `${event.host}:${event.port ?? 443}`;
+        if (!denialKeys.has(key)) {
+          denialKeys.add(key);
+          flushTextSegment();
+          items.push({ kind: "capability", denial: event });
+        }
+        break;
+      }
+      case "artifact": {
+        artifacts.push(event.artifact);
+        break;
+      }
+      case "vitals": {
+        vitals = event.items;
+        break;
+      }
+      case "followups": {
+        followups = event.items;
         break;
       }
       case "action_request_emit": {
-        flushTextSegment();
+        // Auto-approved actions are ordinary tool execution. Their tool row
+        // already carries running/completed/failed state, so a second
+        // approval-shaped entry would only duplicate the call.
+        if (event.decision === "auto_approved") break;
+
         const approval: ApprovalItem = {
           actionRequestId: event.action_request_id,
           actionKind: event.kind,
@@ -1863,16 +2258,44 @@ function buildRunTimeline(events: WorkEvent[]): {
           decision: event.decision,
           result: null,
         };
-        approvalIndexByRequest.set(event.action_request_id, items.length);
-        items.push({ kind: "approval", approval });
+        const existingTool = approvalToolByRequest.get(
+          event.action_request_id,
+        );
+        if (existingTool) {
+          existingTool.approval = {
+            ...existingTool.approval,
+            ...approval,
+            result: existingTool.approval?.result ?? null,
+          };
+          break;
+        }
+
+        // The broker emits the request while the corresponding MCP tool is
+        // still open. Attach the decision state to that row. Fence-based and
+        // historical events may have no tool_start, so synthesize the same row
+        // shape instead of falling back to a different card component.
+        const activeTool = [...toolsById.values()]
+          .reverse()
+          .find((tool) => !tool.end);
+        const targetTool: ToolItem =
+          activeTool ?? {
+            id: `approval-${event.action_request_id}`,
+            name: event.kind,
+            deltas: [],
+          };
+        targetTool.approval = approval;
+        approvalToolByRequest.set(event.action_request_id, targetTool);
+        if (!activeTool) {
+          flushTextSegment();
+          toolsById.set(targetTool.id, targetTool);
+          items.push({ kind: "tools", tools: [targetTool] });
+        }
         break;
       }
       case "action_request_result": {
-        const idx = approvalIndexByRequest.get(event.action_request_id);
-        if (idx == null) break;
-        const target = items[idx];
-        if (target?.kind !== "approval") break;
-        target.approval = { ...target.approval, result: event };
+        const targetTool = approvalToolByRequest.get(event.action_request_id);
+        if (!targetTool?.approval) break;
+        targetTool.approval = { ...targetTool.approval, result: event };
         break;
       }
       case "done": {
@@ -1884,6 +2307,52 @@ function buildRunTimeline(events: WorkEvent[]): {
     }
   }
   flushTextSegment();
+  const sourceList = [...sources];
+  const deniedNetwork = denialKeys.size > 0;
+  if (surfaceItem) {
+    surfaceItem.messages = ownVitalsBySurface(
+      surfaceItem.messages,
+      vitals,
+      sourceList,
+      deniedNetwork,
+    );
+    if (
+      isCanonicalAnswerSurface(surfaceItem.messages) &&
+      canonicalSurfaceContainsNarrative(surfaceItem.messages)
+    ) {
+      // The surface is the complete answer. Tool rows retain the work trace;
+      // model prose anywhere around the surface is duplicate delivery.
+      for (let index = items.length - 1; index >= 0; index -= 1) {
+        if (items[index]?.kind === "text") items.splice(index, 1);
+      }
+    }
+  } else if (isDone) {
+    let finalTextStart = items.length;
+    while (finalTextStart > 0 && items[finalTextStart - 1]?.kind === "text") {
+      finalTextStart -= 1;
+    }
+    const finalText = items
+      .slice(finalTextStart)
+      .filter(
+        (item): item is Extract<TimelineItem, { kind: "text" }> =>
+          item.kind === "text",
+      )
+      .map((item) => item.content)
+      .join("");
+    const fallback = fallbackAnswerSurface(
+      runId,
+      finalText,
+      vitals,
+      sourceList,
+      deniedNetwork,
+    );
+    if (fallback.length > 0) {
+      items.splice(finalTextStart, items.length - finalTextStart, {
+        kind: "surface",
+        messages: fallback,
+      });
+    }
+  }
   // Synthesize an end for any tool that never got a tool_end before the run
   // terminated. Without this, ACP runs that miss the final tool_call_update
   // notification (Hermes occasionally drops it for read tools) leave the
@@ -1899,7 +2368,15 @@ function buildRunTimeline(events: WorkEvent[]): {
       }
     }
   }
-  return { items, lastStatus, surfaceMessages, isDone };
+  return {
+    items,
+    lastStatus,
+    isDone,
+    vitals,
+    followups,
+    sources: sourceList,
+    artifacts,
+  };
 }
 
 function FenceAwareBubble({
@@ -1956,20 +2433,39 @@ function RunTimeline({
   pending: boolean;
   fallbackContent: string;
 }) {
-  const { items, lastStatus, surfaceMessages } = useMemo(
-    () => buildRunTimeline(events),
-    [events],
+  const { insertComposerRef } = useWorkShell();
+  const presentation = useMemo(
+    () => buildRunTimeline(events, run?.id ?? "pending"),
+    [events, run?.id],
   );
-
-  const hasContent = items.length > 0 || surfaceMessages.length > 0;
+  const hasSurface = presentation.items.some((item) => item.kind === "surface");
+  const persistedSurface = useMemo(
+    () =>
+      !pending && !hasSurface && fallbackContent.trim()
+        ? fallbackAnswerSurface(
+            run?.id ?? "persisted",
+            fallbackContent,
+            presentation.vitals,
+            presentation.sources,
+            presentation.items.some((item) => item.kind === "capability"),
+          )
+        : [],
+    [
+      fallbackContent,
+      hasSurface,
+      pending,
+      presentation.items,
+      presentation.sources,
+      presentation.vitals,
+      run?.id,
+    ],
+  );
+  const hasContent =
+    presentation.items.length > 0 || persistedSurface.length > 0;
 
   return (
     <div className="work-timeline flex flex-col gap-2.5 mt-1">
-      {!hasContent && !pending && fallbackContent.trim() ? (
-        <FenceAwareBubble keyPrefix="fallback" raw={fallbackContent} />
-      ) : null}
-
-      {items.map((item, index) => {
+      {presentation.items.map((item, index) => {
         if (item.kind === "text") {
           return (
             <FenceAwareBubble
@@ -1981,17 +2477,24 @@ function RunTimeline({
         }
         if (item.kind === "tools") {
           return (
-            <ToolGroup key={`tools-${index}`} tools={item.tools} />
-
-          );
-        }
-        if (item.kind === "approval") {
-          return (
-            <ActionApprovalCard
-              key={`approval-${item.approval.actionRequestId}`}
+            <ToolGroup
+              key={`tools-${index}`}
+              tools={item.tools}
               threadId={threadId}
               runId={run?.id ?? ""}
-              approval={item.approval}
+            />
+          );
+        }
+        if (item.kind === "surface") {
+          return <SurfaceBlock key={`surface-${index}`} messages={item.messages} />;
+        }
+        if (item.kind === "capability") {
+          return (
+            <CapabilityDeniedNotice
+              key={`capability-${item.denial.host}-${index}`}
+              denial={item.denial}
+              canAdminister={run?.actorRole === "admin"}
+              onRequest={(prompt) => insertComposerRef.current?.(prompt)}
             />
           );
         }
@@ -2002,41 +2505,323 @@ function RunTimeline({
         );
       })}
 
-      {surfaceMessages.length > 0 ? (
-        <SurfaceBlock messages={surfaceMessages} />
+      {persistedSurface.length > 0 ? (
+        <SurfaceBlock messages={persistedSurface} />
       ) : null}
 
       {pending ? (
         <div className="work-status-row">
           <Loader2 className="work-status-spin" size={12} />
-          <span>{lastStatus ?? "Running…"}</span>
+          <span>{presentation.lastStatus ?? "Running…"}</span>
         </div>
       ) : null}
       {!pending && run?.error ? <div className="border border-warn/40 bg-warn-soft text-warn-ink rounded-2xl px-3 py-2.5 text-[13px]">{run.error}</div> : null}
+      {!pending && hasContent ? (
+        <AnswerRunFooter
+          run={run}
+          sources={presentation.sources}
+          artifacts={presentation.artifacts}
+          followups={presentation.followups}
+          onFollowup={(prompt) => insertComposerRef.current?.(prompt)}
+        />
+      ) : null}
     </div>
   );
 }
 
-function ActionApprovalCard({
+function CapabilityDeniedNotice({
+  denial,
+  canAdminister,
+  onRequest,
+}: {
+  denial: Extract<WorkEvent, { type: "capability_denied" }>;
+  canAdminister: boolean;
+  onRequest: (prompt: string) => void;
+}) {
+  const endpoint = `${denial.host}${denial.port ? `:${denial.port}` : ""}`;
+  const requestPrompt = [
+    `Find an appropriate approved integration that can securely access ${endpoint}`,
+    "for the request I just made.",
+    "Show me the exact integration and file an approval-gated install request.",
+    "Do not enable blanket network access.",
+  ].join(" ");
+  return (
+    <section className="work-capability-denied" role="status">
+      <div className="work-capability-kicker">Network access blocked</div>
+      <div className="work-capability-grid">
+        <div>
+          <h3>{endpoint} is outside this workspace</h3>
+          <p>
+            OpenNeko did not receive live data. The sandbox stayed
+            default-deny, so this answer must not present fallback estimates as
+            current facts.
+          </p>
+          <code>
+            {denial.method ?? "REQUEST"} {denial.path ?? "/"}
+          </code>
+        </div>
+        <div className="work-capability-recovery">
+          <span>Safe recovery</span>
+          {canAdminister ? (
+            <>
+              <p>
+                Ask OpenNeko to find the right integration. Installation will
+                still require your explicit approval.
+              </p>
+              <button type="button" onClick={() => onRequest(requestPrompt)}>
+                Request secure integration
+              </button>
+            </>
+          ) : (
+            <p>
+              Contact an OpenNeko administrator to install an integration
+              approved for this host.
+            </p>
+          )}
+          <Link href={canAdminister ? "/admin/plugins" : "/integrations"}>
+            {canAdminister ? "Review plugins" : "View integrations"} →
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function artifactHref(path: string): string {
+  return `/api/work/files/${path.replace(
+    /^.*\/(runs|uploads|skills|memory)\//,
+    "$1/",
+  )}`;
+}
+
+function AnswerRunFooter({
+  run,
+  sources,
+  artifacts,
+  followups,
+  onFollowup,
+}: {
+  run: RunRecord | null;
+  sources: string[];
+  artifacts: RunArtifact[];
+  followups: string[];
+  onFollowup: (prompt: string) => void;
+}) {
+  const saved =
+    typeof run?.analysisMinutesSaved === "number" &&
+    run.analysisMinutesSaved > 0
+      ? formatSavedShort(run.analysisMinutesSaved)
+      : null;
+  const hasEvidence = sources.length > 0 || artifacts.length > 0 || saved;
+  if (!hasEvidence && followups.length === 0) return null;
+  return (
+    <footer className="work-answer-footer">
+      {hasEvidence ? (
+        <div className="work-answer-evidence">
+          {sources.length > 0 ? (
+            <div>
+              <span>Evidence</span>
+              <strong>{sources.join(" · ")}</strong>
+            </div>
+          ) : null}
+          {artifacts.map((artifact) => (
+            <a
+              key={artifact.path}
+              href={artifactHref(artifact.path)}
+              title={artifact.path}
+            >
+              <span>Artifact</span>
+              <strong>{artifact.label}</strong>
+            </a>
+          ))}
+          {saved ? (
+            <div title={run?.analysisMinutesBasis ?? undefined}>
+              <span>Analysis avoided</span>
+              <strong>{saved}</strong>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {followups.length > 0 ? (
+        <div className="work-answer-followups">
+          <span>Continue</span>
+          <div>
+            {followups.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => onFollowup(prompt)}
+              >
+                {prompt}
+                <span aria-hidden="true">↗</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </footer>
+  );
+}
+
+type ActionRequestSnapshot = {
+  status: string;
+  result: ApprovalItem["result"];
+};
+
+async function fetchActionRequestSnapshot(
+  actionRequestId: string,
+  actionKind: string,
+): Promise<ActionRequestSnapshot | null> {
+  const res = await fetch(`/api/action-requests/${actionRequestId}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const body = (await res.json()) as {
+    actionRequest?: {
+      status?: string;
+      rejectionReason?: string | null;
+    };
+    executions?: Array<{
+      status?: string;
+      result?: Record<string, unknown> | null;
+      externalRef?: string | null;
+      commandOrOperation?: string | null;
+      error?: string | null;
+    }>;
+  };
+  const status = body.actionRequest?.status ?? "pending_approval";
+  const execution = body.executions?.at(-1);
+  let result: ApprovalItem["result"] = null;
+  if (status === "executed") {
+    result = {
+      type: "action_request_result",
+      action_request_id: actionRequestId,
+      kind: actionKind,
+      status: "succeeded",
+      outcome: {
+        result: execution?.result ?? null,
+        externalRef: execution?.externalRef ?? null,
+        commandOrOperation: execution?.commandOrOperation ?? null,
+      },
+    };
+  } else if (status === "failed") {
+    result = {
+      type: "action_request_result",
+      action_request_id: actionRequestId,
+      kind: actionKind,
+      status: "failed",
+      error: execution?.error ?? "Action execution failed.",
+    };
+  } else if (status === "rejected") {
+    result = {
+      type: "action_request_result",
+      action_request_id: actionRequestId,
+      kind: actionKind,
+      status: "rejected",
+      ...(body.actionRequest?.rejectionReason
+        ? { rejection_reason: body.actionRequest.rejectionReason }
+        : {}),
+    };
+  }
+  return { status, result };
+}
+
+function ActionApprovalRow({
   threadId,
   runId,
-  approval,
+  tool,
 }: {
   threadId: string;
   runId: string;
-  approval: ApprovalItem;
+  tool: ToolItem;
 }) {
+  const approval = tool.approval!;
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
   const [rejectMode, setRejectMode] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
+  const [localDecision, setLocalDecision] = useState<
+    "approve" | "reject" | null
+  >(null);
+  const [localStatus, setLocalStatus] = useState<string | null>(null);
+  const [localResult, setLocalResult] =
+    useState<ApprovalItem["result"]>(null);
+
+  useEffect(() => {
+    if (approval.result) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const sync = async () => {
+      const snapshot = await fetchActionRequestSnapshot(
+        approval.actionRequestId,
+        approval.actionKind,
+      );
+      if (cancelled || !snapshot) return;
+      setLocalStatus(snapshot.status);
+      setLocalResult(snapshot.result);
+      if (snapshot.status === "approved") {
+        timer = setTimeout(() => void sync(), 1_000);
+      }
+    };
+    void sync();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [
+    approval.actionKind,
+    approval.actionRequestId,
+    approval.result,
+    localDecision,
+  ]);
 
   const headline =
     approval.intent ??
     approval.summary ??
     `Agent wants to run "${approval.actionKind}".`;
-  const pending = approval.decision === "pending_approval" && !approval.result;
-  const settled = approval.result !== null;
+  const effectiveResult = approval.result ?? localResult;
+  const pending =
+    approval.decision === "pending_approval" &&
+    !effectiveResult &&
+    !localDecision &&
+    (localStatus === null || localStatus === "pending_approval");
+  const processing =
+    !effectiveResult &&
+    (approval.decision === "auto_approved" ||
+      localDecision === "approve" ||
+      localStatus === "approved");
+  const failed = effectiveResult?.status === "failed";
+  const rejected = effectiveResult?.status === "rejected";
+  const succeeded = effectiveResult?.status === "succeeded";
+  const visualStatus = failed
+    ? "failed"
+    : rejected
+      ? "rejected"
+      : succeeded
+        ? "done"
+        : processing
+          ? "running"
+          : "approval";
+  const stateLabel = failed
+    ? "Failed"
+    : rejected
+      ? "Rejected"
+      : succeeded
+        ? "Done"
+        : processing
+          ? "Running"
+          : "Approval required";
+  const summary = failed
+    ? (effectiveResult?.error ?? "The action failed.")
+    : rejected
+      ? (effectiveResult?.rejection_reason ?? "The request was rejected.")
+      : headline;
+  const hasDetail =
+    tool.input !== undefined ||
+    tool.deltas.length > 0 ||
+    tool.end?.result !== undefined ||
+    tool.end?.error !== undefined;
 
   async function decide(decision: "approve" | "reject") {
     if (!runId) {
@@ -2061,11 +2846,34 @@ function ActionApprovalCard({
         },
       );
       if (!res.ok) {
+        if (res.status === 409) {
+          const snapshot = await fetchActionRequestSnapshot(
+            approval.actionRequestId,
+            approval.actionKind,
+          );
+          if (snapshot) {
+            setLocalStatus(snapshot.status);
+            setLocalResult(snapshot.result);
+            setLocalDecision(decision);
+            return;
+          }
+        }
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         setLocalError(
           body.error ?? `Request failed (${res.status} ${res.statusText})`,
         );
+        return;
       }
+      const body = (await res.json().catch(() => ({}))) as {
+        status?: string;
+        decision?: string;
+      };
+      setLocalStatus(
+        body.status ??
+          (decision === "approve" ? "approved" : "rejected"),
+      );
+      setLocalDecision(decision);
+      setRejectMode(false);
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -2074,54 +2882,80 @@ function ActionApprovalCard({
   }
 
   return (
-    <div className="border border-border bg-card rounded-2xl px-4 py-3.5 text-[13px] flex flex-col gap-2.5">
-      <div className="flex min-w-0 items-baseline justify-between gap-3 max-[480px]:items-start max-[480px]:flex-col max-[480px]:gap-1">
-        <div className="font-display text-[11px] font-bold uppercase tracking-[0.14em] text-text3">
-          Agent says
-        </div>
-        <code className="min-w-0 max-w-full font-mono text-[11px] text-text3 [overflow-wrap:anywhere]">
-          {approval.actionKind}
-        </code>
+    <div
+      className={`work-tool-row work-action-row work-action-row-${visualStatus}`}
+    >
+      <div className="work-tool-row-head work-action-row-head">
+        <span
+          className={`work-tool-row-icon work-tool-row-icon-${visualStatus}`}
+          aria-hidden="true"
+        >
+          {processing ? (
+            <Loader2 className="work-status-spin" size={12} />
+          ) : failed || rejected ? (
+            <X size={12} />
+          ) : succeeded ? (
+            <Check size={12} />
+          ) : (
+            <ShieldCheck size={12} />
+          )}
+        </span>
+        <span className="work-action-row-copy">
+          <span className="work-tool-row-name">
+            {approvalActionLabel(approval.actionKind)}
+          </span>
+          <span className="work-tool-row-subtitle">{summary}</span>
+        </span>
+        <span className={`work-action-row-state is-${visualStatus}`}>
+          {stateLabel}
+        </span>
+        {pending && !rejectMode ? (
+          <span className="work-action-row-actions">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => decide("approve")}
+              className="work-action-button is-primary"
+            >
+              {busy ? "Approving…" : "Approve"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setRejectMode(true)}
+              className="work-action-button"
+            >
+              Reject
+            </button>
+          </span>
+        ) : null}
+        {hasDetail ? (
+          <button
+            type="button"
+            className="work-action-row-detail-toggle"
+            onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+          >
+            {open ? "Hide details" : "Details"}
+          </button>
+        ) : null}
       </div>
-      <div className="text-text leading-[1.45] italic">“{headline}”</div>
-
-      {pending && !rejectMode ? (
-        <div className="flex items-center gap-2 pt-1">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => decide("approve")}
-            className="px-3 py-1.5 rounded-[10px] bg-accent text-white font-display font-bold text-[12px] tracking-[-0.01em] hover:bg-[#5a4cd1] disabled:opacity-50 cursor-pointer"
-          >
-            {busy ? "Approving…" : "Approve"}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setRejectMode(true)}
-            className="px-3 py-1.5 rounded-[10px] border border-border text-text2 font-medium text-[12px] hover:bg-neutral-soft disabled:opacity-50 cursor-pointer"
-          >
-            Reject
-          </button>
-        </div>
-      ) : null}
 
       {pending && rejectMode ? (
-        <div className="flex flex-col gap-2 pt-1">
+        <div className="work-action-row-decision">
           <input
             type="text"
             placeholder="Reason (optional, shown to the agent)"
             value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
+            onChange={(event) => setRejectReason(event.target.value)}
             disabled={busy}
-            className="w-full px-2.5 py-1.5 rounded-[8px] border border-border bg-white text-text text-[12px] focus:outline-none focus:border-accent"
           />
-          <div className="flex items-center gap-2">
+          <div className="work-action-row-actions">
             <button
               type="button"
               disabled={busy}
               onClick={() => decide("reject")}
-              className="px-3 py-1.5 rounded-[10px] bg-danger text-white font-display font-bold text-[12px] tracking-[-0.01em] hover:opacity-90 disabled:opacity-50 cursor-pointer"
+              className="work-action-button is-danger"
             >
               {busy ? "Rejecting…" : "Confirm reject"}
             </button>
@@ -2132,7 +2966,7 @@ function ActionApprovalCard({
                 setRejectMode(false);
                 setRejectReason("");
               }}
-              className="px-3 py-1.5 rounded-[10px] border border-border text-text2 font-medium text-[12px] hover:bg-neutral-soft cursor-pointer"
+              className="work-action-button"
             >
               Cancel
             </button>
@@ -2140,58 +2974,47 @@ function ActionApprovalCard({
         </div>
       ) : null}
 
-      {approval.decision === "auto_approved" && !settled ? (
-        <div className="text-text3 text-[12px] flex items-center gap-1.5">
-          <Loader2 className="work-status-spin" size={11} />
-          Queued — running in the background…
-        </div>
-      ) : null}
-
-      {settled ? <ActionResultStrip result={approval.result!} /> : null}
-
       {localError ? (
-        <div className="text-danger text-[12px]">{localError}</div>
+        <div className="work-action-row-error">{localError}</div>
       ) : null}
+
+      {open ? <ToolDetail tool={tool} /> : null}
     </div>
   );
 }
 
-function ActionResultStrip({
-  result,
+function approvalActionLabel(kind: string): string {
+  const known: Record<string, string> = {
+    plugin_install: "Install integration",
+    plugin_uninstall: "Remove integration",
+    web_fetch: "Fetch from web",
+    web_search: "Search the web",
+    send_slack_message: "Send Slack message",
+  };
+  if (known[kind]) return known[kind];
+  const words = kind
+    .replace(/^mcp[_:.-]*/i, "")
+    .split(/[_:.-]+/)
+    .filter(Boolean);
+  if (words.length === 0) return "Run action";
+  return words
+    .map((word, index) =>
+      index === 0
+        ? `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`
+        : word.toLowerCase(),
+    )
+    .join(" ");
+}
+
+function ToolGroup({
+  tools,
+  threadId,
+  runId,
 }: {
-  result: Extract<WorkEvent, { type: "action_request_result" }>;
+  tools: ToolItem[];
+  threadId: string;
+  runId: string;
 }) {
-  const tone =
-    result.status === "succeeded"
-      ? "border-success-mid/40 bg-success-soft text-success-ink"
-      : result.status === "rejected"
-        ? "border-border bg-neutral-soft text-text2"
-        : "border-warn/40 bg-warn-soft text-warn-ink";
-  const label =
-    result.status === "succeeded"
-      ? "Done"
-      : result.status === "rejected"
-        ? "Rejected"
-        : "Failed";
-  return (
-    <div className={`mt-1 rounded-[10px] border px-3 py-2 text-[12px] ${tone}`}>
-      <span className="font-display font-bold uppercase tracking-[0.1em] text-[10px] mr-2">
-        {label}
-      </span>
-      <span>
-        {result.status === "rejected"
-          ? (result.rejection_reason ?? "Operator rejected the request.")
-          : result.status === "failed"
-            ? (result.error ?? "The plugin returned an error.")
-            : (result.outcome?.externalRef
-                ? `ref: ${result.outcome.externalRef}`
-                : "The action completed.")}
-      </span>
-    </div>
-  );
-}
-
-function ToolGroup({ tools }: { tools: ToolItem[] }) {
   const inflight = tools.filter((t) => !t.end).length;
   const failed = tools.filter((t) => t.end?.error).length;
   const showHeader = tools.length > 1;
@@ -2204,7 +3027,7 @@ function ToolGroup({ tools }: { tools: ToolItem[] }) {
   if (!showHeader) {
     return (
       <div className="work-tool-group work-tool-group-single">
-        <ToolRow tool={tools[0]} />
+        <ToolRow tool={tools[0]} threadId={threadId} runId={runId} />
       </div>
     );
   }
@@ -2235,7 +3058,12 @@ function ToolGroup({ tools }: { tools: ToolItem[] }) {
       {open ? (
         <div className="work-tool-group-body">
           {tools.map((tool) => (
-            <ToolRow key={tool.id} tool={tool} />
+            <ToolRow
+              key={tool.id}
+              tool={tool}
+              threadId={threadId}
+              runId={runId}
+            />
           ))}
         </div>
       ) : null}
@@ -2243,7 +3071,24 @@ function ToolGroup({ tools }: { tools: ToolItem[] }) {
   );
 }
 
-function ToolRow({ tool }: { tool: ToolItem }) {
+function ToolRow({
+  tool,
+  threadId,
+  runId,
+}: {
+  tool: ToolItem;
+  threadId: string;
+  runId: string;
+}) {
+  if (tool.approval) {
+    return (
+      <ActionApprovalRow threadId={threadId} runId={runId} tool={tool} />
+    );
+  }
+  return <RegularToolRow tool={tool} />;
+}
+
+function RegularToolRow({ tool }: { tool: ToolItem }) {
   const [open, setOpen] = useState(false);
   const status: "running" | "done" | "failed" = tool.end?.error
     ? "failed"
@@ -2278,35 +3123,41 @@ function ToolRow({ tool }: { tool: ToolItem }) {
         <span className="work-tool-row-name">{tool.name}</span>
         {subtitle ? <span className="work-tool-row-subtitle">{subtitle}</span> : null}
       </button>
-      {open ? (
-        <div className="work-tool-row-detail">
-          {tool.input !== undefined ? (
-            <>
-              <div className="work-tool-row-section-label">Input</div>
-              <pre className="work-tool-row-pre">{formatToolPayload(tool.input)}</pre>
-            </>
-          ) : null}
-          {tool.deltas
-            .map((d) => describeToolDelta(d))
-            .filter(Boolean)
-            .map((text, i) => (
-              <div key={i} className="work-tool-delta">
-                {text}
-              </div>
-            ))}
-          {tool.end?.result ? (
-            <>
-              <div className="work-tool-row-section-label">Output</div>
-              <pre className="work-tool-row-pre">{formatToolPayload(tool.end.result)}</pre>
-            </>
-          ) : null}
-          {tool.end?.error ? (
-            <>
-              <div className="work-tool-row-section-label">Error</div>
-              <pre className="work-tool-row-pre work-tool-row-pre-error">{tool.end.error}</pre>
-            </>
-          ) : null}
-        </div>
+      {open ? <ToolDetail tool={tool} /> : null}
+    </div>
+  );
+}
+
+function ToolDetail({ tool }: { tool: ToolItem }) {
+  return (
+    <div className="work-tool-row-detail">
+      {tool.input !== undefined ? (
+        <>
+          <div className="work-tool-row-section-label">Input</div>
+          <pre className="work-tool-row-pre">{formatToolPayload(tool.input)}</pre>
+        </>
+      ) : null}
+      {tool.deltas
+        .map((delta) => describeToolDelta(delta))
+        .filter(Boolean)
+        .map((text, index) => (
+          <div key={index} className="work-tool-delta">
+            {text}
+          </div>
+        ))}
+      {tool.end?.result ? (
+        <>
+          <div className="work-tool-row-section-label">Output</div>
+          <pre className="work-tool-row-pre">{formatToolPayload(tool.end.result)}</pre>
+        </>
+      ) : null}
+      {tool.end?.error ? (
+        <>
+          <div className="work-tool-row-section-label">Error</div>
+          <pre className="work-tool-row-pre work-tool-row-pre-error">
+            {tool.end.error}
+          </pre>
+        </>
       ) : null}
     </div>
   );
@@ -2393,7 +3244,13 @@ function InteractiveSurface({
   submitFollowUp: (prompt: string) => void;
 }) {
   const [dataModel, setDataModel] = useState(surface.dataModel);
-  useEffect(() => setDataModel(surface.dataModel), [surface.dataModel]);
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => setDataModel(surface.dataModel),
+      0,
+    );
+    return () => window.clearTimeout(timer);
+  }, [surface.dataModel]);
 
   const liveSurface = { ...surface, dataModel };
   const ctx = {

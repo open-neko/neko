@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentWorkspace } from "../src/agent-backend";
 import type { KnowledgePackContents } from "../src/knowledge-pack";
+import type { PluginCatalog } from "../src/work/control-plane";
 import { buildWorkPrompt } from "../src/work/prompt";
 
 const workspace: AgentWorkspace = {
@@ -35,6 +36,8 @@ function build(
     supportsWorkflowTool?: boolean;
     supportsPolicyTool?: boolean;
     supportsSourceConfigTool?: boolean;
+    supportsPluginManagerTool?: boolean;
+    pluginCatalog?: PluginCatalog;
     installedSkills?: Array<{ name: string; description: string }>;
   } = {},
 ): string {
@@ -51,6 +54,8 @@ function build(
     supportsWorkflowTool: overrides.supportsWorkflowTool ?? false,
     supportsPolicyTool: overrides.supportsPolicyTool ?? false,
     supportsSourceConfigTool: overrides.supportsSourceConfigTool ?? false,
+    supportsPluginManagerTool: overrides.supportsPluginManagerTool ?? false,
+    pluginCatalog: overrides.pluginCatalog,
     installedSkills: overrides.installedSkills,
     inlineTranscript: false,
   });
@@ -126,6 +131,32 @@ describe("per-channel rendering gate", () => {
   });
 });
 
+describe("tool-result grounding", () => {
+  it("forbids unsupported figures and failed sources in prose, cards, and vitals", () => {
+    const prompt = build("claude-agent", {
+      wantsCards: true,
+      supportsCardTool: true,
+    });
+
+    expect(prompt).toContain("A failed source is unavailable");
+    expect(prompt).toContain("Never invent per-day, per-period, or per-entity values");
+    expect(prompt).toContain("Preserve the source's actual granularity");
+    expect(prompt).toContain("Two daily rows plus a five-day aggregate is not a seven-day forecast");
+    expect(prompt).toContain("use an");
+    expect(prompt).toContain("available fetch or detail action");
+    expect(prompt).toContain("state the exact");
+    expect(prompt).toContain("coverage obtained");
+    expect(prompt).toContain("Every claim and figure in the");
+    expect(prompt).toContain("Omit unsupported numbers");
+    expect(prompt).toContain("attribute each claim, figure, or row");
+    expect(prompt).toContain("use a shared source label only when every named");
+    expect(prompt).toContain("displayed rows must reconcile");
+    expect(prompt).toContain("explicitly stated multi-day summaries");
+    expect(prompt).toContain("use it instead of");
+    expect(prompt).toContain("direct network access from the terminal");
+  });
+});
+
 describe("buildWorkPrompt workflow + policy management", () => {
   it("advertises workflow tools when supportsWorkflowTool is true", () => {
     const prompt = build("claude-agent", { supportsWorkflowTool: true });
@@ -189,6 +220,45 @@ describe("buildWorkPrompt workflow + policy management", () => {
   it("frames /work as the single chat surface for everything", () => {
     const prompt = build("claude-agent");
     expect(prompt).toMatch(/only chat surface/i);
+  });
+});
+
+describe("buildWorkPrompt capability recovery", () => {
+  it("uses the plugin manager approval tool when MCP tools are available", () => {
+    const prompt = build("claude-agent", {
+      supportsPluginManagerTool: true,
+    });
+
+    expect(prompt).toContain("mcp__neko_plugin_manager__list_plugins");
+    expect(prompt).toContain(
+      "mcp__neko_plugin_manager__request_plugin_install",
+    );
+    expect(prompt).toMatch(/approval request.*inline/i);
+    expect(prompt).toMatch(/same answer/i);
+    expect(prompt).toMatch(/operator's yes\/no question/i);
+  });
+
+  it("gives Hermes exact marketplace names and an approval-gated action fence", () => {
+    const prompt = build("hermes", {
+      pluginCatalog: {
+        installed: [],
+        available: [
+          {
+            name: "@openneko/weather",
+            title: "Weather",
+            description: "Live weather data.",
+            version: "1.0.0",
+          },
+        ],
+      },
+    });
+
+    expect(prompt).toContain("@openneko/weather");
+    expect(prompt).toContain('"kind": "plugin_install"');
+    expect(prompt).toContain('"risk_level": "high"');
+    expect(prompt).toMatch(/does not install silently/i);
+    expect(prompt).toMatch(/same answer/i);
+    expect(prompt).toMatch(/operator's yes\/no question/i);
   });
 });
 

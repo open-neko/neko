@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * Neko Component Registrations
+ * OpenNeko Component Registrations
  *
  * Registers React renderers for each A2UI component type
- * in the Neko catalog. Import this module once at app startup
+ * in the OpenNeko catalog. Import this module once at app startup
  * to populate the registry.
  */
 
@@ -27,6 +27,7 @@ import type {
   ChoiceProps,
   ConfirmationProps,
   DividerProps,
+  KeyFiguresProps,
   MarkdownProps,
   SectionProps,
   TableProps,
@@ -129,6 +130,42 @@ registerComponent("Markdown", (comp: A2UIComponent) => {
         {linkifyWorkspacePaths(props.text)}
       </ReactMarkdown>
     </div>
+  );
+});
+
+// ─── Key figures ───
+// A cardless evidence strip owned by one answer. It is intentionally quieter
+// than the dashboard KPI cards: ruled columns, explicit provenance, no mood
+// labels that pretend a number is a recommendation.
+registerComponent("KeyFigures", (comp: A2UIComponent) => {
+  const props = comp as unknown as KeyFiguresProps & { id: string };
+  const items = Array.isArray(props.items) ? props.items : [];
+  if (items.length === 0) return null;
+  return (
+    <section key={props.id} className="work-key-figures" aria-label="Key figures">
+      <div className="work-key-figures-label">Key figures</div>
+      <dl className="work-key-figures-grid">
+        {items.map((item, index) => {
+          const provenance = [
+            item.basis,
+            item.asOf,
+            item.source,
+          ].filter((value): value is string => Boolean(value));
+          return (
+            <div className="work-key-figure" key={`${item.label}-${index}`}>
+              <dt>{item.label}</dt>
+              <dd>{item.value}</dd>
+              {item.sub ? <div className="work-key-figure-sub">{item.sub}</div> : null}
+              {provenance.length > 0 ? (
+                <div className="work-key-figure-proof">
+                  {provenance.join(" · ")}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </dl>
+    </section>
   );
 });
 

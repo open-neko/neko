@@ -28,6 +28,54 @@ import {
   verifyManagedFileSourceManifest,
 } from "@neko/llm/graphjin";
 
+export function packageInstallCommand(
+  args: string[],
+  pnpmWorkspace: boolean,
+): { command: "npm" | "pnpm"; args: string[] } {
+  if (pnpmWorkspace && args[0] === "install") {
+    return {
+      command: "pnpm",
+      // Run from the worker package directory. pnpm locates the workspace
+      // root itself and adds the plugin where the worker resolves it.
+      args: ["add", ...args.slice(1)],
+    };
+  }
+  return { command: "npm", args };
+}
+
+export async function findPnpmWorkspaceRoot(
+  startDirectory: string,
+): Promise<string | null> {
+  let current = startDirectory;
+  while (true) {
+    const marker = await stat(join(current, "pnpm-workspace.yaml"))
+      .then((entry) => entry.isFile())
+      .catch(() => false);
+    if (marker) return current;
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+async function runWorkspaceAwarePackageInstall(
+  args: string[],
+  cwd: string,
+): Promise<void> {
+  const invocation = packageInstallCommand(
+    args,
+    Boolean(await findPnpmWorkspaceRoot(cwd)),
+  );
+  await new Promise<void>((resolve, reject) => {
+    execFile(
+      invocation.command,
+      invocation.args,
+      { cwd, maxBuffer: 32 * 1024 * 1024 },
+      (err) => (err ? reject(err) : resolve()),
+    );
+  });
+}
+
 /**
  * ADM3 — executes approved plugin_install / plugin_uninstall action
  * requests. The chat agent can only PROPOSE these (policy-gated); the
@@ -57,12 +105,7 @@ export function registerPluginManagementAdapters(opts: {
       trustedMarketplaces: [
         { name: OFFICIAL_MARKETPLACE_NAME, url: OFFICIAL_MARKETPLACE_URL },
       ],
-      npmRunner: (args, cwd) =>
-        new Promise<void>((resolve, reject) => {
-          execFile("npm", args, { cwd, maxBuffer: 32 * 1024 * 1024 }, (err) =>
-            err ? reject(err) : resolve(),
-          );
-        }),
+      npmRunner: runWorkspaceAwarePackageInstall,
       envPrompt: async (plugin, requirement) => {
         throw new Error(
           `${plugin} requires ${requirement.key}. Set it first (openneko secrets set ${plugin} ${requirement.key} …) and re-approve the install — credentials never flow through chat.`,

@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter, useSearchParams } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import CreatorCredit from "@/components/CreatorCredit";
+import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import ActCard, {
   type ActCardData,
@@ -229,14 +230,18 @@ function ActionsPageInner() {
           <SectionNav current="actions" />
         </AppHeader>
 
-        <div className="flex items-baseline gap-3.5 my-2">
-          <h1 className="font-display text-[30px] font-extrabold tracking-[-0.02em] text-text">Actions</h1>
-          {data && filter === "awaiting" && (
-            <span className="font-mono text-[13px] text-text3">{data.count} pending</span>
-          )}
-        </div>
+        <PageHeading
+          eyebrow="Human review"
+          title="Review queue"
+          description="Approve, reject, and inspect the external actions proposed by your agents."
+          meta={
+            data && filter === "awaiting"
+              ? `${data.count} pending`
+              : undefined
+          }
+        />
 
-        <div className="flex gap-1 mt-1 mb-[18px] border-b border-border">
+        <div className="flex gap-1 -mt-3 mb-[18px] border-b border-border">
           {TABS.map((t) => {
             const active = filter === t.key;
             return (

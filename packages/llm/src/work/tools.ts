@@ -1180,10 +1180,10 @@ export interface BuildPluginActionServerOptions {
  * One MCP tool per registered plugin action kind. Each tool's handler
  * routes through the action_policy engine:
  *
- *   - allow (auto_approve)  → create approved action_request, run the
- *                             adapter synchronously, return the outcome
- *                             inline. The agent sees the result and
- *                             keeps talking.
+ *   - allow (auto_approve)  → create an approved action_request, enqueue it
+ *                             for the worker, wait for execution, and return
+ *                             the actual outcome inline. The agent sees the
+ *                             result and keeps talking.
  *   - needs_approval (ask)  → create pending_approval action_request,
  *                             emit an action_request_emit event so the
  *                             /work UI can render an inline approval
@@ -1270,7 +1270,7 @@ export function buildPluginActionServer(
         ? "Approval policy decided per-call."
         : typeof d.default_mode === "string"
           ? d.default_mode === "auto"
-            ? "Auto-approved by default — runs without user confirmation. Operators can override via /admin/rules."
+            ? "Auto-approved by default — runs without user confirmation. The tool waits for execution; use its returned outcome to answer the user. Operators can override via /admin/rules."
             : "Asks the user for approval before running. You MUST set `intent` to a clear one-sentence explanation."
           : [
               externalMode ? `external: ${externalMode}` : null,
@@ -1377,6 +1377,47 @@ export function buildPluginActionServer(
             summary: intent,
             ...(riskLevel ? { risk_level: riskLevel } : {}),
           });
+          const execution = await controlPlane.waitForActionExecution({
+            orgId: opts.orgId,
+            actionRequestId: request.id,
+            timeoutMs: 45_000,
+          });
+          if (execution.status === "succeeded") {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({
+                    ok: true,
+                    decision: "auto_approved",
+                    action_request_id: request.id,
+                    policy: decision.policy.name,
+                    status: "executed",
+                    outcome: execution.outcome,
+                    note: "Use the returned outcome to answer the user's request now.",
+                  }),
+                },
+              ],
+            };
+          }
+          if (execution.status === "failed") {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({
+                    ok: false,
+                    decision: "auto_approved",
+                    action_request_id: request.id,
+                    policy: decision.policy.name,
+                    status: "failed",
+                    error: execution.error,
+                    note: "Tell the user the action failed. Do not claim that results are still queued.",
+                  }),
+                },
+              ],
+            };
+          }
           return {
             content: [
               {
@@ -1386,8 +1427,8 @@ export function buildPluginActionServer(
                   decision: "auto_approved",
                   action_request_id: request.id,
                   policy: decision.policy.name,
-                  status: "queued_for_execution",
-                  note: "Action queued. The result will arrive as an action_request_result event in this run — you can stop here; the user will see the outcome inline.",
+                  status: "running",
+                  note: "Execution is still running. Do not claim completion or invent a result; tell the user it is taking longer than expected and the outcome will appear inline.",
                 }),
               },
             ],

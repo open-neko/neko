@@ -10,6 +10,7 @@ import {
   ensureAgentBroker,
   finishWorkRun,
   getWorkRun,
+  registerAgentBrokerEventSink,
   runChatTurn,
 } from "@neko/llm/work";
 import { getCurrentActor } from "@/lib/actor";
@@ -103,6 +104,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   // The web server stays the control plane, launches the box, and relays
   // events over the existing SSE.
   const broker = await ensureAgentBroker();
+  const unregisterBrokerEvents = registerAgentBrokerEventSink(run.id, emit);
 
   void runChatTurn(
     {
@@ -139,6 +141,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
     })
     .finally(async () => {
+      unregisterBrokerEvents();
       try {
         await finalize();
       } catch (err) {
@@ -154,5 +157,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
     runId: run.id,
     threadId,
     backend: backend.id,
+    actorRole: actor.role,
   });
 }
