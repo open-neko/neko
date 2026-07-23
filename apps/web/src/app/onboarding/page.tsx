@@ -1,8 +1,15 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
-import { db, eq, onboarding_wizard, organization } from "@neko/db";
-import { getOperatorProfile } from "@neko/llm/work";
+import {
+  and,
+  customer_profile,
+  db,
+  eq,
+  onboarding_wizard,
+  operator_profile,
+  organization,
+} from "@neko/db";
 import { getOrgId } from "@/lib/db";
 import { getCurrentActor } from "@/lib/actor";
 import { getSetupCompleteAt } from "@/lib/org-state";
@@ -14,8 +21,13 @@ const ORG_NAME_STUB = "My Workspace";
 
 type OnboardingLoadResult =
   | { kind: "settings" }
-  | { kind: "persona"; initialRoleTemplate: string }
-  | { kind: "wizard"; initial: WizardInitial };
+  | {
+      kind: "persona";
+      initialRoleTemplate: string;
+      initialFocusAreas: string[];
+    }
+  | { kind: "workspace_pending" }
+  | { kind: "wizard"; initial: WizardInitial; teamMode: boolean };
 
 export default async function OnboardingPage() {
   await connection();
@@ -35,14 +47,21 @@ export default async function OnboardingPage() {
   if (result.kind === "persona") {
     return (
       <Suspense fallback={null}>
-        <PersonaStep initialRoleTemplate={result.initialRoleTemplate} />
+        <PersonaStep
+          initialRoleTemplate={result.initialRoleTemplate}
+          initialFocusAreas={result.initialFocusAreas}
+        />
       </Suspense>
     );
   }
 
+  if (result.kind === "workspace_pending") {
+    return <OnboardingUnavailable mode="workspace" />;
+  }
+
   return (
     <Suspense fallback={null}>
-      <OnboardingWizard initial={result.initial} />
+      <OnboardingWizard initial={result.initial} teamMode={result.teamMode} />
     </Suspense>
   );
 }
@@ -54,17 +73,9 @@ async function loadOnboarding(): Promise<OnboardingLoadResult> {
     return { kind: "settings" };
   }
 
-  // CV3: onboarding is mode-aware. The ORG wizard below is the admin's
-  // one-time setup; a MEMBER landing here after the org is set up gets the
-  // per-user persona step instead (their operator_profile row drives the
-  // agent's <operator-profile> block for their runs).
   const actor = await getCurrentActor();
-  if (actor.role === "member" && actor.userId) {
-    const profile = await getOperatorProfile(orgId, actor.userId);
-    return { kind: "persona", initialRoleTemplate: profile?.roleTemplate ?? "" };
-  }
 
-  const [wizardRows, orgRows] = await Promise.all([
+  const [wizardRows, orgRows, currentProfiles, ownPersonas] = await Promise.all([
     db()
       .select({
         company_note: onboarding_wizard.company_note,
@@ -80,7 +91,51 @@ async function loadOnboarding(): Promise<OnboardingLoadResult> {
       .from(organization)
       .where(eq(organization.id, orgId))
       .limit(1),
+    db()
+      .select({ id: customer_profile.id })
+      .from(customer_profile)
+      .where(
+        and(
+          eq(customer_profile.org_id, orgId),
+          eq(customer_profile.is_current, true),
+        ),
+      )
+      .limit(1),
+    actor.userId
+      ? db()
+          .select({
+            roleTemplate: operator_profile.role_template,
+            focusAreas: operator_profile.focus_areas,
+          })
+          .from(operator_profile)
+          .where(
+            and(
+              eq(operator_profile.org_id, orgId),
+              eq(operator_profile.user_id, actor.userId),
+            ),
+          )
+          .limit(1)
+      : Promise.resolve([]),
   ]);
+
+  // Once the organization model exists, every SSO identity gets its own
+  // persona. Admins are included: an admin is a person, not the org-default
+  // CEO view. Query the exact user row so an org fallback cannot silently
+  // count as completed personal setup.
+  if (actor.userId && currentProfiles.length > 0) {
+    return {
+      kind: "persona",
+      initialRoleTemplate: ownPersonas[0]?.roleTemplate ?? "",
+      initialFocusAreas: ownPersonas[0]?.focusAreas ?? [],
+    };
+  }
+
+  // A member cannot define organization-wide business context. This state is
+  // uncommon (the first SSO identity is bootstrapped as admin) but must not
+  // bounce between onboarding and the dashboard.
+  if (actor.role === "member" && actor.userId) {
+    return { kind: "workspace_pending" };
+  }
 
   const row = wizardRows[0];
   const orgName = orgRows[0]?.name ?? "";
@@ -92,5 +147,5 @@ async function loadOnboarding(): Promise<OnboardingLoadResult> {
     priorities: row?.priorities ?? [],
   };
 
-  return { kind: "wizard", initial };
+  return { kind: "wizard", initial, teamMode: actor.userId !== null };
 }

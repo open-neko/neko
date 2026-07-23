@@ -7,6 +7,7 @@ import {
   eq,
   inArray,
   onboarding_wizard,
+  operator_profile,
   processing_job,
   sql,
 } from "@neko/db";
@@ -17,6 +18,7 @@ import {
   type OnboardingStatus,
   type StageKind,
 } from "@/lib/db";
+import { getCurrentActor } from "@/lib/actor";
 import { isDemoMode, DEMO_SEATS } from "@/lib/demo-mode";
 
 const STAGE_KINDS: StageKind[] = [
@@ -122,6 +124,7 @@ async function loadMetricsProgress(orgId: string): Promise<MetricsProgress | und
  *
  * Decides which screen to show:
  *  - needs_wizard : no profile, no in-flight job, no recent failure → /onboarding
+ *  - needs_persona: org profile exists but the signed-in user has no persona
  *  - processing   : profile build job is running → /business-profile
  *  - ready        : a current profile exists → /
  *  - failed       : the most recent profile build failed and there's no
@@ -135,6 +138,7 @@ export async function GET() {
       state: "ready",
       profileVersion: 0,
       seats: [...DEMO_SEATS],
+      mode: "shared",
     } satisfies OnboardingStatus);
   }
 
@@ -198,6 +202,25 @@ export async function GET() {
 
   let status: OnboardingStatus;
   if (profileRows.length > 0) {
+    const actor = await getCurrentActor();
+    if (actor.userId) {
+      const ownPersona = await db()
+        .select({ roleTemplate: operator_profile.role_template })
+        .from(operator_profile)
+        .where(
+          and(
+            eq(operator_profile.org_id, orgId),
+            eq(operator_profile.user_id, actor.userId),
+          ),
+        )
+        .limit(1);
+      if (!ownPersona[0]?.roleTemplate.trim()) {
+        return NextResponse.json({
+          state: "needs_persona",
+        } satisfies OnboardingStatus);
+      }
+    }
+
     // Even after the profile is ready, metric_refresh jobs may still be
     // running in the background. Surface that count so the dashboard can
     // render its "X of Y still loading" banner.
@@ -205,7 +228,8 @@ export async function GET() {
     status = {
       state: "ready",
       profileVersion: profileRows[0].version,
-      seats: wizardRows[0]?.active_seats ?? [],
+      seats: actor.userId ? [] : (wizardRows[0]?.active_seats ?? []),
+      mode: actor.userId ? "personal" : "shared",
       ...(metricsProgress ? { metricsProgress } : {}),
     };
   } else if (jobRows.length > 0) {

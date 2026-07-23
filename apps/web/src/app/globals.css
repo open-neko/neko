@@ -1,13 +1,15 @@
 @import "tailwindcss";
 
 @import "./styles/_tokens.css";
+@import "./styles/_rail.css";
 @import "./styles/_chrome.css";
 @import "./styles/_dashboard.css";
+@import "./styles/_agentic.css";
+@import "./styles/_entry.css";
 @import "./styles/_work.css";
 @import "./styles/_composer.css";
 @import "./styles/_profile-review.css";
 @import "./styles/_toasts.css";
-@import "./styles/_library.css";
 @import "./styles/_modal.css";
 @import "./styles/_workflows.css";
 @import "./styles/_run-replay.css";
@@ -115,18 +117,6 @@ html[data-density="comfortable"] {
 .brief-grid .icard { margin-bottom: 0; }
 .dash-root .icard { padding: var(--d-icard-pad); cursor: default; }
 
-/* ── Workflows: tile grid in Compact (expanded workflow spans full width) ── */
-html[data-density="compact"] .workflows-root { --page-width: 1200px; }
-html[data-density="compact"] .wf-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(330px, 100%), 1fr));
-  gap: 11px;
-  align-items: start;
-}
-html[data-density="compact"] .wf-grid > li:has(.workflows-row.is-active) {
-  grid-column: 1 / -1;
-}
-
 /* ── Actions: triage queue (list + reading pane) in Compact ── */
 html[data-density="compact"] .approvals-root { --page-width: 1120px; }
 .triage-pane { display: none; }
@@ -192,8 +182,8 @@ html[data-density="compact"] .triage-pane {
 
 @media (min-width: 1100px) {
   html[data-density="compact"] .work-layout.has-rail {
-    width: min(1340px, calc(100vw - 40px));
-    grid-template-columns: 248px minmax(0, 1fr) 312px;
+    width: min(1080px, calc(100vw - 40px));
+    grid-template-columns: minmax(0, 1fr) 312px;
   }
   html[data-density="compact"] .work-layout.has-rail .work-rail {
     display: flex; flex-direction: column; gap: 12px;
@@ -209,7 +199,7 @@ html[data-density="compact"] .triage-pane {
 }
 .topbar-brand { display: inline-flex; align-items: center; gap: 9px; text-decoration: none; color: var(--text); flex: 0 0 auto; transition: opacity 0.18s; }
 .topbar-brand:hover { opacity: 0.85; }
-.topbar-logo { width: 22px; height: 22px; object-fit: contain; display: block; flex: none; }
+.topbar-logo { width: 22px; height: auto; object-fit: contain; display: block; flex: none; }
 .topbar-name { font-family: var(--font-display), 'Archivo', sans-serif; font-weight: 800; font-size: 17px; letter-spacing: -0.02em; line-height: 1; }
 .topbar-ver {
   font-family: var(--font-body), 'Manrope', sans-serif; font-weight: 600; font-size: 10.5px;
@@ -254,14 +244,6 @@ html[data-density="compact"] .triage-pane {
   .topbar-spacer { display: none; }
   .topbar-nav { order: 3; width: 100%; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
 }
-
-
-
-
-
-
-
-
 
 
 

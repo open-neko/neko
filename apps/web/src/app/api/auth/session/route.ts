@@ -8,8 +8,10 @@
 
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { getCurrentActor } from "@/lib/actor";
 
 export async function GET() {
   const user = await getCurrentUser();
-  return NextResponse.json({ user });
+  const actor = user ? await getCurrentActor() : null;
+  return NextResponse.json({ user, role: actor?.role ?? null });
 }

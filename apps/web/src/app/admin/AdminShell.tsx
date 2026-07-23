@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import AppHeader from "@/components/AppHeader";
+import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 
 export function AdminShell({
@@ -23,8 +24,11 @@ export function AdminShell({
       <AppHeader back={back}>
         <SectionNav current="admin" />
       </AppHeader>
-      <div className="greet">{title}</div>
-      {subtitle ? <div className="greet-sub mb-6">{subtitle}</div> : null}
+      <PageHeading
+        eyebrow="Workspace control"
+        title={title}
+        description={subtitle}
+      />
       {children}
     </div>
   );

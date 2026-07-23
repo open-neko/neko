@@ -21,6 +21,7 @@ import HoursSavedHero, {
   type HoursSavedItem,
   type HoursSavedValue,
 } from "@/components/HoursSavedHero";
+import AgentLauncher from "@/components/AgentLauncher";
 import { formatSavedShort } from "@/lib/hours-saved";
 import { cn } from "@/lib/cn";
 
@@ -210,6 +211,7 @@ export default function Dashboard() {
   const [gateChecked, setGateChecked] = useState(false);
   const [roles, setRoles] = useState<string[]>([]);
   const [role, setRole] = useState("");
+  const [personalMode, setPersonalMode] = useState(false);
   const [gateError, setGateError] = useState<string | null>(null);
 
   // Onboarding gate: redirect to wizard or processing if no current profile.
@@ -229,6 +231,10 @@ export default function Dashboard() {
           router.replace("/onboarding");
           return;
         }
+        if (status.state === "needs_persona") {
+          router.replace("/onboarding");
+          return;
+        }
         if (status.state === "failed") {
           router.replace("/onboarding?failed=1");
           return;
@@ -237,9 +243,11 @@ export default function Dashboard() {
           router.replace("/business-profile");
           return;
         }
+        const isPersonal = status.mode === "personal";
         const seats: string[] = Array.isArray(status.seats) ? status.seats : [];
-        setRoles(seats);
-        setRole(seats[0] ?? "");
+        setPersonalMode(isPersonal);
+        setRoles(isPersonal ? [] : seats);
+        setRole(isPersonal ? "__overview__" : (seats[0] ?? ""));
         setGateChecked(true);
       } catch (err) {
         if (cancelled) return;
@@ -324,7 +332,8 @@ export default function Dashboard() {
     return () => clearInterval(id);
   }, [gateChecked, fetchFindings, fetchRecentActions, fetchAwaiting, fetchHoursSaved]);
 
-  const surfaceId = `briefing-${role.toLowerCase()}`;
+  const surfaceId =
+    role === "__overview__" ? "briefing-overview" : `briefing-${role.toLowerCase()}`;
   const surface = surfaces.get(surfaceId);
 
   // Fetch briefing from API. `silent=true` skips the loading toggle so
@@ -516,48 +525,30 @@ export default function Dashboard() {
           <SectionNav current="dashboard" />
         </AppHeader>
 
-        <div className="flex items-center gap-2.5 flex-wrap mb-9">
-          <div className="flex gap-[7px] flex-wrap">
-            {roles.map((k) => {
-              const isOn = role === k;
-              return (
-                <button
-                  key={k}
-                  onClick={() => setRole(k)}
-                  className={cn(
-                    "px-4.5 py-2.5 rounded-full border-[1.5px] font-body text-[14.5px] font-medium cursor-pointer",
-                    "transition-[color,background,border-color,transform,box-shadow] duration-200",
-                    !isOn &&
-                      "bg-white/60 border-border text-text2 hover:border-accent hover:text-accent hover:bg-accent-soft hover:-translate-y-px",
-                    isOn &&
-                      "bg-text border-text text-bg shadow-[0_2px_10px_rgba(20,18,12,0.18)] before:content-[''] before:inline-block before:w-1.5 before:h-1.5 before:rounded-full before:bg-success before:mr-2 before:align-[1px] before:shadow-[0_0_0_3px_rgba(108,255,127,0.18)]",
-                  )}
-                >
-                  {k}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         {gateError ? (
-          <div className="py-10 text-center text-text3">
-            <div className="mb-2 text-text2">
-              Can&apos;t reach the database right now.
-            </div>
-            <div className="text-[13px]">
-              The briefing will load once the connection is back.
+          <div className="dash-system-state is-error" role="alert">
+            <div className="dash-system-mark" aria-hidden="true">!</div>
+            <div>
+              <div className="dash-system-label">Workspace connection lost</div>
+              <p>
+                OpenNeko cannot reach the database. Your briefing will resume when
+                the connection is back.
+              </p>
             </div>
             <button
               onClick={() => { setGateError(null); setGateChecked(false); setLoading(true); window.location.reload(); }}
-              className="mt-4 px-3.5 py-1.5 text-[13px] cursor-pointer"
+              type="button"
             >
               Retry
             </button>
           </div>
         ) : loading ? (
-          <div className="py-10 text-center text-text3">
-            Loading briefing...
+          <div className="dash-system-state is-loading" role="status">
+            <span className="dash-system-loader" aria-hidden="true" />
+            <div>
+              <div className="dash-system-label">OpenNeko is reading the workspace</div>
+              <p>Assembling signals, decisions, and recent agent work.</p>
+            </div>
           </div>
         ) : (
           <>
@@ -571,11 +562,50 @@ export default function Dashboard() {
               </Link>
             )}
             <div
+              className="dash-operator-head"
+              style={{ animation: "fadeUp 0.45s ease both" }}
+            >
+              <div className="dash-operator-copy">
+                <div className="dash-operator-state">
+                  {personalMode ? "Personal workspace" : "Workspace brief"}
+                </div>
+                <h1>Briefing</h1>
+                <p>
+                  {awaiting && awaiting.count > 0
+                    ? `${awaiting.count} decision${awaiting.count === 1 ? "" : "s"} need your judgment.`
+                    : "No decisions are waiting."}
+                </p>
+              </div>
+              {!personalMode && roles.length > 0 ? (
+                <div className="dash-role-control" aria-label="Briefing role">
+                  <span>Briefing view</span>
+                  <div className="dash-role-list">
+                    {roles.map((kind) => (
+                      <button
+                        key={kind}
+                        type="button"
+                        className={cn(role === kind && "is-active")}
+                        aria-pressed={role === kind}
+                        onClick={() => setRole(kind)}
+                      >
+                        {kind}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <AgentLauncher />
+
+            <div
               className="greet-eyebrow"
               style={{ animation: "fadeUp 0.5s ease both" }}
             >
               <span className="greet-eyebrow-rule" aria-hidden="true" />
-              <span className="greet-eyebrow-accent">{role ? `${role} Briefing` : "Today"}</span>
+              <span className="greet-eyebrow-accent">
+                {role && role !== "__overview__" ? `${role} briefing` : "Business signals"}
+              </span>
               {ds && <span aria-hidden="true">·</span>}
               {ds && <span>{ds}</span>}
             </div>

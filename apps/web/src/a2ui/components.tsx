@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * Neko Component Registrations
+ * OpenNeko Component Registrations
  *
  * Registers React renderers for each A2UI component type
- * in the Neko catalog. Import this module once at app startup
+ * in the OpenNeko catalog. Import this module once at app startup
  * to populate the registry.
  */
 

@@ -158,8 +158,8 @@ function defaultPrimaryConfig(): StoredWithSecrets {
   return {
     scope: "primary",
     source: "default",
-    provider: "anthropic",
-    model: getDefaultPrimaryModel("anthropic"),
+    provider: "google-gemini",
+    model: getDefaultPrimaryModel("google-gemini"),
     label: null,
     enabled: true,
     config: {},

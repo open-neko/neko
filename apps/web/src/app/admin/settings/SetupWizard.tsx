@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import AppHeader from "@/components/AppHeader";
+import EntryShell from "@/components/EntryShell";
 import { toast } from "sonner";
 import Select from "@/components/Select";
 import { Button } from "@/components/ui/Button";
@@ -413,16 +413,14 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
   // ---------------- Render ----------------
 
   return (
-    <div className="root">
-      <AppHeader />
-      <div className="greet">Get your workspace ready.</div>
-      <div className="greet-sub">
-        A few quick steps for whoever sets up the data plumbing. Your business team takes over
-        once this is done.
-      </div>
-
-      <Stepper current={step} steps={STEPS} />
-
+    <EntryShell
+      className="setup-entry-shell"
+      eyebrow="System setup"
+      title="Connect the operating system."
+      description="Configure storage, data access, and the agent runtime. Business onboarding begins when this infrastructure check is complete."
+      steps={STEPS}
+      currentStep={step}
+    >
       {stepName === "password" && (
         <Step
           title="Choose a database password"
@@ -688,29 +686,7 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
           </div>
         </Step>
       )}
-    </div>
-  );
-}
-
-function Stepper({ current, steps }: { current: number; steps: readonly string[] }) {
-  return (
-    <div style={{ display: "flex", gap: 12, margin: "32px 0 24px", color: "var(--muted)" }}>
-      {steps.map((label, i) => (
-        <div
-          key={label}
-          style={{
-            padding: "6px 14px",
-            borderRadius: 999,
-            border: "1px solid var(--border)",
-            background: i === current ? "var(--accent)" : "transparent",
-            color: i === current ? "var(--bg)" : "var(--muted)",
-            fontSize: 13,
-          }}
-        >
-          {i + 1}. {label}
-        </div>
-      ))}
-    </div>
+    </EntryShell>
   );
 }
 

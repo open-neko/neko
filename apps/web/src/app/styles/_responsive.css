@@ -37,9 +37,7 @@ body { overflow-x: hidden; }
 
 /* ── TABLET LANDSCAPE & BELOW ── */
 @media (max-width: 1024px) {
-  /* Work page gets a 240px sidebar to claw back content room
-     before fully stacking at 900px. */
-  .work-layout { grid-template-columns: 240px minmax(0, 1fr); gap: 14px; }
+  .work-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
 }
 
 /* ── TABLET PORTRAIT & BELOW ── */
@@ -55,15 +53,9 @@ body { overflow-x: hidden; }
 
   .app-header { margin-bottom: 18px; }
 
-  /* Work + workflow drawer stacks. Sidebar gives up sticky; the thread
-     list collapses by default on a thread page so the conversation is the
-     first thing on screen — the head toggle re-opens it. */
+  /* Work surfaces stay single-column below desktop. Thread history moves
+     into the mobile command dock instead of adding a second navigation pane. */
   .work-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
-  .work-sidebar { position: static; max-height: none; }
-  .work-thread-list { max-height: 46vh; }
-  .work-thread-list.is-collapsed { display: none; }
-  .work-threads-toggle { cursor: pointer; }
-  .work-threads-chevron { display: inline-flex; }
   .work-bubble { max-width: 100%; }
 
   .builder-layout { grid-template-columns: minmax(0, 1fr); }
@@ -82,12 +74,11 @@ body { overflow-x: hidden; }
 
   /* Hover-reveal actions are always visible — there is no hover. */
   .iactions, .work-bubble-actions { opacity: 1; }
-  .work-thread-delete { opacity: 1; }
   .workflows-row-delete { display: inline-flex; }
   .library-row-action { opacity: 1; pointer-events: auto; }
 
   /* Real tap area for icon/delete buttons on touch. */
-  .work-thread-delete, .workflows-row-delete, .work-icon-btn.is-ghost { width: 36px; height: 36px; }
+  .workflows-row-delete { width: 36px; height: 36px; }
   .work-bubble-actions button { padding: 9px; }
 }
 
@@ -133,7 +124,6 @@ body { overflow-x: hidden; }
 
   /* Workflows + runs page header rows — title above action button. */
   .workflows-new-btn { align-self: flex-start; }
-  .workflows-row { padding: 14px 16px; border-radius: 12px; }
   .workflows-row-meta { flex-wrap: wrap; row-gap: 4px; }
 
   .run-header-row { flex-direction: column; align-items: stretch; gap: 10px; }
@@ -149,10 +139,6 @@ body { overflow-x: hidden; }
   .act-row { padding: 12px 12px; border-radius: 12px; }
   .act-row-actions { flex-wrap: wrap; row-gap: 8px; }
   .act-row-btn { flex: 1 1 auto; min-width: 0; text-align: center; }
-
-  .workflow-detail { padding: 14px 16px 16px; }
-  .workflow-drawer-actions { flex-wrap: wrap; }
-  .workflow-drawer-btn { flex: 1 1 auto; }
 
   /* Work transcript / composer bubbles. */
   .work-bubble { padding: 14px 16px; font-size: 15px; }
@@ -186,7 +172,8 @@ body { overflow-x: hidden; }
 /* ── TOUCH-ONLY: always reveal hover-only chrome ── */
 @media (hover: none) {
   .iactions, .work-bubble-actions { opacity: 1; }
-  .work-thread-delete { opacity: 1; }
   .library-row-action { opacity: 1; pointer-events: auto; }
+  .workflows-row-delete { opacity: 1; pointer-events: auto; }
+  .workflows-row-arrow { opacity: 0; }
   .ipin:hover:not(:disabled) { background: transparent; border-color: transparent; }
 }

@@ -4,7 +4,7 @@ export type AgentBackendId = (typeof AGENT_BACKEND_IDS)[number];
 // Every concurrent job can own an OpenShell sandbox. Keep the out-of-box
 // ceiling deliberately small; operators can raise it after sizing their
 // gateway and model-provider quota.
-export const AGENT_DEFAULT_GLOBAL_CAP = 2;
+export const AGENT_DEFAULT_GLOBAL_CAP = 3;
 
 export const AGENT_BACKEND_OPTIONS = [
   {

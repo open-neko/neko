@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Workflow, Trash2 } from "lucide-react";
+import { ArrowUpRight, Plus, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { confirmDialog } from "@/components/ConfirmModal";
 import { describeSchedule } from "@/lib/cron-english";
@@ -138,11 +139,14 @@ export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<WorkflowListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
+  const inspectorRef = useRef<HTMLElement | null>(null);
 
   const fetchList = useCallback(async () => {
     try {
       const res = await fetch("/api/workflows", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      setError(null);
       setWorkflows(data.workflows ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load workflows");
@@ -150,7 +154,8 @@ export default function WorkflowsPage() {
   }, []);
 
   useEffect(() => {
-    void fetchList();
+    const timer = window.setTimeout(() => void fetchList(), 0);
+    return () => window.clearTimeout(timer);
   }, [fetchList]);
 
   const select = useCallback(
@@ -209,54 +214,117 @@ export default function WorkflowsPage() {
 
   const totalCount =
     grouped.active.length + grouped.paused.length + grouped.broken.length;
+  const selectedWorkflow =
+    workflows?.find((workflow) => workflow.id === selectedId) ?? null;
+  const selectedPosition = selectedWorkflow
+    ? [...grouped.active, ...grouped.paused, ...grouped.broken].findIndex(
+        (workflow) => workflow.id === selectedWorkflow.id,
+      ) + 1
+    : null;
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") select(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+
+    const isSheet = window.matchMedia("(max-width: 900px)").matches;
+    const previousOverflow = document.body.style.overflow;
+    let focusFrame = 0;
+    if (isSheet) {
+      document.body.style.overflow = "hidden";
+      focusFrame = requestAnimationFrame(() => inspectorRef.current?.focus());
+    }
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (isSheet) document.body.style.overflow = previousOverflow;
+      if (focusFrame) cancelAnimationFrame(focusFrame);
+    };
+  }, [selectedId, select]);
 
   return (
     <>
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-9 h-9 rounded-xl bg-accent-soft text-accent inline-flex items-center justify-center shrink-0">
-          <Workflow size={16} strokeWidth={2} />
-        </div>
-        <div>
-          <div className="font-display text-2xl font-bold leading-[1.1] text-text">Workflows</div>
-          <div className="text-[13px] text-text3 mt-0.5">
-            {workflows === null
-              ? "Loading…"
-              : totalCount === 0
-                ? "None yet"
-                : `${totalCount} ${totalCount === 1 ? "watcher" : "watchers"}`}
+      <header className="workflows-ops-head">
+        <div className="workflows-ops-title">
+          <h1>
+            Workflows<span aria-hidden="true">.</span>
+          </h1>
+          <div className="workflows-ops-eyebrow">
+            <span className="workflows-live-mark" aria-hidden="true" />
+            <span>
+              {workflows === null
+                ? "loading"
+                : `${String(totalCount).padStart(2, "0")} routes`}
+            </span>
           </div>
         </div>
-        <button
-          type="button"
-          className="workflows-new-btn library-head-action ml-auto"
-          onClick={() =>
-            router.push(
-              `/work?seed=${encodeURIComponent("Set up a new workflow that ")}`,
-            )
-          }
-        >
-          + New workflow
-        </button>
-      </div>
+        <div className="workflows-ops-status" aria-label="Workflow status">
+          <div>
+            <strong>{String(grouped.active.length).padStart(2, "0")}</strong>
+            <span>active</span>
+          </div>
+          <div>
+            <strong>{String(grouped.paused.length).padStart(2, "0")}</strong>
+            <span>paused</span>
+          </div>
+          <div data-state={grouped.broken.length > 0 ? "attention" : "clear"}>
+            <strong>{String(grouped.broken.length).padStart(2, "0")}</strong>
+            <span>attention</span>
+          </div>
+          <button
+            type="button"
+            className="workflows-new-btn"
+            onClick={() =>
+              router.push(
+                `/work?seed=${encodeURIComponent("Set up a new workflow that ")}`,
+              )
+            }
+          >
+            <Plus aria-hidden="true" />
+            New workflow
+          </button>
+        </div>
+      </header>
 
       {error ? (
-          <div className="py-10 text-center text-sm text-danger">{error}</div>
-        ) : workflows === null ? (
-          <div className="py-20 text-center text-[15px] text-text3">Loading…</div>
-        ) : workflows.length === 0 ? (
-          <div className="py-20 text-center text-[15px] text-text3">
-            No workflows yet. <button
-              type="button"
-              className="bg-transparent border-0 text-accent font-inherit cursor-pointer underline underline-offset-[3px] p-0"
-              onClick={() =>
-                router.push(
-                  `/work?seed=${encodeURIComponent("Set up a new workflow that ")}`,
-                )
-              }
-            >+ New workflow</button> gets you started.
-          </div>
-        ) : (
-          <div className="workflows-list min-w-0">
+        <div className="workflow-page-state is-error" role="alert">
+          <strong>Workflows could not be loaded</strong>
+          <span>{error}</span>
+          <button type="button" onClick={() => void fetchList()}>
+            Retry
+          </button>
+        </div>
+      ) : workflows === null ? (
+        <div className="workflow-page-state" role="status">
+          <span className="workflow-loading-line is-wide" />
+          <span className="workflow-loading-line" />
+          <span className="workflow-loading-line is-short" />
+        </div>
+      ) : workflows.length === 0 ? (
+        <div className="workflow-page-state is-empty">
+          <strong>No workflows</strong>
+          <span>Ask OpenNeko to create the first recurring task.</span>
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                `/work?seed=${encodeURIComponent("Set up a new workflow that ")}`,
+              )
+            }
+          >
+            Create a workflow
+          </button>
+        </div>
+      ) : (
+        <div
+          className={cn(
+            "workflows-workspace",
+            selectedWorkflow ? "has-selection" : "is-overview",
+          )}
+        >
+          <div className="workflows-master">
             {grouped.active.length > 0 && (
               <WorkflowGroup
                 title="Active"
@@ -265,9 +333,9 @@ export default function WorkflowsPage() {
                 selectedId={selectedId}
                 onSelect={select}
                 onDelete={deleteWorkflow}
-                onMutated={fetchList}
                 sparklines={sparklines}
                 onSparkline={recordSparkline}
+                startIndex={0}
               />
             )}
             {grouped.paused.length > 0 && (
@@ -278,9 +346,9 @@ export default function WorkflowsPage() {
                 selectedId={selectedId}
                 onSelect={select}
                 onDelete={deleteWorkflow}
-                onMutated={fetchList}
                 sparklines={sparklines}
                 onSparkline={recordSparkline}
+                startIndex={grouped.active.length}
               />
             )}
             {grouped.broken.length > 0 && (
@@ -291,12 +359,86 @@ export default function WorkflowsPage() {
                 selectedId={selectedId}
                 onSelect={select}
                 onDelete={deleteWorkflow}
-                onMutated={fetchList}
                 sparklines={sparklines}
                 onSparkline={recordSparkline}
+                startIndex={grouped.active.length + grouped.paused.length}
               />
             )}
           </div>
+
+          {selectedWorkflow ? (
+            <>
+              <button
+                type="button"
+                className="workflow-inspector-scrim"
+                aria-label="Close workflow details"
+                onClick={() => select(null)}
+              />
+              <aside
+                key={selectedWorkflow.id}
+                ref={inspectorRef}
+                id="workflow-inspector"
+                className="workflow-inspector"
+                aria-labelledby="workflow-inspector-title"
+                tabIndex={-1}
+                data-state={
+                  selectedWorkflow.status === "broken"
+                    ? "broken"
+                    : selectedWorkflow.enabled
+                      ? "active"
+                      : "paused"
+                }
+              >
+                <header className="workflow-inspector-head">
+                  <span className="workflow-inspector-index" aria-hidden="true">
+                    {String(selectedPosition ?? 0).padStart(2, "0")}
+                  </span>
+                  <div className="workflow-inspector-heading">
+                    <span
+                      className="workflow-inspector-state"
+                      data-state={
+                        selectedWorkflow.status === "broken"
+                          ? "broken"
+                          : selectedWorkflow.enabled
+                            ? "active"
+                            : "paused"
+                      }
+                    >
+                      {selectedWorkflow.status === "broken"
+                        ? "Needs attention"
+                        : selectedWorkflow.enabled
+                          ? "Active"
+                          : "Paused"}
+                    </span>
+                    <h2 id="workflow-inspector-title">
+                      {selectedWorkflow.name}
+                    </h2>
+                    <p>
+                      {describeSchedule(
+                        selectedWorkflow.cron,
+                        selectedWorkflow.cronTimezone,
+                        selectedWorkflow.cronEnabled,
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="workflow-inspector-close"
+                    onClick={() => select(null)}
+                    aria-label="Close workflow controls"
+                  >
+                    <X aria-hidden="true" />
+                  </button>
+                </header>
+                <WorkflowDetail
+                  key={selectedWorkflow.id}
+                  workflowId={selectedWorkflow.id}
+                  onMutated={fetchList}
+                />
+              </aside>
+            </>
+          ) : null}
+        </div>
       )}
     </>
   );
@@ -309,9 +451,9 @@ function WorkflowGroup({
   selectedId,
   onSelect,
   onDelete,
-  onMutated,
   sparklines,
   onSparkline,
+  startIndex,
 }: {
   title: string;
   count: number;
@@ -319,26 +461,26 @@ function WorkflowGroup({
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onDelete: (id: string, name: string) => void;
-  onMutated: () => void;
   sparklines: Record<string, number[]>;
   onSparkline: (id: string, values: number[]) => void;
+  startIndex: number;
 }) {
   return (
-    <section className="mb-7 last:mb-0">
-      <div className="text-[11px] font-bold tracking-[0.12em] uppercase text-text3 mb-2.5">
-        {title} <span className="text-text3 font-semibold tracking-[0.06em] ml-0.5">({count})</span>
+    <section className="workflow-group">
+      <div className="workflow-group-head">
+        {title} <span>{count}</span>
       </div>
-      <ul className="list-none flex flex-col gap-2 wf-grid">
-        {items.map((w) => (
+      <ul className="wf-grid">
+        {items.map((w, index) => (
           <WorkflowRow
             key={w.id}
             w={w}
             active={selectedId === w.id}
             onSelect={() => onSelect(selectedId === w.id ? null : w.id)}
             onDelete={() => onDelete(w.id, w.name)}
-            onMutated={onMutated}
             sparkline={sparklines[w.id]}
             onSparkline={(values) => onSparkline(w.id, values)}
+            position={startIndex + index + 1}
           />
         ))}
       </ul>
@@ -351,17 +493,17 @@ function WorkflowRow({
   active,
   onSelect,
   onDelete,
-  onMutated,
   sparkline,
   onSparkline,
+  position,
 }: {
   w: WorkflowListItem;
   active: boolean;
   onSelect: () => void;
   onDelete: () => void;
-  onMutated: () => void;
   sparkline: number[] | undefined;
   onSparkline: (values: number[]) => void;
+  position: number;
 }) {
   // Lazy-load the per-workflow sparkline once when first rendered.
   useEffect(() => {
@@ -387,15 +529,28 @@ function WorkflowRow({
   const hasActivity = sparkline?.some((v) => v > 0) ?? false;
 
   return (
-    <li>
+    <li
+      data-state={
+        w.status === "broken" ? "broken" : w.enabled ? "active" : "paused"
+      }
+    >
       <div className={`workflows-row${active ? " is-active" : ""}`}>
+        <span className="workflows-route-node" aria-hidden="true" />
         <button
           type="button"
           className="workflows-row-main"
           onClick={onSelect}
-          aria-expanded={active}
+          aria-pressed={active}
+          aria-controls={active ? "workflow-inspector" : undefined}
         >
-          <div className="font-display text-base font-bold tracking-[-0.01em] text-text">{w.name}</div>
+          <span className="workflows-row-index">
+            {String(position).padStart(2, "0")}
+          </span>
+          <div className="workflows-row-copy">
+          <div className="workflows-row-title">
+            <span>{w.name}</span>
+            <ArrowUpRight className="workflows-row-arrow" aria-hidden="true" />
+          </div>
           {w.description && (
             <div className="text-[13px] text-text2 mt-1 leading-[1.45]">{w.description}</div>
           )}
@@ -410,6 +565,7 @@ function WorkflowRow({
               </>
             )}
           </div>
+          </div>
         </button>
         <button
           type="button"
@@ -423,7 +579,6 @@ function WorkflowRow({
         >
           <Trash2 size={14} strokeWidth={2} />
         </button>
-        {active && <WorkflowDetail workflowId={w.id} onMutated={onMutated} />}
       </div>
     </li>
   );
@@ -452,6 +607,7 @@ function WorkflowDetail({
         return;
       }
       const json = (await res.json()) as DrawerPayload;
+      setError(null);
       setData(json);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
@@ -459,7 +615,8 @@ function WorkflowDetail({
   }, [workflowId]);
 
   useEffect(() => {
-    void load();
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
   }, [load]);
 
   useEffect(() => {
@@ -551,7 +708,13 @@ function WorkflowDetail({
   if (error) {
     return (
       <div className="workflow-detail">
-        <div className="py-6 text-center text-[13px] text-danger">{error}</div>
+        <div className="workflow-detail-state is-error" role="alert">
+          <strong>Details could not be loaded</strong>
+          <span>{error}</span>
+          <button type="button" onClick={() => void load()}>
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
@@ -559,7 +722,11 @@ function WorkflowDetail({
   if (!data) {
     return (
       <div className="workflow-detail">
-        <div className="py-6 text-center text-[13px] text-text3">Loading…</div>
+        <div className="workflow-detail-state" role="status">
+          <span className="workflow-loading-line is-wide" />
+          <span className="workflow-loading-line" />
+          <span className="workflow-loading-line is-short" />
+        </div>
       </div>
     );
   }
@@ -571,12 +738,20 @@ function WorkflowDetail({
 
   return (
     <div className="workflow-detail">
-      <div className="text-xs text-text3 mb-4 font-mono">
-        {workflow.enabled ? "active" : "paused"}
-        {workflow.cron ? ` · ${workflow.cronEnabled ? "cron" : "cron paused"}` : ""}
-      </div>
-
       <div className="workflow-drawer-actions">
+        <button
+          type="button"
+          className="workflow-drawer-btn is-primary"
+          onClick={runNow}
+          disabled={busy || !workflow.enabled}
+          title={
+            !workflow.enabled
+              ? "Resume the workflow first"
+              : "Manually run this workflow now"
+          }
+        >
+          Run now
+        </button>
         <button
           type="button"
           className="workflow-drawer-btn"
@@ -596,28 +771,15 @@ function WorkflowDetail({
             Pause for today
           </button>
         )}
-        <button
-          type="button"
-          className="workflow-drawer-btn is-primary"
-          onClick={runNow}
-          disabled={busy || !workflow.enabled}
-          title={
-            !workflow.enabled
-              ? "Resume the workflow first"
-              : "Manually run this workflow now"
-          }
-        >
-          + Run now
-        </button>
       </div>
 
       {workflow.minutesSaved30d > 0 && (
         <Section title="Hours saved (30d)">
-          <p className="leading-[1.55]">
-            <span className="font-display font-bold text-accent">
+          <p className="workflow-impact">
+            <span className="workflow-impact-value">
               {formatSavedShort(workflow.minutesSaved30d)}
             </span>{" "}
-            <span className="text-text2">
+            <span>
               of human time, estimated across this workflow&apos;s runs and actions.
             </span>
           </p>
@@ -638,7 +800,7 @@ function WorkflowDetail({
 
       {workflow.steps?.some((s) => s.description?.trim()) && (
         <Section title="Steps">
-          <ol className="m-0 pl-5 [&>li]:mb-1 [&>li]:leading-[1.4]">
+          <ol className="workflow-steps">
             {workflow.steps
               .filter((s) => s.description?.trim())
               .map((step, i) => (
@@ -695,22 +857,20 @@ function WorkflowDetail({
       </Section>
 
       <Section title="Daily budget">
-        <div className="flex items-center justify-between gap-3 text-[13px]">
+        <div className="workflow-budget">
           {budgetCap == null ? (
             <span className="text-text3">No cap set</span>
           ) : (
             <>
-              <span>
-                {budgetUsed} / {budgetCap} runs used today
-              </span>
-              <span
-                className={cn(
-                  "font-mono text-xs",
-                  budgetPct >= 80 ? "text-watch font-semibold" : "text-text2",
-                )}
-              >
-                {budgetPct}%
-              </span>
+              <div className="workflow-budget-copy">
+                <span>{budgetUsed} / {budgetCap} runs used today</span>
+                <strong data-state={budgetPct >= 80 ? "watch" : "normal"}>
+                  {budgetPct}%
+                </strong>
+              </div>
+              <div className="workflow-budget-track" aria-hidden="true">
+                <span style={{ width: `${Math.min(100, budgetPct)}%` }} />
+              </div>
             </>
           )}
         </div>
@@ -740,9 +900,9 @@ function WorkflowDetail({
             ))}
           </ul>
         )}
-        <a className="inline-block mt-1 text-xs text-accent no-underline hover:underline hover:underline-offset-2" href="/admin/rules">
+        <Link className="inline-block mt-1 text-xs text-accent no-underline hover:underline hover:underline-offset-2" href="/admin/rules">
           see all rules →
-        </a>
+        </Link>
       </Section>
 
       <Section title="Recent runs">
@@ -785,11 +945,11 @@ function WorkflowDetail({
         ) : (
           <ul className="list-none p-0 m-0 flex flex-col gap-1.5">
             {recentActions.map((a) => (
-              <li key={a.id} className="border border-border bg-neutral-soft rounded-lg px-2.5 py-2">
-                <div className="flex items-center gap-2 flex-wrap text-[12.5px]">
-                  <span className="min-w-0 font-semibold text-text [overflow-wrap:anywhere]">{a.kind}</span>
+              <li key={a.id} className="workflow-action-row">
+                <div className="workflow-action-head">
+                  <span className="workflow-action-kind">{a.kind}</span>
                   {a.target && (
-                    <span className="min-w-0 font-mono text-[11.5px] text-text2 [overflow-wrap:anywhere]">
+                    <span className="workflow-action-target">
                       {a.target}
                     </span>
                   )}
@@ -802,7 +962,7 @@ function WorkflowDetail({
                     {actionStatusLabel(a.status)}
                   </span>
                 </div>
-                <div className="mt-1 text-[11.5px] text-text3">
+                <div className="workflow-action-meta">
                   {formatRelative(a.createdAt)}
                   {a.summary ? ` · ${a.summary}` : ""}
                 </div>
@@ -812,14 +972,14 @@ function WorkflowDetail({
         )}
       </Section>
 
-      <div className="mt-6 pt-3 border-t border-border flex items-center justify-between gap-3">
+      <div className="workflow-detail-foot">
         {workflow.createdByThreadId ? (
           <button
             type="button"
             className="bg-transparent border-0 text-text3 cursor-pointer text-xs font-semibold py-1 px-0 hover:text-accent hover:underline hover:underline-offset-[3px]"
             onClick={() => router.push(`/work/${workflow.createdByThreadId}`)}
           >
-            view conversation
+            View conversation
           </button>
         ) : (
           <span />
@@ -835,7 +995,7 @@ function WorkflowDetail({
             )
           }
         >
-          edit in /work
+          Edit with OpenNeko
         </button>
       </div>
     </div>
@@ -850,10 +1010,10 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-[18px]">
-      <div className="text-[10.5px] font-bold tracking-[0.13em] uppercase text-text3 mb-1.5">{title}</div>
-      <div className="text-[13.5px] text-text leading-[1.5]">{children}</div>
-    </div>
+    <section className="workflow-detail-section">
+      <h3>{title}</h3>
+      <div className="workflow-detail-section-body">{children}</div>
+    </section>
   );
 }
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import CreatorCredit from "@/components/CreatorCredit";
+import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import { Card } from "@/components/ui/Card";
 import { Pill, type PillVariant } from "@/components/ui/Pill";
@@ -173,26 +174,15 @@ export default function RulesClient() {
         className="root"
         style={{ "--page-width": "min(1000px, 100%)" } as React.CSSProperties}
       >
-        <AppHeader>
+        <AppHeader back={{ href: "/admin", label: "Administration" }}>
           <SectionNav current="admin" />
         </AppHeader>
 
-        <div className="mt-1 mb-3.5 font-mono text-[12.5px] text-text3 flex items-center gap-2">
-          <button
-            type="button"
-            className="bg-transparent border-0 text-text3 cursor-pointer font-[inherit] p-0 hover:text-accent"
-            onClick={() => router.push("/admin")}
-          >
-            ← Admin
-          </button>
-          <span className="opacity-50">/</span>
-          <span>Rules</span>
-        </div>
-
-        <div className="flex items-baseline justify-between gap-4 mb-3">
-          <h1 className="font-display text-3xl font-extrabold tracking-[-0.02em] text-text">
-            Rules
-          </h1>
+        <PageHeading
+          eyebrow="Agent governance"
+          title="Rules"
+          description="Control what agents may execute automatically, what requires review, and what is never allowed."
+          actions={
           <button
             type="button"
             className="px-4 py-2 rounded-full border-[1.5px] border-border bg-white/60 font-body text-sm font-semibold text-text2 cursor-pointer transition-[border-color,color,background,transform] duration-200 hover:border-accent hover:text-accent hover:bg-accent-soft hover:-translate-y-px"
@@ -204,13 +194,8 @@ export default function RulesClient() {
           >
             + New rule
           </button>
-        </div>
-
-        <p className="text-sm leading-normal text-text2 mb-6 max-w-[640px]">
-          Rules decide what OpenNeko can do on its own, what queues for your
-          review, and what's never allowed. To add or change a rule, use the
-          buttons here — the agent walks you through it in plain language.
-        </p>
+          }
+        />
 
         {error ? (
           <div className="py-14 text-center text-sm text-danger">{error}</div>

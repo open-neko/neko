@@ -5,9 +5,11 @@ import {
   ArrowUp,
   Check,
   Copy,
+  History,
   Loader2,
   Paperclip,
   Pencil,
+  Plus,
   RefreshCw,
   Square,
   Workflow,
@@ -96,6 +98,7 @@ import {
   linkifyWorkspacePaths,
 } from "@/lib/linkify-workspace-paths";
 import BriefingCard from "@/components/BriefingCard";
+import WorkHistoryDrawer from "@/components/WorkHistoryDrawer";
 import {
   ActionRequestCard,
   RuleSavedCard,
@@ -230,16 +233,6 @@ function fileExtension(name: string): string {
   return idx > 0 ? name.slice(idx).toLowerCase() : "";
 }
 
-type MemoryRecord = {
-  id: string;
-  kind: string;
-  scope: string;
-  scopeId: string | null;
-  text: string;
-  pinned: boolean;
-  confidence: number;
-};
-
 type PendingMemory = {
   id: string;
   draftText: string;
@@ -325,7 +318,6 @@ export default function WorkScreen() {
   const [gateError, setGateError] = useState<string | null>(null);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [bundle, setBundle] = useState<ThreadBundle | null>(null);
-  const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [pendingMemories, setPendingMemories] = useState<PendingMemory[]>([]);
   const [draft, setDraft] = useState(() => searchParams?.get("seed") ?? "");
   const [files, setFiles] = useState<File[]>([]);
@@ -343,6 +335,7 @@ export default function WorkScreen() {
   const [sending, setSending] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [activeRunId, setActiveRunIdState] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -383,7 +376,10 @@ export default function WorkScreen() {
           setGateChecked(true);
           return;
         }
-        if (status.state === "needs_wizard") {
+        if (
+          status.state === "needs_wizard" ||
+          status.state === "needs_persona"
+        ) {
           router.replace("/onboarding");
           return;
         }
@@ -404,11 +400,6 @@ export default function WorkScreen() {
     })();
     return () => { cancelled = true; };
   }, [router]);
-
-  useEffect(() => {
-    if (!gateChecked || gateError) return;
-    void loadMemories();
-  }, [gateChecked, gateError]);
 
   // React to URL thread changes. The /work page (no threadId) is the new-thread
   // state: clear the screen and let the composer create a thread on first send.
@@ -591,13 +582,6 @@ export default function WorkScreen() {
     } finally {
       setLoadingThread(false);
     }
-  }
-
-  async function loadMemories() {
-    const res = await fetch("/api/work/memories");
-    if (!res.ok) return;
-    const data = (await res.json()) as { memories: MemoryRecord[] };
-    setMemories(data.memories ?? []);
   }
 
   async function loadPendingMemories(threadId: string) {
@@ -983,11 +967,10 @@ export default function WorkScreen() {
 
     setSending(false);
     updateActiveRunId(null);
-    await Promise.all([loadThread(threadId), loadMemories()]);
+    await loadThread(threadId);
     window.setTimeout(() => {
       if (!mountedRef.current || activeThreadIdRef.current !== threadId) return;
       void loadPendingMemories(threadId);
-      void loadMemories();
     }, 1500);
   }
 
@@ -1114,7 +1097,6 @@ export default function WorkScreen() {
     });
     if (!res.ok) return;
     if (activeThreadId) await loadPendingMemories(activeThreadId);
-    await loadMemories();
   }
 
   const runLookup = useMemo(() => {
@@ -1122,27 +1104,43 @@ export default function WorkScreen() {
     for (const run of bundle?.runs ?? []) map.set(run.id, run);
     return map;
   }, [bundle?.runs]);
+  const workPhase =
+    sending || activeRunId
+      ? "running"
+      : bundle?.messages.length
+        ? "result"
+        : "prompt";
+  const workStateLabel =
+    workPhase === "running"
+      ? "OpenNeko is working"
+      : workPhase === "result"
+        ? "Answer available"
+        : "Waiting for your prompt";
+  const threadTitle =
+    !bundle?.messages.length ||
+    !bundle.thread.title.trim() ||
+    /^untitled thread$/i.test(bundle.thread.title.trim())
+      ? "New work"
+      : bundle.thread.title;
 
   if (!gateChecked) {
     return (
-      <div style={{ padding: "40px 0", textAlign: "center", color: "var(--text3)" }}>
-        Loading…
+      <div className="work-gate-state" role="status">
+        <span className="work-gate-mark" aria-hidden="true" />
+        <strong>Loading work</strong>
+        <p>Checking your workspace and agent context.</p>
       </div>
     );
   }
 
   if (gateError) {
     return (
-      <div style={{ padding: "40px 0", textAlign: "center", color: "var(--text3)" }}>
-        <div style={{ marginBottom: 8, color: "var(--text2)" }}>
-          Can&apos;t reach the database right now.
-        </div>
-        <div style={{ fontSize: 13 }}>
-          Work will load once the connection is back.
-        </div>
+      <div className="work-gate-state is-error" role="alert">
+        <span className="work-gate-mark" aria-hidden="true" />
+        <strong>Workspace unavailable</strong>
+        <p>OpenNeko cannot reach the database. No work has been started.</p>
         <button
           onClick={() => { setGateError(null); setGateChecked(false); window.location.reload(); }}
-          style={{ marginTop: 16, padding: "6px 14px", fontSize: 13, cursor: "pointer" }}
         >
           Retry
         </button>
@@ -1151,10 +1149,71 @@ export default function WorkScreen() {
   }
 
   return (
-    <>
-      <div className="flex-1 min-h-[460px] flex flex-col gap-7 pt-2 pb-6">
+    <div className="work-command-surface">
+      <header className="work-command-head">
+        <div className="work-command-copy">
+          <div className="work-command-eyebrow">
+            <span>Work</span>
+            <span className="work-command-slash" aria-hidden="true">/</span>
+            <span data-phase={workPhase}>{workStateLabel}</span>
+          </div>
+          <h1 title={threadTitle}>{threadTitle}</h1>
+        </div>
+        <ol className="work-phase-rail" aria-label={`Current stage: ${workStateLabel}`}>
+          {(["Prompt", "Agent", "Result"] as const).map((label, index) => {
+            const activeIndex =
+              workPhase === "prompt" ? 0 : workPhase === "running" ? 1 : 2;
+            return (
+              <li
+                key={label}
+                className={
+                  index === activeIndex
+                    ? "is-current"
+                    : index < activeIndex
+                      ? "is-complete"
+                      : ""
+                }
+              >
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                {label}
+              </li>
+            );
+          })}
+        </ol>
+        <div className="work-command-actions">
+          <button
+            type="button"
+            className="work-command-action"
+            onClick={() => setHistoryOpen(true)}
+            aria-expanded={historyOpen}
+            aria-haspopup="dialog"
+          >
+            <History aria-hidden="true" strokeWidth={1.9} />
+            <span>History</span>
+          </button>
+          <button
+            type="button"
+            className="work-command-action is-primary"
+            onClick={() => router.push("/work")}
+            disabled={!activeThreadId && !bundle?.messages.length}
+          >
+            <Plus aria-hidden="true" strokeWidth={2} />
+            <span>New work</span>
+          </button>
+        </div>
+      </header>
+
+      <WorkHistoryDrawer
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+      />
+
+      <div className="work-transcript">
         {loadingThread ? (
-          <div className="text-text3 text-[13px] py-3 px-1">Loading thread…</div>
+          <div className="work-loading-state" role="status">
+            <span />
+            Loading the work trace
+          </div>
         ) : !bundle?.messages.length ? (
           <EmptyAsk
             onPick={(text) => {
@@ -1276,7 +1335,7 @@ export default function WorkScreen() {
         ) : null}
 
         {streamError ? (
-          <div className="border border-warn/40 bg-warn-soft text-warn-ink rounded-2xl px-3 py-2.5 text-[13px]">{streamError}</div>
+          <div className="work-stream-error" role="alert">{streamError}</div>
         ) : null}
         <div ref={endRef} />
       </div>
@@ -1358,7 +1417,11 @@ export default function WorkScreen() {
           <textarea
             ref={textareaRef}
             className="work-input"
-            placeholder={sending ? "Working…" : "Send a message…"}
+            placeholder={
+              sending
+                ? "OpenNeko is working…"
+                : "Describe the job, decision, or question…"
+            }
             value={draft}
             onChange={(event) =>
               handleDraftChange(
@@ -1436,10 +1499,12 @@ export default function WorkScreen() {
               </button>
               <span className="work-composer-hint" aria-live="polite">
                 {sending ? (
-                  <span className="work-composer-pulse">Working</span>
+                  <span className="work-composer-pulse">OpenNeko is working</span>
                 ) : files.length > 0 ? (
                   <>{files.length} of {MAX_ATTACHMENTS} attached</>
-                ) : null}
+                ) : (
+                  <>Enter to dispatch · Shift + Enter for a new line</>
+                )}
               </span>
             </div>
             {sending ? (
@@ -1458,9 +1523,9 @@ export default function WorkScreen() {
                 type="button"
                 onClick={() => void sendMessage()}
                 disabled={!draft.trim() && files.length === 0}
-                aria-label="Send"
+                aria-label="Dispatch to OpenNeko"
               >
-                <span>Send</span>
+                <span>Dispatch</span>
                 <ArrowUp size={14} strokeWidth={2.5} aria-hidden />
               </button>
             )}
@@ -1506,7 +1571,7 @@ export default function WorkScreen() {
           }}
         />
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1518,30 +1583,31 @@ const EMPTY_PROMPTS: Array<{ label: string; text: string }> = [
 
 function EmptyAsk({ onPick }: { onPick: (text: string) => void }) {
   return (
-    <div className="flex flex-col gap-[18px] pt-2 pb-1">
-      <div className="flex flex-col gap-2 max-w-[620px]">
-        <h1 className="font-body text-[22px] font-semibold tracking-[-0.005em] text-text m-0 leading-[1.25]">
-          What do you want to know?
-        </h1>
-        <p className="text-[13.5px] leading-[1.55] text-text2 m-0">
-          Ask anything about your business data. I&apos;ll query the database,
-          read anything you attach, and answer with charts or tables.
+    <div className="work-empty">
+      <div className="work-empty-statement">
+        <span className="work-empty-index" aria-hidden="true">01—03</span>
+        <h2>Give OpenNeko a job.</h2>
+        <p>
+          Ask for an answer, investigation, file, or recurring workflow.
+          OpenNeko shows its work while it runs.
         </p>
       </div>
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-2">
-        {EMPTY_PROMPTS.map((prompt) => (
+      <div className="work-empty-prompts" aria-label="Example jobs">
+        {EMPTY_PROMPTS.map((prompt, index) => (
           <button
             key={prompt.label}
             type="button"
-            className="work-empty-prompt flex flex-col gap-1 px-[13px] py-[11px] bg-white/55 border border-border rounded-xl cursor-pointer text-left font-inherit text-inherit transition-[border-color,background,transform] duration-[180ms]"
+            className="work-empty-prompt"
             onClick={() => onPick(prompt.text)}
           >
-            <span className="text-[10px] font-bold tracking-[0.1em] uppercase text-accent">
-              {prompt.label}
+            <span className="work-empty-prompt-no">
+              {String(index + 1).padStart(2, "0")}
             </span>
-            <span className="text-[12.5px] leading-[1.4] text-text2">
-              {prompt.text}
+            <span className="work-empty-prompt-copy">
+              <strong>{prompt.label}</strong>
+              <span>{prompt.text}</span>
             </span>
+            <span className="work-empty-prompt-arrow" aria-hidden="true">↗</span>
           </button>
         ))}
       </div>
@@ -2393,7 +2459,13 @@ function InteractiveSurface({
   submitFollowUp: (prompt: string) => void;
 }) {
   const [dataModel, setDataModel] = useState(surface.dataModel);
-  useEffect(() => setDataModel(surface.dataModel), [surface.dataModel]);
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => setDataModel(surface.dataModel),
+      0,
+    );
+    return () => window.clearTimeout(timer);
+  }, [surface.dataModel]);
 
   const liveSurface = { ...surface, dataModel };
   const ctx = {

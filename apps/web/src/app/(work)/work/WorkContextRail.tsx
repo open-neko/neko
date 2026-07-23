@@ -61,25 +61,18 @@ export default function WorkContextRail() {
     };
   }, []);
 
-  const isEmpty =
+  const isContextEmpty =
     vitals.length === 0 &&
     railArtifacts.length === 0 &&
     sources.length === 0 &&
-    followups.length === 0 &&
-    !memory;
+    followups.length === 0;
+
+  if (isContextEmpty) {
+    return <aside className="work-rail is-empty" aria-hidden="true" />;
+  }
 
   return (
     <aside className="work-rail">
-      {isEmpty && (
-        <section className="wcr-sect wcr-empty">
-          <h4 className="wcr-h">Context</h4>
-          <p className="wcr-empty-text">
-            Sources touched, artifacts, and follow-ups surface here once the
-            agent works through an answer.
-          </p>
-        </section>
-      )}
-
       {vitals.length > 0 && (
         <section className="wcr-sect">
           <h4 className="wcr-h">Answer vitals</h4>

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import AppHeader from "@/components/AppHeader";
+import PageHeading from "@/components/PageHeading";
 import { toast } from "sonner";
 import Select from "@/components/Select";
 import { Button } from "@/components/ui/Button";
@@ -151,10 +152,11 @@ export default function AgentForm({
   return (
     <div className="root">
       <AppHeader back={{ href: "/admin/settings", label: "All settings" }} />
-      <div className="greet">Agent.</div>
-      <div className="greet-sub mb-6">
-        Pick the runtime that drives the metric agent and the model it uses.
-      </div>
+      <PageHeading
+        eyebrow="Settings · Runtime"
+        title="Agent"
+        description="Choose the runtime, model provider, and worker concurrency used for new agent jobs."
+      />
 
       <section className="settings-card">
         <div className="grid gap-4 mt-4">

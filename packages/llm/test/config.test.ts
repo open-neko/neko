@@ -40,6 +40,10 @@ describe("getDefaultPrimaryModel", () => {
       expect(model.length).toBeGreaterThan(2);
     }
   });
+
+  it("uses Gemini 3.6 Flash for Google Gemini", () => {
+    expect(getDefaultPrimaryModel("google-gemini")).toBe("gemini-3.6-flash");
+  });
 });
 
 describe("getDefaultResearchModel", () => {

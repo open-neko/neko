@@ -2,14 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import AppHeader from "@/components/AppHeader";
+import EntryShell from "@/components/EntryShell";
 import { toast } from "sonner";
 import Select from "@/components/Select";
-import { Button } from "@/components/ui/Button";
-
-const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-[15px] font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
-const LABEL_CLS = "text-[14px] font-semibold text-text";
 
 // Quick-pick suggestions only — seats are free text (CV3 personas). A
 // custom role flows through metrics, briefing tabs, and the persona
@@ -21,6 +16,8 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 const MONTH_OPTIONS = MONTHS.map((label, i) => ({ value: String(i + 1), label }));
+const SOLO_ONBOARDING_STEPS = ["Business", "Briefing views", "Priorities"] as const;
+const TEAM_ONBOARDING_STEPS = ["Business", "Priorities"] as const;
 
 export type WizardInitial = {
   companyName: string;
@@ -38,14 +35,23 @@ const EMPTY_INITIAL: WizardInitial = {
   priorities: [],
 };
 
-export default function OnboardingWizard({ initial = EMPTY_INITIAL }: { initial?: WizardInitial }) {
+export default function OnboardingWizard({
+  initial = EMPTY_INITIAL,
+  teamMode = false,
+}: {
+  initial?: WizardInitial;
+  teamMode?: boolean;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [step, setStep] = useState(0);
   const [companyName, setCompanyName] = useState(initial.companyName);
   const [companyNote, setCompanyNote] = useState(initial.companyNote);
   const [fyMonth, setFyMonth] = useState(initial.fiscalYearStartMonth);
   const [seats, setSeats] = useState<string[]>(
-    initial.activeSeats.length > 0 ? initial.activeSeats : ["CEO"],
+    teamMode
+      ? ["Organization"]
+      : (initial.activeSeats.length > 0 ? initial.activeSeats : ["CEO"]),
   );
   const [customSeat, setCustomSeat] = useState("");
   const [prioritiesText, setPrioritiesText] = useState(initial.priorities.join("\n"));
@@ -123,129 +129,200 @@ export default function OnboardingWizard({ initial = EMPTY_INITIAL }: { initial?
     companyNote.trim().length > 0 &&
     seats.length > 0 &&
     !submitting;
+  const onboardingSteps = teamMode
+    ? TEAM_ONBOARDING_STEPS
+    : SOLO_ONBOARDING_STEPS;
+  const prioritiesStep = teamMode ? 1 : 2;
 
   return (
-    <div className="root">
-      <AppHeader />
-      <div className="greet" style={{ marginTop: 8 }}>Let&apos;s set you up.</div>
-      <div className="greet-sub">A couple of quick questions, then we&apos;ll do the rest.</div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 28, marginTop: 36 }}>
-        <Field label="What's your company called?">
-          <input
-            className={INPUT_CLS}
-            type="text"
-            value={companyName}
-            onChange={(e) => setCompanyName(e.target.value)}
-            placeholder="AdventureWorks Cycles"
-            autoComplete="organization"
-            required
-          />
-        </Field>
-
-        <Field label="In 2–3 sentences, what does your company do, who do you sell to, and what matters most this quarter?">
-          <textarea
-            className={INPUT_CLS}
-            value={companyNote}
-            onChange={(e) => setCompanyNote(e.target.value)}
-            rows={4}
-            placeholder="We make and sell bicycles to retailers across North America and Europe…"
-            style={textareaExtras}
-          />
-        </Field>
-
-        <Field label="When does your fiscal year start?">
-          <Select
-            value={String(fyMonth)}
-            onChange={(v) => setFyMonth(Number(v))}
-            options={MONTH_OPTIONS}
-            ariaLabel="Fiscal year start month"
-          />
-        </Field>
-
-        <Field label="Which seats are active? Pick or add your own.">
-          <div className="flex gap-[7px] flex-wrap">
-            {[...SUGGESTED_SEATS, ...seats.filter((s) => !SUGGESTED_SEATS.includes(s))].map((s) => {
-              const isOn = seats.includes(s);
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => toggleSeat(s)}
-                  className={[
-                    "px-4.5 py-2.5 rounded-full border-[1.5px] font-body text-[14.5px] font-medium cursor-pointer",
-                    "transition-[color,background,border-color,transform,box-shadow] duration-200",
-                    isOn
-                      ? "bg-text border-text text-bg shadow-[0_2px_10px_rgba(20,18,12,0.18)]"
-                      : "bg-white/60 border-border text-text2 hover:border-accent hover:text-accent hover:bg-accent-soft hover:-translate-y-px",
-                  ].join(" ")}
-                >
-                  {s}
-                </button>
-              );
-            })}
+    <EntryShell
+      eyebrow="Business onboarding"
+      title="Build the business model."
+      description="Define what the agent should monitor, prioritize, and explain."
+      steps={onboardingSteps}
+      currentStep={step}
+    >
+      {step === 0 ? (
+        <>
+          <div className="entry-section-head">
+            <p className="entry-section-kicker">01 · Business</p>
+            <h2>Map the business</h2>
+            <p>Start with enough context for useful answers, not a company biography.</p>
           </div>
-          <div className="flex gap-[7px] mt-2">
-            <input
-              className={INPUT_CLS + " flex-1"}
-              value={customSeat}
-              maxLength={MAX_SEAT_LENGTH}
-              placeholder="Add your own — e.g. Head of Ops, VP Sales"
-              onChange={(e) => setCustomSeat(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter") return;
-                e.preventDefault();
-                addCustomSeat();
-              }}
-              aria-label="Add a custom seat"
-            />
+          <div className="entry-fields">
+            <Field label="Company name">
+              <input
+                className="entry-control"
+                type="text"
+                value={companyName}
+                onChange={(event) => setCompanyName(event.target.value)}
+                placeholder="AdventureWorks Cycles"
+                autoComplete="organization"
+                aria-label="Company name"
+                required
+              />
+            </Field>
+
+            <Field label="What does the company do?">
+              <textarea
+                className="entry-control"
+                value={companyNote}
+                onChange={(event) => setCompanyNote(event.target.value)}
+                rows={4}
+                placeholder="We make and sell bicycles to retailers across North America and Europe. This quarter we are protecting wholesale margin while expanding direct sales."
+                aria-label="Company operating context"
+              />
+              <span className="entry-field-help">
+                Include customers, regions, business model, and the current operating constraint.
+              </span>
+            </Field>
+
+            <Field label="Fiscal year starts">
+              <Select
+                value={String(fyMonth)}
+                onChange={(value) => setFyMonth(Number(value))}
+                options={MONTH_OPTIONS}
+                ariaLabel="Fiscal year start month"
+              />
+            </Field>
+          </div>
+          <div className="entry-actions is-end">
             <button
               type="button"
-              onClick={addCustomSeat}
-              disabled={!customSeat.trim()}
-              className="px-4.5 rounded-xl border-[1.5px] border-border font-body text-[14.5px] font-medium cursor-pointer text-text2 hover:border-accent hover:text-accent disabled:opacity-40 disabled:cursor-default"
+              className="entry-button is-primary"
+              disabled={!companyName.trim() || !companyNote.trim()}
+              onClick={() => setStep(1)}
             >
-              Add
+              Continue
             </button>
           </div>
-        </Field>
+        </>
+      ) : null}
 
-        <Field label="Anything specific on your mind this quarter? (optional, one per line)">
-          <textarea
-            className={INPUT_CLS}
-            value={prioritiesText}
-            onChange={(e) => setPrioritiesText(e.target.value)}
-            rows={3}
-            placeholder={"Defend wholesale margins\nGrow DTC in Europe"}
-            style={textareaExtras}
-          />
-        </Field>
+      {!teamMode && step === 1 ? (
+        <>
+          <div className="entry-section-head">
+            <p className="entry-section-kicker">02 · Briefing views</p>
+            <h2>Which shared views do you need?</h2>
+            <p>These are organization-level lenses for a solo workspace, not user accounts.</p>
+          </div>
+          <fieldset className="entry-field">
+            <legend className="sr-only">Active decision-maker seats</legend>
+            <div className="entry-chip-grid">
+              {[...SUGGESTED_SEATS, ...seats.filter((seat) => !SUGGESTED_SEATS.includes(seat))].map((seat) => {
+                const selected = seats.includes(seat);
+                return (
+                  <button
+                    key={seat}
+                    type="button"
+                    onClick={() => toggleSeat(seat)}
+                    className={`entry-chip${selected ? " is-selected" : ""}`}
+                    aria-pressed={selected}
+                  >
+                    {seat}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="entry-inline">
+              <input
+                className="entry-control"
+                value={customSeat}
+                maxLength={MAX_SEAT_LENGTH}
+                placeholder="Add a role — e.g. Head of Operations"
+                onChange={(event) => setCustomSeat(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  addCustomSeat();
+                }}
+                aria-label="Add a custom decision-maker seat"
+              />
+              <button
+                type="button"
+                onClick={addCustomSeat}
+                disabled={!customSeat.trim()}
+                className="entry-button"
+              >
+                Add role
+              </button>
+            </div>
+          </fieldset>
+          <div className="entry-actions">
+            <button type="button" className="entry-button" onClick={() => setStep(0)}>
+              Back
+            </button>
+            <button
+              type="button"
+              className="entry-button is-primary"
+              disabled={seats.length === 0}
+              onClick={() => setStep(2)}
+            >
+              Continue
+            </button>
+          </div>
+        </>
+      ) : null}
 
-        {error && <div style={{ color: "#c33" }}>{error}</div>}
+      {step === prioritiesStep ? (
+        <>
+          <div className="entry-section-head">
+            <p className="entry-section-kicker">
+              {teamMode ? "02 · Priorities" : "03 · Priorities"}
+            </p>
+            <h2>Set the first watchlist</h2>
+            <p>OpenNeko will use these priorities to rank signals while it learns from your work.</p>
+          </div>
+          <div className="entry-fields">
+            <Field label="What needs attention this quarter?">
+              <textarea
+                className="entry-control"
+                value={prioritiesText}
+                onChange={(event) => setPrioritiesText(event.target.value)}
+                rows={5}
+                placeholder={"Defend wholesale margins\nReduce stock-outs on top SKUs\nGrow direct sales in Europe"}
+                aria-label="Quarterly priorities"
+              />
+              <span className="entry-field-help">
+                Optional. Add one priority per line; you can change these later.
+              </span>
+            </Field>
 
-        <Button
-          variant="primary"
-          disabled={!canSubmit}
-          onClick={submit}
-          className="self-start px-7 py-3.5 text-base"
-        >
-          {submitting ? "Setting up…" : "Build my briefing"}
-        </Button>
-      </div>
-    </div>
+            {error ? (
+              <div className="entry-error" role="alert">
+                {error}
+              </div>
+            ) : null}
+          </div>
+          <div className="entry-actions">
+            <button
+              type="button"
+              className="entry-button"
+              disabled={submitting}
+              onClick={() => setStep(teamMode ? 0 : 1)}
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              className="entry-button is-primary"
+              disabled={!canSubmit}
+              onClick={() => void submit()}
+            >
+              {submitting ? "Building workspace…" : "Build workspace"}
+            </button>
+          </div>
+        </>
+      ) : null}
+    </EntryShell>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <span className={LABEL_CLS}>{label}</span>
+    <div className="entry-field">
+      <span>{label}</span>
       {children}
-    </label>
+    </div>
   );
 }
-
-const textareaExtras: React.CSSProperties = {
-  resize: "vertical",
-  lineHeight: 1.55,
-};

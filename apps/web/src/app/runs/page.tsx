@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import CreatorCredit from "@/components/CreatorCredit";
+import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import { cn } from "@/lib/cn";
 
@@ -169,28 +170,16 @@ function RunsPageInner() {
   return (
     <>
       <div className="root">
-        <AppHeader>
+        <AppHeader back={{ href: "/workflows", label: "Agent workflows" }}>
           <SectionNav current="workflows" />
         </AppHeader>
 
-        <div className="mt-1 mb-3.5 font-mono text-[12.5px] text-text3">
-          <button
-            type="button"
-            className="bg-transparent border-0 text-text3 cursor-pointer font-inherit p-0 hover:text-accent"
-            onClick={() => router.push("/")}
-          >
-            ← Dashboard
-          </button>
-        </div>
-
-        <div className="mb-5">
-          <h1 className="font-display text-[28px] font-extrabold tracking-[-0.02em] text-text m-0">
-            Runs
-          </h1>
-          <p className="mt-1.5 mb-0 max-w-[620px] text-sm leading-[1.55] text-text2">
-            Recent workflow runs, findings, and proposed actions.
-          </p>
-        </div>
+        <PageHeading
+          eyebrow="Agent operations"
+          title="Run history"
+          description="Inspect recent workflow runs, findings, and proposed actions."
+          meta={data ? `${data.runs.length} shown` : undefined}
+        />
 
         <div className="flex gap-1.5 flex-wrap mb-5">
           {TABS.map((tab) => (

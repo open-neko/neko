@@ -214,19 +214,28 @@ type SnapshotPayload = {
 } | null;
 
 export async function GET(request: NextRequest) {
-  const role = request.nextUrl.searchParams.get("role") ?? "CEO";
-  const surfaceId = `briefing-${role.toLowerCase()}`;
+  const requestedRole = request.nextUrl.searchParams.get("role") ?? "CEO";
+  const isOverview = requestedRole === "__overview__";
+  const role = isOverview ? "Overview" : requestedRole;
+  const surfaceId = isOverview
+    ? "briefing-overview"
+    : `briefing-${role.toLowerCase()}`;
   const demo = isDemoMode();
 
   const cards = demo
     ? []
     : await db()
         .query.metric.findMany({
-          where: and(
-            eq(metric.org_id, (await getOrgId())),
-            eq(metric.role, role),
-            eq(metric.active, true),
-          ),
+          where: isOverview
+            ? and(
+                eq(metric.org_id, (await getOrgId())),
+                eq(metric.active, true),
+              )
+            : and(
+                eq(metric.org_id, (await getOrgId())),
+                eq(metric.role, role),
+                eq(metric.active, true),
+              ),
           orderBy: asc(metric.slug),
           with: {
             snapshots: {
@@ -237,7 +246,7 @@ export async function GET(request: NextRequest) {
         })
         .catch(() => [] as Array<never>);
 
-  const dbInsights = cards.map((m) => {
+  const dbInsights = cards.slice(0, isOverview ? 12 : undefined).map((m) => {
     const snap = m.snapshots?.[0];
     const p = snap?.payload as SnapshotPayload;
     const hasData = !!p;
