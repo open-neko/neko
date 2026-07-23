@@ -129,7 +129,6 @@ export default function SkillDetailPage({ params }: PageProps) {
           </Link>
         }
         title={skill.name}
-        description={skill.description || undefined}
         actions={
           <div className="library-head-stats" aria-label="Skill details">
             <div>
@@ -164,6 +163,9 @@ export default function SkillDetailPage({ params }: PageProps) {
         </aside>
 
         <article className="skill-instructions">
+          {skill.description ? (
+            <p className="skill-detail-summary">{skill.description}</p>
+          ) : null}
           <header>
             <span>Primary instruction</span>
             <h2>SKILL.md</h2>

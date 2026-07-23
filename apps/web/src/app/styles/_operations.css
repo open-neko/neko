@@ -3065,8 +3065,9 @@ html[data-density="compact"] .operations-root .operations-layout {
     .page-heading
     .workflows-ops-status
     > div {
-    min-width: 43px;
-    gap: 0;
+    min-width: 52px;
+    flex-direction: column;
+    gap: 3px;
     padding-inline: 7px;
   }
 
@@ -3075,7 +3076,12 @@ html[data-density="compact"] .operations-root .operations-layout {
     .workflows-ops-status
     > div
     span {
-    display: none;
+    display: block;
+    font-size: 6.5px;
+  }
+
+  .operations-root.is-workflows .page-heading .workflows-ops-status strong {
+    font-size: 14px;
   }
 
   .operations-root.is-workflows
@@ -3111,5 +3117,12 @@ html[data-density="compact"] .operations-root .operations-layout {
   .operations-root.is-workflows .page-heading-copy {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "title";
+  }
+
+  .operations-root.is-workflows
+    .page-heading
+    .workflows-ops-status
+    > div {
+    display: none;
   }
 }

@@ -154,7 +154,7 @@
   }
 
   .page-heading p {
-    max-width: 52vw;
+    display: none;
   }
 
   .page-heading-eyebrow {
