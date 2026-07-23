@@ -105,6 +105,9 @@ importers:
       '@open-neko/plugin-install':
         specifier: workspace:*
         version: link:../../packages/plugin-install
+      '@open-neko/plugin-parallel-search':
+        specifier: 0.3.1
+        version: 0.3.1(zod@4.3.6)
       '@open-neko/plugin-types':
         specifier: workspace:*
         version: link:../../packages/plugin-types
@@ -1030,6 +1033,12 @@ packages:
   '@nolyfill/is-core-module@1.0.39':
     resolution: {integrity: sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==}
     engines: {node: '>=12.4.0'}
+
+  '@open-neko/plugin-parallel-search@0.3.1':
+    resolution: {integrity: sha512-n5yLgTAVBqoGyhZjn9KJB1Z2m6kf8lurgnpQ2Z4Qk2FpiHSae29QPwv1xy/HFgmSqnhjXxFyU/l3l+lReWnaGA==}
+
+  '@open-neko/plugin-types@0.4.0':
+    resolution: {integrity: sha512-rRgUUUtTf5lJp+ZYT6Dji+cVt7bqrhZd2LI+cY2Q23Y7kcEC1On99lOLWmFT+V5/5IB1MY+QghkUKZWprzksvA==}
 
   '@opentelemetry/api@1.9.1':
     resolution: {integrity: sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q==}
@@ -4579,6 +4588,19 @@ snapshots:
       fastq: 1.20.1
 
   '@nolyfill/is-core-module@1.0.39': {}
+
+  '@open-neko/plugin-parallel-search@0.3.1(zod@4.3.6)':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
+      '@open-neko/plugin-types': 0.4.0
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - supports-color
+      - zod
+
+  '@open-neko/plugin-types@0.4.0':
+    dependencies:
+      zod: 4.3.6
 
   '@opentelemetry/api@1.9.1': {}
 
