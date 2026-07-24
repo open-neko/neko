@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { Check, MessageCircle, Pin, TriangleAlert } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AppHeader from "@/components/AppHeader";
@@ -98,6 +99,17 @@ function formatDuration(ms: number | null): string {
   return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
+function formatRunTimestamp(iso: string): string {
+  return new Date(iso).toLocaleString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 const ACTION_STATUS_LABEL: Record<string, string> = {
   pending_approval: "Awaiting you",
   approved: "Approved",
@@ -110,17 +122,36 @@ function actionStatusLabel(s: string): string {
   return ACTION_STATUS_LABEL[s] ?? s.replace(/_/g, " ");
 }
 
-function moodClasses(mood: string): string {
+function moodTone(mood: string): string {
   switch (mood) {
     case "good":
-      return "bg-success-soft text-success-mid";
+      return "is-good";
     case "watch":
-      return "bg-watch-soft text-warn-ink";
+      return "is-watch";
     case "act":
-      return "bg-danger-soft text-danger";
+      return "is-act";
     default:
-      return "bg-neutral text-text2";
+      return "is-neutral";
   }
+}
+
+function moodLabel(mood: string): string {
+  switch (mood) {
+    case "good":
+      return "On track";
+    case "watch":
+      return "Needs attention";
+    case "act":
+      return "Action needed";
+    default:
+      return mood.replace(/_/g, " ");
+  }
+}
+
+function formatTaxonomy(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function actionPillClasses(status: string): string {
@@ -156,13 +187,13 @@ function actionRiskClasses(risk: string): string {
 function formatTrigger(kind: string): string {
   switch (kind) {
     case "manual":
-      return "manual";
+      return "Manual";
     case "cron":
-      return "cron";
+      return "Scheduled";
     case "subscription":
-      return "subscription";
+      return "Triggered";
     default:
-      return kind;
+      return formatTaxonomy(kind);
   }
 }
 
@@ -177,6 +208,10 @@ export default function RunPage() {
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [pinningOutputId, setPinningOutputId] = useState<string | null>(null);
+  const [pinnedOutputIds, setPinnedOutputIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const load = useCallback(async () => {
     if (!workflowRunId) return;
@@ -196,6 +231,8 @@ export default function RunPage() {
   }, [workflowRunId]);
 
   useEffect(() => {
+    // This client route intentionally hydrates from its no-store API.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
@@ -244,14 +281,25 @@ export default function RunPage() {
   }, []);
 
   const pinOutput = useCallback(async (outputId: string) => {
-    await fetch("/api/briefing/pins", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ outputId }),
-    }).catch(() => {});
-    // No need to refetch — the page doesn't show "is pinned" state for
-    // this output today. The pinned state lands on the Briefing via the
-    // /api/briefing/findings poll.
+    setPinningOutputId(outputId);
+    try {
+      const res = await fetch("/api/briefing/pins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ outputId }),
+      });
+      if (res.ok) {
+        setPinnedOutputIds((current) => {
+          const next = new Set(current);
+          next.add(outputId);
+          return next;
+        });
+      }
+    } catch {
+      // Best-effort: leave the control available so the operator can retry.
+    } finally {
+      setPinningOutputId(null);
+    }
   }, []);
 
   const askFollowUp = useCallback(async () => {
@@ -308,16 +356,17 @@ export default function RunPage() {
         <PageHeading
           eyebrow="Run"
           title={workflow?.name ?? "Run"}
-          meta={run.status}
-          description={`${formatTime(run.startedAt ?? run.createdAt)} · ${formatTrigger(run.triggerKind)} · ${formatDuration(durationMs)}`}
+          meta={run.status.replace(/_/g, " ")}
+          description={`${formatRunTimestamp(run.startedAt ?? run.createdAt)} · ${formatTrigger(run.triggerKind)} · ${formatDuration(durationMs)}`}
           actions={
             <button
               type="button"
-              className="shrink-0 px-3.5 py-[7px] rounded-full border-[1.5px] border-border bg-white/60 font-body text-[12.5px] font-semibold text-text2 cursor-pointer transition hover:border-accent hover:text-accent hover:bg-accent-soft"
+              className="run-followup-btn"
               onClick={askFollowUp}
               title="Open an Ask thread pre-loaded with this run's context"
             >
-              Ask a follow-up →
+              <MessageCircle aria-hidden="true" />
+              <span>Ask about this run</span>
             </button>
           }
         />
@@ -325,66 +374,105 @@ export default function RunPage() {
         {run.status === "completed" &&
           outputs.length === 0 &&
           actions.length === 0 && (
-            <div className="my-2 mb-[22px] px-[18px] py-3.5 bg-card border border-border rounded-xl text-sm text-text2 italic">
+            <div className="run-empty-summary">
               {run.summary?.trim() || "Looked at the data; nothing to flag."}
             </div>
           )}
 
-        <Section title="Findings">
+        <Section
+          title="Findings"
+          meta={`${outputs.length} ${outputs.length === 1 ? "result" : "results"}`}
+        >
           {outputs.length === 0 ? (
-            <p className="text-text3 text-[13.5px] italic">
-              This run hasn't produced any outputs yet.
+            <p className="run-empty-state">
+              This run has not produced any outputs yet.
             </p>
           ) : (
-            <ul className="list-none p-0 m-0 flex flex-col gap-3">
+            <ul className="run-finding-list">
               {outputs.map((o) => (
-                <li key={o.id} className="bg-card border border-border rounded-2xl px-[18px] py-4">
-                  <div className="flex items-center justify-between gap-2 mb-1.5">
-                    <div className="font-display text-base font-bold tracking-[-0.01em] text-text">{o.title}</div>
+                <li
+                  key={o.id}
+                  className={cn(
+                    "run-finding-card run-output-card",
+                    moodTone(o.mood ?? ""),
+                  )}
+                >
+                  <div className="run-finding-head">
+                    <div className="run-finding-context">
+                      <span>{formatTaxonomy(o.kind)}</span>
+                      <span aria-hidden="true">·</span>
+                      <time dateTime={o.createdAt}>{formatTime(o.createdAt)}</time>
+                    </div>
                     {o.mood && (
-                      <span className={cn(
-                        "text-[10.5px] font-bold tracking-[0.12em] uppercase px-2 py-0.5 rounded-full",
-                        moodClasses(o.mood),
-                      )}>
-                        {o.mood}
+                      <span
+                        className={cn(
+                          "run-finding-status",
+                          moodTone(o.mood),
+                        )}
+                      >
+                        {o.mood === "act" && (
+                          <TriangleAlert aria-hidden="true" />
+                        )}
+                        {moodLabel(o.mood)}
                       </span>
                     )}
                   </div>
+
+                  <h2 className="run-finding-title">{o.title}</h2>
+
                   {o.body && (
-                    <div className="run-evt-message text-text text-sm leading-[1.55] mb-2">
+                    <div className="run-evt-message run-finding-body">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{o.body}</ReactMarkdown>
                     </div>
                   )}
-                  <div className="flex items-center gap-1.5 text-[11.5px] text-text3">
-                    <span className="font-mono uppercase tracking-[0.08em]">{o.kind}</span>
-                    {o.scope && (
-                      <>
-                        <span className="text-text3/70">·</span>
-                        <span>scope: {o.scope}</span>
-                      </>
-                    )}
+
+                  <footer className="run-finding-footer">
+                    <div className="run-finding-tags" aria-label="Finding classification">
+                      {o.scope && <span>{formatTaxonomy(o.scope)}</span>}
+                      {o.topic && o.topic !== o.scope && (
+                        <span>{formatTaxonomy(o.topic)}</span>
+                      )}
+                    </div>
                     <button
                       type="button"
-                      className="ml-auto bg-transparent border-0 text-text3 font-body text-[11.5px] cursor-pointer p-0 hover:text-accent hover:underline hover:underline-offset-2"
-                      onClick={() => pinOutput(o.id)}
+                      className="run-finding-pin"
+                      disabled={
+                        pinningOutputId === o.id || pinnedOutputIds.has(o.id)
+                      }
+                      onClick={() => void pinOutput(o.id)}
                       title="Pin this finding to the Briefing"
                     >
-                      pin to briefing
+                      {pinnedOutputIds.has(o.id) ? (
+                        <Check aria-hidden="true" />
+                      ) : (
+                        <Pin aria-hidden="true" />
+                      )}
+                      <span>
+                        {pinnedOutputIds.has(o.id)
+                          ? "Pinned"
+                          : pinningOutputId === o.id
+                            ? "Pinning…"
+                            : "Pin to briefing"}
+                      </span>
                     </button>
-                  </div>
+                  </footer>
                 </li>
               ))}
             </ul>
           )}
         </Section>
 
-        <Section title="Actions">
-          {actions.length === 0 ? (
-            <p className="text-text3 text-[13.5px] italic">No actions proposed by this run.</p>
-          ) : (
+        {actions.length > 0 ? (
+          <Section
+            title="Actions"
+            meta={`${actions.length} ${actions.length === 1 ? "proposal" : "proposals"}`}
+          >
             <ul className="list-none p-0 m-0 flex flex-col gap-2.5">
               {actions.map((a) => (
-                <li key={a.id} className="bg-card border border-border rounded-2xl px-4 py-3.5">
+                <li
+                  key={a.id}
+                  className="run-action-card bg-card border border-border rounded-2xl px-4 py-3.5"
+                >
                   <div className="flex items-start justify-between gap-2 mb-1.5">
                     <button
                       type="button"
@@ -480,75 +568,93 @@ export default function RunPage() {
                 </li>
               ))}
             </ul>
-          )}
-        </Section>
+          </Section>
+        ) : outputs.length > 0 ? (
+          <p className="run-no-actions">
+            <span aria-hidden="true" />
+            Reporting only — this run proposed no follow-up action.
+          </p>
+        ) : null}
 
-        <details
-          className="run-expander"
-          open={showEvents}
-          onToggle={(e) => setShowEvents(e.currentTarget.open)}
-        >
-          <summary className="run-expander-summary">
-            How it got there ({data.events.length} events)
-          </summary>
-          <div className="mt-3 pl-[18px] text-[13.5px] text-text leading-[1.55]">
-            {data.events.length === 0 ? (
-              <p className="text-text3 text-[13.5px] italic">No events recorded.</p>
-            ) : (
-              <EventStream events={data.events} />
-            )}
-          </div>
-        </details>
+        <section className="run-trace" aria-labelledby="run-trace-title">
+          <header className="run-trace-head">
+            <div>
+              <h2 id="run-trace-title">Run details</h2>
+              <p>Execution trace and workflow origin.</p>
+            </div>
+          </header>
 
-        <details
-          className="run-expander"
-          open={showLineage}
-          onToggle={(e) => setShowLineage(e.currentTarget.open)}
-        >
-          <summary className="run-expander-summary">Lineage</summary>
-          <div className="mt-3 pl-[18px] text-[13.5px] text-text leading-[1.55]">
-            {!lineage.upstream && run.triggerKind === "manual" && (
-              <p className="text-text3 text-[13.5px] italic">
-                Started manually from the workflow drawer.
-              </p>
-            )}
-            {!lineage.upstream && run.triggerKind === "cron" && (
-              <p className="text-text3 text-[13.5px] italic">
-                Scheduled by cron · no upstream output.
-              </p>
-            )}
-            {lineage.upstream && (
-              <div className="text-[13.5px] leading-[1.55] text-text">
-                <p>
-                  Triggered by{" "}
-                  {lineage.upstream.workflow ? (
-                    <>
-                      workflow{" "}
-                      <strong>{lineage.upstream.workflow.name}</strong>
-                    </>
-                  ) : (
-                    "an upstream workflow"
-                  )}{" "}
-                  on output{" "}
-                  <span className="italic text-text2">
-                    &ldquo;{lineage.upstream.output.title}&rdquo;
-                  </span>
+          <details
+            className="run-expander"
+            open={showEvents}
+            onToggle={(e) => setShowEvents(e.currentTarget.open)}
+          >
+            <summary className="run-expander-summary">
+              Execution trace
+              <span>{data.events.length} events</span>
+            </summary>
+            <div className="run-expander-content">
+              {data.events.length === 0 ? (
+                <p className="run-empty-state">No events recorded.</p>
+              ) : (
+                <EventStream events={data.events} />
+              )}
+            </div>
+          </details>
+
+          <details
+            className="run-expander"
+            open={showLineage}
+            onToggle={(e) => setShowLineage(e.currentTarget.open)}
+          >
+            <summary className="run-expander-summary">
+              Origin
+              <span>{formatTrigger(run.triggerKind)}</span>
+            </summary>
+            <div className="run-expander-content">
+              {!lineage.upstream && run.triggerKind === "manual" && (
+                <p className="run-empty-state">
+                  Started manually from the workflow drawer.
                 </p>
-                {lineage.upstream.workflowRunId && (
-                  <button
-                    type="button"
-                    className="mt-2 bg-transparent border-0 text-accent cursor-pointer font-inherit text-[12.5px] p-0 hover:underline hover:underline-offset-[3px]"
-                    onClick={() =>
-                      router.push(`/runs/${lineage.upstream!.workflowRunId}`)
-                    }
-                  >
-                    open upstream run →
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </details>
+              )}
+              {!lineage.upstream && run.triggerKind === "cron" && (
+                <p className="run-empty-state">
+                  Scheduled by cron · no upstream output.
+                </p>
+              )}
+              {lineage.upstream && (
+                <div className="text-[13.5px] leading-[1.55] text-text">
+                  <p>
+                    Triggered by{" "}
+                    {lineage.upstream.workflow ? (
+                      <>
+                        workflow{" "}
+                        <strong>{lineage.upstream.workflow.name}</strong>
+                      </>
+                    ) : (
+                      "an upstream workflow"
+                    )}{" "}
+                    on output{" "}
+                    <span className="italic text-text2">
+                      &ldquo;{lineage.upstream.output.title}&rdquo;
+                    </span>
+                  </p>
+                  {lineage.upstream.workflowRunId && (
+                    <button
+                      type="button"
+                      className="mt-2 bg-transparent border-0 text-accent cursor-pointer font-inherit text-[12.5px] p-0 hover:underline hover:underline-offset-[3px]"
+                      onClick={() =>
+                        router.push(`/runs/${lineage.upstream!.workflowRunId}`)
+                      }
+                    >
+                      open upstream run →
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </details>
+        </section>
       </div>
 
       <CreatorCredit />
@@ -665,15 +771,20 @@ function EventStream({ events }: { events: EventRow[] }) {
 
 function Section({
   title,
+  meta,
   children,
 }: {
   title: string;
+  meta?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="mb-7">
-      <div className="text-[10.5px] font-bold tracking-[0.13em] uppercase text-text3 mb-2.5">{title}</div>
-      <div>{children}</div>
+    <section className="run-section">
+      <header className="run-section-head">
+        <h2>{title}</h2>
+        {meta ? <span>{meta}</span> : null}
+      </header>
+      <div className="run-section-body">{children}</div>
     </section>
   );
 }
