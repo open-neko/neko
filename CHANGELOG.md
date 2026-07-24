@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.22.0](https://github.com/open-neko/openneko/compare/v2.21.0...v2.22.0) (2026-07-24)
+
+
+### Features
+
+* **web:** improve workflow run detail hierarchy ([1304b61](https://github.com/open-neko/openneko/commit/1304b61bdb5ed633d7c371eadebe11d087248d89))
+
 ## [2.21.0](https://github.com/open-neko/openneko/compare/v2.20.1...v2.21.0) (2026-07-23)
 
 
