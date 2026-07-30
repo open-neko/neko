@@ -157,6 +157,21 @@ export type SourceConfigAgentResult = {
   response?: GraphjinAgentResponse;
 };
 
+/**
+ * Read-only data-plane result from GraphJin's built-in server agent.
+ *
+ * This is deliberately separate from SourceConfigAgentResult: data questions
+ * are available to ordinary agent jobs, while configuration inspection remains
+ * admin-gated. In both cases the trusted host owns source selection and auth.
+ */
+export type GraphjinDataAgentResult = {
+  denied?: boolean;
+  error?: string;
+  source?: { id: string; name: string; host: string | null };
+  agentStatus?: GraphjinAgentStatus;
+  response?: GraphjinAgentResponse;
+};
+
 export type SourceConfigPreviewResult = {
   denied?: boolean;
   error?: string;
@@ -233,6 +248,18 @@ export interface AgentControlPlane {
     data: unknown;
     errors?: Array<{ message: string; path?: (string | number)[] }>;
   }>;
+  /**
+   * Delegate one read-only data question to the configured customer
+   * GraphJin's built-in server agent. The host selects the source, verifies
+   * the server-wide read-only posture, and keeps its credential out of the
+   * agent sandbox.
+   */
+  askGraphjinDataAgent(input: {
+    orgId: string;
+    runId?: string | null;
+    instruction: string;
+    maxSteps?: number;
+  }): Promise<GraphjinDataAgentResult>;
   saveWorkflowWithTrigger(
     input: SaveWorkflowInput,
   ): Promise<Wire<SaveWorkflowWithTriggerResult>>;
@@ -583,6 +610,118 @@ export class InProcessControlPlane implements AgentControlPlane {
       headers,
       signal: AbortSignal.timeout(60_000),
     });
+  }
+
+  async askGraphjinDataAgent(input: {
+    orgId: string;
+    runId?: string | null;
+    instruction: string;
+    maxSteps?: number;
+  }): Promise<GraphjinDataAgentResult> {
+    const instruction = input.instruction.trim();
+    if (!instruction || instruction.length > 8_000) {
+      return {
+        error: "instruction must contain between 1 and 8,000 characters",
+      };
+    }
+
+    const { and, data_source, db, desc, eq } = await import("@neko/db");
+    const [src] = await db()
+      .select({
+        id: data_source.id,
+        name: data_source.name,
+        kind: data_source.kind,
+        graphqlUrl: data_source.graphql_url,
+        authMode: data_source.auth_mode,
+      })
+      .from(data_source)
+      .where(
+        and(
+          eq(data_source.org_id, input.orgId),
+          eq(data_source.enabled, true),
+        ),
+      )
+      .orderBy(desc(data_source.is_default), data_source.created_at)
+      .limit(1);
+    if (!src) {
+      return { error: "no enabled customer GraphJin data source was found" };
+    }
+    if (src.kind !== "graphjin") {
+      return { error: "the selected data source is not a GraphJin server" };
+    }
+    if (isInternalGraphjinURL(src.graphqlUrl)) {
+      return {
+        denied: true,
+        error: "refusing to query the OpenNeko internal GraphJin",
+      };
+    }
+
+    const { askGraphjinAgent, getGraphjinAgentStatus } = await import(
+      "../graphjin/agent"
+    );
+    // JWT sources receive a short-lived service identity. Auth-free local
+    // sources ignore the inert bearer value; keeping one client shape avoids
+    // ever accepting caller-supplied headers or tokens.
+    let token = "openneko-read-only";
+    if (src.authMode === "jwt") {
+      const { mintGraphjinToken } = await import("../graphjin/token");
+      token = mintGraphjinToken({
+        orgId: input.orgId,
+        userId: null,
+        role: "service",
+      });
+    }
+    const timeout = AbortSignal.timeout(120_000);
+    const source = {
+      id: src.id,
+      name: src.name,
+      host: hostnameOf(src.graphqlUrl),
+    };
+    try {
+      const agentStatus = await getGraphjinAgentStatus({
+        baseUrl: src.graphqlUrl,
+        token,
+        signal: timeout,
+      });
+      if (!agentStatus.ready) {
+        return {
+          source,
+          agentStatus,
+          error: agentStatus.message || "GraphJin agent is not ready",
+        };
+      }
+      if (!agentStatus.read_only) {
+        return {
+          denied: true,
+          source,
+          agentStatus,
+          error:
+            "GraphJin agent is not configured read-only; OpenNeko will not delegate data questions",
+        };
+      }
+      const response = await askGraphjinAgent({
+        baseUrl: src.graphqlUrl,
+        token,
+        signal: timeout,
+        request: {
+          instruction,
+          max_steps: Math.min(Math.max(input.maxSteps ?? 8, 1), 12),
+          return_trace: false,
+          context: {
+            caller: "OpenNeko data agent",
+            purpose: "read-only operational data retrieval and analysis",
+            constraint:
+              "Use catalog and execution evidence. Do not mutate data, configuration, artifacts, tasks, watches, or workflows.",
+          },
+        },
+      });
+      return { source, agentStatus, response };
+    } catch (err) {
+      return {
+        source,
+        error: (err instanceof Error ? err.message : String(err)).slice(0, 1_000),
+      };
+    }
   }
 
   async saveWorkflowWithTrigger(

@@ -606,10 +606,52 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
 
     let promptError: string | undefined;
     try {
-      await client.request("session/prompt", {
+      const promptResponse = await client.request<{
+        usage?: {
+          inputTokens?: number;
+          input_tokens?: number;
+          outputTokens?: number;
+          output_tokens?: number;
+          totalTokens?: number;
+          total_tokens?: number;
+          cachedReadTokens?: number;
+          cached_read_tokens?: number;
+          thoughtTokens?: number;
+          thought_tokens?: number;
+        } | null;
+      }>("session/prompt", {
         sessionId,
         prompt: [{ type: "text", text: prompt }],
       });
+      const usage = promptResponse.usage;
+      if (onEvent && usage) {
+        const inputTokens = Number(
+          usage.inputTokens ?? usage.input_tokens ?? 0,
+        );
+        const outputTokens = Number(
+          usage.outputTokens ?? usage.output_tokens ?? 0,
+        );
+        const totalTokens = Number(
+          usage.totalTokens ??
+            usage.total_tokens ??
+            inputTokens + outputTokens,
+        );
+        await onEvent({
+          type: "usage",
+          source: "outer",
+          usage: {
+            inputTokens,
+            outputTokens,
+            totalTokens,
+            cacheReadTokens: Number(
+              usage.cachedReadTokens ?? usage.cached_read_tokens ?? 0,
+            ),
+            thoughtTokens: Number(
+              usage.thoughtTokens ?? usage.thought_tokens ?? 0,
+            ),
+          },
+        });
+      }
     } catch (e) {
       if (e instanceof AcpProtocolError) {
         promptError = `hermes: ${e.message}`;

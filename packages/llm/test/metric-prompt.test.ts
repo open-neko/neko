@@ -90,6 +90,37 @@ describe("buildMetricPrompt", () => {
     expect(prompt).not.toContain("graphjin cli execute_graphql");
   });
 
+  it("uses only the GraphJin server agent in the treatment arm", () => {
+    const prompt = buildMetricPrompt({
+      input: fakeInput,
+      knowledge: fakeKnowledge,
+      workspace: fakeWorkspace,
+      shellTool: "terminal",
+      dataAgentTool: "mcp__neko_graphjin_agent__ask",
+    });
+    expect(prompt).toContain("`mcp__neko_graphjin_agent__ask`");
+    expect(prompt).toContain("catalog-first discovery");
+    expect(prompt).toContain("globally read-only");
+    expect(prompt).not.toContain("mcp__neko_graphjin__execute_graphql");
+    expect(prompt).not.toContain("graphjin cli execute_graphql");
+    // Treatment keeps schema discovery inside GraphJin instead of paying to
+    // inline the outer agent's prefetched schema pack.
+    expect(prompt).not.toContain(fakeKnowledge.tables);
+  });
+
+  it("rejects an experiment arm that exposes both data paths", () => {
+    expect(() =>
+      buildMetricPrompt({
+        input: fakeInput,
+        knowledge: fakeKnowledge,
+        workspace: fakeWorkspace,
+        shellTool: "terminal",
+        queryTool: "mcp__neko_graphjin__execute_graphql",
+        dataAgentTool: "mcp__neko_graphjin_agent__ask",
+      }),
+    ).toThrow(/either queryTool or agentTool/);
+  });
+
   it("declares the JSON output contract with every required field name", () => {
     const prompt = buildMetricPrompt({
       input: fakeInput,

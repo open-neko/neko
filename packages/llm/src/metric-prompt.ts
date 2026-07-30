@@ -150,6 +150,7 @@ export function buildMetricPrompt(args: {
   workspace: AgentWorkspace;
   shellTool: string;
   queryTool?: string;
+  dataAgentTool?: string;
   memoryContext?: string;
   /** True when the backend supports `mcp__neko_memory__search`. */
   supportsMemorySearch?: boolean;
@@ -160,14 +161,15 @@ export function buildMetricPrompt(args: {
     workspace,
     shellTool,
     queryTool,
+    dataAgentTool,
     memoryContext,
     supportsMemorySearch,
   } = args;
   const sections: string[] = [
     `<role>
-You answer ONE dashboard card by writing GraphQL queries and executing
-them against a GraphJin server, then returning a single JSON object
-describing the snapshot. No prose around the JSON.
+You answer ONE dashboard card using the configured read-only GraphJin
+data capability, then return a single JSON object describing the
+snapshot. No prose around the JSON.
 </role>`,
     // saveMode "none" — one-shot agent never writes memories itself; the
     // operator does that explicitly via `save:`. searchTool is wired
@@ -181,6 +183,7 @@ describing the snapshot. No prose around the JSON.
     buildDataAccessSection({
       shellTool,
       queryTool,
+      agentTool: dataAgentTool,
       workspace,
       knowledge,
       // One-shot agent can't iterate — inline the full pack.

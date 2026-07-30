@@ -23,6 +23,8 @@ function stubControlPlane(): AgentControlPlane {
     searchWorkMemoryByContext:
       unused as AgentControlPlane["searchWorkMemoryByContext"],
     queryGraphjinRead: unused as AgentControlPlane["queryGraphjinRead"],
+    askGraphjinDataAgent:
+      unused as AgentControlPlane["askGraphjinDataAgent"],
     saveWorkflowWithTrigger:
       unused as AgentControlPlane["saveWorkflowWithTrigger"],
     emitWorkflowOutput: unused as AgentControlPlane["emitWorkflowOutput"],

@@ -47,6 +47,20 @@ function makeFakeControlPlane() {
         ReturnType<AgentControlPlane["searchWorkMemoryByContext"]>
       >;
     },
+    async queryGraphjinRead(input) {
+      calls.push({ method: "graphjin-query", input: input as Record<string, unknown> });
+      return { data: { ok: true } };
+    },
+    async askGraphjinDataAgent(input) {
+      calls.push({ method: "graphjin-agent", input: input as Record<string, unknown> });
+      return {
+        response: {
+          status: "answered",
+          answer: "31,465 orders",
+          data: { count: 31_465 },
+        },
+      };
+    },
     async saveWorkflowWithTrigger(input) {
       calls.push({ method: "wf-save", input: input as Record<string, unknown> });
       return { action: "created", workflow: { id: "w1", name: "W" } } as Awaited<
@@ -202,6 +216,24 @@ describe("agent broker", () => {
     expect(create?.orgId).toBe("o1");
     expect(create?.workRunId).toBe("r1");
     expect(fake.calls.find((c) => c.method === "search")?.input.orgId).toBe("o1");
+  });
+
+  it("binds GraphJin data-agent delegation to the authenticated org and run", async () => {
+    const cp = new BrokerControlPlane(baseUrl, "good");
+    const result = await cp.askGraphjinDataAgent({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      instruction: "Count all orders",
+      maxSteps: 6,
+    });
+
+    expect(result.response?.data).toEqual({ count: 31_465 });
+    expect(fake.calls.find((c) => c.method === "graphjin-agent")?.input).toEqual({
+      orgId: "o1",
+      runId: "r1",
+      instruction: "Count all orders",
+      maxSteps: 6,
+    });
   });
 
   it("round-trips return values and forces enqueue orgId", async () => {

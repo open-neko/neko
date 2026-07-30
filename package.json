@@ -25,6 +25,7 @@
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter @neko/worker test:e2e",
+    "test:e2e:graphjin-agent-ab": "pnpm --filter @neko/worker test:e2e:graphjin-agent-ab",
     "skills:check": "node --experimental-strip-types scripts/skill-doctor.ts",
     "skills:install": "node --experimental-strip-types scripts/skill-doctor.ts --install",
     "openneko": "go run ./apps/openneko/cmd/openneko"

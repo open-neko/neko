@@ -52,6 +52,17 @@ export type AgentVital = {
   source?: string;
 };
 
+/** Provider-reported model usage for one backend turn. */
+export type AgentTokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  thoughtTokens?: number;
+  costUsd?: number;
+};
+
 export type AgentEvent =
   // Delta of real prose since the last message event. Backends MUST NOT emit
   // structured-output payloads (a2ui fences, tool-call JSON, etc.) here — use
@@ -63,6 +74,7 @@ export type AgentEvent =
   | { type: "surface"; messages: AgentSurfaceMessage[] }
   | { type: "artifact"; artifact: AgentArtifact }
   | { type: "status"; message: string }
+  | { type: "usage"; source: "outer"; usage: AgentTokenUsage }
   | { type: "error"; message: string }
   | {
       /**

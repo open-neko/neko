@@ -95,6 +95,12 @@ export class BrokerControlPlane implements AgentControlPlane {
     return this.post("/v1/graphjin/query", input);
   }
 
+  askGraphjinDataAgent(
+    input: Parameters<AgentControlPlane["askGraphjinDataAgent"]>[0],
+  ): ReturnType<AgentControlPlane["askGraphjinDataAgent"]> {
+    return this.post("/v1/graphjin/agent", input);
+  }
+
   saveWorkflowWithTrigger(
     input: Parameters<AgentControlPlane["saveWorkflowWithTrigger"]>[0],
   ): ReturnType<AgentControlPlane["saveWorkflowWithTrigger"]> {

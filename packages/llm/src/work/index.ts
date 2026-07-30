@@ -9,6 +9,7 @@ export {
   buildAuditViewerServer,
   buildChannelManagerServer,
   buildDataSourceManagerServer,
+  buildGraphjinAgentServer,
   buildGraphjinReadServer,
   buildPluginActionServer,
   buildPluginManagerServer,

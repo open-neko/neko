@@ -5,6 +5,7 @@ import {
   buildAuditViewerServer,
   buildChannelManagerServer,
   buildDataSourceManagerServer,
+  buildGraphjinAgentServer,
   buildGraphjinReadServer,
   buildPluginActionServer,
   buildPluginManagerServer,
@@ -66,6 +67,8 @@ export function buildBridgeServer(
   switch (name) {
     case "neko_graphjin":
       return buildGraphjinReadServer({ orgId, controlPlane });
+    case "neko_graphjin_agent":
+      return buildGraphjinAgentServer({ orgId, runId, controlPlane });
     case "neko_skills":
       return buildSkillBuilderServer(skillsRoot);
     case "neko_memory":

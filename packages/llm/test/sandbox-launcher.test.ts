@@ -164,7 +164,11 @@ function fakeWorkflowInput(
 
 function fakeJobInput(
   workspace: AgentWorkspace,
-  access: { graphjinRead?: boolean; memorySearch?: boolean } = {},
+  access: {
+    graphjinRead?: boolean;
+    graphjinAgent?: boolean;
+    memorySearch?: boolean;
+  } = {},
 ) {
   return {
     backend: {
@@ -590,6 +594,27 @@ describe("makeSandboxRunCore", () => {
       kind: "agent-job",
       graphjinEnabled: false,
       agentAccess: { graphjinRead: true },
+    });
+    expect(job).not.toHaveProperty("graphjinWriteGrants");
+    expect(job).not.toHaveProperty("graphjinServerUrl");
+    expect(job).not.toHaveProperty("graphjinClientConfig");
+  });
+
+  it("serializes the GraphJin server-agent treatment as a broker-only capability", async () => {
+    const orgRoot = await mkdtemp(join(tmpdir(), "job-ws-"));
+    const workspace = fullWorkspace(orgRoot);
+    const runCore = makeSandboxJobRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    await runCore(fakeJobInput(workspace, { graphjinAgent: true }));
+
+    const job = jobCapture.jobs.at(-1);
+    expect(job).toMatchObject({
+      kind: "agent-job",
+      graphjinEnabled: false,
+      agentAccess: { graphjinAgent: true },
     });
     expect(job).not.toHaveProperty("graphjinWriteGrants");
     expect(job).not.toHaveProperty("graphjinServerUrl");

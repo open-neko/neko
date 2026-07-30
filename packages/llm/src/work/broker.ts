@@ -156,6 +156,18 @@ async function handle(
           orgId: binding.orgId,
         }),
       );
+    case "/v1/graphjin/agent":
+      return send(
+        res,
+        200,
+        await cp.askGraphjinDataAgent({
+          orgId: binding.orgId,
+          runId: binding.runId,
+          instruction: String(body.instruction ?? ""),
+          maxSteps:
+            typeof body.maxSteps === "number" ? body.maxSteps : undefined,
+        }),
+      );
     case "/v1/workflow/save":
       return send(
         res,

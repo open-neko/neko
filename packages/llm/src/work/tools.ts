@@ -1008,6 +1008,58 @@ export function buildGraphjinReadServer(opts: {
   });
 }
 
+/**
+ * Read-only delegation surface for GraphJin's built-in server agent.
+ *
+ * The outer Claude/Hermes agent supplies only a natural-language data goal.
+ * Source selection, readiness checks, and the GraphJin bearer credential stay
+ * on the trusted host control plane.
+ */
+export function buildGraphjinAgentServer(opts: {
+  orgId: string;
+  runId?: string;
+  controlPlane?: AgentControlPlane;
+}) {
+  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const ask = tool(
+    "ask",
+    [
+      "Delegate one read-only operational data question to GraphJin's",
+      "built-in catalog-first agent. Give it the complete business question,",
+      "time window, aggregation, baseline, and desired breakdown in one",
+      "instruction. It returns a typed answer with data and evidence.",
+      "The trusted host selects the source, verifies agent.read_only, and",
+      "keeps source credentials outside this sandbox.",
+    ].join(" "),
+    {
+      instruction: z.string().trim().min(1).max(8_000),
+      maxSteps: z.number().int().min(1).max(12).optional(),
+    },
+    async (args) => {
+      const result = await controlPlane.askGraphjinDataAgent({
+        orgId: opts.orgId,
+        runId: opts.runId ?? null,
+        instruction: args.instruction,
+        maxSteps: args.maxSteps,
+      });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(result),
+          },
+        ],
+      };
+    },
+  );
+
+  return createSdkMcpServer({
+    name: "neko_graphjin_agent",
+    version: "1.0.0",
+    tools: [ask],
+  });
+}
+
 // Two-tool memory surface: `save` and `search`. Reads use pgvector
 // context-search (matches the auto-context retrieval path), writes go
 // through the same rememberWorkMemory used by the `save:` chat command,
