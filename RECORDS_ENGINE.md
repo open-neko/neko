@@ -507,6 +507,12 @@ correctness, source_writes recording, soft delete.
 `module_state` has an active module (gating identical in spirit to
 `getAuthProvider()`-based sign-in rendering).
 
+> **Mockup & detailed UI plan:** [`mockups/crm-main-screen.html`](mockups/crm-main-screen.html)
+> shows the list view built from the app's design tokens;
+> [`mockups/README.md`](mockups/README.md) maps every mockup region to
+> components, routes, data sources, and milestones (M1–M3 aligned with
+> Phases 1–3 below).
+
 Routes:
 
 ```
