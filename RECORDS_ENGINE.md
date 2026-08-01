@@ -196,8 +196,11 @@ the official marketplace.
 | C10 | `module` plugin capability | plugins: `packages/types/`; openneko: worker registry + web gating | 1 |
 | C11 | `@open-neko/plugin-salesforce-crm` | plugins: `packages/salesforce-crm/` | 1 (switch) / 4 (sync) |
 | C12 | Watcher/briefing seeds for CRM | openneko: seeds + docs | 2 |
+| C13 | Backup, disk & ops resilience (see §6) | openneko: compose sidecar, worker jobs, CLI | 1 (backup) / 2 (verify + watchers) |
 
 Dependency spine: C1 → C2 → {C3, C5, C10} → C7(read) → C6/C8 → C7(write) → C11(sync).
+C13 depends only on C1 and lands with it — business-critical data is never live
+without a backup path.
 
 ---
 
@@ -652,24 +655,50 @@ report lands as a briefing finding (C3 stage 6).
 
 **Testing:** seed workflows run green against the golden import fixture.
 
+### C13 — Backup, disk & ops resilience
+
+**What:** the operational floor under C1, detailed in §6. Concretely:
+
+- `compose.yml`: `records-backup` sidecar (pgBackRest) with WAL archiving +
+  scheduled base backups for **both** `records-db` and `neko-db`; `records-db`
+  gets its own named volume, healthcheck, and `restart: unless-stopped` matching
+  the `neko-db` pattern.
+- Worker: `QUEUE.RECORDS_BACKUP_VERIFY` (weekly restore-verification job),
+  disk-watermark sampler feeding backpressure state, ops watcher seeds.
+- CLI: `openneko records backup now|status|restore --to <time>`; `openneko doctor`
+  gains disk-headroom, backup-age, and WAL-archive checks.
+- C3/C6 integration: importer pre-flight headroom check; write-path and sync
+  backpressure at watermarks; executor idempotency via
+  `record_change_log.action_request_id` uniqueness.
+
+**Testing:** kill/restart matrix in CI (compose harness): kill `records-db`
+mid-write, fill a small test volume to ENOSPC during import, verify resume and
+clean recovery; weekly verify job tested against the golden fixture backup.
+
 ---
 
 ## 5. Phases & acceptance criteria
 
-**Phase 1 — Read-only CRM (C1, C2, C3, C4, C5, C7-read, C10, C11-switch).**
+**Phase 1 — Read-only CRM (C1, C2, C3, C4, C5, C7-read, C10, C11-switch,
+C13-backup).**
 Install plugin → CRM appears → run import from CSV dir → browse every object
 (standard + custom) in list/detail with related lists → chat answers questions
 over CRM data as the signed-in user with owner-visibility enforced → watchers can
 read as service → import report + identity report visible.
 *Acceptance:* golden fixture import completes resumably; member vs admin see
 different rows on an owner-visibility object in both UI and chat; zero writes
-possible.
+possible; WAL archiving + base backup running against both databases and a
+manual restore drill documented and executed once — **no import against real
+client data before the backup path works**.
 
-**Phase 2 — Chat CRUD (C6, C8, C9, C12).**
+**Phase 2 — Chat CRUD (C6, C8, C9, C12, C13-verify/watchers).**
 Agent proposes `record_*` actions from natural language; approval cards render;
 executed writes appear in record change-log timeline and don't re-fire watchers.
 *Acceptance:* action-flow integration suite green incl. RBAC denials and
-concurrency conflicts; policy drift test green.
+concurrency conflicts; policy drift test green; replayed action requests are
+no-ops (idempotency); weekly restore-verification job green and its failure
+alerts through a channel; disk-watermark backpressure demonstrated in the CI
+kill/ENOSPC matrix.
 
 **Phase 3 — Full CRM ergonomics (C7-write + admin).**
 Generated create/edit forms on every object through the same action path;
@@ -689,7 +718,150 @@ role model extensions beyond admin/member.
 
 ---
 
-## 6. Risks & open questions
+## 6. Resilience & operations
+
+The engine holds business-critical daily-operations data on self-hosted,
+often single-host infrastructure. The posture: **crash safety is Postgres's
+job; our job is restart orchestration, idempotency, backups that are proven
+restorable, disk headroom management, and honest degradation** — with an HA
+ladder for clients who need more than a single host, and OpenNeko's own
+watcher machinery monitoring the substrate it runs on.
+
+### 6.1 Failure domains at a glance
+
+| Failure | Effect without mitigation | Mitigation (component) |
+|---|---|---|
+| Container crash (web/worker/graphjin) | Requests fail until restart | Stateless services + `restart: unless-stopped` + healthchecks (exists); pg-boss jobs resume; no state lost |
+| Container crash (`records-db`) | Reads/writes fail; no data loss | Postgres WAL crash recovery; healthcheck-gated dependents; fast restart (C13) |
+| Worker dies mid-write | Half-applied action? | Single transactional write path (C6); action journal + retry (§6.3) |
+| Worker dies mid-import / mid-sync | Stuck migration | Checkpointed idempotent stages (C3); detached VM job + watermark files (C11) |
+| Disk full | Postgres PANICs; stack down | Dedicated volume, watermarks + backpressure, pre-flight checks (§6.4) |
+| Volume/host loss | **Data loss** | Continuous WAL archiving + base backups + verified restore (§6.5) |
+| Silent backup rot | Discovered at the worst moment | Weekly automated restore verification + backup-age watcher (§6.5) |
+| GraphJin down | CRM reads fail | Stateless restart; degraded UI banner; agent reports source unavailable (§6.6) |
+| Human error (bad bulk update) | Corrupted operational data | Approval cards, change log, soft delete, PITR via WAL (§6.5, C6) |
+
+### 6.2 Process & container crashes
+
+What already exists and carries over: every long-lived service runs
+`restart: unless-stopped` with healthchecks, dependents gate on
+`service_healthy`, and migrations run as one-shot jobs
+(`condition: service_completed_successfully`). `records-db` adopts the same
+pattern (C1/C13). Web, worker, and GraphJin are stateless — a crash loses
+nothing; in-flight pg-boss jobs re-run after their visibility timeout.
+Postgres itself is crash-safe by construction (WAL + fsync); a `docker kill`
+mid-transaction rolls back cleanly on restart.
+
+### 6.3 Write-path durability & idempotency
+
+The single-write-path decision (D6) is also the durability story:
+
+- Every write exists first as an `action_request` row **in the metadata DB** —
+  a durable journal independent of `records-db`. If `records-db` is down, the
+  approval card and intent survive; execution fails fast with a typed error and
+  is retried by pg-boss (`retryLimit`/`retryDelay`/`retryBackoff`, per-queue —
+  the `CHANNEL_DELIVER` precedent uses 8 retries with exponential backoff).
+- Retries must not double-apply: `engine.record_change_log` gains a **unique
+  index on `action_request_id`**, and the C6 executor checks it inside the
+  write transaction — a replayed action becomes a no-op with the original
+  result returned. (This lands in C6's implementation, not as an afterthought.)
+- Delta-sync applies through the same executor, so a crashed sync run resumes
+  from its watermark and re-applies safely.
+
+### 6.4 Disk exhaustion — the #1 self-hosted killer
+
+Postgres on ENOSPC PANICs but does not corrupt: freeing space and restarting
+recovers. The plan's job is to make that event rare and non-catastrophic:
+
+- **Dedicated volume** for `records-db` (C1), so a runaway container log or
+  model cache elsewhere cannot starve the database, and so disk accounting is
+  attributable.
+- **Pre-flight checks:** the importer estimates footprint (~CSV bytes × 2 for
+  heap + indexes + WAL) and refuses to start below that headroom, telling the
+  admin exactly how much is needed (C3 stage 1).
+- **Watermarks with backpressure** (C13): a worker sampler tracks volume usage.
+  At 80% — warning finding on the Briefing + channel alert. At 90% — degrade
+  deliberately: pause delta sync and new imports, refuse new bulk operations,
+  keep interactive single-record writes alive (they're small and
+  business-critical) until a hard stop at 95%. Recovery is automatic when
+  space frees.
+- **Hygiene:** `temp_file_limit` set, WAL retention bounded by the archiver
+  (§6.5), autovacuum/bloat surfaced in `openneko doctor` and `records status`.
+
+### 6.5 Backups — the redundancy floor (non-negotiable, Phase 1)
+
+A single-host deployment's real redundancy is a **verified, off-volume
+backup**:
+
+- **Mechanism:** pgBackRest sidecar — continuous WAL archiving plus scheduled
+  (default nightly) base backups, covering **both** `records-db` and `neko-db`
+  (the action journal and module state live in the metadata DB; a restore
+  needs a consistent pair, and cross-DB references are by-value for exactly
+  this reason). RPO with WAL archiving: minutes. Point-in-time recovery also
+  covers the human-error case ("restore to just before the bad bulk update").
+- **Targets:** local path / mounted NAS by default; S3/GCS configurable at
+  setup. The backup target must be a different failure domain than the data
+  volume — setup warns loudly when it isn't.
+- **Restore:** `openneko records restore --to <timestamp>` drives the runbook
+  (stop dependents → restore → replay WAL → re-run doctor); documented for
+  the full-host-loss case (fresh host + backup target = working stack).
+- **Verification:** an unverified backup is a hope, not a backup. A weekly
+  worker job restores the latest backup into a throwaway container, runs
+  row-count and sampled-checksum sanity against the live DB's change-log
+  high-water mark, and posts the result as a Briefing finding. A failing or
+  stale verification is an alert, not a log line.
+- **Import safety:** source CSVs are retained until stage-6 validation passes,
+  and the import report reminds the admin to keep the Salesforce export until
+  the first *verified* backup exists.
+
+### 6.6 Degradation & self-monitoring
+
+- **Honest degradation:** when GraphJin or `records-db` is unreachable, `/m/*`
+  renders an explicit degraded banner (no stale-cache pretending), the agent
+  surfaces "records source unavailable" rather than hallucinating around it,
+  and queued writes state that they are queued. Approvals never disappear —
+  they live in the metadata DB.
+- **OpenNeko watches itself** (C13 + C12): the same watcher machinery clients
+  use on their business data ships an ops pack for the substrate — disk
+  headroom, backup age and last verification result, WAL-archive failures,
+  container restart counts, replication lag (when §6.7 Tier 1 is in play),
+  import/sync job health. Findings land on the Briefing; alerts go out through
+  whatever channels are installed (Slack/Telegram). The CRM monitoring its own
+  database is the dogfooding story, and it removes the "nobody was watching
+  the self-hosted box" failure mode.
+
+### 6.7 The HA ladder
+
+Redundancy beyond one host is a deployment tier, not an engine feature — the
+engine only ever sees a Postgres connection string:
+
+- **Tier 0 (default, single host):** restart policies + crash-safe Postgres +
+  continuous verified backups. RPO minutes, RTO tens of minutes (restore
+  runbook). Right answer for most small/mid deployments.
+- **Tier 1 (warm standby):** streaming replication to a second host (async),
+  lag watched by the ops pack, documented manual-promote runbook. RPO seconds,
+  RTO minutes. Deliberately manual promotion — automated failover
+  (Patroni-class) is out of scope for a compose-based stack and easy to get
+  dangerously wrong.
+- **Tier 2 (BYO / managed Postgres):** point `records-db` at RDS / Cloud SQL /
+  the client's DBA-run HA cluster via `module_state.config.records_db_url` +
+  a stored connection secret. The compose service is the default, not a
+  requirement; clients with real HA requirements bring infrastructure that
+  does HA for a living. Costs the engine nothing beyond honoring an external
+  connection string and skipping the sidecar for that database.
+
+### 6.8 Data-lifecycle guards
+
+Already decided, restated as the safety net they form: plugin uninstall
+disables the module but **never drops data** (C10); deletes are soft
+(recycle-bin semantics, C6); hard-destructive operations (module drop,
+restore-overwrite, hard delete) require typed confirmation *and* a
+fresh-backup check; every write is attributable in the change log with its
+approving action request.
+
+---
+
+## 7. Risks & open questions
 
 - **GraphJin role expressiveness.** Row filters + per-role table grants cover the
   D7 model; if a future module needs per-object *roles* (not just per-object
