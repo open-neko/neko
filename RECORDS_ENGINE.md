@@ -720,6 +720,15 @@ role model extensions beyond admin/member.
 
 ## 6. Resilience & operations
 
+> **Platform note:** the posture below has been generalized to everything
+> OpenNeko ships — see [RESILIENCE.md](RESILIENCE.md) for the platform
+> baseline (whole-deployment backup unit incl. the config/secrets volumes,
+> watermark backpressure, ops watcher pack, HA ladder). The records engine
+> **inherits** that baseline; this section retains the module-specific
+> application: importer pre-flight estimates, write-path idempotency keys,
+> records-db watermark behavior, and the CRM restore/identity specifics.
+> Where the two documents overlap, RESILIENCE.md is authoritative.
+
 The engine holds business-critical daily-operations data on self-hosted,
 often single-host infrastructure. The posture: **crash safety is Postgres's
 job; our job is restart orchestration, idempotency, backups that are proven
