@@ -1,8 +1,10 @@
 # Records Engine & CRM Module — Implementation Plan
 
 **Scope:** Salesforce → OpenNeko CRM as the first shipped module of a domain-neutral
-records engine, with marketing tools and ERP as follow-on modules. Input for v1 is a
-full Salesforce export (every SObject as CSV, plus describe metadata where available).
+records engine, with marketing tools and ERP as follow-on modules. Two migration
+inputs, converging on one importer: a client-supplied full export (every SObject as
+CSV, plus describe metadata where available), or a **connected import** where the
+plugin extracts everything from a live org via the Salesforce APIs (D13).
 
 **Repos touched:** `open-neko/openneko` (engine, UI, worker, migrations) and
 `open-neko/plugins` (new `module` capability in the SDK, the
@@ -178,6 +180,21 @@ the engine; affects nothing below except final package placement, so it does not
 block Phase 1. Default assumption in this plan: engine in Apache-2.0 core, plugin in
 the official marketplace.
 
+**D13 — Connected import: the plugin exports, the importer imports, one contract.**
+"Just connect to Salesforce and import everything" is built as a two-stage handoff,
+not a new pipeline. The sandboxed plugin (which can reach `*.salesforce.com` but
+never records-db) runs a detached export job that writes into its bind-mounted VM
+work root; the core importer (which can reach records-db but makes no external API
+calls) consumes that directory. The export produces **exactly the artifact set the
+manual CSV path expects** — `export-manifest.json`, `describe/*.json`,
+`data/<object>.csv` — so C3 has one input contract and two feeders, and the
+connected path is strictly *better* fed (real describe metadata instead of type
+inference). Salesforce API traffic stays inside the sandbox with allowlisted
+egress and egress-injected credentials; the worker never talks to Salesforce.
+*Rejected:* a worker-side Salesforce client (breaks the "external services live in
+sandboxes" security story); streaming records through action-request RPC results
+(payloads are logged and size-bounded, per D10).
+
 ---
 
 ## 3. Components
@@ -350,10 +367,18 @@ Postgres.
 
 ### C3 — Importer
 
-**What:** `csv-export/ → live module`. Runs as a worker pg-boss job
+**What:** `export directory → live module`. Runs as a worker pg-boss job
 (new `QUEUE.RECORDS_IMPORT` in `packages/db/src/jobs.ts`), triggered by an action
 adapter (`records_import_start`) so chat can drive it with an approval card, and by
 CLI (`openneko records import --module crm --dir ./sf-export`).
+
+**Input contract (one contract, two feeders — D13):** a directory containing
+`data/<object>.csv` files, optionally `describe/*.json` (Salesforce describe
+output) and `export-manifest.json` (per-object expected row counts + export
+watermarks). The **connected path** (C11's export job) produces all three into the
+plugin's bind-mounted work root and hands the path to `records_import_start`; the
+**manual path** is a client-supplied CSV dump, with type inference filling in for
+missing describe files. Everything below is identical for both feeders.
 
 Pipeline stages (each checkpointed in `module_state.config.import` so a restart
 resumes; progress surfaced via `records_import_status` and a briefing card):
@@ -629,19 +654,57 @@ Salesforce connectors.
   skill explaining when they're needed).
 - **Action kinds:**
   - `salesforce_discover` (`auto`) — live-org describe sweep → object/field/count
-    inventory for pre-migration planning (CSV-only users skip this).
-  - `salesforce_export_status` (`auto`) — for orgs exporting via API rather than
-    CSV handoff (stretch; v1 may defer the API bulk-export path entirely since
-    CSVs are the assumed input).
+    inventory, rendered as the migration plan the admin approves before any bulk
+    export starts (CSV-only users skip this).
+  - `salesforce_export_start` (`ask`) — **the connected import (D13)**: kicks off
+    a detached export job inside the plugin VM that drives the full org →
+    work-root extraction:
+    1. Authenticate via the Connected App (client-credentials flow; secret
+       egress-injected).
+    2. Persist `describe/*.json` for every object in the approved plan
+       (standard + custom, fields, picklists, relationships, profiles).
+    3. Per object, submit a **Bulk API 2.0 query job**, poll to completion, and
+       stream the result CSV pages (`Sforce-Locator` pagination) into
+       `data/<object>.csv` — atomic per-page appends with a checkpoint file
+       (object, locator, rows written), so a killed VM resumes mid-object.
+       PK-chunked fallback queries for objects past Bulk job limits; plain REST
+       for the small/unsupported-by-Bulk tail. `ContentVersion` blob download
+       stays out of v1 (D8) — rows yes, binaries no.
+    4. Write `export-manifest.json` (per-object expected counts from the job
+       stats + the export watermark that delta sync later resumes from), then
+       report completion; the orchestrating workflow hands the directory to
+       `records_import_start` (C3) — export and import reconcile counts
+       independently.
+  - `salesforce_export_status` (`auto`) — one-shot read of the checkpoint/state
+    file: per-object progress, API-limit consumption, ETA; drives chat progress
+    updates and the briefing card.
+  - `salesforce_export_cancel` (`ask`) — stop the detached job, keep checkpoints
+    (a later start resumes rather than restarts).
   - `salesforce_sync_delta` (`ask`) — transition-window incremental sync:
-    detached in-VM job (D10) querying `SystemModstamp > watermark` (+`queryAll`
-    for deletes), writing normalized change CSVs to the VM work root; a paired
-    core job applies them through the C6 executor (as `service` actor, logged as
-    such) so even sync writes hit one write path. Explicitly framed as
-    transition-only, not a permanent two-way bridge.
-  - Rate-limit handling implemented in the plugin's Salesforce client
-    (429/`Retry-After` backoff) — no precedent exists in other plugins; must be
-    built, not assumed.
+    the same detached-job machinery querying `SystemModstamp > watermark`
+    (+`queryAll` for deletes) from the manifest's watermark, writing normalized
+    change CSVs to the VM work root; a paired core job applies them through the
+    C6 executor (as `service` actor, logged as such) so even sync writes hit one
+    write path. Explicitly framed as transition-only, not a permanent two-way
+    bridge.
+  - One shared Salesforce client under all kinds: token caching/refresh,
+    429/`Retry-After` and `REQUEST_LIMIT_EXCEEDED` backoff, and a **daily
+    API-budget governor** (Bulk API 2.0 job/batch limits and org API-call
+    allowances tracked in the state file; the job self-throttles rather than
+    exhausting the org's quota that their still-live Salesforce needs). No
+    precedent exists in other plugins; must be built, not assumed.
+- **Export staging hygiene:** the work-root export is transient business data —
+  0700 directory, excluded from backups (it's re-derivable), deleted after the
+  import report validates (the C3 rule "keep source until validation passes"
+  applies to the staged files; for connected imports the org itself remains the
+  source of truth until cutover). Disk pre-flight covers the staging footprint
+  *plus* the DB footprint (~3× CSV bytes total) before the export starts, and
+  the C13/§6.4 watermark backpressure pauses the export job like any bulk work.
+- **Chat-first onboarding flow** (the product story this enables): install the
+  plugin → the agent walks the admin through Connected App setup → secrets land
+  via `openneko secrets set` → `salesforce_discover` renders the migration plan
+  card → one approval starts export → import chains automatically → the
+  briefing announces the CRM is live with the validation + identity report.
 - Note: the *import trigger* (`records_import_start/status`) is a **core**
   adapter (D10), not a plugin action — the plugin's presence merely makes the
   module (and thus the import surface) available.
@@ -649,7 +712,10 @@ Salesforce connectors.
   synced via `scripts/sync-marketplace.mjs`.
 
 **Testing:** plugin unit tests in the repo's per-package style; a mocked-SF-server
-test for the delta job's checkpoint/resume; marketplace schema validation.
+harness covering the export job end-to-end (Bulk job lifecycle, locator
+pagination, kill/resume from checkpoint, manifest count reconciliation,
+rate-limit backoff and budget-governor throttling) and the delta job's
+watermark/resume; marketplace schema validation.
 
 ### C12 — Watcher & briefing seeds
 
@@ -712,10 +778,17 @@ permissions admin; identity mapping admin; saved list views.
 *Acceptance:* e2e create/edit/delete round-trips per field kind; `deny` policy
 blocks the form path too.
 
-**Phase 4 — Transition tooling (C11-sync).**
-Delta sync from a still-live org until cutover.
-*Acceptance:* mocked-SF delta run applies changes through the C6 executor,
-survives kill/resume, records `service` actor in the change log.
+**Phase 4 — Connected-org tooling (C11-export, C11-sync).**
+Connected import ("just connect and import everything", D13) and
+transition-window delta sync from a still-live org until cutover. The
+connected-import half depends only on Phase 1 (it feeds the same C3 contract),
+so it can be pulled forward as an onboarding feature the moment Phase 1 ships —
+sequenced here only because CSV import unblocks migrations sooner.
+*Acceptance:* mocked-SF full export → import chain completes hands-free from
+one approval, reconciles counts, survives kill/resume at every stage; delta
+run applies changes through the C6 executor, survives kill/resume, records
+`service` actor in the change log; API budget governor demonstrably throttles
+before exhausting the mocked org's daily quota.
 
 **Follow-on (out of this plan's scope, enabled by it):** marketing pack (starter
 schema + send-actions reusing existing Gmail/Slack/Telegram plugins), ERP pack
