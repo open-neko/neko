@@ -10,6 +10,8 @@
     "./actions/execution": "./src/actions/execution.ts",
     "./blueprints": "./src/blueprints.ts",
     "./connect/artifacts": "./src/connect/artifacts.ts",
+    "./connect/salesforce/client": "./src/connect/salesforce/client.ts",
+    "./connect/salesforce/export": "./src/connect/salesforce/export.ts",
     "./connect/salesforce/id": "./src/connect/salesforce/id.ts",
     "./connect/salesforce/schema": "./src/connect/salesforce/schema.ts",
     "./connect/types": "./src/connect/types.ts",
