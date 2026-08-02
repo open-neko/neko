@@ -88,6 +88,7 @@ describe("record CSV import plans", () => {
     expect(inferRecordImportFieldKind(["true", "FALSE", "yes"])).toBe("boolean");
     expect(inferRecordImportFieldKind(["1", "2", "-3"])).toBe("integer");
     expect(inferRecordImportFieldKind(["1.20", "-3.0"])).toBe("decimal");
+    expect(inferRecordImportFieldKind(["1.20", "0", "-3"])).toBe("decimal");
     expect(inferRecordImportFieldKind(["2026-08-01", "2026-08-02"])).toBe("date");
     expect(inferRecordImportFieldKind(["2026-08-01T10:00:00Z"])).toBe("datetime");
     expect(inferRecordImportFieldKind(["ada@example.com"])).toBe("email");

@@ -259,8 +259,10 @@ export async function cancelRecordImportRun(
 ): Promise<RecordImportRun | null> {
   const result = await pool.query<RawRun>(
     `update engine.import_run
-     set status = 'cancelled', cancel_requested_at = coalesce(cancel_requested_at, now()),
-         current_stage = 'cancelled', updated_at = now()
+     set status = case when status = 'planned' then 'cancelled' else status end,
+         cancel_requested_at = coalesce(cancel_requested_at, now()),
+         current_stage = case when status = 'planned' then 'cancelled' else current_stage end,
+         updated_at = now()
      where org_id = $1 and id = $2::uuid and status in ('planned', 'running')
      returning ${RUN_COLUMNS}`,
     [input.orgId, input.id],
@@ -268,6 +270,30 @@ export async function cancelRecordImportRun(
   return result.rows[0]
     ? mapRun(result.rows[0])
     : getRecordImportRun(pool, input);
+}
+
+export async function finishRecordImportCancellation(
+  pool: Pool,
+  input: {
+    orgId: string;
+    id: string;
+    report: Record<string, unknown>;
+  },
+): Promise<RecordImportRun> {
+  const result = await pool.query<RawRun>(
+    `update engine.import_run
+     set status = 'cancelled', current_stage = 'cancelled', error = null,
+         cancel_requested_at = coalesce(cancel_requested_at, now()),
+         result = jsonb_set(coalesce(result, '{}'::jsonb), '{report}', $3::jsonb, true),
+         updated_at = now()
+     where org_id = $1 and id = $2::uuid and status in ('planned', 'running', 'cancelled')
+     returning ${RUN_COLUMNS}`,
+    [input.orgId, input.id, JSON.stringify(input.report)],
+  );
+  if (!result.rows[0]) {
+    throw new Error(`records import run ${input.id} could not finish cancellation`);
+  }
+  return mapRun(result.rows[0]);
 }
 
 export async function getRecordImportReceipt(
@@ -408,4 +434,3 @@ export async function summarizeRecordImportRun(
     duplicates: Number(row.duplicates),
   };
 }
-

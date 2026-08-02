@@ -127,7 +127,7 @@ export function inferRecordImportFieldKind(
   if (populated.every((value) => /^-?(?:0|[1-9]\d*)$/.test(value))) {
     return "integer";
   }
-  if (populated.every((value) => /^-?(?:0|[1-9]\d*)\.\d+$/.test(value))) {
+  if (populated.every((value) => /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value))) {
     return "decimal";
   }
   if (populated.every(isRealDate)) return "date";

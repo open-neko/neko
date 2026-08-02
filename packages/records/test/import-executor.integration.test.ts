@@ -18,7 +18,11 @@ import {
 import { writeRecordsGraphjinConfig } from "../src/graphjin/config";
 import { RecordImportExecutor } from "../src/import/executor";
 import { buildRecordImportPlan } from "../src/import/plan";
-import { createRecordImportRun } from "../src/import/store";
+import {
+  cancelRecordImportRun,
+  createRecordImportRun,
+  getRecordImportRun,
+} from "../src/import/store";
 import { recordIdentifier } from "../src/naming";
 import {
   loadRecordsGraphjinPolicyModel,
@@ -75,6 +79,23 @@ class LoseFirstMutationResponse implements RecordsGraphjinTransport {
     if (!this.lost && input.operationName === "RecordsImportBatch") {
       this.lost = true;
       throw new RecordsGraphjinRequestError("simulated lost response", null);
+    }
+    return result;
+  }
+}
+
+class CancelAfterFirstMutation implements RecordsGraphjinTransport {
+  mutations = 0;
+
+  constructor(
+    private readonly inner: RecordsGraphjinTransport,
+    private readonly cancel: () => Promise<void>,
+  ) {}
+
+  async execute<T>(input: RecordsGraphjinExecuteInput): Promise<T> {
+    const result = await this.inner.execute<T>(input);
+    if (input.operationName === "RecordsImportBatch" && this.mutations++ === 0) {
+      await this.cancel();
     }
     return result;
   }
@@ -318,5 +339,88 @@ describeIfLive("records CSV import executor live integration", () => {
       }),
     ).resolves.toEqual(report);
   }, 30_000);
-});
 
+  it("honors cancellation at the next committed batch boundary", async () => {
+    const bytes = Buffer.from(
+      [
+        "id,name,available",
+        "cancel-1,Keyboard,true",
+        "cancel-2,Mouse,true",
+        "cancel-3,Headset,false",
+      ].join("\n"),
+    );
+    const registry = new (await import("../src/registry")).RecordRegistry(pool);
+    const loaded = await registry.loadApp("org-a", "equipment");
+    expect(loaded).not.toBeNull();
+    const plan = buildRecordImportPlan({
+      snapshot: loaded as AppRegistrySnapshot,
+      objectApiName: "loan",
+      sourcePath: "imports/run-cancel/loans.csv",
+      sourceName: "loans.csv",
+      bytes,
+      batchSize: 1,
+    });
+    const run = await createRecordImportRun(pool, {
+      id: "00000000-0000-4000-a000-000000000995",
+      orgId: "org-a",
+      actionRequestId: "import-executor-cancel-action",
+      plan,
+    });
+    const cancellingTransport = new CancelAfterFirstMutation(graphjin, async () => {
+      const requested = await cancelRecordImportRun(pool, {
+        orgId: "org-a",
+        id: run.id,
+      });
+      expect(requested).toMatchObject({
+        status: "running",
+        cancelRequestedAt: expect.any(Date),
+      });
+    });
+    const executor = new RecordImportExecutor({
+      pool,
+      graphjin: cancellingTransport,
+      serviceToken: () =>
+        mintRecordsGraphjinToken({
+          secret: JWT_SECRET,
+          orgId: "org-a",
+          userId: "records-service",
+          role: "service",
+        }),
+      leaseOwner: "import-cancel-test-worker",
+      readSource: async () => bytes,
+    });
+
+    const report = await executor.execute({
+      orgId: "org-a",
+      importRunId: run.id,
+      actorUserId: "admin-1",
+    });
+
+    expect(cancellingTransport.mutations).toBe(1);
+    expect(report).toEqual({
+      status: "cancelled",
+      importRunId: run.id,
+      appId: "equipment",
+      objectApiName: "loan",
+      sourceName: "loans.csv",
+      sourceRows: 3,
+      inserted: 1,
+      rejected: 0,
+      duplicates: 0,
+      batches: 1,
+      reconciled: false,
+    });
+    await expect(
+      getRecordImportRun(pool, { orgId: "org-a", id: run.id }),
+    ).resolves.toMatchObject({
+      status: "cancelled",
+      currentStage: "cancelled",
+      report,
+      cancelRequestedAt: expect.any(Date),
+    });
+    const rows = await pool.query<{ id: string }>(
+      "select id from public.equipment__loan where id like 'cancel-%' order by id",
+    );
+    expect(rows.rows).toEqual([{ id: "cancel-1" }]);
+  }, 30_000);
+});

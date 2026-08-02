@@ -26,6 +26,7 @@ import {
 } from "./plan";
 import {
   finishRecordImportRun,
+  finishRecordImportCancellation,
   getRecordImportReceipt,
   getRecordImportReceiptAtBatch,
   getRecordImportRun,
@@ -291,7 +292,9 @@ export class RecordImportExecutor {
       orgId: run.orgId,
       id: run.id,
     });
-    if (!current || current.status === "cancelled") throw new RecordImportCancelledError();
+    if (!current || current.status === "cancelled" || current.cancelRequestedAt) {
+      throw new RecordImportCancelledError();
+    }
   }
 
   private async existingDuplicateValues(input: {
@@ -502,7 +505,7 @@ export class RecordImportExecutor {
       id: input.importRunId,
     });
     if (run.status === "cancelled") {
-      return {
+      const report: RecordImportReport = {
         status: "cancelled",
         importRunId: run.id,
         appId: run.appId,
@@ -515,6 +518,26 @@ export class RecordImportExecutor {
         batches: 0,
         reconciled: false,
       };
+      const claim = await claimRecordsActionExecution(this.dependencies.pool, {
+        actionRequestId: run.actionRequestId,
+        orgId: run.orgId,
+        appId: run.appId,
+        actionKind: "records_import_start",
+        leaseOwner: this.dependencies.leaseOwner,
+        leaseMs: 5 * 60_000,
+      });
+      if (claim.kind === "replay") return claim.result as RecordImportReport;
+      run = await finishRecordImportCancellation(this.dependencies.pool, {
+        orgId: run.orgId,
+        id: run.id,
+        report,
+      });
+      await succeedRecordsActionExecution(this.dependencies.pool, {
+        actionRequestId: run.actionRequestId,
+        leaseOwner: this.dependencies.leaseOwner,
+        result: report,
+      });
+      return report;
     }
     verifyRecordImportPlanHash(run.plan);
     const snapshot = await this.registry.loadApp(run.orgId, run.appId);
@@ -638,6 +661,11 @@ export class RecordImportExecutor {
           ...summary,
           reconciled: false,
         };
+        run = await finishRecordImportCancellation(this.dependencies.pool, {
+          orgId: run.orgId,
+          id: run.id,
+          report,
+        });
         await succeedRecordsActionExecution(this.dependencies.pool, {
           actionRequestId: run.actionRequestId,
           leaseOwner: this.dependencies.leaseOwner,
