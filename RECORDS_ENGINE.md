@@ -137,11 +137,21 @@ admin|member|service, 5-min TTL, per-org derived secret). The web UI's `/a/*`
 pages mint the same tokens for the signed-in user — **no second SQL read path**.
 Watchers read as `service`, and change-watching uses GraphJin's subscription /
 live-query support over the same role config where enabled, falling back to the
-existing scheduled-watch path. Precision on "GraphJin creates the schema": it
-doesn't — GraphJin serves and subscribes over tables that exist. **The engine
-generates and applies DDL (C3); GraphJin's config is regenerated to expose it.**
-*Rejected:* direct SQL from Next.js API routes (second enforcement point,
-guaranteed drift).
+existing scheduled-watch path. **Schema creation also goes through GraphJin:**
+GraphJin ships a declarative schema facility — GraphJin DDL desired-state files
+(`db.ddl` / per-source `schema-ddl/*.ddl`), a schema-diff engine
+(`core/schema_diff.go`) that generates create/alter SQL against the live
+database (Postgres: fully supported), and a `preview_schema_changes` /
+`apply_schema_changes` surface gated by `mcp.allow_schema_updates`, with drops
+requiring an explicit `destructive` flag and an automatic schema reload after
+apply. The C3 executor projects the registry into GraphJin DDL and drives
+preview → apply, so the SQL shown on the approval card is the SQL that runs.
+This facility stays **off for customer data sources** exactly as today — their
+analytics-mode config carries `read_only: true`, which blocks all mutations
+and DDL; only the `records` source enables schema updates. *Rejected:* direct
+SQL from Next.js API routes (second enforcement point, guaranteed drift);
+hand-rolled DDL generation in the engine (GraphJin already maintains the
+dialect + diff engine; we'd be duplicating it badly).
 
 **D6 — All writes through core action adapters — data writes *and* schema
 writes.**
@@ -505,19 +515,33 @@ Executor rules (one transaction against `records-db` per action, mirrored to
 `app_state` in the metadata DB after commit):
 
 1. Everything named passes through `naming.ts`; identifiers are always quoted.
-2. Generated DDL follows the same conventions as the importer's (C8): PK `id`
-   (`text`; imported apps keep source IDs, from-scratch apps default to
-   UUID-as-text), indexes on reference columns and the name field, **no FK
-   constraints** (integrity reported, not enforced — legacy data has dangles).
-3. Registry write + DDL + `app_schema_log` append commit together; the
-   GraphJin projection (C5) regenerates after commit under
-   `acquireGraphjinConfigLock`.
-4. Approval-card rendering: the adapter's plan output lists objects, fields
-   with kinds, and the exact DDL summary — the admin approves what will run,
-   not a vibe.
+2. The executor projects the registry delta into **GraphJin DDL** (the
+   desired-state schema format) and calls GraphJin's
+   `preview_schema_changes` → `apply_schema_changes` against the `records`
+   source (D5) — GraphJin's schema-diff engine generates and transactionally
+   applies the SQL and reloads its own schema, so new tables are queryable
+   immediately with no separate config-regen step for table exposure (role
+   /permission projection still regenerates under
+   `acquireGraphjinConfigLock`). The `destructive` flag is **never passed** —
+   archive semantics (D7) mean the engine never asks GraphJin to drop
+   anything. Schema conventions: PK `id` (`text`; imported apps keep source
+   IDs, from-scratch apps default to UUID-as-text), indexes on reference
+   columns and the name field, **no FK constraints** (integrity reported, not
+   enforced — legacy data has dangles). Anything GraphJin DDL can't express
+   (e.g. specialized index types) is applied by the engine directly as a
+   documented residue — small by design.
+3. Registry write + `app_schema_log` append commit together, recording the
+   previewed SQL; `app_state` mirror updates after apply.
+4. Approval-card rendering: the adapter runs `preview_schema_changes` at
+   propose time — **the SQL on the card is the SQL that will run**, not a
+   summary.
 5. `hard_drop` is **not an action kind**. It exists only as
    `openneko records drop --app X --object Y` with typed confirmation and a
    fresh-verified-backup check (D7).
+6. Source gating: `mcp.allow_schema_updates` is enabled **only** for the
+   `records` source; customer data sources keep their analytics-mode
+   `read_only: true` config, which blocks all mutations and DDL — unchanged
+   from today.
 
 **Blueprints:** `packages/records/blueprints/*.json` — starter app definitions
 (CRM: account/contact/opportunity/activity; support: ticket/requester/queue
@@ -1153,10 +1177,16 @@ each with its approving action request.
   skill's interview discipline, additive evolution making fixes cheap, and
   the counter-proposal path for lossy changes. Watch item: whether Phase 1
   needs a "draft app" state (visible to admin only) before go-live.
-- **GraphJin config churn.** Every schema action regenerates the records
-  source config. `acquireGraphjinConfigLock` serializes writers, but frequent
-  regeneration on a busy build session needs debouncing and a config-reload
-  cost check against a live GraphJin. Measure in Phase 1.
+- **GraphJin config churn.** Table exposure reloads automatically after
+  `apply_schema_changes`, but role/permission projection still regenerates
+  config on schema and permission actions. `acquireGraphjinConfigLock`
+  serializes writers; frequent regeneration on a busy build session needs
+  debouncing and a reload-cost check against a live GraphJin. Measure in
+  Phase 1.
+- **GraphJin DDL expressiveness & version coupling.** C3 leans on GraphJin's
+  schema-diff engine (pinned v3.18.x). Constructs it can't express fall to
+  the engine-applied residue path — keep that list short and tested, and gate
+  GraphJin version bumps on a schema-diff regression fixture.
 - **GraphJin subscription semantics.** Live queries are polling-based under
   the hood; latency and load characteristics at hundreds of watched queries
   need measurement before subscription-triggered watchers become the default
