@@ -492,13 +492,15 @@ function humanChangeLogTable(input: {
     }
     return `{ and: [${clauses.join(", ")}] }`;
   });
+  const scopeFilter =
+    scopes.length === 1 ? scopes[0]! : `{ or: [${scopes.join(", ")}] }`;
   return {
     ...blockedTable(table),
     query: {
       block: false,
       filters: [
         orgFilter(model.orgId),
-        `{ or: [${scopes.join(", ")}] }`,
+        scopeFilter,
       ],
       columns: [...RECORD_CHANGE_LOG_READ_COLUMNS],
       limit: HUMAN_QUERY_LIMIT,

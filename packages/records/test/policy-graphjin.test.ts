@@ -219,6 +219,24 @@ describe("projectRecordsGraphjinRoles", () => {
     }
   });
 
+  it("does not wrap a single readable change-history scope in a redundant or", () => {
+    const model = recordsPolicyFixture();
+    model.objects = model.objects.filter((object) => object.apiName !== "contact");
+    model.permissions = model.permissions.filter(
+      (permission) => permission.objectApiName !== "contact",
+    );
+
+    const roles = projectRecordsGraphjinRoles(model);
+    const member = tableFor(
+      roles.find((role) => role.name === "member")!,
+      "record_change_log",
+    );
+    expect(member.query.filters).toEqual([
+      '{ org_id: { eq: "org-a" } }',
+      '{ and: [{ app_id: { eq: "crm" } }, { object_api_name: { eq: "account" } }] }',
+    ]);
+  });
+
   it("exposes bounded schema history only to admins without DDL", () => {
     const roles = projectRecordsGraphjinRoles(recordsPolicyFixture());
     const admin = tableFor(roles.find((role) => role.name === "admin")!, "app_schema_log");
