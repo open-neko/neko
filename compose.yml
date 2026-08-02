@@ -11,24 +11,43 @@ x-neko-app-env: &neko-app-env
   NEKO_PG_PASSWORD: secret
   NEKO_PG_DATABASE: neko
   OPENNEKO_RECORDS_GRAPHJIN_URL: http://records-graphjin:8090
-  NO_PROXY: localhost,127.0.0.1,::1,neko-db,records-db,records-storage-ops,worker,web,neko-graphjin,records-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
-  no_proxy: localhost,127.0.0.1,::1,neko-db,records-db,records-storage-ops,worker,web,neko-graphjin,records-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
+  NO_PROXY: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,records-storage-ops,worker,web,neko-graphjin,records-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
+  no_proxy: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,records-storage-ops,worker,web,neko-graphjin,records-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
 
 services:
   neko-db:
     # pgvector image — base postgres:16 + the vector extension preinstalled.
     # work_memory.embedding stores 384-dim vectors from transformers.js
     # (Xenova/all-MiniLM-L6-v2) for context-based memory retrieval.
-    image: pgvector/pgvector:pg16
+    build:
+      context: .
+      target: neko-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: neko
       POSTGRES_PASSWORD: secret
       POSTGRES_DB: neko
+      PGDATA: /var/lib/postgresql/neko
+      OPENNEKO_PGBACKREST_STANZA: openneko-metadata
+      PGBACKREST_REPO1_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
     ports:
       - "${OPENNEKO_DB_PORT:-5432}:5432"
     volumes:
-      - neko-db-data:/var/lib/postgresql/data
+      - neko-db-data:/var/lib/postgresql/neko
+      - neko-db-socket:/var/run/postgresql
+      - ${OPENNEKO_BACKUP_REPOSITORY:-./.openneko/backups}:/var/lib/pgbackrest
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=pgbackrest --stanza=openneko-metadata archive-push %p
+      - -c
+      - archive_timeout=60s
+      - -c
+      - wal_compression=on
+      - -c
+      - temp_file_limit=5GB
     healthcheck:
       test:
         - CMD-SHELL
@@ -41,21 +60,99 @@ services:
   # worker so an approved app_create can execute without host-level Docker
   # access or a second, out-of-band operator step.
   records-db:
-    image: postgres:16
+    build:
+      context: .
+      target: records-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${OPENNEKO_RECORDS_PG_USER:-records}
       POSTGRES_PASSWORD: ${OPENNEKO_RECORDS_PG_PASSWORD:-records-secret}
       POSTGRES_DB: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
+      PGDATA: /var/lib/postgresql/records
+      OPENNEKO_PGBACKREST_STANZA: openneko-records
+      PGBACKREST_REPO1_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
     ports:
       - "${OPENNEKO_RECORDS_DB_PORT:-5434}:5432"
     volumes:
-      - records-db-data:/var/lib/postgresql/data
+      - records-db-data:/var/lib/postgresql/records
+      - records-db-socket:/var/run/postgresql
+      - ${OPENNEKO_BACKUP_REPOSITORY:-./.openneko/backups}:/var/lib/pgbackrest
+    command:
+      - postgres
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=pgbackrest --stanza=openneko-records archive-push %p
+      - -c
+      - archive_timeout=60s
+      - -c
+      - wal_compression=on
+      - -c
+      - temp_file_limit=5GB
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # Encrypted whole-deployment backups: paired pgBackRest base backups for
+  # metadata + records, continuous WAL from both database containers, and an
+  # encrypted snapshot of the config/GraphJin volumes in one global manifest.
+  neko-backup:
+    build:
+      context: .
+      target: neko-backup
+    restart: unless-stopped
+    depends_on:
+      neko-db:
+        condition: service_healthy
+      records-db:
+        condition: service_healthy
+    environment:
+      PGBACKREST_REPO1_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
+      NEKO_PG_USER: neko
+      NEKO_PG_DATABASE: neko
+      RECORDS_PG_USER: ${OPENNEKO_RECORDS_PG_USER:-records}
+      RECORDS_PG_DATABASE: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
+      OPENNEKO_BACKUP_INTERVAL_SEC: ${OPENNEKO_BACKUP_INTERVAL_SEC:-86400}
+      OPENNEKO_BACKUP_RETENTION_FULL: ${OPENNEKO_BACKUP_RETENTION_FULL:-7}
+      OPENNEKO_BACKUP_RETENTION_DIFF: ${OPENNEKO_BACKUP_RETENTION_DIFF:-4}
+    volumes:
+      - neko-db-data:/var/lib/postgresql/neko:ro
+      - records-db-data:/var/lib/postgresql/records:ro
+      - neko-db-socket:/sockets/neko:ro
+      - records-db-socket:/sockets/records:ro
+      - openneko-config:/snapshots/config:ro
+      - openneko-graphjin-cli:/snapshots/graphjin:ro
+      - openneko-records-graphjin:/snapshots/records-graphjin:ro
+      - ${OPENNEKO_HOST_CONFIG_DIR:-./.openneko/host-config}:/snapshots/host-config:ro
+      - ${OPENNEKO_BACKUP_REPOSITORY:-./.openneko/backups}:/var/lib/pgbackrest
+    expose:
+      - "9470"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9470/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Destructive restore is isolated behind an explicit profile. The host CLI
+  # stops dependents and databases before running this one-shot with RW mounts.
+  neko-restore:
+    profiles: ["ops"]
+    build:
+      context: .
+      target: neko-backup
+    environment:
+      PGBACKREST_REPO1_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
+      OPENNEKO_BACKUP_RESTORE_MODE: "1"
+    volumes:
+      - neko-db-data:/restore/neko
+      - records-db-data:/restore/records
+      - openneko-config:/restore/config
+      - openneko-graphjin-cli:/restore/graphjin
+      - openneko-records-graphjin:/restore/records-graphjin
+      - ${OPENNEKO_HOST_CONFIG_DIR:-./.openneko/host-config}:/restore/host-config
+      - ${OPENNEKO_BACKUP_REPOSITORY:-./.openneko/backups}:/var/lib/pgbackrest
 
   # Capacity observer for the metadata, records, and staging filesystems. Its
   # mounts are read-only and it intentionally has neither database credentials
@@ -196,6 +293,8 @@ services:
       # Schema is guaranteed ready by neko-migrate before worker boots.
       neko-migrate:
         condition: service_completed_successfully
+      records-db:
+        condition: service_healthy
       records-storage-ops:
         condition: service_healthy
     environment:
@@ -208,6 +307,7 @@ services:
       RECORDS_PG_DATABASE: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
       OPENNEKO_RECORDS_GRAPHJIN_CONFIG_DIR: /config/records-graphjin
       OPENNEKO_RECORDS_OPS_URL: http://records-storage-ops:9465
+      OPENNEKO_BACKUP_URL: http://neko-backup:9470
       # Plugin manifest + per-user secrets live on the openneko-config
       # volume, not under /app (which is read-only-ish post-build). The
       # vendored `openneko` CLI on PATH writes to these same paths, so
@@ -233,7 +333,9 @@ services:
 
 volumes:
   neko-db-data:
+  neko-db-socket:
   records-db-data:
+  records-db-socket:
   openneko-config:
   openneko-graphjin-cli:
   openneko-records-graphjin:

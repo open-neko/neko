@@ -28,6 +28,8 @@ export const QUEUE = {
   RECORDS_SALESFORCE_SYNC: "records_salesforce_sync",
   RECORDS_SALESFORCE_SYNC_SWEEP: "records_salesforce_sync_sweep",
   RECORDS_SALESFORCE_CUTOVER: "records_salesforce_cutover",
+  RECORDS_BACKUP_VERIFY: "records_backup_verify",
+  RECORDS_OPS_WATCH: "records_ops_watch",
   CHANNEL_DELIVER: "channel_deliver",
 } as const;
 
@@ -117,6 +119,12 @@ export type RecordsSalesforceSyncPayload = ProcessingJobPayload & {
 };
 
 export type RecordsSalesforceCutoverPayload = RecordsSalesforceSyncPayload;
+
+export type RecordsBackupVerifyPayload = {
+  orgId: string;
+};
+
+export type RecordsOpsWatchPayload = RecordsBackupVerifyPayload;
 
 let _boss: PgBoss | null = null;
 let _starting: Promise<PgBoss> | null = null;

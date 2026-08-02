@@ -98,6 +98,31 @@ export const app_state = pgTable(
   }),
 );
 
+export const records_ops_health = pgTable(
+  "records_ops_health",
+  {
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    check_name: text("check_name").notNull(),
+    level: text("level").notNull(),
+    sample: jsonb("sample")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    sampled_at: ts("sampled_at").notNull(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.org_id, t.check_name] }),
+    org_level_idx: index("records_ops_health_org_level_idx").on(
+      t.org_id,
+      t.level,
+      t.updated_at.desc(),
+    ),
+  }),
+);
+
 export const data_source = pgTable(
   "data_source",
   {

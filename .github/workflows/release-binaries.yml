@@ -70,6 +70,38 @@ jobs:
             target: neko-cli
             platform: linux/arm64
             runner: ubuntu-24.04-arm
+          - image: neko-db
+            target: neko-db
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - image: neko-db
+            target: neko-db
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - image: records-db
+            target: records-db
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - image: records-db
+            target: records-db
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - image: neko-backup
+            target: neko-backup
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - image: neko-backup
+            target: neko-backup
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - image: records-storage-ops
+            target: records-storage-ops
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - image: records-storage-ops
+            target: records-storage-ops
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
           # agent-in-sandbox image (Dockerfile `agent` stage): worker + hermes
           # relocated to /usr/local + claude + @neko/llm + entry.ts. Pulled by
           # the OpenShell runtime; built here so it's never a local 5GB build.
@@ -149,7 +181,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [neko-web, neko-worker, neko-graphjin, records-graphjin, neko-cli, agent, plugin-base]
+        image: [neko-web, neko-worker, neko-graphjin, records-graphjin, neko-cli, neko-db, records-db, neko-backup, records-storage-ops, agent, plugin-base]
     steps:
       - name: Resolve release tag
         id: tag

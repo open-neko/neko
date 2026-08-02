@@ -66,6 +66,12 @@ type bringUpOptions struct {
 // neko-db → wait healthy → migrate → pre-pull the agent image → compose up the
 // rest. Extracted from newStartCmd so setup reuses the exact same path.
 func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, opts bringUpOptions) error {
+	if err := configureBackupEnvironment(); err != nil {
+		return fmt.Errorf("configure backup repository: %w", err)
+	}
+	if warning := backupFailureDomainWarning(); warning != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
+	}
 	m := mode
 	if m == "" {
 		m = compose.ModeProd

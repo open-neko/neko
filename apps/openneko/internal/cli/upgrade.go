@@ -54,6 +54,9 @@ type upgradeOptions struct {
 }
 
 func runUpgrade(ctx context.Context, cmd *cobra.Command, opts upgradeOptions) error {
+	if err := configureBackupEnvironment(); err != nil {
+		return fmt.Errorf("configure backup repository: %w", err)
+	}
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 	target := normalizeUpgradeImageVersion(opts.imageVersion)
@@ -318,13 +321,17 @@ func oldOpenNekoImageRefs(imageListOutput, targetTag string) []string {
 
 func openNekoImageRepos() map[string]bool {
 	return map[string]bool{
-		"ghcr.io/open-neko/neko-cli":         true,
-		"ghcr.io/open-neko/neko-graphjin":    true,
-		"ghcr.io/open-neko/records-graphjin": true,
-		"ghcr.io/open-neko/neko-web":         true,
-		"ghcr.io/open-neko/neko-worker":      true,
-		"ghcr.io/open-neko/agent":            true,
-		"ghcr.io/open-neko/plugin-base":      true,
+		"ghcr.io/open-neko/neko-cli":            true,
+		"ghcr.io/open-neko/neko-db":             true,
+		"ghcr.io/open-neko/records-db":          true,
+		"ghcr.io/open-neko/neko-backup":         true,
+		"ghcr.io/open-neko/records-storage-ops": true,
+		"ghcr.io/open-neko/neko-graphjin":       true,
+		"ghcr.io/open-neko/records-graphjin":    true,
+		"ghcr.io/open-neko/neko-web":            true,
+		"ghcr.io/open-neko/neko-worker":         true,
+		"ghcr.io/open-neko/agent":               true,
+		"ghcr.io/open-neko/plugin-base":         true,
 	}
 }
 

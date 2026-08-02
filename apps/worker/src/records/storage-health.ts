@@ -168,6 +168,17 @@ function levelFor(
   return "ok";
 }
 
+export function recordsStorageLevels(
+  sample: RecordsStorageSample,
+  thresholds: RecordsStorageThresholds = recordsStorageThresholds(),
+): Record<"metadata" | "records" | "staging", RecordsStorageLevel> {
+  return {
+    metadata: levelFor(sample.metadata, thresholds),
+    records: levelFor(sample.records, thresholds),
+    staging: levelFor(sample.staging, thresholds),
+  };
+}
+
 function projected(
   value: RecordsStorageSnapshot,
   requiredBytes: number,

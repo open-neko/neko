@@ -15,6 +15,8 @@ import {
   type ProcessingJobPayload,
   type RecordsIdentityLinkPayload,
   type RecordsImportPayload,
+  type RecordsBackupVerifyPayload,
+  type RecordsOpsWatchPayload,
   type RecordsSalesforceCutoverPayload,
   type RecordsSalesforceExportPayload,
   type RecordsSalesforceSyncPayload,
@@ -87,6 +89,9 @@ import { runWorkflowOutputTtlSweep } from "./jobs/workflow-output-ttl-sweep.js";
 import { runActionExecute } from "./jobs/action-execute.js";
 import { runRecordsImport } from "./jobs/records-import.js";
 import { runRecordsIdentityLink } from "./jobs/records-identity-link.js";
+import { runRecordsBackupVerification } from "./jobs/records-backup-verify.js";
+import { seedOpenNekoOpsWorkflow } from "./jobs/records-ops-finding.js";
+import { runRecordsOpsWatch } from "./jobs/records-ops-watch.js";
 import { runRecordsSalesforceExport } from "./jobs/records-salesforce-export.js";
 import { runRecordsSalesforceCutover } from "./jobs/records-salesforce-cutover.js";
 import { runRecordsSalesforceSync } from "./jobs/records-salesforce-sync.js";
@@ -545,6 +550,7 @@ pluginRegistry = new PluginRegistry({
 await pluginRegistry.start();
 setPluginRegistryInstance(pluginRegistry);
 registerChannelOutputDelivery();
+await seedOpenNekoOpsWorkflow(ADMIN_ORG_ID);
 {
   const s = pluginRegistry.status();
   if (s.loaded.length > 0) {
@@ -837,6 +843,26 @@ await b.work(
 );
 
 await b.work(
+  QUEUE.RECORDS_BACKUP_VERIFY,
+  { batchSize: 1, pollingIntervalSeconds: 1 },
+  async (jobs: PgBossLib.Job<RecordsBackupVerifyPayload>[]) => {
+    for (const job of jobs) {
+      await runRecordsBackupVerification(job.data.orgId);
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_OPS_WATCH,
+  { batchSize: 1, pollingIntervalSeconds: 1 },
+  async (jobs: PgBossLib.Job<RecordsOpsWatchPayload>[]) => {
+    for (const job of jobs) {
+      await runRecordsOpsWatch(job.data.orgId);
+    }
+  },
+);
+
+await b.work(
   QUEUE.RECORDS_SALESFORCE_EXPORT,
   { batchSize: 1, pollingIntervalSeconds: 0.5 },
   async (jobs: PgBossLib.Job<RecordsSalesforceExportPayload>[]) => {
@@ -933,6 +959,31 @@ await b.schedule(QUEUE.RECORDS_SALESFORCE_SYNC_SWEEP, "* * * * *", {}, {
   retryDelay: 15,
 });
 console.log("[worker] scheduled Salesforce delta sync sweep every minute");
+
+await b.schedule(
+  QUEUE.RECORDS_BACKUP_VERIFY,
+  "0 3 * * 0",
+  { orgId: ADMIN_ORG_ID },
+  {
+    tz: "UTC",
+    retryLimit: 2,
+    retryDelay: 300,
+    retryBackoff: true,
+  },
+);
+console.log("[worker] scheduled whole-deployment restore verification weekly");
+
+await b.schedule(
+  QUEUE.RECORDS_OPS_WATCH,
+  "*/5 * * * *",
+  { orgId: ADMIN_ORG_ID },
+  {
+    tz: "UTC",
+    retryLimit: 2,
+    retryDelay: 30,
+  },
+);
+console.log("[worker] scheduled records substrate watcher every five minutes");
 
 await b.work(QUEUE.WORKFLOW_OUTPUT_TTL_SWEEP, async () => {
   await runWorkflowOutputTtlSweep();

@@ -32,6 +32,39 @@ EXPOSE 9465
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "records-storage-ops.mjs"]
 
+# Postgres data-plane images with pgBackRest available inside archive_command.
+# The coordinator below uses the exact same Debian package version so WAL and
+# repository protocol versions cannot drift between containers.
+FROM pgvector/pgvector:pg16 AS neko-db
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends pgbackrest \
+    && rm -rf /var/lib/apt/lists/*
+COPY apps/worker/scripts/postgres-pgbackrest-entrypoint.sh /usr/local/bin/openneko-postgres-entrypoint
+RUN chmod 0755 /usr/local/bin/openneko-postgres-entrypoint
+ENTRYPOINT ["/usr/local/bin/openneko-postgres-entrypoint"]
+CMD ["postgres"]
+
+FROM postgres:16-bookworm AS records-db
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends pgbackrest \
+    && rm -rf /var/lib/apt/lists/*
+COPY apps/worker/scripts/postgres-pgbackrest-entrypoint.sh /usr/local/bin/openneko-postgres-entrypoint
+RUN chmod 0755 /usr/local/bin/openneko-postgres-entrypoint
+ENTRYPOINT ["/usr/local/bin/openneko-postgres-entrypoint"]
+CMD ["postgres"]
+
+FROM postgres:16-bookworm AS neko-backup
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl openssl pgbackrest python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY apps/worker/scripts/openneko-backup.py /usr/local/bin/openneko-backup.py
+COPY apps/worker/scripts/openneko-backup-entrypoint.sh /usr/local/bin/openneko-backup-entrypoint
+RUN chmod 0755 /usr/local/bin/openneko-backup.py /usr/local/bin/openneko-backup-entrypoint
+EXPOSE 9470
+ENTRYPOINT ["/usr/local/bin/openneko-backup-entrypoint"]
+CMD ["serve"]
+
 # ─── 2. runtime-base: node + agent-orchestration toolchain ─────────────
 # web, worker AND agent all run agent turns in-process (runChatTurn /
 # runWorkflowTurn / profiler / metric-agent in @neko/llm), which shell out to

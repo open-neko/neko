@@ -63,6 +63,7 @@ export {
 } from "./builder-cards";
 export {
   buildWorkflowOutputServer,
+  handleWorkflowOutput,
   setWorkflowOutputDeliveryHook,
   type WorkflowOutputDeliveryHook,
 } from "./output-server";
