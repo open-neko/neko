@@ -57,12 +57,14 @@ describeIfRecordsDb("records migration stream", () => {
         "0005_import_batch_durability.sql",
         "0006_recycle_index.sql",
         "0007_identity_mapping.sql",
+        "0008_graphjin_watch_store.sql",
+        "0009_change_log_owner_scope.sql",
       ],
-      current: "0007_identity_mapping.sql",
+      current: "0009_change_log_owner_scope.sql",
     });
     await expect(runRecordsMigrations({ pool: testPool })).resolves.toEqual({
       applied: [],
-      current: "0007_identity_mapping.sql",
+      current: "0009_change_log_owner_scope.sql",
     });
 
     const tables = await testPool.query<{ table_name: string }>(
@@ -90,7 +92,7 @@ describeIfRecordsDb("records migration stream", () => {
     const auditVersion = await testPool.query<{ version: number }>(
       "select version from engine.substrate_version where name = 'record_audit_trigger'",
     );
-    expect(auditVersion.rows).toEqual([{ version: 3 }]);
+    expect(auditVersion.rows).toEqual([{ version: 4 }]);
     const migration = await testPool.query<{ checksum_sha256: string }>(
       "select checksum_sha256 from engine.schema_migrations where name = '0001_engine_registry.sql'",
     );

@@ -231,10 +231,16 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
         (id, org_id, opportunity, occurred_at)
       values ('activity-current', 'org-a', 'opportunity-active', now());
       insert into engine.record_change_log
-        (org_id, app_id, object_api_name, record_id, action, mutation_id, changes)
+        (org_id, app_id, object_api_name, record_id, action, mutation_id, changes, owner_user_id)
       values
         ('org-a', 'crm', 'opportunity', 'opportunity-stale', 'create',
-         'watch-change-initial', '{}'::jsonb);
+         'watch-change-initial', '{}'::jsonb, 'member-1'),
+        ('org-a', 'equipment', 'loan', 'loan-1', 'update',
+         'loan-change-member-1', '{"name":{"old":"Old","new":"Member One Loan"}}'::jsonb,
+         'member-1'),
+        ('org-a', 'equipment', 'loan', 'loan-2', 'update',
+         'loan-change-member-2', '{"name":{"old":"Old","new":"Member Two Loan"}}'::jsonb,
+         'member-2');
       insert into engine.identity_map
         (org_id, source_instance_id, app_id, source_user_id, source_email,
          source_name, source_is_active, status)
@@ -647,6 +653,19 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
           { id: "loan-1", name: "Member One Loan" },
         ]);
 
+        const memberHistory = await request(
+          "member-1",
+          "query MemberHistory { record_change_log(order_by: { id: asc }) { record_id action changes } }",
+        );
+        expect(memberHistory.errors).toBeUndefined();
+        expect(memberHistory.data?.record_change_log).toEqual([
+          {
+            record_id: "loan-1",
+            action: "update",
+            changes: { name: { old: "Old", new: "Member One Loan" } },
+          },
+        ]);
+
         const admin = await request(
           "admin-1",
           "query AdminLoans { equipment__loan(order_by: { id: asc }) { id name } }",
@@ -655,6 +674,15 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
         expect(admin.data?.equipment__loan).toEqual([
           { id: "loan-1", name: "Member One Loan" },
           { id: "loan-2", name: "Member Two Loan" },
+        ]);
+        const adminHistory = await request(
+          "admin-1",
+          "query AdminHistory { record_change_log(order_by: { id: asc }) { record_id } }",
+        );
+        expect(adminHistory.errors).toBeUndefined();
+        expect(adminHistory.data?.record_change_log).toEqual([
+          { record_id: "loan-1" },
+          { record_id: "loan-2" },
         ]);
 
         const memberRecycle = await request(

@@ -3,7 +3,8 @@ import { quoteRecordIdentifier, validateRecordIdentifier } from "../naming";
 import type { RecordIdentifier } from "../types";
 
 export const RECORDS_AUDIT_TRIGGER_NAME = "nk_record_change_audit";
-export const RECORDS_AUDIT_TRIGGER_VERSION = 3;
+export const RECORDS_AUDIT_OWNER_TRIGGER_NAME = "nk_record_change_owner";
+export const RECORDS_AUDIT_TRIGGER_VERSION = 4;
 
 const REQUIRED_AUDIT_COLUMNS = [
   "id",
@@ -82,6 +83,7 @@ export async function ensureRecordsAuditTrigger(
     [tableSchema, tableName, RECORDS_AUDIT_TRIGGER_NAME],
   );
   const definition = existing.rows[0]?.definition;
+  let status: "created" | "current" = "current";
   if (definition) {
     if (
       !definition.includes("engine.capture_record_change(") ||
@@ -92,15 +94,40 @@ export async function ensureRecordsAuditTrigger(
         `records audit trigger drift detected on ${tableSchema}.${tableName}`,
       );
     }
-    return "current";
+  } else {
+    await client.query(
+      `create trigger ${quoteRecordIdentifier(validateRecordIdentifier(RECORDS_AUDIT_TRIGGER_NAME))}
+       after insert or update on ${quoteRecordIdentifier(tableSchema)}.${quoteRecordIdentifier(tableName)}
+       for each row execute function engine.capture_record_change(
+         ${sqlLiteral(input.appId)}, ${sqlLiteral(objectApiName)}
+       )`,
+    );
+    status = "created";
   }
 
-  await client.query(
-    `create trigger ${quoteRecordIdentifier(validateRecordIdentifier(RECORDS_AUDIT_TRIGGER_NAME))}
-     after insert or update on ${quoteRecordIdentifier(tableSchema)}.${quoteRecordIdentifier(tableName)}
-     for each row execute function engine.capture_record_change(
-       ${sqlLiteral(input.appId)}, ${sqlLiteral(objectApiName)}
-     )`,
+  const ownerTrigger = await client.query<{ definition: string }>(
+    `select pg_get_triggerdef(t.oid, true) as definition
+     from pg_catalog.pg_trigger t
+     join pg_catalog.pg_class c on c.oid = t.tgrelid
+     join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = $1 and c.relname = $2 and t.tgname = $3
+       and not t.tgisinternal`,
+    [tableSchema, tableName, RECORDS_AUDIT_OWNER_TRIGGER_NAME],
   );
-  return "created";
+  const ownerDefinition = ownerTrigger.rows[0]?.definition;
+  if (ownerDefinition) {
+    if (!ownerDefinition.includes("engine.attach_record_change_owner()")) {
+      throw new Error(
+        `records owner audit trigger drift detected on ${tableSchema}.${tableName}`,
+      );
+    }
+  } else {
+    await client.query(
+      `create trigger ${quoteRecordIdentifier(validateRecordIdentifier(RECORDS_AUDIT_OWNER_TRIGGER_NAME))}
+       after insert or update on ${quoteRecordIdentifier(tableSchema)}.${quoteRecordIdentifier(tableName)}
+       for each row execute function engine.attach_record_change_owner()`,
+    );
+    status = "created";
+  }
+  return status;
 }

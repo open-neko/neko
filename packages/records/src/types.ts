@@ -96,6 +96,14 @@ export type RecordLayout = {
   definition: JsonObject;
 };
 
+export type RecordRelationship = {
+  id: string;
+  fromObjectId: string;
+  fromFieldId: string;
+  toObjectId: string;
+  label: string | null;
+};
+
 export type AppPage = {
   id: string;
   apiName: RecordIdentifier;
@@ -120,6 +128,7 @@ export type AppRegistrySnapshot = {
   objects: RecordObject[];
   fields: RecordField[];
   layouts: RecordLayout[];
+  relationships?: RecordRelationship[];
   pages: AppPage[];
   permissions: RecordPermission[];
 };

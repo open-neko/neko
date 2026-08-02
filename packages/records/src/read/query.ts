@@ -112,6 +112,18 @@ export type RecordRecycleDetailQuery = {
   resultField: string;
 };
 
+export type RecordChangeLogQuery = {
+  operationName: "RecordsChangeLog";
+  query: string;
+  variables: {
+    app_id: string;
+    object_api_name: string;
+    record_id: string;
+    first: number;
+  };
+  resultField: "history";
+};
+
 export class RecordReadTargetError extends Error {
   readonly code = "records_read_target_invalid";
 
@@ -681,6 +693,32 @@ function recycleTargetWhere(search: boolean): string {
     ...(search ? ["{ record_name: { ilike: $search } }"] : []),
   ];
   return `{ and: [${clauses.join(", ")}] }`;
+}
+
+export function buildRecordChangeLogQuery(input: {
+  snapshot: AppRegistrySnapshot;
+  objectApiName: string;
+  role: RecordViewerRole;
+  recordId: string;
+  first?: number;
+}): RecordChangeLogQuery {
+  const view = resolveView({ ...input, layoutKind: "detail" });
+  return {
+    operationName: "RecordsChangeLog",
+    query:
+      "query RecordsChangeLog { history: record_change_log(" +
+      "first: $first, order_by: { at: desc, id: desc }, where: { " +
+      "app_id: { eq: $app_id }, object_api_name: { eq: $object_api_name }, " +
+      "record_id: { eq: $record_id } }) { id action actor_user_id " +
+      "action_request_id changes at } }",
+    variables: {
+      app_id: input.snapshot.app.appId,
+      object_api_name: view.object.apiName,
+      record_id: recordIdValue(input.recordId),
+      first: boundedPageSize(input.first ?? 25),
+    },
+    resultField: "history",
+  };
 }
 
 export function buildRecordRecycleListQuery(input: {

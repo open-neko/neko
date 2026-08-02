@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { validateRecordIdentifier } from "../src/naming";
 import {
   buildRecordDetailQuery,
+  buildRecordChangeLogQuery,
   buildRecordAggregateQuery,
   buildRecordListQuery,
   buildRecordRecycleDetailQuery,
@@ -198,6 +199,25 @@ describe("generated record read queries", () => {
     });
     expect(built.query).toContain("id subject status owner_user_id nk_updated_at");
     expect(built.variables).toEqual({ record_id: "wo-1" });
+  });
+
+  it("builds a fixed, bound change-history query after detail authorization", () => {
+    const built = buildRecordChangeLogQuery({
+      snapshot: snapshot(),
+      objectApiName: "work_order",
+      role: "admin",
+      recordId: "work-1' } secret {",
+      first: 25,
+    });
+    expect(built.query).toContain("history: record_change_log(first: $first");
+    expect(built.query).toContain("record_id: { eq: $record_id }");
+    expect(built.query).not.toContain("work-1");
+    expect(built.variables).toEqual({
+      app_id: "operations",
+      object_api_name: "work_order",
+      record_id: "work-1' } secret {",
+      first: 25,
+    });
   });
 
   it("builds permission-scoped count and sum metric queries", () => {

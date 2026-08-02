@@ -12,6 +12,7 @@ import {
 } from "@neko/db";
 import {
   buildRecordDetailQuery,
+  buildRecordChangeLogQuery,
   buildRecordAggregateQuery,
   buildRecordListQuery,
   buildRecordRecycleDetailQuery,
@@ -609,6 +610,26 @@ export type RecordDetailResult = {
   view: RecordObjectView;
   app: AppRegistrySnapshot["app"];
   owners: Record<string, RecordOwnerIdentity>;
+  layout: JsonObject | null;
+  relatedLists: RecordRelatedList[];
+  history: RecordChangeLogEntry[];
+};
+
+export type RecordRelatedList = {
+  label: string;
+  fieldApiName: string;
+  view: RecordObjectView;
+  rows: Array<Record<string, unknown>>;
+  owners: Record<string, RecordOwnerIdentity>;
+};
+
+export type RecordChangeLogEntry = {
+  id: string;
+  action: string;
+  actorUserId: string | null;
+  actionRequestId: string | null;
+  changes: JsonObject;
+  at: string;
 };
 
 export async function readRecordDetail(input: {
@@ -637,6 +658,74 @@ export async function readRecordDetail(input: {
     token: viewer.token,
   });
   const row = rowsFrom(data[generated.resultField])[0] ?? null;
+  const relationships = shell.snapshot.relationships ?? [];
+  const relatedTargets = relationships.flatMap((relationship) => {
+    if (relationship.toObjectId !== generated.view.object.id) return [];
+    const source = shell.snapshot.objects.find(
+      (candidate) => candidate.id === relationship.fromObjectId && candidate.archivedAt === null,
+    );
+    const field = shell.snapshot.fields.find(
+      (candidate) => candidate.id === relationship.fromFieldId && candidate.archivedAt === null,
+    );
+    const readable = source && shell.snapshot.permissions.some(
+      (permission) =>
+        permission.role === viewer.role &&
+        permission.objectApiName === source.apiName &&
+        permission.canRead,
+    );
+    return source && field && readable
+      ? [{ relationship, source, field }]
+      : [];
+  });
+  const [relatedLists, historyData] = row
+    ? await Promise.all([
+        Promise.all(
+          relatedTargets.map(async ({ relationship, source, field }): Promise<RecordRelatedList> => {
+            const relatedQuery = buildRecordListQuery({
+              snapshot: shell.snapshot,
+              objectApiName: source.apiName,
+              role: viewer.role,
+              userId: viewer.userId,
+              first: 10,
+              filters: [{ field: field.apiName, operator: "eq", value: input.recordId }],
+            });
+            const relatedData = await recordsRuntime().graphjin.execute<Record<string, unknown>>({
+              operationName: relatedQuery.operationName,
+              query: relatedQuery.query,
+              variables: relatedQuery.variables,
+              token: viewer.token,
+            });
+            const relatedRows = rowsFrom(relatedData[relatedQuery.resultField]);
+            return {
+              label: relationship.label ?? source.pluralLabel,
+              fieldApiName: field.apiName,
+              view: relatedQuery.view,
+              rows: relatedRows,
+              owners: await resolveOwnerIdentities({
+                orgId: input.orgId,
+                appId: shell.snapshot.app.appId,
+                rows: relatedRows,
+              }),
+            };
+          }),
+        ),
+        (() => {
+          const historyQuery = buildRecordChangeLogQuery({
+            snapshot: shell.snapshot,
+            objectApiName: input.objectApiName,
+            role: viewer.role,
+            recordId: input.recordId,
+            first: 25,
+          });
+          return recordsRuntime().graphjin.execute<Record<string, unknown>>({
+            operationName: historyQuery.operationName,
+            query: historyQuery.query,
+            variables: historyQuery.variables,
+            token: viewer.token,
+          }).then((history) => rowsFrom(history[historyQuery.resultField]));
+        })(),
+      ])
+    : [[], []];
   return {
     row,
     view: generated.view,
@@ -645,6 +734,30 @@ export async function readRecordDetail(input: {
       orgId: input.orgId,
       appId: shell.snapshot.app.appId,
       rows: row ? [row] : [],
+    }),
+    layout:
+      shell.snapshot.layouts.find(
+        (layout) => layout.objectId === generated.view.object.id && layout.kind === "detail",
+      )?.definition ?? null,
+    relatedLists,
+    history: historyData.flatMap((entry): RecordChangeLogEntry[] => {
+      if (
+        (typeof entry.id !== "string" && typeof entry.id !== "number") ||
+        typeof entry.action !== "string" ||
+        typeof entry.at !== "string" ||
+        !entry.changes ||
+        typeof entry.changes !== "object" ||
+        Array.isArray(entry.changes)
+      ) return [];
+      return [{
+        id: String(entry.id),
+        action: entry.action,
+        actorUserId: typeof entry.actor_user_id === "string" ? entry.actor_user_id : null,
+        actionRequestId:
+          typeof entry.action_request_id === "string" ? entry.action_request_id : null,
+        changes: entry.changes as JsonObject,
+        at: entry.at,
+      }];
     }),
   };
 }

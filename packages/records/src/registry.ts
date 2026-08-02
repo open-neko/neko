@@ -12,6 +12,7 @@ import type {
   RecordLayoutKind,
   RecordObject,
   RecordPermission,
+  RecordRelationship,
   RecordVisibility,
 } from "./types";
 
@@ -72,6 +73,14 @@ type RawPage = {
   label: string;
   definition: JsonObject;
   nav_order: number;
+};
+
+type RawRelationship = {
+  id: string;
+  from_object: string;
+  from_field: string;
+  to_object: string;
+  relationship_label: string | null;
 };
 
 type RawPermission = {
@@ -236,6 +245,15 @@ export class RecordRegistry {
          order by nav_order, label, api_name`,
         [orgId, appId],
       );
+      const relationshipsResult = await client.query<RawRelationship>(
+        `select r.id, r.from_object, r.from_field, r.to_object, r.relationship_label
+         from engine.record_relationship r
+         join engine.record_object source
+           on source.id = r.from_object and source.org_id = r.org_id
+         where source.org_id = $1 and source.app_id = $2
+         order by r.to_object, r.from_object, r.from_field`,
+        [orgId, appId],
+      );
       const permissionsResult = await client.query<RawPermission>(
         `select app_id, role, object_api_name, can_read, can_create, can_update, can_delete
          from engine.record_permission
@@ -253,6 +271,13 @@ export class RecordRegistry {
           objectId: row.object_id,
           kind: row.kind,
           definition: row.definition,
+        })),
+        relationships: relationshipsResult.rows.map((row): RecordRelationship => ({
+          id: row.id,
+          fromObjectId: row.from_object,
+          fromFieldId: row.from_field,
+          toObjectId: row.to_object,
+          label: row.relationship_label,
         })),
         pages: pagesResult.rows.map((row): AppPage => ({
           id: row.id,

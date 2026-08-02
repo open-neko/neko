@@ -196,6 +196,29 @@ describe("projectRecordsGraphjinRoles", () => {
     }
   });
 
+  it("scopes change history by readable object and member ownership", () => {
+    const roles = projectRecordsGraphjinRoles(recordsPolicyFixture());
+    const member = tableFor(roles.find((role) => role.name === "member")!, "record_change_log");
+    const admin = tableFor(roles.find((role) => role.name === "admin")!, "record_change_log");
+    expect(member.query).toMatchObject({
+      block: false,
+      columns: expect.arrayContaining(["record_id", "changes", "at"]),
+      disable_functions: true,
+    });
+    expect(member.query.filters?.join(" ")).toContain(
+      "owner_user_id: { eq: $user_id }",
+    );
+    expect(admin.query.filters?.join(" ")).not.toContain("owner_user_id");
+    expect(member.query.columns).not.toContain("owner_user_id");
+    expect(member.query.columns).not.toContain("mutation_id");
+    for (const role of roles) {
+      const table = tableFor(role, "record_change_log");
+      expect(table.insert.block).toBe(true);
+      expect(table.update.block).toBe(true);
+      expect(table.delete.block).toBe(true);
+    }
+  });
+
   it("makes service the only mutation role while retaining org and deletion scopes", () => {
     const service = projectRecordsGraphjinRoles(recordsPolicyFixture()).find(
       (role) => role.name === "service",

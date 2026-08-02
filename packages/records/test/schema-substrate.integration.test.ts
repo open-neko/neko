@@ -152,14 +152,20 @@ describeIfRecordsDb("records schema substrate integration", () => {
       actor_user_id: string;
       action_request_id: string;
       mutation_id: string;
+      owner_user_id: string;
       changes: Record<string, { old: unknown; new: unknown }>;
     }>(`
-      select action, actor_user_id, action_request_id, mutation_id, changes
+      select action, actor_user_id, action_request_id, mutation_id, owner_user_id, changes
       from engine.record_change_log
       where record_id = 'loan-1'
       order by id
     `);
     expect(history.rows.map((row) => row.action)).toEqual(["create", "update", "delete"]);
+    expect(history.rows.map((row) => row.owner_user_id)).toEqual([
+      "member-1",
+      "member-1",
+      "member-1",
+    ]);
     expect(history.rows[0]).toMatchObject({
       actor_user_id: "member-1",
       action_request_id: "request-create",

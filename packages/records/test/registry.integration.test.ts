@@ -55,12 +55,25 @@ describeIfRecordsDb("RecordRegistry integration", () => {
         (id, org_id, app_id, api_name, label, plural_label, table_name, name_field)
       values
         ('00000000-0000-0000-0000-000000000101', 'org-a', 'equipment',
-         'loan', 'Loan', 'Loans', 'equipment__loan', 'name');
+         'loan', 'Loan', 'Loans', 'equipment__loan', 'name'),
+        ('00000000-0000-0000-0000-000000000103', 'org-a', 'equipment',
+         'asset', 'Asset', 'Assets', 'equipment__asset', 'name');
       insert into engine.record_field
         (id, org_id, object_id, api_name, label, kind, column_name, required)
       values
         ('00000000-0000-0000-0000-000000000102', 'org-a',
-         '00000000-0000-0000-0000-000000000101', 'name', 'Name', 'text', 'name', true);
+         '00000000-0000-0000-0000-000000000101', 'name', 'Name', 'text', 'name', true),
+        ('00000000-0000-0000-0000-000000000104', 'org-a',
+         '00000000-0000-0000-0000-000000000103', 'name', 'Name', 'text', 'name', true),
+        ('00000000-0000-0000-0000-000000000105', 'org-a',
+         '00000000-0000-0000-0000-000000000101', 'asset', 'Asset', 'reference', 'asset', false);
+      insert into engine.record_relationship
+        (id, org_id, from_object, from_field, to_object, relationship_label)
+      values
+        ('00000000-0000-0000-0000-000000000106', 'org-a',
+         '00000000-0000-0000-0000-000000000101',
+         '00000000-0000-0000-0000-000000000105',
+         '00000000-0000-0000-0000-000000000103', 'Loans');
       insert into engine.record_layout (object_id, org_id, kind, definition)
       values
         ('00000000-0000-0000-0000-000000000101', 'org-a', 'detail',
@@ -78,11 +91,23 @@ describeIfRecordsDb("RecordRegistry integration", () => {
     expect(initial).toMatchObject({
       revision: "1",
       app: { label: "Equipment", status: "active" },
-      objects: [{ apiName: "loan", tableName: "equipment__loan" }],
-      fields: [{ apiName: "name", kind: "text", required: true }],
       pages: [{ apiName: "overview" }],
+      relationships: [{
+        fromObjectId: "00000000-0000-0000-0000-000000000101",
+        fromFieldId: "00000000-0000-0000-0000-000000000105",
+        toObjectId: "00000000-0000-0000-0000-000000000103",
+        label: "Loans",
+      }],
       permissions: [{ role: "member", objectApiName: "loan", canRead: true }],
     });
+    expect(initial?.objects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ apiName: "loan", tableName: "equipment__loan" }),
+      expect.objectContaining({ apiName: "asset", tableName: "equipment__asset" }),
+    ]));
+    expect(initial?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ apiName: "name", kind: "text", required: true }),
+      expect.objectContaining({ apiName: "asset", kind: "reference" }),
+    ]));
 
     await expect(secondReader.loadApp("org-a", "equipment")).resolves.toMatchObject({
       revision: "1",
@@ -110,7 +135,7 @@ describeIfRecordsDb("RecordRegistry integration", () => {
   it("fails closed when persisted registry identifiers bypass the naming boundary", async () => {
     await testPool.query(
       `update engine.record_object set table_name = 'Unsafe Table'
-       where org_id = 'org-a' and app_id = 'equipment'`,
+       where org_id = 'org-a' and app_id = 'equipment' and api_name = 'loan'`,
     );
     await bumpRegistryRevision(testPool, "org-a");
     const reader = new RecordRegistry(testPool);

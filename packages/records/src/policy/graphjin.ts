@@ -78,6 +78,23 @@ export const RECORD_IDENTITY_READ_COLUMNS = [
   "updated_at",
 ] as const;
 
+export const RECORD_CHANGE_LOG_RELATION = {
+  schema: "engine",
+  table: "record_change_log",
+} as const;
+
+export const RECORD_CHANGE_LOG_READ_COLUMNS = [
+  "id",
+  "app_id",
+  "object_api_name",
+  "record_id",
+  "action",
+  "actor_user_id",
+  "action_request_id",
+  "changes",
+  "at",
+] as const;
+
 export type RecordCatalogTable = {
   schema: RecordIdentifier;
   name: RecordIdentifier;
@@ -420,6 +437,61 @@ function adminIdentityTable(
   };
 }
 
+function humanChangeLogTable(input: {
+  role: "admin" | "member";
+  table: RecordCatalogTable;
+  model: RecordsGraphjinPolicyModel;
+}): GraphjinRoleTable {
+  const { role, table, model } = input;
+  if (
+    !hasColumns(table, [
+      RECORD_SYSTEM_COLUMNS.orgId,
+      RECORD_SYSTEM_COLUMNS.ownerUserId,
+      ...RECORD_CHANGE_LOG_READ_COLUMNS,
+    ])
+  ) {
+    return blockedTable(table);
+  }
+  const readable = model.objects.filter((object) => {
+    const app = model.apps.find((candidate) => candidate.appId === object.appId);
+    return (
+      !object.archived &&
+      app?.status === "active" &&
+      model.permissions.some(
+        (permission) =>
+          permission.role === role &&
+          permission.appId === object.appId &&
+          permission.objectApiName === object.apiName &&
+          permission.canRead,
+      )
+    );
+  });
+  if (readable.length === 0) return blockedTable(table);
+  const scopes = readable.map((object) => {
+    const clauses = [
+      `{ app_id: { eq: ${gqlString(object.appId)} } }`,
+      `{ object_api_name: { eq: ${gqlString(object.apiName)} } }`,
+    ];
+    if (role === "member" && object.visibility === "owner") {
+      clauses.push(`{ owner_user_id: { eq: $user_id } }`);
+    }
+    return `{ and: [${clauses.join(", ")}] }`;
+  });
+  return {
+    ...blockedTable(table),
+    query: {
+      block: false,
+      filters: [
+        orgFilter(model.orgId),
+        `{ or: [${scopes.join(", ")}] }`,
+      ],
+      columns: [...RECORD_CHANGE_LOG_READ_COLUMNS],
+      limit: HUMAN_QUERY_LIMIT,
+      disable_functions: true,
+    },
+  };
+}
+
 function serviceTable(input: {
   table: RecordCatalogTable;
   object: RecordPolicyRegistryObject;
@@ -553,6 +625,14 @@ export function projectRecordsGraphjinRoles(model: RecordsGraphjinPolicyModel): 
       ) {
         return role === "admin"
           ? adminIdentityTable(table, model.orgId)
+          : blockedTable(table);
+      }
+      if (
+        table.schema === RECORD_CHANGE_LOG_RELATION.schema &&
+        table.name === RECORD_CHANGE_LOG_RELATION.table
+      ) {
+        return role === "admin" || role === "member"
+          ? humanChangeLogTable({ role, table, model })
           : blockedTable(table);
       }
       const object = objectByRelation.get(relationKey(table.schema, table.name));
