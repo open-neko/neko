@@ -134,7 +134,7 @@ function assertOnlyKeys(
   }
 }
 
-function appDefinitionPayload(
+export function recordAppDefinitionPayload(
   definition: RecordAppDefinition,
 ): Record<string, unknown> {
   return {
@@ -271,7 +271,7 @@ function mutateObjectCreate(
   payload: Record<string, unknown>,
 ): { definition: RecordAppDefinition; effects: string[]; warnings: string[] } {
   assertOnlyKeys(payload, ["app", "object"]);
-  const canonical = appDefinitionPayload(current);
+  const canonical = recordAppDefinitionPayload(current);
   const objects = canonical.objects as unknown[];
   objects.push(requiredRecord(payload, "object"));
   const provisional = parseCurrent(canonical);
@@ -316,7 +316,7 @@ function mutateFieldAdd(
 ): { definition: RecordAppDefinition; effects: string[]; warnings: string[] } {
   assertOnlyKeys(payload, ["app", "object", "field"]);
   const objectApiName = recordIdentifier(requiredString(payload, "object"));
-  const canonical = appDefinitionPayload(current);
+  const canonical = recordAppDefinitionPayload(current);
   const object = objectPayload(canonical, objectApiName);
   const field = requiredRecord(payload, "field");
   fieldsPayload(object).push(field);
@@ -363,7 +363,7 @@ function mutateFieldModify(
     ["label", "kind", "required", "read_only", "picklist_values", "reference_targets"],
     "payload.changes",
   );
-  const canonical = appDefinitionPayload(current);
+  const canonical = recordAppDefinitionPayload(current);
   const object = objectPayload(canonical, objectApiName);
   const field = fieldsPayload(object).find(
     (candidate) => candidate.api_name === fieldApiName,
@@ -409,7 +409,7 @@ function mutateObjectArchive(
 ): { definition: RecordAppDefinition; effects: string[]; warnings: string[] } {
   assertOnlyKeys(payload, ["app", "object"]);
   const objectApiName = recordIdentifier(requiredString(payload, "object"));
-  const canonical = appDefinitionPayload(current);
+  const canonical = recordAppDefinitionPayload(current);
   objectPayload(canonical, objectApiName).archived = true;
   return {
     definition: parseCurrent(canonical),
@@ -425,7 +425,7 @@ function mutateFieldArchive(
   assertOnlyKeys(payload, ["app", "object", "field", "replacement_name_field"]);
   const objectApiName = recordIdentifier(requiredString(payload, "object"));
   const fieldApiName = recordIdentifier(requiredString(payload, "field"));
-  const canonical = appDefinitionPayload(current);
+  const canonical = recordAppDefinitionPayload(current);
   const object = objectPayload(canonical, objectApiName);
   const field = fieldsPayload(object).find(
     (candidate) => candidate.api_name === fieldApiName,
@@ -463,7 +463,7 @@ function mutatePermission(
     throw new RecordSchemaActionPayloadError("role: admin or member is required");
   }
   const objectApiName = recordIdentifier(requiredString(payload, "object"));
-  const canonical = appDefinitionPayload(current);
+  const canonical = recordAppDefinitionPayload(current);
   const permissions = canonical.permissions as Array<Record<string, unknown>>;
   const replacement = {
     role,
@@ -493,7 +493,7 @@ function mutateLayout(
   current: RecordAppDefinition,
   payload: Record<string, unknown>,
 ): { definition: RecordAppDefinition; effects: string[]; warnings: string[] } {
-  const canonical = appDefinitionPayload(current);
+  const canonical = recordAppDefinitionPayload(current);
   if (payload.object !== undefined) {
     assertOnlyKeys(payload, ["app", "object", "kind", "definition"]);
     const objectApiName = recordIdentifier(requiredString(payload, "object"));
@@ -675,7 +675,7 @@ export class RecordsSchemaPlanner {
         effects,
         warnings,
       );
-      const canonicalDefinition = appDefinitionPayload(definition);
+      const canonicalDefinition = recordAppDefinitionPayload(definition);
       const change = await this.dependencies.saga.plan({
         orgId: request.orgId,
         appId: definition.appId,

@@ -177,13 +177,15 @@ describeIfLive("records CSV import executor live integration", () => {
         ('${objectId}', 'org-a', 'equipment', 'loan', 'Loan', 'Loans',
          'equipment__loan', 'name', 'org');
       insert into engine.record_field
-        (id, org_id, object_id, api_name, label, kind, column_name,
+        (id, org_id, object_id, api_name, source_api_name, label, kind, column_name,
          required, read_only)
       values
         ('00000000-0000-0000-0000-000000000992', 'org-a', '${objectId}',
-         'name', 'Name', 'text', 'name', true, false),
+         'name', 'Name', 'Name', 'text', 'name', true, false),
         ('00000000-0000-0000-0000-000000000993', 'org-a', '${objectId}',
-         'available', 'Available', 'boolean', 'available', false, false);
+         'available', 'Available', 'Available', 'boolean', 'available', false, false),
+        ('00000000-0000-0000-0000-000000000997', 'org-a', '${objectId}',
+         'score__c', 'Score__c', 'Score', 'readonly_formula', 'score__c', false, true);
       insert into engine.record_permission
         (org_id, app_id, role, object_api_name,
          can_read, can_create, can_update, can_delete)
@@ -197,6 +199,7 @@ describeIfLive("records CSV import executor live integration", () => {
         org_id text not null,
         name text not null,
         available boolean,
+        score__c text,
         nk_created_at timestamptz not null default now(),
         nk_created_by text not null,
         nk_updated_at timestamptz not null default now(),
@@ -474,6 +477,59 @@ describeIfLive("records CSV import executor live integration", () => {
       "select id from public.equipment__loan where id like 'cancel-%' order by id",
     );
     expect(rows.rows).toEqual([{ id: "cancel-1" }]);
+  }, 30_000);
+
+  it("materializes source-computed fields and canonicalizes Salesforce ids", async () => {
+    const bytes = Buffer.from(
+      "Id,Name,Score__c\n001A000010khO8J,Salesforce account,12.50\n",
+    );
+    const registry = new (await import("../src/registry")).RecordRegistry(pool);
+    const loaded = await registry.loadApp("org-a", "equipment");
+    const plan = buildRecordImportPlan({
+      snapshot: loaded as AppRegistrySnapshot,
+      objectApiName: "loan",
+      sourcePath: "imports/salesforce/job/data/account.csv",
+      sourceName: "account.csv",
+      bytes,
+      mapping: { Id: "id", Name: "name", Score__c: "score__c" },
+      allowReadOnly: true,
+      normalizeIdColumns: ["Id"],
+    });
+    const run = await createRecordImportRun(pool, {
+      id: "00000000-0000-4000-a000-000000000998",
+      orgId: "org-a",
+      actionRequestId: "artifact-import-account-action",
+      sourceInstanceId: "salesforce-production",
+      plan,
+    });
+    const executor = new RecordImportExecutor({
+      pool,
+      graphjin,
+      serviceToken: () =>
+        mintRecordsGraphjinToken({
+          secret: JWT_SECRET,
+          orgId: "org-a",
+          userId: "records-service",
+          role: "service",
+        }),
+      leaseOwner: "artifact-import-worker",
+      readSource: async () => bytes,
+    });
+    await expect(
+      executor.execute({
+        orgId: "org-a",
+        importRunId: run.id,
+        actorUserId: "admin-1",
+      }),
+    ).resolves.toMatchObject({ inserted: 1, rejected: 0, reconciled: true });
+    await expect(
+      pool.query(
+        `select id, score__c from public.equipment__loan
+         where id = '001A000010khO8JIAU'`,
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ id: "001A000010khO8JIAU", score__c: "12.50" }],
+    });
   }, 30_000);
 
   it("reconciles 5,000 rows after kills before and after every batch commit", async () => {

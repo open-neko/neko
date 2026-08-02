@@ -96,7 +96,11 @@ export async function projectMetadataAppState(
       ${config}::jsonb
     )
     on conflict (org_id, app_id) do update
-    set status = excluded.status,
+    set status = case
+          when app_state.status = 'importing' and excluded.status = 'active'
+            then 'importing'
+          else excluded.status
+        end,
         config = app_state.config || excluded.config
   `);
 }

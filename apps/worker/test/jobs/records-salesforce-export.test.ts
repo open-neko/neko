@@ -104,6 +104,9 @@ function dependencies(
     }),
     workspaceForOrg: vi.fn().mockResolvedValue({ orgRoot: "/safe/org" }),
     cancellationPollMs: 5,
+    scheduleImport: vi
+      .fn()
+      .mockResolvedValue("00000000-0000-4000-a000-000000000713"),
     ...overrides,
   };
 }
@@ -117,6 +120,11 @@ describe("Salesforce export job", () => {
     });
     await runRecordsSalesforceExport(payload, deps);
 
+    expect(deps.scheduleImport).toHaveBeenCalledWith(
+      expect.objectContaining({ id: ACTION_ID }),
+      payload,
+      `imports/salesforce/${EXPORT_ID}`,
+    );
     expect(exportArtifact).toHaveBeenCalledWith({
       directory: `/safe/org/imports/salesforce/${EXPORT_ID}`,
       resume: true,
@@ -130,6 +138,7 @@ describe("Salesforce export job", () => {
         progress: { stage: "complete", objects: 1, rows: 7 },
         result: expect.objectContaining({
           artifact_path: `imports/salesforce/${EXPORT_ID}`,
+          artifact_import_action_id: "00000000-0000-4000-a000-000000000713",
         }),
       }),
       ["running"],

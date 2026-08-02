@@ -99,6 +99,8 @@ import { registerRecordSchemaActions } from "./records/schema-adapters.js";
 import { registerRecordImportActions } from "./records/import-adapters.js";
 import { registerRecordIdentityActions } from "./records/identity-adapters.js";
 import { registerRecordSalesforceActions } from "./records/salesforce-adapters.js";
+import { registerRecordArtifactImportActions } from "./records/artifact-import-adapters.js";
+import { refreshArtifactImportState } from "./records/artifact-import-state.js";
 import { createRecordsSchemaRuntime } from "./records/schema-runtime.js";
 
 const PORT: number = 4100;
@@ -421,6 +423,18 @@ const unregisterRecordSchemaPreflight = registerRecordSchemaActions({
 });
 const unregisterRecordImportPreflight = registerRecordImportActions({
   pool: recordsPool,
+  readSource: readRecordImportSource,
+  enqueueImport: (payload) =>
+    enqueue(QUEUE.RECORDS_IMPORT, payload, {
+      retryLimit: 5,
+      retryDelay: 15,
+      singletonKey: `records-import:${payload.importRunId}`,
+    }),
+});
+const unregisterRecordArtifactImportPreflight = registerRecordArtifactImportActions({
+  pool: recordsPool,
+  planner: recordsSchemaRuntime.planner,
+  saga: recordsSchemaRuntime.saga,
   readSource: readRecordImportSource,
   enqueueImport: (payload) =>
     enqueue(QUEUE.RECORDS_IMPORT, payload, {
@@ -762,6 +776,10 @@ await b.work(
         await runRecordsImport(recordsImportExecutor, recordsPool, job.data, {
           leaseOwner: `records-import-job:${job.id}`,
         });
+        await refreshArtifactImportState(recordsPool, {
+          orgId: job.data.orgId,
+          importRunId: job.data.importRunId,
+        });
       } catch (e) {
         console.warn(
           `[records-import] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
@@ -988,6 +1006,7 @@ const shutdown = async (signal: string) => {
   channelInbound.stop();
   unregisterRecordSchemaPreflight();
   unregisterRecordImportPreflight();
+  unregisterRecordArtifactImportPreflight();
   server.close();
   const cancelled = cancelAllAgents();
   if (cancelled > 0) {

@@ -442,6 +442,42 @@ export async function seedDefaultActionPolicies(orgId: string): Promise<void> {
       enabled: true,
     });
   }
+  if (!names.has("records_artifact_import_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "records_artifact_import_default",
+      description:
+        "Creating an app and loading a reviewed connector artifact requires admin approval.",
+      appliesToKinds: ["records_artifact_import_start"],
+      appliesToScopes: ["internal", "external"],
+      mode: "approval_required" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: "admin",
+      priority: 90,
+      enabled: true,
+    });
+  }
+  if (!names.has("records_artifact_import_from_export_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "records_artifact_import_from_export_default",
+      description:
+        "A trusted export worker may load the exact artifact covered by its approved Salesforce export.",
+      appliesToKinds: ["records_artifact_import_from_export"],
+      appliesToScopes: ["internal"],
+      mode: "auto_approve" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: null,
+      priority: 89,
+      enabled: true,
+    });
+  }
   // OL5: configuring the customer GraphJin (sources/roles/access) from
   // chat needs an ADMIN. (The OpenNeko internal GraphJin is never a target.)
   if (!names.has("source_config_management_default")) {

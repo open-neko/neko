@@ -34,6 +34,10 @@ import {
   RECORD_SALESFORCE_ACTION_DESCRIPTORS,
   RECORD_SALESFORCE_ACTION_KINDS,
 } from "./salesforce-adapters.js";
+import {
+  RECORD_ARTIFACT_IMPORT_ACTION_DESCRIPTORS,
+  RECORD_ARTIFACT_IMPORT_ACTION_KINDS,
+} from "./artifact-import-adapters.js";
 
 export const RECORD_ACTION_KINDS = [
   "record_create",
@@ -124,6 +128,7 @@ export function includeRecordActionDescriptors(
     ...RECORD_IMPORT_ACTION_KINDS,
     ...RECORD_IDENTITY_ACTION_KINDS,
     ...RECORD_SALESFORCE_ACTION_KINDS,
+    ...RECORD_ARTIFACT_IMPORT_ACTION_KINDS,
   ]);
   return [
     ...RECORD_ACTION_DESCRIPTORS,
@@ -131,6 +136,7 @@ export function includeRecordActionDescriptors(
     ...RECORD_IMPORT_ACTION_DESCRIPTORS,
     ...RECORD_IDENTITY_ACTION_DESCRIPTORS,
     ...RECORD_SALESFORCE_ACTION_DESCRIPTORS,
+    ...RECORD_ARTIFACT_IMPORT_ACTION_DESCRIPTORS,
     ...descriptors.filter((descriptor) => !builtins.has(descriptor.kind)),
   ];
 }
