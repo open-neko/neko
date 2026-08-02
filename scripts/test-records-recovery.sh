@@ -6,6 +6,7 @@ recovery_workspace="$(mktemp -d -t openneko-records-recovery.XXXXXX)"
 recovery_project="${OPENNEKO_RECOVERY_PROJECT:-openneko-records-recovery-${GITHUB_RUN_ID:-local}-$$}"
 recovery_metadata_port="${OPENNEKO_RECOVERY_METADATA_PORT:-55432}"
 recovery_records_port="${OPENNEKO_RECOVERY_RECORDS_PORT:-55434}"
+recovery_disk_container="${recovery_project}-disk-pressure"
 
 export OPENNEKO_BACKUP_CIPHER_PASS="recovery-test-key-with-more-than-thirty-two-characters"
 export OPENNEKO_BACKUP_REPOSITORY="$recovery_workspace/backups"
@@ -21,6 +22,7 @@ recovery_compose=(
 )
 
 cleanup() {
+  docker rm -f "$recovery_disk_container" >/dev/null 2>&1 || true
   "${recovery_compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
   if [[ -d "$recovery_workspace" && "$(basename "$recovery_workspace")" == openneko-records-recovery.* ]]; then
     rm -r -- "$recovery_workspace"
@@ -81,6 +83,49 @@ if [[ "$recovery_verification" != *'"status": "succeeded"'* ]] || \
   echo "Throwaway restore verification did not prove the backup set" >&2
   exit 1
 fi
+
+echo "Filling a small observed filesystem to ENOSPC and recovering it..."
+recovery_storage_image="${recovery_project}-records-storage-ops"
+docker run -d --name "$recovery_disk_container" \
+  --tmpfs /volumes/metadata:rw,size=32m \
+  --tmpfs /volumes/records:rw,size=32m \
+  --tmpfs /volumes/staging:rw,size=32m \
+  "$recovery_storage_image" >/dev/null
+for _ in $(seq 1 30); do
+  if docker exec "$recovery_disk_container" \
+    curl -fsS http://127.0.0.1:9465/health >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.25
+done
+recovery_storage_before="$(docker exec "$recovery_disk_container" \
+  curl -fsS http://127.0.0.1:9465/v1/storage)"
+python3 -c 'import json,sys; value=json.loads(sys.argv[1]); assert value["records"]["usedPercent"] < 10' \
+  "$recovery_storage_before"
+if docker exec "$recovery_disk_container" sh -c \
+  'dd if=/dev/zero of=/volumes/records/fill bs=1M count=64 conv=fsync' \
+  >"$recovery_workspace/enospc.log" 2>&1; then
+  echo "Expected the small records filesystem to reach ENOSPC" >&2
+  exit 1
+fi
+recovery_storage_full="$(docker exec "$recovery_disk_container" \
+  curl -fsS http://127.0.0.1:9465/v1/storage)"
+python3 -c 'import json,sys; value=json.loads(sys.argv[1]); assert value["records"]["usedPercent"] >= 99' \
+  "$recovery_storage_full"
+if docker exec "$recovery_disk_container" sh -c \
+  'printf blocked > /volumes/records/blocked'; then
+  echo "A records write unexpectedly succeeded at ENOSPC" >&2
+  exit 1
+fi
+docker exec "$recovery_disk_container" rm -f \
+  /volumes/records/fill /volumes/records/blocked
+docker exec "$recovery_disk_container" sh -c \
+  'printf recovered > /volumes/records/recovered'
+recovery_storage_recovered="$(docker exec "$recovery_disk_container" \
+  curl -fsS http://127.0.0.1:9465/v1/storage)"
+python3 -c 'import json,sys; value=json.loads(sys.argv[1]); assert value["records"]["usedPercent"] < 10' \
+  "$recovery_storage_recovered"
+docker rm -f "$recovery_disk_container" >/dev/null
 
 echo "Killing records-db inside an open transaction..."
 "${recovery_compose[@]}" exec -T records-db psql \

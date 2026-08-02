@@ -97,4 +97,24 @@ describe("records storage watermarks", () => {
     await monitor.assertInteractiveWritesAllowed();
     expect(read).toHaveBeenCalledOnce();
   });
+
+  it("automatically admits work again after storage recovers", async () => {
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce(response(900 * 1024 ** 2))
+      .mockResolvedValueOnce(response(50 * GIB));
+    const monitor = new RecordsStorageMonitor({
+      endpoint: "http://records-ops:9465",
+      fallbackPath: "/unused",
+      thresholds,
+      fetch: read,
+      cacheMs: 0,
+    });
+
+    await expect(monitor.assertInteractiveWritesAllowed()).rejects.toBeInstanceOf(
+      RecordsStorageBackpressureError,
+    );
+    await expect(monitor.assertInteractiveWritesAllowed()).resolves.toBeDefined();
+    expect(read).toHaveBeenCalledTimes(2);
+  });
 });
