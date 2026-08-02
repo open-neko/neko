@@ -1,0 +1,208 @@
+import { describe, expect, it } from "vitest";
+import { validateRecordIdentifier } from "../src/naming";
+import {
+  buildRecordDetailQuery,
+  buildRecordListQuery,
+  RecordReadPermissionError,
+  RecordReadTargetError,
+} from "../src/read/query";
+import type { AppRegistrySnapshot } from "../src/types";
+
+const id = validateRecordIdentifier;
+
+function snapshot(): AppRegistrySnapshot {
+  return {
+    revision: "4",
+    app: {
+      orgId: "org-a",
+      appId: "operations",
+      label: "Field Operations",
+      purpose: null,
+      status: "active",
+      navOrder: 0,
+      registryRevision: "4",
+    },
+    objects: [
+      {
+        id: "object-work-order",
+        orgId: "org-a",
+        appId: "operations",
+        apiName: id("work_order"),
+        sourceApiName: null,
+        label: "Work order",
+        pluralLabel: "Work orders",
+        tableSchema: id("public"),
+        tableName: id("operations__work_order"),
+        nameField: id("subject"),
+        visibility: "owner",
+        custom: true,
+        archivedAt: null,
+        recordCount: "12",
+      },
+    ],
+    fields: [
+      {
+        id: "field-subject",
+        orgId: "org-a",
+        objectId: "object-work-order",
+        apiName: id("subject"),
+        sourceApiName: null,
+        label: "Subject",
+        kind: "text",
+        columnName: id("subject"),
+        required: true,
+        readOnly: false,
+        archivedAt: null,
+        picklistValues: null,
+        referenceTargets: null,
+        length: 200,
+        scale: null,
+      },
+      {
+        id: "field-status",
+        orgId: "org-a",
+        objectId: "object-work-order",
+        apiName: id("status"),
+        sourceApiName: null,
+        label: "Current status",
+        kind: "picklist",
+        columnName: id("status"),
+        required: false,
+        readOnly: false,
+        archivedAt: null,
+        picklistValues: ["new", "closed"],
+        referenceTargets: null,
+        length: null,
+        scale: null,
+      },
+      {
+        id: "field-old",
+        orgId: "org-a",
+        objectId: "object-work-order",
+        apiName: id("old_status"),
+        sourceApiName: null,
+        label: "Old status",
+        kind: "text",
+        columnName: id("old_status"),
+        required: false,
+        readOnly: false,
+        archivedAt: new Date(),
+        picklistValues: null,
+        referenceTargets: null,
+        length: null,
+        scale: null,
+      },
+    ],
+    layouts: [
+      {
+        objectId: "object-work-order",
+        kind: "list",
+        definition: { columns: [{ field: "status" }, "subject", "missing"] },
+      },
+      {
+        objectId: "object-work-order",
+        kind: "detail",
+        definition: { sections: [{ fields: ["subject", "status"] }] },
+      },
+    ],
+    pages: [],
+    permissions: [
+      {
+        appId: "operations",
+        role: "admin",
+        objectApiName: id("work_order"),
+        canRead: true,
+        canCreate: true,
+        canUpdate: true,
+        canDelete: true,
+      },
+      {
+        appId: "operations",
+        role: "member",
+        objectApiName: id("work_order"),
+        canRead: false,
+        canCreate: false,
+        canUpdate: false,
+        canDelete: false,
+      },
+    ],
+  };
+}
+
+describe("generated record read queries", () => {
+  it("builds a bounded, layout-driven list query with bound filter values", () => {
+    const built = buildRecordListQuery({
+      snapshot: snapshot(),
+      objectApiName: "work_order",
+      role: "admin",
+      userId: "admin-1",
+      first: 25,
+      after: "opaque-cursor",
+      search: "50%_ready",
+      sort: { field: "status", direction: "desc" },
+      filters: [{ field: "status", operator: "in", value: ["new"] }],
+      myRecords: true,
+    });
+
+    expect(built.view.columns.map((column) => column.apiName)).toEqual([
+      "status",
+      "subject",
+      "owner_user_id",
+    ]);
+    expect(built.query).toContain(
+      "rows: operations__work_order(first: $first, after: $after",
+    );
+    expect(built.query).toContain("order_by: { status: desc, id: desc }");
+    expect(built.query).toContain("operations__work_order_cursor");
+    expect(built.query).toContain("totals: operations__work_order");
+    expect(built.query).toContain("count_id");
+    expect(built.query).not.toContain("50%_ready");
+    expect(built.variables).toEqual({
+      first: 25,
+      after: "opaque-cursor",
+      search: "%50\\%\\_ready%",
+      viewer_id: "admin-1",
+      filter_0: ["new"],
+    });
+  });
+
+  it("builds detail fields from sections and includes generic substrate metadata", () => {
+    const built = buildRecordDetailQuery({
+      snapshot: snapshot(),
+      objectApiName: "work_order",
+      role: "admin",
+      recordId: "wo-1",
+    });
+    expect(built.query).toContain("id subject status owner_user_id nk_updated_at");
+    expect(built.variables).toEqual({ record_id: "wo-1" });
+  });
+
+  it("fails closed for unreadable roles, unknown identifiers, and unsafe budgets", () => {
+    expect(() =>
+      buildRecordListQuery({
+        snapshot: snapshot(),
+        objectApiName: "work_order",
+        role: "member",
+        userId: "member-1",
+      }),
+    ).toThrow(RecordReadPermissionError);
+    expect(() =>
+      buildRecordListQuery({
+        snapshot: snapshot(),
+        objectApiName: "work_order) { secret }",
+        role: "admin",
+        userId: "admin-1",
+      }),
+    ).toThrow(RecordReadTargetError);
+    expect(() =>
+      buildRecordListQuery({
+        snapshot: snapshot(),
+        objectApiName: "work_order",
+        role: "admin",
+        userId: "admin-1",
+        first: 101,
+      }),
+    ).toThrow(/between 1 and 100/);
+  });
+});
+

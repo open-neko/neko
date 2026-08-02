@@ -17,6 +17,8 @@ import {
   loadRecordsGraphjinPolicyModel,
   projectRecordsGraphjinRoles,
 } from "../src/policy/graphjin";
+import { buildRecordListQuery } from "../src/read/query";
+import { RecordRegistry } from "../src/registry";
 
 async function recordsDbReachable(): Promise<boolean> {
   const probe = new pg.Pool(buildRecordsPoolConfig());
@@ -325,6 +327,32 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
           { id: "loan-1", name: "Member One Loan" },
           { id: "loan-2", name: "Member Two Loan" },
         ]);
+
+        const registry = await new RecordRegistry(testPool).loadApp("org-a", "equipment");
+        expect(registry).not.toBeNull();
+        const generated = buildRecordListQuery({
+          snapshot: registry!,
+          objectApiName: "loan",
+          role: "admin",
+          userId: "admin-1",
+          first: 1,
+          search: "Loan",
+        });
+        const generatedPage = await request(
+          "admin-1",
+          generated.query,
+          generated.variables,
+        );
+        expect(generatedPage.errors).toBeUndefined();
+        expect(generatedPage.data?.rows).toEqual([
+          {
+            id: "loan-1",
+            name: "Member One Loan",
+            owner_user_id: "member-1",
+          },
+        ]);
+        expect(generatedPage.data?.[generated.cursorField]).toEqual(expect.any(String));
+        expect(generatedPage.data?.totals).toEqual([{ count_id: 2 }]);
 
         const missingActor = await request(
           "missing-actor",

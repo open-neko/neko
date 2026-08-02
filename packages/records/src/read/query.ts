@@ -1,0 +1,408 @@
+import { validateRecordIdentifier } from "../naming";
+import { RECORD_SYSTEM_COLUMNS } from "../policy/graphjin";
+import type {
+  AppRegistrySnapshot,
+  JsonObject,
+  RecordField,
+  RecordFieldKind,
+  RecordObject,
+  RecordPermission,
+} from "../types";
+
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
+const MAX_CURSOR_LENGTH = 4_096;
+const MAX_SEARCH_LENGTH = 200;
+
+export type RecordViewerRole = "admin" | "member";
+
+export type RecordViewColumn = {
+  apiName: string;
+  columnName: string;
+  label: string;
+  kind: RecordFieldKind | "owner" | "system_datetime";
+  required: boolean;
+  readOnly: boolean;
+  picklistValues: unknown[] | null;
+  referenceTargets: string[] | null;
+  scale: number | null;
+};
+
+export type RecordObjectView = {
+  object: RecordObject;
+  permission: RecordPermission;
+  columns: RecordViewColumn[];
+};
+
+export type RecordFilterOperator =
+  | "eq"
+  | "neq"
+  | "in"
+  | "contains"
+  | "starts_with"
+  | "is_null";
+
+export type RecordListFilter = {
+  field: string;
+  operator: RecordFilterOperator;
+  value?: unknown;
+};
+
+export type RecordListQuery = {
+  operationName: "RecordsList";
+  query: string;
+  variables: Record<string, unknown>;
+  view: RecordObjectView;
+  cursorField: string;
+  resultField: string;
+  totalField: string;
+};
+
+export type RecordDetailQuery = {
+  operationName: "RecordsDetail";
+  query: string;
+  variables: { record_id: string };
+  view: RecordObjectView;
+  resultField: string;
+};
+
+export class RecordReadTargetError extends Error {
+  readonly code = "records_read_target_invalid";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "RecordReadTargetError";
+  }
+}
+
+export class RecordReadPermissionError extends Error {
+  readonly code = "records_read_permission_denied";
+
+  constructor() {
+    super("record object is not readable by this actor");
+    this.name = "RecordReadPermissionError";
+  }
+}
+
+function readIdentifier(value: string, label: string): ReturnType<typeof validateRecordIdentifier> {
+  try {
+    return validateRecordIdentifier(value);
+  } catch {
+    throw new RecordReadTargetError(`${label} is not a valid record identifier`);
+  }
+}
+
+function objectFields(snapshot: AppRegistrySnapshot, object: RecordObject): RecordField[] {
+  return snapshot.fields.filter(
+    (field) => field.objectId === object.id && field.archivedAt === null,
+  );
+}
+
+function permissionFor(
+  snapshot: AppRegistrySnapshot,
+  object: RecordObject,
+  role: RecordViewerRole,
+): RecordPermission {
+  const permission = snapshot.permissions.find(
+    (candidate) =>
+      candidate.appId === snapshot.app.appId &&
+      candidate.objectApiName === object.apiName &&
+      candidate.role === role,
+  );
+  if (!permission?.canRead) throw new RecordReadPermissionError();
+  return permission;
+}
+
+function layoutFieldNames(definition: JsonObject, kind: "list" | "detail"): string[] {
+  const result: string[] = [];
+  const add = (value: unknown) => {
+    if (typeof value === "string") result.push(value);
+    else if (value && typeof value === "object" && !Array.isArray(value)) {
+      const candidate = value as Record<string, unknown>;
+      if (typeof candidate.field === "string") result.push(candidate.field);
+      else if (typeof candidate.api_name === "string") result.push(candidate.api_name);
+    }
+  };
+  const direct = definition.columns ?? definition.fields;
+  if (Array.isArray(direct)) direct.forEach(add);
+  if (kind === "detail" && Array.isArray(definition.sections)) {
+    for (const section of definition.sections) {
+      if (!section || typeof section !== "object" || Array.isArray(section)) continue;
+      const fields = (section as Record<string, unknown>).fields;
+      if (Array.isArray(fields)) fields.forEach(add);
+    }
+  }
+  return result;
+}
+
+function fieldColumn(field: RecordField): RecordViewColumn {
+  return {
+    apiName: field.apiName,
+    columnName: field.columnName,
+    label: field.label,
+    kind: field.kind,
+    required: field.required,
+    readOnly: field.readOnly,
+    picklistValues: field.picklistValues,
+    referenceTargets: field.referenceTargets,
+    scale: field.scale,
+  };
+}
+
+function uniqueColumns(columns: RecordViewColumn[]): RecordViewColumn[] {
+  const seen = new Set<string>();
+  return columns.filter((column) => {
+    if (seen.has(column.columnName)) return false;
+    seen.add(column.columnName);
+    return true;
+  });
+}
+
+function resolveView(input: {
+  snapshot: AppRegistrySnapshot;
+  objectApiName: string;
+  role: RecordViewerRole;
+  layoutKind: "list" | "detail";
+}): RecordObjectView {
+  if (input.snapshot.app.status !== "active") {
+    throw new RecordReadTargetError("record app is not active");
+  }
+  const objectApiName = readIdentifier(input.objectApiName, "record object");
+  const object = input.snapshot.objects.find(
+    (candidate) => candidate.apiName === objectApiName && candidate.archivedAt === null,
+  );
+  if (!object) throw new RecordReadTargetError("record object is unknown or archived");
+  const permission = permissionFor(input.snapshot, object, input.role);
+  const fields = objectFields(input.snapshot, object);
+  const byApiName = new Map(fields.map((field) => [field.apiName, field]));
+  const layout = input.snapshot.layouts.find(
+    (candidate) => candidate.objectId === object.id && candidate.kind === input.layoutKind,
+  );
+  const requested = layout
+    ? layoutFieldNames(layout.definition, input.layoutKind)
+    : [];
+  const selected = requested
+    .map((apiName) => {
+      try {
+        return byApiName.get(validateRecordIdentifier(apiName));
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((field): field is RecordField => field !== undefined);
+  const fallback = [
+    byApiName.get(object.nameField),
+    ...fields.filter((field) => field.apiName !== object.nameField),
+  ].filter((field): field is RecordField => field !== undefined);
+  const fieldColumns = (selected.length > 0 ? selected : fallback).map(fieldColumn);
+  const substrateColumns: RecordViewColumn[] = [];
+  if (object.visibility === "owner") {
+    substrateColumns.push({
+      apiName: RECORD_SYSTEM_COLUMNS.ownerUserId,
+      columnName: RECORD_SYSTEM_COLUMNS.ownerUserId,
+      label: "Owner",
+      kind: "owner",
+      required: false,
+      readOnly: true,
+      picklistValues: null,
+      referenceTargets: null,
+      scale: null,
+    });
+  }
+  if (input.layoutKind === "detail") {
+    substrateColumns.push({
+      apiName: RECORD_SYSTEM_COLUMNS.updatedAt,
+      columnName: RECORD_SYSTEM_COLUMNS.updatedAt,
+      label: "Last updated",
+      kind: "system_datetime",
+      required: false,
+      readOnly: true,
+      picklistValues: null,
+      referenceTargets: null,
+      scale: null,
+    });
+  }
+  return {
+    object,
+    permission,
+    columns: uniqueColumns([...fieldColumns, ...substrateColumns]),
+  };
+}
+
+function boundedPageSize(value: number | undefined): number {
+  const pageSize = value ?? DEFAULT_PAGE_SIZE;
+  if (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
+    throw new RecordReadTargetError(`record page size must be between 1 and ${MAX_PAGE_SIZE}`);
+  }
+  return pageSize;
+}
+
+function cursorValue(value: string | null | undefined): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (value !== value.trim() || value.length > MAX_CURSOR_LENGTH) {
+    throw new RecordReadTargetError("record cursor is malformed");
+  }
+  return value;
+}
+
+function likeValue(value: string, mode: "contains" | "starts_with"): string {
+  const escaped = value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+  return mode === "contains" ? `%${escaped}%` : `${escaped}%`;
+}
+
+function filterClause(
+  filter: RecordListFilter,
+  index: number,
+  fields: Map<string, RecordField>,
+): { clause: string; variable?: [string, unknown] } {
+  const apiName = readIdentifier(filter.field, "record filter field");
+  const field = fields.get(apiName);
+  if (!field) throw new RecordReadTargetError(`unknown record filter field: ${apiName}`);
+  const variable = `filter_${index}`;
+  if (filter.operator === "is_null") {
+    if (typeof filter.value !== "boolean") {
+      throw new RecordReadTargetError("is_null record filters require a boolean value");
+    }
+    return { clause: `${field.columnName}: { is_null: ${filter.value ? "true" : "false"} }` };
+  }
+  if (filter.operator === "in") {
+    if (!Array.isArray(filter.value) || filter.value.length < 1 || filter.value.length > 100) {
+      throw new RecordReadTargetError("in record filters require 1 to 100 values");
+    }
+    return {
+      clause: `${field.columnName}: { in: $${variable} }`,
+      variable: [variable, filter.value],
+    };
+  }
+  if (filter.operator === "contains" || filter.operator === "starts_with") {
+    if (typeof filter.value !== "string" || !filter.value.trim()) {
+      throw new RecordReadTargetError(`${filter.operator} record filters require text`);
+    }
+    return {
+      clause: `${field.columnName}: { ilike: $${variable} }`,
+      variable: [variable, likeValue(filter.value.trim().slice(0, MAX_SEARCH_LENGTH), filter.operator)],
+    };
+  }
+  if (filter.operator !== "eq" && filter.operator !== "neq") {
+    throw new RecordReadTargetError("unknown record filter operator");
+  }
+  return {
+    clause: `${field.columnName}: { ${filter.operator}: $${variable} }`,
+    variable: [variable, filter.value],
+  };
+}
+
+function whereDocument(clauses: string[]): string | null {
+  if (clauses.length === 0) return null;
+  if (clauses.length === 1) return `{ ${clauses[0]} }`;
+  return `{ and: [${clauses.map((clause) => `{ ${clause} }`).join(", ")}] }`;
+}
+
+function selectorArguments(args: string[]): string {
+  return args.length === 0 ? "" : `(${args.join(", ")})`;
+}
+
+function querySelection(view: RecordObjectView): string {
+  return ["id", ...view.columns.map((column) => column.columnName)]
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .join(" ");
+}
+
+export function buildRecordListQuery(input: {
+  snapshot: AppRegistrySnapshot;
+  objectApiName: string;
+  role: RecordViewerRole;
+  userId: string;
+  first?: number;
+  after?: string | null;
+  sort?: { field: string; direction: "asc" | "desc" };
+  search?: string | null;
+  filters?: RecordListFilter[];
+  myRecords?: boolean;
+}): RecordListQuery {
+  const view = resolveView({ ...input, layoutKind: "list" });
+  const fields = new Map(
+    objectFields(input.snapshot, view.object).map((field) => [field.apiName, field]),
+  );
+  const variables: Record<string, unknown> = { first: boundedPageSize(input.first) };
+  const clauses: string[] = [];
+  const after = cursorValue(input.after);
+  if (after !== null) variables.after = after;
+
+  const search = input.search?.trim() ?? "";
+  if (search) {
+    if (search.length > MAX_SEARCH_LENGTH) {
+      throw new RecordReadTargetError(`record search cannot exceed ${MAX_SEARCH_LENGTH} characters`);
+    }
+    clauses.push(`${view.object.nameField}: { ilike: $search }`);
+    variables.search = likeValue(search, "contains");
+  }
+  if (input.myRecords) {
+    if (view.object.visibility !== "owner" || !input.userId.trim()) {
+      throw new RecordReadTargetError("my records scope requires an owner-visible object and actor");
+    }
+    clauses.push(`${RECORD_SYSTEM_COLUMNS.ownerUserId}: { eq: $viewer_id }`);
+    variables.viewer_id = input.userId;
+  }
+  for (const [index, filter] of (input.filters ?? []).entries()) {
+    const resolved = filterClause(filter, index, fields);
+    clauses.push(resolved.clause);
+    if (resolved.variable) variables[resolved.variable[0]] = resolved.variable[1];
+  }
+
+  const rawSortField = input.sort?.field ?? view.object.nameField;
+  const sortField =
+    rawSortField === "id"
+      ? readIdentifier("id", "record sort field")
+      : fields.get(readIdentifier(rawSortField, "record sort field"))?.columnName;
+  if (!sortField) throw new RecordReadTargetError("unknown record sort field");
+  const direction = input.sort?.direction ?? "asc";
+  const order =
+    sortField === "id"
+      ? `{ id: ${direction} }`
+      : `{ ${sortField}: ${direction}, id: ${direction} }`;
+  const where = whereDocument(clauses);
+  const pageArguments = [
+    "first: $first",
+    ...(after === null ? [] : ["after: $after"]),
+    `order_by: ${order}`,
+    ...(where ? [`where: ${where}`] : []),
+  ];
+  const totalArguments = where ? [`where: ${where}`] : [];
+  const tableName = view.object.tableName;
+  // GraphJin names the returned cursor after the selector alias (`rows`),
+  // even though the document must request the physical table cursor field.
+  const cursorSelection = `${tableName}_cursor`;
+  const cursorField = "rows_cursor";
+  const query = `query RecordsList { rows: ${tableName}${selectorArguments(pageArguments)} { ${querySelection(view)} } ${cursorSelection} totals: ${tableName}${selectorArguments(totalArguments)} { count_id } }`;
+  return {
+    operationName: "RecordsList",
+    query,
+    variables,
+    view,
+    cursorField,
+    resultField: "rows",
+    totalField: "totals",
+  };
+}
+
+export function buildRecordDetailQuery(input: {
+  snapshot: AppRegistrySnapshot;
+  objectApiName: string;
+  role: RecordViewerRole;
+  recordId: string;
+}): RecordDetailQuery {
+  const view = resolveView({ ...input, layoutKind: "detail" });
+  const recordId = input.recordId.trim();
+  if (!recordId || recordId.length > 512) {
+    throw new RecordReadTargetError("record id must be a non-empty string");
+  }
+  const query = `query RecordsDetail { rows: ${view.object.tableName}(where: { id: { eq: $record_id } }, limit: 1) { ${querySelection(view)} } }`;
+  return {
+    operationName: "RecordsDetail",
+    query,
+    variables: { record_id: recordId },
+    view,
+    resultField: "rows",
+  };
+}
