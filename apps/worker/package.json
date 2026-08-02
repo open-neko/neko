@@ -19,6 +19,7 @@
     "@neko/db": "workspace:*",
     "@neko/interaction": "workspace:*",
     "@neko/llm": "workspace:*",
+    "@neko/records": "workspace:*",
     "@open-neko/plugin-install": "workspace:*",
     "@open-neko/plugin-parallel-search": "0.3.1",
     "@open-neko/plugin-types": "workspace:*",

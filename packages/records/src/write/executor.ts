@@ -197,6 +197,7 @@ export class RecordWriteExecutor {
       leaseOwner: string;
       recordSourceWrite: (input: {
         actionRequestId: string;
+        orgId: string;
         tableName: string;
         recordId: string;
       }) => Promise<void>;
@@ -428,6 +429,7 @@ export class RecordWriteExecutor {
         const recovered = { ...baseResult, recovered: true };
         await this.dependencies.recordSourceWrite({
           actionRequestId: request.actionRequestId,
+          orgId: request.orgId,
           tableName: object.tableName,
           recordId: id,
         });
@@ -518,6 +520,7 @@ export class RecordWriteExecutor {
 
       await this.dependencies.recordSourceWrite({
         actionRequestId: request.actionRequestId,
+        orgId: request.orgId,
         tableName: object.tableName,
         recordId: id,
       });

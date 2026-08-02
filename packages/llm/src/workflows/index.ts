@@ -91,6 +91,7 @@ export {
   type WorkflowTriggerKind,
 } from "./run-workflow-turn";
 export {
+  appendWorkflowRunSourceWrite,
   countSubscriptionsMatchingOutput,
   countWorkflowRunsForSubscription,
   countWorkflowRunsSince,
@@ -239,6 +240,7 @@ export {
   getRegisteredActionKinds,
   mockActionAdapter,
   registerActionAdapter,
+  RetryableActionAdapterError,
   setDefaultActionAdapter,
   type ActionAdapter,
   type ActionExecutionInput,

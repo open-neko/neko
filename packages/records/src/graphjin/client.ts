@@ -1,8 +1,29 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { deriveSigningSecret } from "@neko/secret-crypt";
 
 const DEFAULT_TOKEN_TTL_SECONDS = 300;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+
+/** Deployment-key-derived secret shared by the config writer and token minter. */
+export function recordsGraphjinSigningSecret(orgId: string): string {
+  const value = orgId.trim();
+  if (!value || value !== orgId) {
+    throw new Error("records GraphJin signing secret requires a canonical org id");
+  }
+  return deriveSigningSecret(`records-graphjin:${value}`).toString("base64");
+}
+
+/** Separate cursor key prevents a token from being replayed as cursor state. */
+export function recordsGraphjinCursorSecret(orgId: string): string {
+  const value = orgId.trim();
+  if (!value || value !== orgId) {
+    throw new Error("records GraphJin cursor secret requires a canonical org id");
+  }
+  return deriveSigningSecret(`records-graphjin-cursor:${value}`).toString(
+    "base64",
+  );
+}
 
 export type RecordsGraphjinRole = "admin" | "member" | "service";
 

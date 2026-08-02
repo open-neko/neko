@@ -16,6 +16,7 @@ import {
   getCurrentScrubber,
   getPluginRegistryInstance,
 } from "../plugins/registry-instance.js";
+import { includeRecordActionDescriptors } from "../records/adapters.js";
 
 // Thrown when worker shutdown cuts a headless run short, so the pg-boss handler
 // fails the job and a later worker retries it.
@@ -55,8 +56,9 @@ export async function runWorkflowRunFire(
     });
   };
 
-  const pluginActions =
-    getPluginRegistryInstance()?.getRegisteredActionDescriptors() ?? [];
+  const pluginActions = includeRecordActionDescriptors(
+    getPluginRegistryInstance()?.getRegisteredActionDescriptors() ?? [],
+  );
 
   const broker = await ensureAgentBroker();
 

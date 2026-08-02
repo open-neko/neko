@@ -7,9 +7,12 @@ import {
   createActionPolicy,
   createActionRequest,
   executeApprovedActionRequest,
+  getActionRequest,
   InvalidActionStatusTransitionError,
+  listActionExecutions,
   rejectActionRequest,
   registerActionAdapter,
+  RetryableActionAdapterError,
   saveWorkflow,
   createWorkflowRun,
 } from "../../src/workflows";
@@ -172,6 +175,53 @@ describeIfDb("action stack — approve → execute → executed", () => {
       } finally {
         // Clean up the test adapter so other tests aren't affected.
         registerActionAdapter("test_send_message", async () => ({
+          result: { mocked: true },
+        }));
+      }
+    });
+  });
+
+  it("keeps approved requests retryable after an uncertain adapter attempt", async () => {
+    await withTestOrg(async (orgId) => {
+      let attempts = 0;
+      registerActionAdapter("test_retryable_action", async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new RetryableActionAdapterError("temporary upstream outage");
+        }
+        return { result: { recovered: true } };
+      });
+      try {
+        const { workflowRunId } = await setupWorkflowRun(orgId);
+        const request = await createActionRequest({
+          orgId,
+          workflowRunId,
+          scope: "internal",
+          kind: "test_retryable_action",
+          payload: {},
+          status: "approved",
+          summary: "retry me",
+        });
+
+        await expect(
+          executeApprovedActionRequest(orgId, request.id),
+        ).rejects.toBeInstanceOf(RetryableActionAdapterError);
+        await expect(getActionRequest(orgId, request.id)).resolves.toMatchObject({
+          status: "approved",
+        });
+        await expect(executeApprovedActionRequest(orgId, request.id)).resolves.toMatchObject({
+          ok: true,
+          outcome: { result: { recovered: true } },
+        });
+        await expect(listActionExecutions(request.id)).resolves.toEqual([
+          expect.objectContaining({ status: "succeeded" }),
+          expect.objectContaining({
+            status: "failed",
+            error: "temporary upstream outage",
+          }),
+        ]);
+      } finally {
+        registerActionAdapter("test_retryable_action", async () => ({
           result: { mocked: true },
         }));
       }

@@ -107,6 +107,9 @@ importers:
       '@neko/llm':
         specifier: workspace:*
         version: link:../../packages/llm
+      '@neko/records':
+        specifier: workspace:*
+        version: link:../../packages/records
       '@open-neko/plugin-install':
         specifier: workspace:*
         version: link:../../packages/plugin-install
@@ -275,6 +278,9 @@ importers:
 
   packages/records:
     dependencies:
+      '@neko/secret-crypt':
+        specifier: workspace:*
+        version: link:../secret-crypt
       pg:
         specifier: ^8.20.0
         version: 8.20.0

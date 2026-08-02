@@ -1,6 +1,8 @@
 import "dotenv/config";
 
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import pg from "pg";
 import type PgBoss from "pg-boss";
 import {
   boss,
@@ -12,6 +14,13 @@ import {
   type WorkflowRunFirePayload,
   type WorkRunPayload,
 } from "@neko/db/jobs";
+import { buildRecordsPoolConfig } from "@neko/db/records-migrate";
+import {
+  mintRecordsGraphjinToken,
+  recordsGraphjinSigningSecret,
+  RecordsGraphjinClient,
+  RecordWriteExecutor,
+} from "@neko/records";
 import { createAdminHandler } from "./admin-server.js";
 import {
   data_source,
@@ -68,6 +77,11 @@ import {
   reconcileStaleProcessingJobs,
   reconcileStaleRuns,
 } from "./reconciler.js";
+import {
+  includeRecordActionDescriptors,
+  recordActionRequestSourceWrite,
+  registerRecordActionAdapters,
+} from "./records/adapters.js";
 
 const PORT: number = 4100;
 const MAX_JOB_RETRIES: number = 2;
@@ -83,6 +97,26 @@ const RECONCILE_SWEEP_MIN_AGE_MS: number = Math.max(
 const SCHEDULED_REFRESH_HOURS: number = 24;
 
 const ADMIN_ORG_ID = await getOrgId();
+const recordsPool = new pg.Pool({
+  ...buildRecordsPoolConfig(),
+  application_name: "openneko-worker-records",
+});
+const recordsWriteExecutor = new RecordWriteExecutor({
+  pool: recordsPool,
+  graphjin: new RecordsGraphjinClient({
+    baseUrl:
+      process.env.OPENNEKO_RECORDS_GRAPHJIN_URL ?? "http://127.0.0.1:8090",
+  }),
+  serviceToken: (orgId) =>
+    mintRecordsGraphjinToken({
+      secret: recordsGraphjinSigningSecret(orgId),
+      orgId,
+      userId: "records-service",
+      role: "service",
+    }),
+  leaseOwner: `worker:${process.pid}:${randomUUID()}`,
+  recordSourceWrite: recordActionRequestSourceWrite,
+});
 
 // SEC8: state the security posture once at boot; hardened warns when
 // the model host is a public cloud API (on-prem LLM is client-provided).
@@ -225,7 +259,9 @@ const server = createServer(
           channels: [],
         },
       getRegisteredActionDescriptors: () =>
-        pluginRegistry?.getRegisteredActionDescriptors() ?? [],
+        includeRecordActionDescriptors(
+          pluginRegistry?.getRegisteredActionDescriptors() ?? [],
+        ),
     },
     events: {
       dispatchExternal: async (input) => {
@@ -297,6 +333,7 @@ console.log(
 
 await seedDefaultActionPolicies(ADMIN_ORG_ID);
 registerBuiltinAdapters();
+registerRecordActionAdapters(recordsWriteExecutor);
 // ADM3: execute approved chat-proposed plugin installs/uninstalls.
 {
   const {
@@ -823,6 +860,11 @@ const shutdown = async (signal: string) => {
     await b.stop({ graceful: true });
   } catch (e) {
     console.error("[worker] pg-boss stop error:", e);
+  }
+  try {
+    await recordsPool.end();
+  } catch (e) {
+    console.error("[worker] records pool shutdown error:", e);
   }
   process.exit(0);
 };

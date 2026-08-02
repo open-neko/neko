@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   mintRecordsGraphjinToken,
+  recordsGraphjinCursorSecret,
+  recordsGraphjinSigningSecret,
   RecordsGraphjinClient,
   RecordsGraphjinRequestError,
   recordsGraphjinEndpoint,
@@ -14,6 +16,14 @@ afterEach(() => {
 });
 
 describe("records GraphJin client", () => {
+  it("derives separate stable token and cursor secrets per org", () => {
+    const signing = recordsGraphjinSigningSecret("org-a");
+    expect(signing).toBe(recordsGraphjinSigningSecret("org-a"));
+    expect(signing).not.toBe(recordsGraphjinSigningSecret("org-b"));
+    expect(signing).not.toBe(recordsGraphjinCursorSecret("org-a"));
+    expect(() => recordsGraphjinSigningSecret(" org-a ")).toThrow(/canonical org id/);
+  });
+
   it("mints a short-lived actor token and rejects tampering or expiry", () => {
     const token = mintRecordsGraphjinToken({
       secret,

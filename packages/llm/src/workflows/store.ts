@@ -1124,6 +1124,45 @@ export async function getDataSourceForOrg(
 // ─── source_change helpers ──────────────────────────────────────────────────
 
 /**
+ * Atomically add one target-row identity to a workflow run's mutation set.
+ * Replays are de-duplicated so a recovered records receipt cannot inflate the
+ * cycle-check payload.
+ */
+export async function appendWorkflowRunSourceWrite(args: {
+  orgId: string;
+  workflowRunId: string;
+  table: string;
+  primaryKey: Record<string, unknown>;
+}): Promise<boolean> {
+  if (!args.orgId.trim() || !args.workflowRunId.trim() || !args.table.trim()) {
+    throw new Error(
+      "workflow source write requires org, run, and table identities",
+    );
+  }
+  const entry = JSON.stringify([
+    { table: args.table, primary_key: args.primaryKey },
+  ]);
+  const rows = await db()
+    .update(workflow_run)
+    .set({
+      source_writes: sql`case
+        when coalesce(${workflow_run.source_writes}, '[]'::jsonb) @> ${entry}::jsonb
+          then coalesce(${workflow_run.source_writes}, '[]'::jsonb)
+        else coalesce(${workflow_run.source_writes}, '[]'::jsonb) || ${entry}::jsonb
+      end`,
+      updated_at: new Date(),
+    })
+    .where(
+      and(
+        eq(workflow_run.org_id, args.orgId),
+        eq(workflow_run.id, args.workflowRunId),
+      ),
+    )
+    .returning({ id: workflow_run.id });
+  return rows.length === 1;
+}
+
+/**
  * Has any recent workflow_run of `workflowId` mutated (table, primaryKey)?
  * Backs the source_change cycle check — a responder workflow that writes
  * back to the table it's subscribed to would otherwise re-trigger itself.

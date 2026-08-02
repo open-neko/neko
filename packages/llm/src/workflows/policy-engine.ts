@@ -274,6 +274,32 @@ export async function seedDefaultActionPolicies(orgId: string): Promise<void> {
       enabled: true,
     });
   }
+  // C4: generated-app writes are internal state changes, but still require an
+  // approval by default. Operators may add narrower auto-approve policies for
+  // low-risk classes such as activity logging.
+  if (!names.has("record_mutation_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "record_mutation_default",
+      description:
+        "Creating, updating, deleting, or restoring generated-app records requires operator approval by default.",
+      appliesToKinds: [
+        "record_create",
+        "record_update",
+        "record_delete",
+        "record_restore",
+      ],
+      appliesToScopes: ["internal", "external"],
+      mode: "approval_required" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: null,
+      priority: 92,
+      enabled: true,
+    });
+  }
   // OL5: configuring the customer GraphJin (sources/roles/access) from
   // chat needs an ADMIN. (The OpenNeko internal GraphJin is never a target.)
   if (!names.has("source_config_management_default")) {

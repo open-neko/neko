@@ -29,6 +29,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@neko/secret-crypt": "workspace:*",
     "pg": "^8.20.0",
     "yaml": "^2.8.1"
   },
