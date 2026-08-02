@@ -1298,6 +1298,22 @@
   min-height: 88px;
 }
 
+.records-reference-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.records-reference-control:has(> select) {
+  grid-template-columns: minmax(110px, 0.34fr) minmax(180px, 1fr);
+}
+
+.records-form-field input:disabled {
+  cursor: not-allowed;
+  color: var(--text3);
+  background: var(--neutral);
+}
+
 .records-form-field input:focus,
 .records-form-field textarea:focus,
 .records-form-field select:focus {

@@ -70,7 +70,6 @@ function roleForActor(role: string): "admin" | "member" {
 function editableColumns(columns: RecordViewColumn[]): RecordViewColumn[] {
   return columns.filter(
     (column) =>
-      !column.readOnly &&
       column.kind !== "id" &&
       column.kind !== "owner" &&
       column.kind !== "system_datetime",
@@ -187,7 +186,7 @@ export async function submitRecordFormAction(input: {
 
   const fields = validationObject(input.fields, "fields");
   const objectFields = registryFields(shell, view.object.id);
-  validateRecordFields({
+  const validatedFields = validateRecordFields({
     values: fields,
     registryFields: objectFields,
     operation: input.operation,
@@ -203,11 +202,11 @@ export async function submitRecordFormAction(input: {
       ]);
     }
     expected = validationObject(input.expected, "expected");
-    validateRecordFields({
+    expected = validateRecordFields({
       values: expected,
       registryFields: objectFields,
       operation: "expected",
-    });
+    }).fields;
   }
 
   const kind = input.operation === "create" ? "record_create" : "record_update";
@@ -241,7 +240,7 @@ export async function submitRecordFormAction(input: {
   const payload: Record<string, unknown> = {
     app: shell.snapshot.app.appId,
     object: view.object.apiName,
-    fields,
+    fields: validatedFields.fields,
   };
   if (input.operation === "update") {
     payload.id = recordId;

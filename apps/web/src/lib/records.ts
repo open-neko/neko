@@ -681,6 +681,36 @@ export async function readRecordList(input: {
   };
 }
 
+export async function readRecordReferenceOptions(input: {
+  orgId: string;
+  appId: string;
+  objectApiName: string;
+  search: string;
+}): Promise<Array<{ id: string; label: string }>> {
+  const query = input.search.trim();
+  if (!query || query.length > 200) return [];
+  const shell = await loadRecordAppShell(input.orgId, input.appId);
+  const target = shell.snapshot.objects.find(
+    (object) => object.apiName === input.objectApiName && object.archivedAt === null,
+  );
+  if (!target) throw new RecordAppRouteError("record object was not found", 404);
+  const result = await readRecordList({
+    orgId: input.orgId,
+    appId: input.appId,
+    objectApiName: input.objectApiName,
+    first: 10,
+    search: query,
+    columns: [target.nameField],
+  });
+  return result.rows.flatMap((row) => {
+    if (row.id === null || row.id === undefined) return [];
+    return [{
+      id: String(row.id),
+      label: String(row[result.view.object.nameField] ?? row.id),
+    }];
+  });
+}
+
 export type RecordDetailResult = {
   row: Record<string, unknown> | null;
   view: RecordObjectView;

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { CheckCircle2, LoaderCircle, LockKeyhole } from "lucide-react";
 import type { RecordViewColumn } from "@neko/records";
 
@@ -69,6 +69,9 @@ function FieldControl({
     name: column.apiName,
     required: column.required,
   };
+  if (column.readOnly || column.kind === "readonly_formula") {
+    return <input {...common} type="text" value={stringValue(value)} disabled readOnly />;
+  }
   if (column.kind === "textarea") {
     return <textarea {...common} defaultValue={stringValue(value)} rows={5} />;
   }
@@ -133,6 +136,89 @@ function FieldControl({
   );
 }
 
+type ReferenceOption = { id: string; label: string };
+
+function ReferenceControl({
+  appId,
+  column,
+  value,
+}: {
+  appId: string;
+  column: RecordViewColumn;
+  value: unknown;
+}) {
+  const targets = column.referenceTargets ?? [];
+  const [target, setTarget] = useState(targets[0] ?? "");
+  const [query, setQuery] = useState(stringValue(value));
+  const [options, setOptions] = useState<ReferenceOption[]>([]);
+  const listId = `record-reference-${column.apiName}`;
+
+  useEffect(() => {
+    const search = query.trim();
+    if (!target || !search) {
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      fetch(
+        `/api/a/${encodeURIComponent(appId)}/references/${encodeURIComponent(target)}?q=${encodeURIComponent(search)}`,
+        { signal: controller.signal },
+      )
+        .then(async (response) => response.ok
+          ? (await response.json()) as { options?: ReferenceOption[] }
+          : { options: [] })
+        .then((payload) => setOptions(payload.options ?? []))
+        .catch((error: unknown) => {
+          if (!(error instanceof DOMException && error.name === "AbortError")) setOptions([]);
+        });
+    }, 180);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [appId, query, target]);
+
+  return (
+    <div className="records-reference-control">
+      {targets.length > 1 && (
+        <select
+          aria-label={`${column.label} target object`}
+          value={target}
+          onChange={(event) => {
+            setTarget(event.target.value);
+            setQuery("");
+            setOptions([]);
+          }}
+        >
+          {targets.map((candidate) => <option value={candidate} key={candidate}>{candidate}</option>)}
+        </select>
+      )}
+      <input
+        id={`record-field-${column.apiName}`}
+        name={column.apiName}
+        required={column.required}
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          if (!event.target.value.trim()) setOptions([]);
+        }}
+        list={listId}
+        autoComplete="off"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-controls={listId}
+        aria-expanded={options.length > 0}
+        placeholder="Search by record name or enter an ID"
+      />
+      <datalist id={listId}>
+        {options.map((option) => (
+          <option value={option.id} key={option.id}>{option.label}</option>
+        ))}
+      </datalist>
+    </div>
+  );
+}
+
 function submittedValue(
   formData: FormData,
   column: RecordViewColumn,
@@ -181,6 +267,7 @@ export function RecordForm({
     const values: Record<string, unknown> = {};
     const expected: Record<string, unknown> = {};
     for (const column of fields) {
+      if (column.readOnly || column.kind === "readonly_formula") continue;
       const value = submittedValue(formData, column);
       if (value !== undefined || operation === "update") {
         values[column.apiName] = value ?? null;
@@ -243,9 +330,20 @@ export function RecordForm({
               {column.label}
               {column.required && <span aria-label="required"> *</span>}
             </label>
-            <FieldControl column={column} value={initialRow?.[column.columnName]} />
+            {column.kind === "reference" && !column.readOnly ? (
+              <ReferenceControl
+                appId={appId}
+                column={column}
+                value={initialRow?.[column.columnName]}
+              />
+            ) : (
+              <FieldControl column={column} value={initialRow?.[column.columnName]} />
+            )}
             {column.kind === "reference" && (
-              <small>Enter the target record ID.</small>
+              <small>Search the permitted target object by name; the selected record ID is submitted.</small>
+            )}
+            {(column.readOnly || column.kind === "readonly_formula") && (
+              <small>Calculated or source-managed value; shown for context only.</small>
             )}
             {column.kind === "multipicklist" && (
               <small>Use Ctrl or Command to select more than one value.</small>
