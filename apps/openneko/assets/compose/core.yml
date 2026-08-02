@@ -16,8 +16,8 @@ x-neko-app-env: &neko-app-env
   NEKO_PG_PASSWORD: secret
   NEKO_PG_DATABASE: neko
   OPENNEKO_RECORDS_GRAPHJIN_URL: http://records-graphjin:8090
-  NO_PROXY: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,records-storage-ops,worker,web,neko-graphjin,records-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
-  no_proxy: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,records-storage-ops,worker,web,neko-graphjin,records-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
+  NO_PROXY: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,records-storage-ops,worker,web,neko-graphjin,records-graphjin,records-watch-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
+  no_proxy: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,records-storage-ops,worker,web,neko-graphjin,records-graphjin,records-watch-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
 
 services:
   neko-db:
@@ -177,6 +177,26 @@ services:
       timeout: 3s
       retries: 5
 
+  # Native durable gj_watch runner. Source mode is isolated from the generated
+  # exhaustive legacy RBAC config used by the human/chat records data plane.
+  records-watch-graphjin:
+    image: ghcr.io/open-neko/records-graphjin:${OPENNEKO_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      records-db:
+        condition: service_healthy
+    environment:
+      OPENNEKO_RECORDS_GRAPHJIN_CONFIG_DIR: /config/watch
+    volumes:
+      - openneko-records-graphjin:/config:ro
+    expose:
+      - "8090"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/api/v1/graphql"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   # One-shot: applies SQL migrations to neko-db and exits. Every long-
   # running service (web, worker, neko-graphjin) depends on this completing
   # successfully, so by the time they start the schema is in place. Lives
@@ -262,6 +282,10 @@ services:
         condition: service_healthy
       records-storage-ops:
         condition: service_healthy
+      records-graphjin:
+        condition: service_started
+      records-watch-graphjin:
+        condition: service_started
     environment:
       <<: *neko-app-env
       OPENNEKO_GRAPHJIN_URL: http://neko-graphjin:8089
@@ -271,6 +295,7 @@ services:
       RECORDS_PG_PASSWORD: ${OPENNEKO_RECORDS_PG_PASSWORD:-records-secret}
       RECORDS_PG_DATABASE: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
       OPENNEKO_RECORDS_GRAPHJIN_CONFIG_DIR: /config/records-graphjin
+      OPENNEKO_RECORDS_WATCH_GRAPHJIN_URL: http://records-watch-graphjin:8090
       OPENNEKO_RECORDS_OPS_URL: http://records-storage-ops:9465
       OPENNEKO_BACKUP_URL: http://neko-backup:9470
       OPENNEKO_PLUGINS_MANIFEST_PATH: /config/openneko/plugins.json

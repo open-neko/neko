@@ -1,7 +1,7 @@
 import pg from "pg";
 import { execFile } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -10,6 +10,12 @@ import {
   runRecordsMigrations,
 } from "@neko/db/records-migrate";
 import {
+  mintRecordsGraphjinToken,
+  RecordsGraphjinClient,
+  RecordsGraphjinRequestError,
+} from "../src/graphjin/client";
+import {
+  buildRecordsWatchGraphjinConfig,
   createRecordsGraphjinConfigValidator,
   writeRecordsGraphjinConfig,
 } from "../src/graphjin/config";
@@ -22,6 +28,10 @@ import {
   buildRecordRecycleListQuery,
 } from "../src/read/query";
 import { RecordRegistry } from "../src/registry";
+import {
+  buildRecordsStarterWatchDefinition,
+  upsertRecordsNativeWatch,
+} from "../src/watchers/starter";
 
 async function recordsDbReachable(): Promise<boolean> {
   const probe = new pg.Pool(buildRecordsPoolConfig());
@@ -145,8 +155,28 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
         nk_deleted_at timestamptz
       );
       create table public.unregistered_secret (id text primary key, secret text);
+      create table public.crm__opportunity (
+        id text primary key,
+        org_id text not null,
+        name text not null,
+        owner_user_id text,
+        stage text not null,
+        amount numeric,
+        close_date date,
+        nk_updated_at timestamptz not null default now()
+      );
+      create table public.crm__activity (
+        id text primary key,
+        org_id text not null,
+        opportunity text,
+        occurred_at timestamptz not null,
+        nk_updated_at timestamptz not null default now()
+      );
       insert into engine.record_app (org_id, app_id, label, status)
-      values ('org-a', 'equipment', 'Equipment', 'active');
+      values
+        ('org-a', 'equipment', 'Equipment', 'active'),
+        ('org-a', 'crm', 'CRM', 'active'),
+        ('org-b', 'crm', 'Other CRM', 'active');
       insert into engine.record_object
         (id, org_id, app_id, api_name, label, plural_label, table_name,
          name_field, visibility)
@@ -184,6 +214,31 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
       where id like 'loan-deleted-%';
       insert into public.equipment__asset (id, org_id, name, nk_deleted_at)
       values ('asset-deleted', 'org-a', 'Deleted Shared Asset', '2026-08-01T11:00:00Z');
+      insert into public.crm__opportunity
+        (id, org_id, name, owner_user_id, stage, amount, close_date)
+      values
+        ('opportunity-stale', 'org-a', 'Stale opportunity', 'member-1',
+         'proposal', 12000, '2026-08-20'),
+        ('opportunity-active', 'org-a', 'Active opportunity', 'member-2',
+         'discovery', 5000, '2026-08-22'),
+        ('opportunity-cross-org', 'org-b', 'Other org opportunity', null,
+         'proposal', 99999, '2026-08-25');
+      insert into public.crm__activity
+        (id, org_id, opportunity, occurred_at)
+      values ('activity-current', 'org-a', 'opportunity-active', now());
+      insert into engine.record_change_log
+        (org_id, app_id, object_api_name, record_id, action, mutation_id, changes)
+      values
+        ('org-a', 'crm', 'opportunity', 'opportunity-stale', 'create',
+         'watch-change-initial', '{}'::jsonb);
+      insert into engine.identity_map
+        (org_id, source_instance_id, app_id, source_user_id, source_email,
+         source_name, source_is_active, status)
+      values
+        ('org-a', 'salesforce-production', 'crm', 'source-owner-1',
+         'departed@example.com', 'Departed owner', false, 'unlinked'),
+        ('org-b', 'salesforce-production', 'crm', 'source-owner-other',
+         'other@example.com', 'Other org owner', false, 'unlinked');
       insert into engine.recycle_record
         (org_id, app_id, object_api_name, visibility, record_id, record_name,
          owner_user_id, deleted_at, deleted_by, deletion_action_request_id)
@@ -260,6 +315,231 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
           reloadRecordsGraphjin: async () => {},
         }),
       ).resolves.toMatchObject({ sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    },
+    40_000,
+  );
+
+  itIfGraphjinImage(
+    "creates, evaluates, and advances a durable native watch live",
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), "records-watch-graphjin-runtime-"));
+      const poolConfig = buildRecordsPoolConfig(process.env, { database });
+      const connection = new URL("postgres://localhost/records");
+      connection.hostname = process.env.RECORDS_GRAPHJIN_DB_HOST ?? "host.internal";
+      connection.port = String(poolConfig.port);
+      connection.username = String(poolConfig.user);
+      connection.password = String(poolConfig.password ?? "");
+      connection.pathname = `/${database}`;
+      connection.searchParams.set("sslmode", "disable");
+      const config = buildRecordsWatchGraphjinConfig({
+        orgId: "org-a",
+        database: { connectionString: connection.toString() },
+        jwt: { secret: LIVE_JWT_SECRET },
+        secretKey: "live-watch-runtime-cursor-secret-at-least-thirty-two-bytes",
+      })
+        .replace("subs_poll_duration: 30s", "subs_poll_duration: 1s")
+        .replace("poll_seconds: 5", "poll_seconds: 1");
+      await writeFile(join(directory, "dev.yml"), config, { mode: 0o600 });
+      await validateWithTestGraphjin(directory);
+
+      const started = await runTestCommand("docker", [
+        "run",
+        "--detach",
+        "--rm",
+        "--entrypoint",
+        "graphjin",
+        "--publish",
+        "127.0.0.1::8090",
+        "--volume",
+        `${directory}:/config:ro`,
+        graphjinImage!,
+        "serve",
+        "--path",
+        "/config",
+      ]);
+      const containerId = started.stdout.trim();
+      try {
+        const portOutput = await runTestCommand("docker", ["port", containerId, "8090/tcp"]);
+        const port = Number.parseInt(portOutput.stdout.trim().split(":").at(-1) ?? "", 10);
+        let healthy = false;
+        for (let attempt = 0; attempt < 50; attempt += 1) {
+          try {
+            if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) {
+              healthy = true;
+              break;
+            }
+          } catch {
+            // Container is still starting.
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        if (!healthy) throw new Error("records watch GraphJin did not become healthy");
+
+        const graphjin = new RecordsGraphjinClient({
+          baseUrl: `http://127.0.0.1:${port}`,
+        });
+        const token = mintRecordsGraphjinToken({
+          secret: LIVE_JWT_SECRET,
+          orgId: "org-a",
+          userId: "records-watch-service",
+          role: "service",
+        });
+        const createNativeWatch = async (
+          key:
+            | "opportunities_without_activity"
+            | "unlinked_or_departed_owners"
+            | "deals_closing_this_month",
+        ) => {
+          const definition = buildRecordsStarterWatchDefinition({
+            orgId: "org-a",
+            appId: "crm",
+            key,
+          });
+          try {
+            return await upsertRecordsNativeWatch({
+              graphjin,
+              token,
+              definition,
+              approvedActionHash: "a".repeat(64),
+            });
+          } catch (error) {
+            if (error instanceof RecordsGraphjinRequestError) {
+              throw new Error(JSON.stringify(error.graphjinErrors));
+            }
+            throw error;
+          }
+        };
+        // Keep only one runner active while proving cursor advancement. The
+        // other definitions are created after that proof so suite load cannot
+        // turn a correctness assertion into a polling/rate-limit race.
+        const watch = await createNativeWatch("opportunities_without_activity");
+        expect(watch).toMatchObject({
+          id: expect.any(String),
+          definitionHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        });
+
+        const evaluation = await graphjin.execute<{
+          opportunities: Array<{ id: string }>;
+          activities: Array<{ opportunity: string }>;
+        }>({
+          operationName: "EvaluateRecordsStaleOpportunities",
+          query: `query EvaluateRecordsStaleOpportunities($cutoff: Timestamptz!) { opportunities: crm__opportunity(limit: 500) { id name owner_user_id stage close_date } activities: crm__activity(where: { occurred_at: { gte: $cutoff } }, limit: 500) { opportunity } }`,
+          variables: { cutoff: "2026-07-03T12:00:00.000Z" },
+          token,
+        });
+        expect(evaluation.opportunities.map((row) => row.id).sort()).toEqual([
+          "opportunity-active",
+          "opportunity-stale",
+        ]);
+        expect(evaluation.activities).toEqual([
+          { opportunity: "opportunity-active" },
+        ]);
+        const identities = await graphjin.execute<{
+          identities: Array<{ source_user_id: string; source_is_active: boolean }>;
+        }>({
+          operationName: "EvaluateRecordsOwnerMappings",
+          query: `query EvaluateRecordsOwnerMappings($app_id: String!) { identities: identity_map(where: { app_id: { eq: $app_id } }, limit: 500) { source_instance_id source_user_id source_email source_name source_is_active app_user_id status updated_at } }`,
+          variables: { app_id: "crm" },
+          token,
+        });
+        expect(identities.identities).toEqual([
+          expect.objectContaining({
+            source_user_id: "source-owner-1",
+            source_is_active: false,
+          }),
+        ]);
+        const closing = await graphjin.execute<{
+          opportunities: Array<{ id: string; close_date: string }>;
+        }>({
+          operationName: "EvaluateRecordsClosingDeals",
+          query: `query EvaluateRecordsClosingDeals { opportunities: crm__opportunity(limit: 500) { id name owner_user_id stage amount close_date } }`,
+          token,
+        });
+        expect(closing.opportunities).toHaveLength(2);
+
+        const waitForEventCount = async (minimum: number): Promise<number> => {
+          let count = 0;
+          for (let attempt = 0; attempt < 300; attempt += 1) {
+            const result = await testPool.query<{ count: string }>(
+              "select count(*) from _graphjin.watch_events where watch_id = $1",
+              [watch.id],
+            );
+            count = Number(result.rows[0]?.count ?? 0);
+            if (count >= minimum) return count;
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+          return count;
+        };
+        const initialCount = await waitForEventCount(1);
+        expect(initialCount).toBeGreaterThanOrEqual(1);
+        await testPool.query(
+          `insert into engine.record_change_log
+             (org_id, app_id, object_api_name, record_id, action, mutation_id, changes)
+           values ('org-a', 'crm', 'activity', 'activity-new', 'create',
+                   'watch-change-new', '{}'::jsonb)`,
+        );
+        const advancedCount = await waitForEventCount(initialCount + 1);
+        expect(advancedCount).toBeGreaterThan(initialCount);
+        const [stored] = (
+          await testPool.query<{
+            account_id: string;
+            approval: string;
+            last_cursor_json: string | null;
+          }>(
+            `select account_id, approval, last_cursor_json
+             from _graphjin.watches where id = $1`,
+            [watch.id],
+          )
+        ).rows;
+        expect(stored).toMatchObject({
+          account_id: "org-a",
+          approval: "approved",
+          last_cursor_json: expect.any(String),
+        });
+        const cursors = JSON.parse(stored!.last_cursor_json!) as Record<string, string>;
+        expect(cursors.record_change_log_cursor).toEqual(expect.any(String));
+        const remainingWatches = await Promise.all([
+          createNativeWatch("unlinked_or_departed_owners"),
+          createNativeWatch("deals_closing_this_month"),
+        ]);
+        expect([watch, ...remainingWatches]).toHaveLength(3);
+      } finally {
+        await runTestCommand("docker", ["rm", "--force", containerId]).catch(
+          () => undefined,
+        );
+      }
+    },
+    60_000,
+  );
+
+  itIfGraphjin(
+    "loads the isolated native watch config in pinned GraphJin",
+    async () => {
+      const directory = await mkdtemp(join(tmpdir(), "records-watch-graphjin-live-"));
+      const poolConfig = buildRecordsPoolConfig(process.env, { database });
+      const connection = new URL("postgres://localhost/records");
+      connection.hostname = graphjinImage
+        ? (process.env.RECORDS_GRAPHJIN_DB_HOST ?? "host.internal")
+        : String(poolConfig.host);
+      connection.port = String(poolConfig.port);
+      connection.username = String(poolConfig.user);
+      connection.password = String(poolConfig.password ?? "");
+      connection.pathname = `/${database}`;
+      connection.searchParams.set("sslmode", "disable");
+      await writeFile(
+        join(directory, "dev.yml"),
+        buildRecordsWatchGraphjinConfig({
+          orgId: "org-a",
+          database: { connectionString: connection.toString() },
+          jwt: { secret: LIVE_JWT_SECRET },
+          secretKey: "live-watch-cursor-secret-that-is-at-least-thirty-two-bytes",
+          watchWebhookAllow: [
+            "http://172.20.0.8:4100/admin/events/records-watch",
+          ],
+        }),
+        { mode: 0o600 },
+      );
+      await expect(validateWithTestGraphjin(directory)).resolves.toBeUndefined();
     },
     40_000,
   );

@@ -49,6 +49,20 @@ describe("records app blueprints", () => {
     const blueprint = await loadRecordAppBlueprint("crm");
 
     expect(blueprint.payload).toMatchObject({ app: "crm", label: "CRM" });
+    expect(blueprint.payload.starter_workflows).toEqual([
+      expect.objectContaining({
+        key: "opportunities_without_activity",
+        enabled: false,
+      }),
+      expect.objectContaining({
+        key: "unlinked_or_departed_owners",
+        enabled: false,
+      }),
+      expect.objectContaining({
+        key: "deals_closing_this_month",
+        enabled: false,
+      }),
+    ]);
     expect(blueprint.definition.objects.map((object) => object.apiName)).toEqual([
       "account",
       "contact",

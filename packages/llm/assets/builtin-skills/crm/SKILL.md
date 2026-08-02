@@ -74,6 +74,22 @@ Baseline CSV import is insert-only. Interpret reports precisely:
 Do not claim a CSV load is a live mirror. Connected mirror mode remains
 read-only locally until an explicit verified cutover completes.
 
+## Optional starter watches
+
+The canonical CRM blueprint includes three disabled-by-default
+`starter_workflows`. Offer them as explicit choices before proposing the app:
+
+- opportunities with no activity in 30 days;
+- records owned by an unlinked or departed source user;
+- deals closing this month, grouped by owner.
+
+Preserve every choice in the `app_create` payload and enable only the watches
+the operator selected. Each enabled workflow uses a durable GraphJin watch as
+its primary wake-up path and a scheduled fallback, then publishes the same
+deterministic result into Briefing. App creation and terminal imports also
+produce Briefing summaries; use the attached import report for row, identity,
+and staging-cleanup facts rather than reconstructing them from chat history.
+
 ## Working with CRM records
 
 Use `$records` for every read or write. Resolve exact account, contact,

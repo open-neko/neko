@@ -25,6 +25,33 @@ export function recordsGraphjinCursorSecret(orgId: string): string {
   );
 }
 
+/** Signing domain dedicated to the internal native-watch GraphJin process. */
+export function recordsWatchGraphjinSigningSecret(orgId: string): string {
+  const value = orgId.trim();
+  if (!value || value !== orgId) {
+    throw new Error("records watch GraphJin signing secret requires a canonical org id");
+  }
+  return deriveSigningSecret(`records-watch-graphjin:${value}`).toString("base64");
+}
+
+export function recordsWatchGraphjinCursorSecret(orgId: string): string {
+  const value = orgId.trim();
+  if (!value || value !== orgId) {
+    throw new Error("records watch GraphJin cursor secret requires a canonical org id");
+  }
+  return deriveSigningSecret(`records-watch-graphjin-cursor:${value}`).toString(
+    "base64",
+  );
+}
+
+export function recordsWatchWebhookSecret(orgId: string): string {
+  const value = orgId.trim();
+  if (!value || value !== orgId) {
+    throw new Error("records watch webhook secret requires a canonical org id");
+  }
+  return deriveSigningSecret(`records-watch-webhook:${value}`).toString("base64");
+}
+
 export type RecordsGraphjinRole = "admin" | "member" | "service";
 
 export type RecordsGraphjinTokenInput = {

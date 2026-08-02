@@ -17,6 +17,8 @@ import {
   type RecordsImportPayload,
   type RecordsBackupVerifyPayload,
   type RecordsOpsWatchPayload,
+  type RecordsWatchEvaluatePayload,
+  type RecordsWatchSweepPayload,
   type RecordsSalesforceCutoverPayload,
   type RecordsSalesforceExportPayload,
   type RecordsSalesforceSyncPayload,
@@ -30,6 +32,8 @@ import {
   RecordImportExecutor,
   RecordOwnerBackfillExecutor,
   recordsGraphjinSigningSecret,
+  recordsWatchGraphjinSigningSecret,
+  recordsWatchWebhookSecret,
   RecordsGraphjinClient,
   RecordWriteExecutor,
 } from "@neko/records";
@@ -114,8 +118,23 @@ import { registerRecordIdentityActions } from "./records/identity-adapters.js";
 import { registerRecordSalesforceActions } from "./records/salesforce-adapters.js";
 import { registerRecordArtifactImportActions } from "./records/artifact-import-adapters.js";
 import { refreshArtifactImportState } from "./records/artifact-import-state.js";
-import { createRecordsSchemaRuntime } from "./records/schema-runtime.js";
+import {
+  createRecordsSchemaRuntime,
+  resolveRecordsWatchWebhookUrl,
+} from "./records/schema-runtime.js";
 import { createRecordsStorageMonitor } from "./records/storage-health.js";
+import {
+  createRecordsStarterWatchSeeder,
+  enqueueRecordsWatchFallbackSweep,
+  reconcileRecordsNativeWatchDeliveries,
+  receiveRecordsNativeWatchEvent,
+} from "./records/starter-watches.js";
+import { createRecordsWatchEvaluator } from "./jobs/records-watch-evaluate.js";
+import {
+  buildRecordsSingleImportReport,
+  publishRecordsAppCreationSummary,
+  publishRecordsImportReport,
+} from "./jobs/records-lifecycle-finding.js";
 
 const PORT: number = 4100;
 const MAX_JOB_RETRIES: number = 2;
@@ -146,6 +165,28 @@ const recordsServiceToken = (orgId: string) =>
     userId: "records-service",
     role: "service",
   });
+const recordsWatchGraphjin = new RecordsGraphjinClient({
+  baseUrl:
+    process.env.OPENNEKO_RECORDS_WATCH_GRAPHJIN_URL ??
+    "http://127.0.0.1:8091",
+});
+const recordsWatchServiceToken = (orgId: string) =>
+  mintRecordsGraphjinToken({
+    secret: recordsWatchGraphjinSigningSecret(orgId),
+    orgId,
+    userId: "records-watch-service",
+    role: "service",
+  });
+const recordsWatchWebhookUrl = resolveRecordsWatchWebhookUrl();
+const seedRecordsStarterWatches = createRecordsStarterWatchSeeder({
+  graphjin: recordsWatchGraphjin,
+  token: recordsWatchServiceToken,
+  webhookUrl: recordsWatchWebhookUrl,
+});
+const evaluateRecordsStarterWatch = createRecordsWatchEvaluator({
+  graphjin: recordsWatchGraphjin,
+  token: recordsWatchServiceToken,
+});
 const recordsStorageMonitor = createRecordsStorageMonitor();
 
 async function readRecordImportSource(orgId: string, sourcePath: string): Promise<Uint8Array> {
@@ -360,6 +401,10 @@ const server = createServer(
         return { matched: result.matched, enqueued: result.enqueued };
       },
     },
+    recordsWatches: {
+      secret: recordsWatchWebhookSecret(ADMIN_ORG_ID),
+      dispatch: receiveRecordsNativeWatchEvent,
+    },
     installPolicy: {
       getInstallPolicy: async () => {
         const { getInstallPolicyForOrg } = await import("@neko/db");
@@ -417,10 +462,29 @@ console.log(
 const recordsSchemaRuntime = await createRecordsSchemaRuntime({
   pool: recordsPool,
   orgId: ADMIN_ORG_ID,
+  enableWatchPlane: true,
+  watchWebhookAllow: recordsWatchWebhookUrl
+    ? [recordsWatchWebhookUrl]
+    : [],
 });
+if (!recordsWatchWebhookUrl) {
+  console.warn(
+    "[worker] records native-watch webhook unavailable; scheduled fallback remains active",
+  );
+}
 console.log(
   `[worker] records schema runtime ready (reconciled=${recordsSchemaRuntime.reconciliation.projected.length}, failed=${recordsSchemaRuntime.reconciliation.failed.length})`,
 );
+const reboundRecordsWatches = await reconcileRecordsNativeWatchDeliveries({
+  graphjin: recordsWatchGraphjin,
+  token: recordsWatchServiceToken,
+  webhookUrl: recordsWatchWebhookUrl,
+});
+if (reboundRecordsWatches > 0) {
+  console.log(
+    `[worker] rebound ${reboundRecordsWatches} durable records watch delivery target(s)`,
+  );
+}
 
 await seedDefaultActionPolicies(ADMIN_ORG_ID);
 registerBuiltinAdapters();
@@ -789,7 +853,15 @@ await b.work(
   async (jobs: PgBossLib.Job<ActionExecutePayload>[]) => {
     for (const job of jobs) {
       try {
-        await runActionExecute(job.data);
+        await runActionExecute(job.data, {
+          onAppCreated: async (created) => {
+            const starterWatches = await seedRecordsStarterWatches(created);
+            await publishRecordsAppCreationSummary({
+              ...created,
+              seededWatchKeys: starterWatches.seeded,
+            });
+          },
+        });
       } catch (e) {
         console.warn(
           `[action-execute] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
@@ -806,15 +878,27 @@ await b.work(
   async (jobs: PgBossLib.Job<RecordsImportPayload>[]) => {
     for (const job of jobs) {
       try {
-        await runRecordsImport(recordsImportExecutor, recordsPool, job.data, {
+        const outcome = await runRecordsImport(recordsImportExecutor, recordsPool, job.data, {
           leaseOwner: `records-import-job:${job.id}`,
         });
-        await refreshArtifactImportState(recordsPool, {
+        const artifact = await refreshArtifactImportState(recordsPool, {
           orgId: job.data.orgId,
           importRunId: job.data.importRunId,
           graphjin: recordsGraphjin,
           serviceToken: recordsServiceToken(job.data.orgId),
+          onReportReady: publishRecordsImportReport,
         });
+        if (!artifact.matched) {
+          await publishRecordsImportReport({
+            orgId: job.data.orgId,
+            report: buildRecordsSingleImportReport({
+              appId: outcome.appId,
+              importRunId: job.data.importRunId,
+              report: outcome.report,
+              terminalError: outcome.terminalError,
+            }),
+          });
+        }
       } catch (e) {
         console.warn(
           `[records-import] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
@@ -858,6 +942,26 @@ await b.work(
   async (jobs: PgBossLib.Job<RecordsOpsWatchPayload>[]) => {
     for (const job of jobs) {
       await runRecordsOpsWatch(job.data.orgId);
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_WATCH_EVALUATE,
+  { batchSize: 1, pollingIntervalSeconds: 0.5 },
+  async (jobs: PgBossLib.Job<RecordsWatchEvaluatePayload>[]) => {
+    for (const job of jobs) {
+      await evaluateRecordsStarterWatch(job.data);
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_WATCH_SWEEP,
+  { batchSize: 1, pollingIntervalSeconds: 1 },
+  async (jobs: PgBossLib.Job<RecordsWatchSweepPayload>[]) => {
+    for (const job of jobs) {
+      await enqueueRecordsWatchFallbackSweep(job.data.orgId);
     }
   },
 );
@@ -984,6 +1088,18 @@ await b.schedule(
   },
 );
 console.log("[worker] scheduled records substrate watcher every five minutes");
+
+await b.schedule(
+  QUEUE.RECORDS_WATCH_SWEEP,
+  "*/15 * * * *",
+  { orgId: ADMIN_ORG_ID },
+  {
+    tz: "UTC",
+    retryLimit: 2,
+    retryDelay: 30,
+  },
+);
+console.log("[worker] scheduled records starter-watch fallback every fifteen minutes");
 
 await b.work(QUEUE.WORKFLOW_OUTPUT_TTL_SWEEP, async () => {
   await runWorkflowOutputTtlSweep();

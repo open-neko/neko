@@ -9,6 +9,7 @@ config_dir=${OPENNEKO_RECORDS_GRAPHJIN_CONFIG_DIR:-/config}
 config_file="$config_dir/dev.yml"
 control_file="$config_dir/.records-graphjin-control"
 reload_file="$config_dir/.records-graphjin-reload"
+webhook_secret_file="$config_dir/.records-watch-webhook-secret"
 child_pid=""
 generation=""
 
@@ -31,6 +32,10 @@ current_generation() {
 start_graphjin() {
   if [ ! -s "$config_file" ]; then
     return
+  fi
+  if [ -s "$webhook_secret_file" ]; then
+    OPENNEKO_RECORDS_WATCH_WEBHOOK_SECRET=$(sed -n '1p' "$webhook_secret_file")
+    export OPENNEKO_RECORDS_WATCH_WEBHOOK_SECRET
   fi
   echo "[records-graphjin] starting from generated exhaustive config"
   graphjin "$@" &

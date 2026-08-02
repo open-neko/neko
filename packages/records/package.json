@@ -37,6 +37,7 @@
     "./schema/planner": "./src/schema/planner.ts",
     "./schema/saga": "./src/schema/saga.ts",
     "./types": "./src/types.ts",
+    "./watchers/starter": "./src/watchers/starter.ts",
     "./write/executor": "./src/write/executor.ts",
     "./write/validate": "./src/write/validate.ts"
   },

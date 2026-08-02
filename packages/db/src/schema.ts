@@ -123,6 +123,64 @@ export const records_ops_health = pgTable(
   }),
 );
 
+export const records_watch_binding = pgTable(
+  "records_watch_binding",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    app_id: text("app_id").notNull(),
+    watch_key: text("watch_key").notNull(),
+    workflow_id: uuid("workflow_id")
+      .notNull()
+      .references(() => workflow_definition.id, { onDelete: "cascade" }),
+    graphjin_watch_id: text("graphjin_watch_id").notNull(),
+    definition_hash: text("definition_hash").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    status: text("status").notNull().default("active"),
+    last_evaluated_at: ts("last_evaluated_at"),
+    last_error: text("last_error"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    org_app_watch_unique: uniqueIndex("records_watch_binding_org_app_watch_unique").on(
+      t.org_id,
+      t.app_id,
+      t.watch_key,
+    ),
+    graphjin_watch_unique: uniqueIndex("records_watch_binding_graphjin_watch_unique").on(
+      t.graphjin_watch_id,
+    ),
+    due_idx: index("records_watch_binding_due_idx").on(
+      t.org_id,
+      t.enabled,
+      t.status,
+      t.last_evaluated_at,
+    ),
+  }),
+);
+
+export const records_watch_event_receipt = pgTable(
+  "records_watch_event_receipt",
+  {
+    event_id: text("event_id").primaryKey(),
+    binding_id: uuid("binding_id")
+      .notNull()
+      .references(() => records_watch_binding.id, { onDelete: "cascade" }),
+    payload_hash: text("payload_hash").notNull(),
+    received_at: ts("received_at").notNull().defaultNow(),
+    queued_at: ts("queued_at"),
+  },
+  (t) => ({
+    binding_idx: index("records_watch_event_receipt_binding_idx").on(
+      t.binding_id,
+      t.received_at,
+    ),
+  }),
+);
+
 export const data_source = pgTable(
   "data_source",
   {

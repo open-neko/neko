@@ -3,6 +3,9 @@ import {
   mintRecordsGraphjinToken,
   recordsGraphjinCursorSecret,
   recordsGraphjinSigningSecret,
+  recordsWatchGraphjinCursorSecret,
+  recordsWatchGraphjinSigningSecret,
+  recordsWatchWebhookSecret,
   RecordsGraphjinClient,
   RecordsGraphjinRequestError,
   recordsGraphjinEndpoint,
@@ -21,6 +24,13 @@ describe("records GraphJin client", () => {
     expect(signing).toBe(recordsGraphjinSigningSecret("org-a"));
     expect(signing).not.toBe(recordsGraphjinSigningSecret("org-b"));
     expect(signing).not.toBe(recordsGraphjinCursorSecret("org-a"));
+    expect(signing).not.toBe(recordsWatchGraphjinSigningSecret("org-a"));
+    expect(recordsWatchGraphjinSigningSecret("org-a")).not.toBe(
+      recordsWatchGraphjinCursorSecret("org-a"),
+    );
+    expect(recordsWatchWebhookSecret("org-a")).not.toBe(
+      recordsWatchGraphjinSigningSecret("org-a"),
+    );
     expect(() => recordsGraphjinSigningSecret(" org-a ")).toThrow(/canonical org id/);
   });
 

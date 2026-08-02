@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { networkInterfaces } from "node:os";
 import type { PoolConfig } from "pg";
 import type pg from "pg";
 import {
@@ -23,7 +24,12 @@ import {
   projectRecordsGraphjinRoles,
   recordsGraphjinCursorSecret,
   recordsGraphjinSigningSecret,
+  recordsWatchGraphjinCursorSecret,
+  recordsWatchGraphjinSigningSecret,
+  recordsWatchWebhookSecret,
   writeRecordsGraphjinConfig,
+  writeRecordsWatchGraphjinConfig,
+  writeRecordsWatchWebhookSecret,
   type RecordAppDefinition,
   type RecordSchemaChange,
   type RecordsGraphjinConfigValidator,
@@ -43,6 +49,50 @@ export type RecordsMetadataAppStateProjector = (
 ) => Promise<void>;
 
 export type RecordsPolicyProjector = () => Promise<WriteRecordsGraphjinConfigResult>;
+
+const RECORDS_WATCH_WEBHOOK_PATH = "/admin/events/records-watch";
+
+export function resolveRecordsWatchWebhookUrl(
+  env: NodeJS.ProcessEnv = process.env,
+  interfaces: ReturnType<typeof networkInterfaces> = networkInterfaces(),
+): string | null {
+  const configured = env.OPENNEKO_RECORDS_WATCH_WEBHOOK_URL?.trim();
+  if (configured) {
+    let url: URL;
+    try {
+      url = new URL(configured);
+    } catch {
+      throw new Error("records watch webhook URL must be absolute");
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("records watch webhook URL must use HTTP or HTTPS");
+    }
+    if (
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      url.pathname !== RECORDS_WATCH_WEBHOOK_PATH
+    ) {
+      throw new Error(
+        `records watch webhook URL must target exactly ${RECORDS_WATCH_WEBHOOK_PATH}`,
+      );
+    }
+    return url.toString();
+  }
+
+  for (const name of Object.keys(interfaces).sort()) {
+    for (const address of interfaces[name] ?? []) {
+      if (address.family === "IPv4" && !address.internal) {
+        // GraphJin permits a private target only when the allowlist names the
+        // literal IP. Resolving the worker's current container address here
+        // keeps the default Compose path exact and fail-closed across restarts.
+        return `http://${address.address}:4100${RECORDS_WATCH_WEBHOOK_PATH}`;
+      }
+    }
+  }
+  return null;
+}
 
 function stringConfig(value: PoolConfig[keyof PoolConfig], label: string): string {
   if (typeof value !== "string" && typeof value !== "number") {
@@ -120,6 +170,7 @@ export type RecordsSchemaRuntime = {
   planner: RecordsSchemaPlanner;
   saga: RecordsSchemaSaga;
   controller: RecordsDataPlaneController;
+  watchController: RecordsDataPlaneController | null;
   projectPolicy: RecordsPolicyProjector;
   reconciliation: Awaited<ReturnType<RecordsSchemaSaga["reconcilePending"]>>;
 };
@@ -137,6 +188,11 @@ export async function createRecordsSchemaRuntime(options: {
   graphjinBinary?: string;
   connectionString?: string;
   controller?: RecordsDataPlaneController;
+  enableWatchPlane?: boolean;
+  watchController?: RecordsDataPlaneController;
+  watchGraphjinBaseUrl?: string;
+  watchConfigDirectory?: string;
+  watchWebhookAllow?: string[];
   cli?: RecordsGraphjinSchemaCli;
   validateConfig?: RecordsGraphjinConfigValidator;
   projectMetadata?: RecordsMetadataAppStateProjector;
@@ -162,6 +218,18 @@ export async function createRecordsSchemaRuntime(options: {
       configDirectory,
       baseUrl: graphjinBaseUrl,
     });
+  const watchConfigDirectory =
+    options.watchConfigDirectory ?? join(configDirectory, "watch");
+  const watchController = options.enableWatchPlane
+    ? options.watchController ??
+      new RecordsDataPlaneController({
+        configDirectory: watchConfigDirectory,
+        baseUrl:
+          options.watchGraphjinBaseUrl ??
+          process.env.OPENNEKO_RECORDS_WATCH_GRAPHJIN_URL ??
+          "http://127.0.0.1:8091",
+      })
+    : null;
   const validateConfig =
     options.validateConfig ?? createRecordsGraphjinConfigValidator({ binary });
   const connectionString =
@@ -169,7 +237,7 @@ export async function createRecordsSchemaRuntime(options: {
 
   const projectPolicy: RecordsPolicyProjector = async () => {
     const model = await loadRecordsGraphjinPolicyModel(options.pool, options.orgId);
-    return writeRecordsGraphjinConfig({
+    const projected = await writeRecordsGraphjinConfig({
       configFile,
       config: {
         orgId: options.orgId,
@@ -181,6 +249,51 @@ export async function createRecordsSchemaRuntime(options: {
       validate: validateConfig,
       reloadRecordsGraphjin: () => controller.requestReload(),
     });
+    if (watchController) {
+      await writeRecordsWatchWebhookSecret(
+        watchConfigDirectory,
+        recordsWatchWebhookSecret(options.orgId),
+      );
+      await writeRecordsWatchGraphjinConfig({
+        configFile: join(
+          watchConfigDirectory,
+          RECORDS_GRAPHJIN_CONFIG_FILENAME,
+        ),
+        config: {
+          orgId: options.orgId,
+          database: { connectionString },
+          jwt: { secret: recordsWatchGraphjinSigningSecret(options.orgId) },
+          secretKey: recordsWatchGraphjinCursorSecret(options.orgId),
+          watchWebhookAllow: options.watchWebhookAllow,
+        },
+        validate: validateConfig,
+        reloadRecordsGraphjin: () => watchController.requestReload(),
+      });
+    }
+    return projected;
+  };
+
+  const setDataPlanesReady = async (ready: boolean, reason: string) => {
+    if (!watchController) {
+      await controller.setReady(ready, reason);
+      return;
+    }
+    if (!ready) {
+      await Promise.all([
+        controller.setReady(false, reason),
+        watchController.setReady(false, reason),
+      ]);
+      return;
+    }
+    await controller.setReady(true, reason);
+    try {
+      await watchController.setReady(true, reason);
+    } catch (error) {
+      await controller
+        .setReady(false, "records watch data plane failed to become ready")
+        .catch(() => undefined);
+      throw error;
+    }
   };
 
   const projectMetadata = options.projectMetadata ?? projectMetadataAppState;
@@ -189,7 +302,7 @@ export async function createRecordsSchemaRuntime(options: {
     pool: options.pool,
     cli,
     workspace: createRecordsSchemaWorkspace(configFile),
-    setDataPlaneReady: (ready, reason) => controller.setReady(ready, reason),
+    setDataPlaneReady: setDataPlanesReady,
     project: async (change) => {
       const definition = schemaChangeDefinition(change);
       const registryRevision = await projectRecordAppDefinition(options.pool, {
@@ -208,17 +321,24 @@ export async function createRecordsSchemaRuntime(options: {
   });
   const planner = new RecordsSchemaPlanner({ pool: options.pool, saga });
 
-  await controller.setReady(false, "records worker boot reconciliation");
+  await setDataPlanesReady(false, "records worker boot reconciliation");
   await projectPolicy();
   const reconciliation = await saga.reconcilePending();
   if (reconciliation.failed.length > 0 || (await hasProjectionBlockers(options.pool))) {
-    await controller.setReady(
+    await setDataPlanesReady(
       false,
       "records schema reconciliation remains incomplete",
     );
   } else {
-    await controller.setReady(true, "records schema boot reconciliation complete");
+    await setDataPlanesReady(true, "records schema boot reconciliation complete");
   }
 
-  return { planner, saga, controller, projectPolicy, reconciliation };
+  return {
+    planner,
+    saga,
+    controller,
+    watchController,
+    projectPolicy,
+    reconciliation,
+  };
 }

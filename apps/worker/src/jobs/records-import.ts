@@ -5,6 +5,7 @@ import {
   getRecordImportRun,
   RecordImportExecutor,
   RecordImportTerminalError,
+  type RecordImportReport,
   type RecordImportRun,
 } from "@neko/records";
 import { createRecordsStorageMonitor } from "../records/storage-health.js";
@@ -18,12 +19,18 @@ export type RecordsImportJobOptions = {
   assertStorage?: (recordsBytes: number) => Promise<void>;
 };
 
+export type RecordsImportJobResult = {
+  appId: string;
+  report: RecordImportReport | null;
+  terminalError: Record<string, unknown> | null;
+};
+
 export async function runRecordsImport(
   executor: RecordImportExecutor,
   pool: Pool,
   payload: RecordsImportPayload,
   options: RecordsImportJobOptions = {},
-): Promise<void> {
+): Promise<RecordsImportJobResult> {
   const run = await (options.getRun ?? getRecordImportRun)(pool, {
     orgId: payload.orgId,
     id: payload.importRunId,
@@ -51,20 +58,22 @@ export async function runRecordsImport(
     console.log(
       `[records-import] run=${payload.importRunId} status=${report.status} inserted=${report.inserted} rejected=${report.rejected}`,
     );
+    return { appId: run.appId, report, terminalError: null };
   } catch (error) {
     if (error instanceof RecordImportTerminalError) {
+      const terminalError = { code: error.code, message: error.message };
       await failRecordImportRun(
         pool,
         {
           orgId: payload.orgId,
           id: payload.importRunId,
-          error: { code: error.code, message: error.message },
+          error: terminalError,
         },
       );
       console.warn(
         `[records-import] run=${payload.importRunId} failed terminally: ${error.message}`,
       );
-      return;
+      return { appId: run.appId, report: null, terminalError };
     }
     throw error;
   }

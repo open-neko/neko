@@ -8,6 +8,11 @@
     "label": "CRM",
     "purpose": "Manage customer relationships, pipeline, and follow-up without embedding CRM-specific behavior in the records engine.",
     "nav_order": 20,
+    "starter_workflows": [
+      { "key": "opportunities_without_activity", "label": "Opportunities with no activity in 30 days", "enabled": false },
+      { "key": "unlinked_or_departed_owners", "label": "Records owned by an unlinked or departed source user", "enabled": false },
+      { "key": "deals_closing_this_month", "label": "Deals closing this month by owner", "enabled": false }
+    ],
     "objects": [
       {
         "api_name": "account",

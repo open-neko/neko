@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { and, app_state, db, eq } from "@neko/db";
 import {
@@ -137,12 +137,27 @@ describeIfDb("artifact import metadata lifecycle", () => {
         })),
       }),
     } as unknown as Pool;
+    const onReportReady = vi.fn(async () => undefined);
     await expect(
       refreshArtifactImportState(recordsPool, {
         orgId,
         importRunId: runIds[0]!,
+        onReportReady,
       }),
     ).resolves.toEqual({ matched: true, status: "succeeded" });
+    expect(onReportReady).toHaveBeenCalledWith({
+      orgId,
+      report: expect.objectContaining({
+        appId: "crm",
+        status: "succeeded",
+        runIds,
+        progress: expect.objectContaining({ total: 2, succeeded: 2, missing: 0 }),
+        reports: {
+          [runIds[0]!]: { inserted: 1, reconciled: true },
+          [runIds[1]!]: { inserted: 1, reconciled: true },
+        },
+      }),
+    });
     rows = await db()
       .select({ status: app_state.status, config: app_state.config })
       .from(app_state)

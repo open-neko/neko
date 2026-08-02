@@ -30,6 +30,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   AuthIdentity,
   BeginConnectParams,
@@ -221,6 +222,8 @@ export type AdminHandlerOptions = {
    * /admin/events/external to fire external_event subscriptions.
    */
   events?: ExternalEventHandlerSurface | null;
+  /** HMAC-authenticated native GraphJin watch delivery ingress. */
+  recordsWatches?: RecordsWatchHandlerSurface | null;
 };
 
 export interface ExternalEventHandlerSurface {
@@ -233,6 +236,15 @@ export interface ExternalEventHandlerSurface {
   }): Promise<{ matched: number; enqueued: number }>;
 }
 
+export interface RecordsWatchHandlerSurface {
+  secret: string;
+  dispatch(input: {
+    watchId: string;
+    eventId: string;
+    payload: Record<string, unknown>;
+  }): Promise<{ accepted: boolean }>;
+}
+
 export function createAdminHandler(opts: AdminHandlerOptions = {}) {
   const exit = opts.exit ?? ((code = 0) => process.exit(code));
   const exitDelayMs = opts.exitDelayMs ?? 100;
@@ -242,6 +254,7 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
   const channels = opts.channels ?? null;
   const installPolicy = opts.installPolicy ?? null;
   const events = opts.events ?? null;
+  const recordsWatches = opts.recordsWatches ?? null;
 
   return function handle(req: IncomingMessage, res: ServerResponse) {
     if (req.method === "GET" && req.url === "/health") {
@@ -314,6 +327,13 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
     }
     if (req.method === "POST" && req.url === "/admin/events/external") {
       void handleExternalEvent(req, res, events);
+      return;
+    }
+    if (
+      req.method === "POST" &&
+      req.url === "/admin/events/records-watch"
+    ) {
+      void handleRecordsWatch(req, res, recordsWatches);
       return;
     }
     if (req.method === "GET" && req.url === "/admin/install-policy") {
@@ -442,6 +462,90 @@ async function handleExternalEvent(
   } catch (err) {
     json(res, 500, {
       error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function recordsWatchSignatureValid(
+  rawBody: string,
+  signature: string | undefined,
+  secret: string,
+): boolean {
+  const match = /^sha256=([0-9a-f]{64})$/i.exec(signature ?? "");
+  if (!match || secret.length < 32) return false;
+  const expected = createHmac("sha256", secret).update(rawBody).digest();
+  const actual = Buffer.from(match[1]!, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+async function handleRecordsWatch(
+  req: IncomingMessage,
+  res: ServerResponse,
+  recordsWatches: RecordsWatchHandlerSurface | null,
+) {
+  if (!recordsWatches) {
+    json(res, 503, { error: "records watch ingress unavailable" });
+    return;
+  }
+  const rawBody = await readText(req).catch(() => null);
+  if (
+    rawBody === null ||
+    !recordsWatchSignatureValid(
+      rawBody,
+      typeof req.headers["x-graphjin-signature"] === "string"
+        ? req.headers["x-graphjin-signature"]
+        : undefined,
+      recordsWatches.secret,
+    )
+  ) {
+    json(res, 401, { error: "invalid records watch signature" });
+    return;
+  }
+  let payload: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(rawBody) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("object required");
+    }
+    payload = parsed as Record<string, unknown>;
+  } catch {
+    json(res, 400, { error: "records watch body must be JSON" });
+    return;
+  }
+  const watch = payload.watch;
+  const event = payload.event;
+  if (
+    !watch ||
+    typeof watch !== "object" ||
+    Array.isArray(watch) ||
+    !event ||
+    typeof event !== "object" ||
+    Array.isArray(event)
+  ) {
+    json(res, 400, { error: "records watch envelope is invalid" });
+    return;
+  }
+  const watchId = (watch as Record<string, unknown>).id;
+  const eventId = (event as Record<string, unknown>).id;
+  const eventWatchId = (event as Record<string, unknown>).watch_id;
+  const idempotencyKey = req.headers["idempotency-key"];
+  if (
+    typeof watchId !== "string" ||
+    !watchId ||
+    typeof eventId !== "string" ||
+    !eventId ||
+    eventWatchId !== watchId ||
+    idempotencyKey !== eventId
+  ) {
+    json(res, 400, { error: "records watch identity is invalid" });
+    return;
+  }
+  try {
+    const result = await recordsWatches.dispatch({ watchId, eventId, payload });
+    json(res, 202, result);
+  } catch (error) {
+    json(res, 500, {
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 }

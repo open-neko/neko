@@ -21,7 +21,7 @@ describe("records import job", () => {
     const execute = vi.fn(async () => report);
     const assertStorage = vi.fn().mockResolvedValue(undefined);
 
-    await runRecordsImport(
+    const result = await runRecordsImport(
       { execute } as unknown as RecordImportExecutor,
       {} as Pool,
       {
@@ -32,6 +32,7 @@ describe("records import job", () => {
       {
         leaseOwner: "records-import-job:boss-job-1",
         getRun: vi.fn().mockResolvedValue({
+          appId: "equipment",
           status: "planned",
           plan: { source: { bytes: 128 } },
         }),
@@ -46,5 +47,10 @@ describe("records import job", () => {
       leaseOwner: "records-import-job:boss-job-1",
     });
     expect(assertStorage).toHaveBeenCalledWith(384);
+    expect(result).toEqual({
+      appId: "equipment",
+      report,
+      terminalError: null,
+    });
   });
 });

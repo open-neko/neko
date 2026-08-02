@@ -62,6 +62,7 @@ func runRestore(ctx context.Context, cmd *cobra.Command, target string) error {
 		"worker",
 		"neko-graphjin",
 		"records-graphjin",
+		"records-watch-graphjin",
 		"openshell-gateway",
 		"neko-backup",
 		"neko-db",

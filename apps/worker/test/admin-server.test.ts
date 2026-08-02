@@ -7,6 +7,7 @@
  */
 
 import { createServer } from "node:http";
+import { createHmac } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -116,6 +117,84 @@ describe("worker admin HTTP handler", () => {
       const res = await fetch(`http://127.0.0.1:${srv.port}/whatever`);
       expect(res.status).toBe(404);
       expect(exit).not.toHaveBeenCalled();
+    } finally {
+      await srv.close();
+    }
+  });
+});
+
+describe("worker native records-watch ingress", () => {
+  const secret = "records-watch-test-secret-that-is-at-least-thirty-two-bytes";
+  const body = JSON.stringify({
+    watch: { id: "watch-1", name: "stale-opportunities" },
+    event: { id: "event-1", watch_id: "watch-1", data_hash: "hash-1" },
+  });
+
+  function signature(value: string): string {
+    return `sha256=${createHmac("sha256", secret).update(value).digest("hex")}`;
+  }
+
+  it("accepts an exact signed GraphJin event and dispatches it once", async () => {
+    const dispatch = vi.fn().mockResolvedValue({ accepted: true });
+    const srv = await startServer(
+      createAdminHandler({ recordsWatches: { secret, dispatch } }),
+    );
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/events/records-watch`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-graphjin-signature": signature(body),
+            "idempotency-key": "event-1",
+          },
+          body,
+        },
+      );
+      expect(response.status).toBe(202);
+      expect(dispatch).toHaveBeenCalledWith({
+        watchId: "watch-1",
+        eventId: "event-1",
+        payload: JSON.parse(body),
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("rejects tampering and mismatched idempotency identities", async () => {
+    const dispatch = vi.fn();
+    const srv = await startServer(
+      createAdminHandler({ recordsWatches: { secret, dispatch } }),
+    );
+    try {
+      const tampered = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/events/records-watch`,
+        {
+          method: "POST",
+          headers: {
+            "x-graphjin-signature": signature(body),
+            "idempotency-key": "event-1",
+          },
+          body: `${body} `,
+        },
+      );
+      expect(tampered.status).toBe(401);
+
+      const mismatched = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/events/records-watch`,
+        {
+          method: "POST",
+          headers: {
+            "x-graphjin-signature": signature(body),
+            "idempotency-key": "event-other",
+          },
+          body,
+        },
+      );
+      expect(mismatched.status).toBe(400);
+      expect(dispatch).not.toHaveBeenCalled();
     } finally {
       await srv.close();
     }

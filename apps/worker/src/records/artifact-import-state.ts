@@ -9,6 +9,7 @@ import {
 } from "@neko/records";
 import { reconcileArtifactIdentities } from "./artifact-identity.js";
 import { cleanupSalesforceArtifactStaging } from "./staging-hygiene.js";
+import type { RecordsImportReport } from "../jobs/records-lifecycle-finding.js";
 
 type ArtifactImportState = {
   kind: "artifact";
@@ -150,6 +151,10 @@ export async function refreshArtifactImportState(
     importRunId: string;
     graphjin?: RecordsGraphjinTransport;
     serviceToken?: string;
+    onReportReady?: (input: {
+      orgId: string;
+      report: RecordsImportReport;
+    }) => Promise<void>;
   },
 ): Promise<{ matched: boolean; status?: string }> {
   const states = await db()
@@ -295,5 +300,20 @@ export async function refreshArtifactImportState(
       config: sql`${app_state.config} || ${JSON.stringify({ import: next })}::jsonb`,
     })
     .where(and(eq(app_state.org_id, input.orgId), eq(app_state.app_id, match.appId)));
+  if (status !== "running" && input.onReportReady) {
+    await input.onReportReady({
+      orgId: input.orgId,
+      report: {
+        appId: match.appId,
+        status,
+        runIds,
+        progress: next.progress ?? {},
+        reports: next.reports ?? {},
+        ...(next.identity ? { identity: next.identity } : {}),
+        ...(next.cleanup ? { cleanup: next.cleanup } : {}),
+        ...(next.error ? { error: next.error } : {}),
+      },
+    });
+  }
   return { matched: true, status };
 }

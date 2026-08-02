@@ -7,6 +7,7 @@ import {
   acquireRecordsGraphjinConfigLock,
   buildRecordsGraphjinConfig,
   buildRecordsGraphjinRoleQuery,
+  buildRecordsWatchGraphjinConfig,
   writeRecordsGraphjinConfig,
   type BuildRecordsGraphjinConfigInput,
 } from "../src/graphjin/config";
@@ -72,6 +73,59 @@ describe("records GraphJin config", () => {
           table.delete.block,
       ),
     ).toBe(true);
+  });
+
+  it("builds an isolated read-only native watch plane with an exact webhook allowlist", () => {
+    const allow = ["http://172.20.0.8:4100/admin/events/records-watch"];
+    const config = parse(
+      buildRecordsWatchGraphjinConfig({
+        orgId: "org-a",
+        database: configInput().database,
+        jwt: { secret: "watch-jwt-secret-that-is-at-least-thirty-two-bytes" },
+        secretKey: "watch-cursor-secret-that-is-at-least-thirty-two-bytes",
+        watchWebhookAllow: allow,
+      }),
+    ) as Record<string, any>;
+
+    expect(config).not.toHaveProperty("database");
+    expect(config).not.toHaveProperty("roles");
+    expect(config).not.toHaveProperty("roles_query");
+    expect(config).toMatchObject({
+      mode: "agentic",
+      production: true,
+      mcp: { disable: true, allow_mutations: false },
+      identity: {
+        namespace_claim: "org_id",
+        admin_roles: ["records_watch_control_admin"],
+      },
+      artifacts: { enabled: true, source: "records", schema: "_graphjin" },
+      watches: { enabled: true, runner: "all", webhook_allow: allow },
+      sources: [
+        {
+          name: "records",
+          kind: "database",
+          access: {
+            read: "account",
+            write: "blocked",
+            delete: "blocked",
+            namespace_column: "org_id",
+            missing_namespace_column: "block",
+          },
+        },
+        {
+          name: "graphjin",
+          kind: "graphjin",
+          control_plane: true,
+          access: {
+            roots: {
+              gj_watch: "authenticated",
+              gj_watch_event: "authenticated",
+              gj_artifacts: "blocked",
+            },
+          },
+        },
+      ],
+    });
   });
 
   it("escapes the org literal and rejects role-query characters GraphJin cannot parse", () => {

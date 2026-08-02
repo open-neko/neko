@@ -19,6 +19,7 @@ import { validateRecordIdentifier } from "../naming";
 
 export const RECORDS_GRAPHJIN_VERSION = "3.18.42";
 export const RECORDS_GRAPHJIN_CONFIG_FILENAME = "dev.yml";
+export const RECORDS_WATCH_WEBHOOK_SECRET_FILENAME = ".records-watch-webhook-secret";
 
 const CONFIG_MODE = 0o600;
 const LOCK_MODE = 0o600;
@@ -46,6 +47,14 @@ export type BuildRecordsGraphjinConfigInput = {
   secretKey: string;
   rateLimit?: { rate: number; bucket: number };
   defaultLimit?: number;
+};
+
+export type BuildRecordsWatchGraphjinConfigInput = {
+  orgId: string;
+  database: RecordsGraphjinDatabaseConfig;
+  jwt: RecordsGraphjinJwtConfig;
+  secretKey: string;
+  watchWebhookAllow?: string[];
 };
 
 export type RecordsGraphjinConfigValidator = (input: {
@@ -273,6 +282,163 @@ export function buildRecordsGraphjinConfig(input: BuildRecordsGraphjinConfigInpu
   return stringify(config, { lineWidth: 0, sortMapEntries: false });
 }
 
+/**
+ * Build the internal-only native watch plane. GraphJin source mode owns the
+ * artifact/watch store, while the public records data plane retains its
+ * exhaustive legacy role-table policy. A separate JWT secret ensures tokens
+ * minted for human records reads cannot be replayed against this service.
+ */
+export function buildRecordsWatchGraphjinConfig(
+  input: BuildRecordsWatchGraphjinConfigInput,
+): string {
+  validateOrgIdForRoleQuery(input.orgId);
+  if (input.jwt.secret.length < 32) {
+    throw new Error("records watch GraphJin JWT secret must be at least 32 characters");
+  }
+  if (input.secretKey.length < 32) {
+    throw new Error("records watch GraphJin cursor secret must be at least 32 characters");
+  }
+  const connection = postgresConnectionConfig(
+    input.database.connectionString,
+    input.database.statementTimeoutMs ?? 5_000,
+  );
+  const jwt: Record<string, string> = {
+    provider: "other",
+    secret: input.jwt.secret,
+  };
+  if (input.jwt.audience) jwt.audience = input.jwt.audience;
+  if (input.jwt.issuer) jwt.issuer = input.jwt.issuer;
+
+  const config = {
+    app_name: "OpenNeko Records Watches",
+    mode: "agentic",
+    production: true,
+    host_port: "0.0.0.0:8090",
+    log_level: "info",
+    log_format: "json",
+    web_ui: false,
+    enable_tracing: false,
+    log_vars: false,
+    auth_fail_block: true,
+    reload_on_config_change: false,
+    disable_allow_list: true,
+    disable_production_security: true,
+    default_block: true,
+    // The native gj_watch control store has temporal columns of its own.
+    // Analytics mode would require callers (and GraphJin's internal runner)
+    // to add time-window predicates when managing those control rows.
+    analytics_mode: false,
+    default_limit: 500,
+    subs_poll_duration: "30s",
+    db_schema_poll_duration: "0s",
+    secret_key: input.secretKey,
+    rate_limiter: { rate: 10, bucket: 20 },
+    caching: { disable: true },
+    identity: {
+      user_id_claim: "sub",
+      role_claims: ["role", "roles"],
+      namespace_claim: "org_id",
+      // Never classify a normal records role as a source-mode admin. GraphJin
+      // admins intentionally bypass account filters, while the dedicated
+      // watch service must remain scoped to the org_id in its signed token.
+      admin_roles: ["records_watch_control_admin"],
+    },
+    auth: { type: "jwt", development: false, jwt },
+    mcp: {
+      disable: true,
+      allow_config_updates: false,
+      allow_mutations: false,
+      allow_raw_queries: false,
+      allow_workflow_execution: false,
+      allow_workflow_updates: false,
+      allow_schema_reload: false,
+      allow_schema_updates: false,
+      allow_dev_tools: false,
+    },
+    artifacts: {
+      enabled: true,
+      source: "records",
+      schema: "_graphjin",
+      auto_init: true,
+      poll_seconds: 5,
+      locked: ["saved_query", "fragment", "workflow", "runbook"],
+    },
+    watches: {
+      enabled: true,
+      runner: "all",
+      max_per_owner: 50,
+      event_retention_hours: 168,
+      max_events_per_watch: 500,
+      snapshot_max_bytes: 32768,
+      webhook_allow: input.watchWebhookAllow ?? [],
+    },
+    sources: [
+      {
+        name: "records",
+        kind: "database",
+        default: true,
+        type: "postgres",
+        connection_string: connection.connectionString,
+        dbname: connection.databaseName,
+        pool_size: validatePositiveInteger(
+          input.database.poolSize ?? 3,
+          "records watch database pool size",
+        ),
+        max_connections: validatePositiveInteger(
+          input.database.maxConnections ?? 10,
+          "records watch database max connections",
+        ),
+        ping_timeout: "5s",
+        access: {
+          read: "account",
+          write: "blocked",
+          delete: "blocked",
+          namespace_column: "org_id",
+          owner_column: "owner_user_id",
+          missing_namespace_column: "block",
+        },
+      },
+      {
+        name: "graphjin",
+        kind: "graphjin",
+        metadata: false,
+        catalog: false,
+        control_plane: true,
+        access: {
+          roots: {
+            gj_catalog: "blocked",
+            gj_security: "blocked",
+            gj_config: "blocked",
+            gj_runtime: "blocked",
+            gj_artifacts: "blocked",
+            // This process has its own signing key and is only reachable on
+            // the private network. Authenticated access lets the service own
+            // its watches without granting GraphJin's tenant-filter bypass.
+            gj_watch: "authenticated",
+            gj_watch_event: "authenticated",
+            gj_workflow: "blocked",
+            gj_workflow_execution: "blocked",
+          },
+        },
+        capabilities: {
+          "catalog.read": false,
+          "security.read": false,
+          "config.read": false,
+          "config.write": false,
+          "runtime.read": false,
+          "raw_graphql.query": true,
+          "raw_graphql.mutate": true,
+          "schema.reload": false,
+          "schema.write": false,
+          "dev_tools.read": false,
+          "legacy_discovery.read": false,
+        },
+      },
+    ],
+  };
+  return stringify(config, { lineWidth: 0, sortMapEntries: false });
+}
+
 function runGraphjin(
   binary: string,
   args: string[],
@@ -363,21 +529,46 @@ async function fsyncDirectory(directory: string): Promise<void> {
   }
 }
 
+export async function writeRecordsWatchWebhookSecret(
+  configDirectory: string,
+  secret: string,
+): Promise<void> {
+  if (secret.length < 32 || /[\r\n]/.test(secret)) {
+    throw new Error("records watch webhook secret must be one line and at least 32 characters");
+  }
+  await mkdir(configDirectory, { recursive: true, mode: DIRECTORY_MODE });
+  const target = join(configDirectory, RECORDS_WATCH_WEBHOOK_SECRET_FILENAME);
+  const staging = join(
+    configDirectory,
+    `.${RECORDS_WATCH_WEBHOOK_SECRET_FILENAME}.${randomUUID()}.tmp`,
+  );
+  const handle = await open(staging, "wx", CONFIG_MODE);
+  try {
+    await handle.writeFile(`${secret}\n`, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  try {
+    await rename(staging, target);
+    await fsyncDirectory(configDirectory);
+  } catch (error) {
+    await unlink(staging).catch(() => undefined);
+    throw error;
+  }
+}
+
 export type WriteRecordsGraphjinConfigResult = {
   sha256: string;
   bytes: number;
 };
 
-/**
- * Validate a staged complete config, atomically replace the live file, then
- * invoke the caller's records-only reload boundary. Production GraphJin does
- * not file-watch configs, so a reload callback is mandatory.
- */
-export async function writeRecordsGraphjinConfig(input: {
+async function writeGeneratedRecordsGraphjinConfig(input: {
   configFile: string;
-  config: BuildRecordsGraphjinConfigInput;
+  yaml: string;
   reloadRecordsGraphjin: () => Promise<void>;
   validate?: RecordsGraphjinConfigValidator;
+  stagingPrefix: string;
 }): Promise<WriteRecordsGraphjinConfigResult> {
   if (basename(input.configFile) !== RECORDS_GRAPHJIN_CONFIG_FILENAME) {
     throw new Error(`records GraphJin config must be named ${RECORDS_GRAPHJIN_CONFIG_FILENAME}`);
@@ -386,17 +577,16 @@ export async function writeRecordsGraphjinConfig(input: {
     throw new Error("records GraphJin config requires an explicit reload callback");
   }
 
-  const yaml = buildRecordsGraphjinConfig(input.config);
   const directory = dirname(input.configFile);
   const release = await acquireRecordsGraphjinConfigLock(input.configFile);
-  const stagingDirectory = join(directory, `.records-graphjin-${randomUUID()}`);
+  const stagingDirectory = join(directory, `.${input.stagingPrefix}-${randomUUID()}`);
   const stagingFile = join(stagingDirectory, RECORDS_GRAPHJIN_CONFIG_FILENAME);
 
   try {
     await mkdir(stagingDirectory, { mode: DIRECTORY_MODE });
     const handle = await open(stagingFile, "wx", CONFIG_MODE);
     try {
-      await handle.writeFile(yaml, "utf8");
+      await handle.writeFile(input.yaml, "utf8");
       await handle.sync();
     } finally {
       await handle.close();
@@ -409,13 +599,48 @@ export async function writeRecordsGraphjinConfig(input: {
     await input.reloadRecordsGraphjin();
 
     return {
-      sha256: createHash("sha256").update(yaml, "utf8").digest("hex"),
-      bytes: Buffer.byteLength(yaml, "utf8"),
+      sha256: createHash("sha256").update(input.yaml, "utf8").digest("hex"),
+      bytes: Buffer.byteLength(input.yaml, "utf8"),
     };
   } finally {
     await rm(stagingDirectory, { recursive: true, force: true });
     await release();
   }
+}
+
+/**
+ * Validate a staged complete config, atomically replace the live file, then
+ * invoke the caller's records-only reload boundary. Production GraphJin does
+ * not file-watch configs, so a reload callback is mandatory.
+ */
+export async function writeRecordsGraphjinConfig(input: {
+  configFile: string;
+  config: BuildRecordsGraphjinConfigInput;
+  reloadRecordsGraphjin: () => Promise<void>;
+  validate?: RecordsGraphjinConfigValidator;
+}): Promise<WriteRecordsGraphjinConfigResult> {
+  return writeGeneratedRecordsGraphjinConfig({
+    configFile: input.configFile,
+    yaml: buildRecordsGraphjinConfig(input.config),
+    reloadRecordsGraphjin: input.reloadRecordsGraphjin,
+    validate: input.validate,
+    stagingPrefix: "records-graphjin",
+  });
+}
+
+export async function writeRecordsWatchGraphjinConfig(input: {
+  configFile: string;
+  config: BuildRecordsWatchGraphjinConfigInput;
+  reloadRecordsGraphjin: () => Promise<void>;
+  validate?: RecordsGraphjinConfigValidator;
+}): Promise<WriteRecordsGraphjinConfigResult> {
+  return writeGeneratedRecordsGraphjinConfig({
+    configFile: input.configFile,
+    yaml: buildRecordsWatchGraphjinConfig(input.config),
+    reloadRecordsGraphjin: input.reloadRecordsGraphjin,
+    validate: input.validate,
+    stagingPrefix: "records-watch-graphjin",
+  });
 }
 
 /** Read-only helper for boot drift audits without exposing config contents. */
