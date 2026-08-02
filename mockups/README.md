@@ -13,9 +13,43 @@ GraphJin/JWT). The UI is generated per app from registry metadata — the CRM
 shown here is one app; a support-desk app renders through the exact same
 components.
 
+**The mockup is not an illustration — it is the acceptance criterion.** It
+depicts what the *generated* UI must produce from registry content alone
+(see §1.1), and M1 ships a registry fixture that renders to match it (§7,
+§8). It shows the **target state**, not the cold start: generation plus a
+few approval-gated `app_layout_update` tweaks (column choice/order, pill
+emphasis) — the same conversational tuning any operator would do, and the
+demo of the agent improving its own app's UI.
+
 ---
 
 ## 1. Ground rules
+
+### 1.1 Every mockup region is generatable — the three buckets
+
+Feasibility check, region by region (details in the §2 map): everything on
+this screen falls into one of three buckets, and nothing falls outside them.
+
+1. **Pure registry data** — the rail group (labels, counts, `__c` badges),
+   every table column and cell treatment (`record_field.kind` → renderer),
+   pill values/colors (`picklist_values` + stable-hash palette), filters
+   (registry fields × the GraphJin operator set), record counts (`count_id`
+   aggregate), the "My records" toggle (registry-known ownership column).
+   Zero app-specific code, by construction.
+2. **Generic mechanisms with registry inputs** (built once, app-agnostic):
+   the owner cell's unlinked-identity state (join through
+   `engine.identity_map`), the pending-change stripe (metadata-DB
+   `action_request` rows intersected with the page's record ids —
+   cross-DB merge in the list API), and the `SubstrateStrip`
+   (`app_state.config` + watermark + backup finding + unlinked count).
+3. **Native trust surfaces composed in** — the Ask panel and its approval
+   card are deliberately *not* generated (D15/D16 boundary): native thread
+   machinery mounted in the third column with a scope context.
+
+The known gap is **default quality, not feasibility**: cold-start layout
+heuristics render correctly but plainer than this mockup. The distance is
+closed by layout metadata, not code — which is exactly what the parity
+fixture (§8) exercises.
 
 - **The mockup is built from the app's real tokens** (`globals.css` `@theme`:
   `--color-bg #FAFAF7`, `--color-accent #6B5CE7`, Archivo display / Manrope
@@ -135,7 +169,20 @@ and (Phase 3) form inputs — three views of the same registry row:
 matrix minus form column), detail page (sections, related lists, change-log
 timeline), `SubstrateStrip`, `OwnerCell` identity states.
 *Done when:* every imported object browses correctly with zero
-object-specific code; member vs admin row visibility verified in e2e.
+object-specific code; member vs admin row visibility verified in e2e; **the
+mockup-parity test passes** — the `mockup-crm` fixture (below) renders the
+opportunity list view to a visual-regression match of
+`crm-main-screen.html`.
+
+**The mockup-parity fixture:** the mockup re-expressed as registry content —
+the CRM blueprint (objects, fields, picklists) + the exact list layout shown
+(columns, order, pill emphasis, stored as `record_layout` rows, as if applied
+by `app_layout_update`) + seeded records including the mockup's specific
+states (an unlinked SF owner, a pending `record_update` on the Meridian row)
++ an `app_state.config` matching the substrate strip. If any pixel of the
+mockup cannot be produced from this fixture through the generated pipeline,
+that is a registry/renderer feature gap to fix — never a hardcoded special
+case. The fixture doubles as the seeded demo app.
 
 **M2 (Phase 2 — chat writes):** `AskPanel` scoping, `RecordActCard` diff
 body, `PendingChangeMarker`, auto-fired rule rows.
@@ -159,5 +206,10 @@ form path; saved views survive reload and are shareable org-wide by admins.
   nav gating (app inactive → 404, active → rail group), list filtering +
   sort + pagination, detail related lists, M2 scenario above, RBAC
   visibility split, unlinked-owner rendering.
-- **Visual regression** for the pill palette and pending-row treatment
-  against this mockup (screenshot compare on the seeded fixture).
+- **Mockup-parity visual regression (the M1 acceptance test):** seed the
+  `mockup-crm` fixture (§7), render `/a/crm/opportunity` through the real
+  generated pipeline (registry → generated GraphQL → renderers), and
+  screenshot-compare against `crm-main-screen.html` — rail group, table
+  treatment, pill palette, pending-row stripe, owner identity states, and
+  substrate strip all within tolerance. A parity failure is a
+  registry/renderer gap, not a test to relax.

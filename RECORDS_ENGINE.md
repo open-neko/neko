@@ -807,7 +807,12 @@ Routes:
 
 **Testing:** component tests for the field-widget matrix; e2e against a seeded
 mini-registry: nav gating, list filtering, detail related-lists, form
-round-trip through the action path, member-vs-admin visibility.
+round-trip through the action path, member-vs-admin visibility. Plus the
+**mockup-parity test** ([mockups/README.md](mockups/README.md) §7–8): the
+mockup re-expressed as a registry fixture must render to a
+visual-regression match through the real generated pipeline — the mockup is
+the acceptance criterion for the generated UI, and any parity failure is a
+registry/renderer gap, never grounds for a special case.
 
 ### C7 — RBAC policy module
 
