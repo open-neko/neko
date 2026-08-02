@@ -75,15 +75,17 @@ describe("records identity action adapter", () => {
     ]);
     const registered = vi.fn();
     registerRecordIdentityActions({ execute: vi.fn() }, registered);
-    expect(registered).toHaveBeenCalledWith(
+    expect(registered.mock.calls.map(([kind]) => kind)).toEqual([
       "records_identity_backfill",
-      expect.any(Function),
-    );
+      "records_identity_backfill_lazy",
+    ]);
   });
 
   it("executes an exact source-scoped request under the snapshotted admin", async () => {
     const execute = vi.fn(async (request: RecordOwnerBackfillRequest) => report(request));
-    const adapter = createRecordIdentityActionAdapter({ execute });
+    const adapter = createRecordIdentityActionAdapter("records_identity_backfill", {
+      execute,
+    });
     await expect(
       adapter({
         request: actionRequest({
@@ -108,7 +110,9 @@ describe("records identity action adapter", () => {
   });
 
   it("rejects non-admin and unknown payload fields", async () => {
-    const adapter = createRecordIdentityActionAdapter({ execute: vi.fn() });
+    const adapter = createRecordIdentityActionAdapter("records_identity_backfill", {
+      execute: vi.fn(),
+    });
     await expect(
       adapter({
         request: actionRequest(
@@ -129,13 +133,36 @@ describe("records identity action adapter", () => {
   });
 
   it("marks transient GraphJin failures retryable", async () => {
-    const adapter = createRecordIdentityActionAdapter({
-      execute: vi.fn().mockRejectedValue(new RecordsGraphjinRequestError("down", 503)),
+    const adapter = createRecordIdentityActionAdapter("records_identity_backfill", {
+      execute: vi
+        .fn()
+        .mockRejectedValue(new RecordsGraphjinRequestError("down", 503)),
     });
     await expect(
       adapter({
         request: actionRequest({ app: "crm", source_instance_id: "sf-prod" }),
       }),
     ).rejects.toBeInstanceOf(RetryableActionAdapterError);
+  });
+
+  it("accepts lazy actions only from the identity-link worker for that user", async () => {
+    const execute = vi.fn(async (request: RecordOwnerBackfillRequest) => report(request));
+    const adapter = createRecordIdentityActionAdapter("records_identity_backfill_lazy", {
+      execute,
+    });
+    const trusted = actionRequest({
+      app: "crm",
+      source_instance_id: "sf-prod",
+      source_user_id: "005-alice",
+      linked_app_user_id: "admin-1",
+    });
+    trusted.kind = "records_identity_backfill_lazy";
+    trusted.actorBackend = "records-identity-link";
+    await expect(adapter({ request: trusted })).resolves.toMatchObject({
+      result: { updated: 3 },
+    });
+
+    const forged = { ...trusted, actorBackend: "codex" };
+    await expect(adapter({ request: forged })).rejects.toThrow(/trusted identity-link worker/);
   });
 });

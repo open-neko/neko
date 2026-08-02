@@ -385,6 +385,24 @@ export async function seedDefaultActionPolicies(orgId: string): Promise<void> {
       enabled: true,
     });
   }
+  if (!names.has("records_identity_backfill_lazy_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "records_identity_backfill_lazy_default",
+      description:
+        "A trusted post-SSO identity link may propagate that exact source user's ownership automatically.",
+      appliesToKinds: ["records_identity_backfill_lazy"],
+      appliesToScopes: ["internal"],
+      mode: "auto_approve" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: null,
+      priority: 89,
+      enabled: true,
+    });
+  }
   // OL5: configuring the customer GraphJin (sources/roles/access) from
   // chat needs an ADMIN. (The OpenNeko internal GraphJin is never a target.)
   if (!names.has("source_config_management_default")) {

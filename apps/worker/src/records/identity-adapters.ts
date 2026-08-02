@@ -13,7 +13,10 @@ import {
   type ActionRequestRecord,
 } from "@neko/llm/workflows";
 
-export const RECORD_IDENTITY_ACTION_KINDS = ["records_identity_backfill"] as const;
+export const RECORD_IDENTITY_ACTION_KINDS = [
+  "records_identity_backfill",
+  "records_identity_backfill_lazy",
+] as const;
 
 export const RECORD_IDENTITY_ACTION_DESCRIPTORS = [
   {
@@ -56,17 +59,36 @@ function optionalString(payload: Record<string, unknown>, field: string): string
   return requiredString(payload, field);
 }
 
-function assertPayload(request: ActionRequestRecord): RecordOwnerBackfillRequest {
-  if (request.actorRole !== "admin") {
+function assertPayload(
+  kind: (typeof RECORD_IDENTITY_ACTION_KINDS)[number],
+  request: ActionRequestRecord,
+): RecordOwnerBackfillRequest {
+  if (kind === "records_identity_backfill" && request.actorRole !== "admin") {
     throw new RecordIdentityActionPayloadError("identity backfill requires an admin actor snapshot");
   }
-  const allowed = new Set(["app", "source_instance_id", "source_user_id"]);
+  if (
+    kind === "records_identity_backfill_lazy" &&
+    (request.actorBackend !== "records-identity-link" ||
+      !request.actorUserId ||
+      request.payload.linked_app_user_id !== request.actorUserId)
+  ) {
+    throw new RecordIdentityActionPayloadError(
+      "lazy identity backfill requires the trusted identity-link worker",
+    );
+  }
+  const allowed = new Set([
+    "app",
+    "source_instance_id",
+    "source_user_id",
+    ...(kind === "records_identity_backfill_lazy" ? ["linked_app_user_id"] : []),
+  ]);
   const unknown = Object.keys(request.payload).filter((key) => !allowed.has(key));
   if (unknown.length > 0) {
     throw new RecordIdentityActionPayloadError(
       `unknown payload field${unknown.length === 1 ? "" : "s"}: ${unknown.sort().join(", ")}`,
     );
   }
+  const sourceUserId = optionalString(request.payload, "source_user_id");
   return {
     actionRequestId: request.id,
     orgId: request.orgId,
@@ -74,9 +96,7 @@ function assertPayload(request: ActionRequestRecord): RecordOwnerBackfillRequest
     sourceInstanceId: requiredString(request.payload, "source_instance_id"),
     actorUserId:
       request.actorUserId?.trim() || `urn:openneko:solo-admin:${request.orgId}`,
-    ...(optionalString(request.payload, "source_user_id")
-      ? { sourceUserId: optionalString(request.payload, "source_user_id") }
-      : {}),
+    ...(sourceUserId ? { sourceUserId } : {}),
   };
 }
 
@@ -99,16 +119,17 @@ function retryable(error: unknown): boolean {
 }
 
 export function createRecordIdentityActionAdapter(
+  kind: (typeof RECORD_IDENTITY_ACTION_KINDS)[number],
   executor: RecordOwnerBackfillActionExecutor,
 ): ActionAdapter {
   return async ({ request }) => {
-    if (request.kind !== "records_identity_backfill") {
+    if (request.kind !== kind) {
       throw new RecordIdentityActionPayloadError(
-        `identity adapter cannot execute action kind ${request.kind}`,
+        `identity adapter ${kind} cannot execute action kind ${request.kind}`,
       );
     }
     try {
-      const result = await executor.execute(assertPayload(request));
+      const result = await executor.execute(assertPayload(kind, request));
       return {
         commandOrOperation: request.kind,
         externalRef: `${result.appId}:${result.sourceInstanceId}`,
@@ -130,5 +151,7 @@ export function registerRecordIdentityActions(
   executor: RecordOwnerBackfillActionExecutor,
   register: (kind: string, adapter: ActionAdapter) => void = registerActionAdapter,
 ): void {
-  register("records_identity_backfill", createRecordIdentityActionAdapter(executor));
+  for (const kind of RECORD_IDENTITY_ACTION_KINDS) {
+    register(kind, createRecordIdentityActionAdapter(kind, executor));
+  }
 }

@@ -8,6 +8,7 @@ import {
   decideIdentityMapping,
   linkIdentityMappingsForUser,
   listIdentityMappings,
+  listLinkedIdentityScopesForUser,
   reconcileImportedIdentities,
 } from "../src/identity/map";
 
@@ -108,6 +109,15 @@ describeIfLive("source-scoped records identity mapping", () => {
     ]);
     const all = await listIdentityMappings(testPool, { orgId: "org-a", appId: "crm" });
     expect(all.filter((mapping) => mapping.sourceUserId === "005-alice")).toHaveLength(2);
+    await expect(
+      listLinkedIdentityScopesForUser(testPool, {
+        orgId: "org-a",
+        appUserId: "user-alice",
+      }),
+    ).resolves.toEqual([
+      { appId: "crm", sourceInstanceId: "sf-prod", sourceUserId: "005-alice" },
+      { appId: "crm", sourceInstanceId: "sf-sandbox", sourceUserId: "005-alice" },
+    ]);
   });
 
   it("preserves ignore decisions, supports manual links, and prevents double binding", async () => {

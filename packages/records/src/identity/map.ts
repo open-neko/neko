@@ -37,6 +37,12 @@ export type IdentityReconciliationResult = {
   ignored: number;
 };
 
+export type LinkedIdentityScope = {
+  appId: string;
+  sourceInstanceId: string;
+  sourceUserId: string;
+};
+
 type RawIdentity = {
   org_id: string;
   source_instance_id: string;
@@ -356,6 +362,31 @@ export async function decideIdentityMapping(
   } finally {
     client.release();
   }
+}
+
+/** Exact app/source identities currently attached to one OpenNeko user. */
+export async function listLinkedIdentityScopesForUser(
+  pool: Pool,
+  input: { orgId: string; appUserId: string },
+): Promise<LinkedIdentityScope[]> {
+  const orgId = required(input.orgId, "organization id");
+  const appUserId = required(input.appUserId, "app user id");
+  const result = await pool.query<{
+    app_id: string;
+    source_instance_id: string;
+    source_user_id: string;
+  }>(
+    `select app_id, source_instance_id, source_user_id
+     from engine.identity_map
+     where org_id = $1 and app_user_id = $2 and status = 'linked'
+     order by app_id, source_instance_id, source_user_id`,
+    [orgId, appUserId],
+  );
+  return result.rows.map((row) => ({
+    appId: row.app_id,
+    sourceInstanceId: row.source_instance_id,
+    sourceUserId: row.source_user_id,
+  }));
 }
 
 /** Lazy SSO hook: link only unambiguous matches, flag shared mailboxes. */
