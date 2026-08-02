@@ -58,7 +58,7 @@ async function withTempDb<T>(
     await tempClient.end();
     const cleanup = await pool().connect();
     try {
-      await cleanup.query(`drop database if exists ${dbName} with (force)`);
+      await cleanup.query(`drop database if exists ${dbName}`);
     } finally {
       cleanup.release();
     }
