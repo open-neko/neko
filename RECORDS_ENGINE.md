@@ -144,8 +144,14 @@ GraphJin ships a declarative schema facility — GraphJin DDL desired-state file
 database (Postgres: fully supported), and a `preview_schema_changes` /
 `apply_schema_changes` surface gated by `mcp.allow_schema_updates`, with drops
 requiring an explicit `destructive` flag and an automatic schema reload after
-apply. The C3 executor projects the registry into GraphJin DDL and drives
-preview → apply, so the SQL shown on the approval card is the SQL that runs.
+apply. Nobody on our side authors SQL for schema changes — not the agent, not the
+executor. The C3 executor projects the registry into a GraphJin DDL document
+(GraphQL-style `type` definitions) and submits it over GraphJin's own GraphQL
+execution surface — the same surface `execute_graphql` rides — as
+preview-then-apply; **GraphJin internally generates, executes, and manages
+the SQL** and reloads its schema. The preview response includes the generated
+SQL, which the approval card displays for transparency, but the artifact of
+record is the GraphJin DDL document.
 
 **Records-source configuration:** because `records-db` is our own built-in
 database — not a customer's — it does **not** run `read_only`. It is
@@ -179,7 +185,7 @@ through the same executor. Every data write validates against the registry,
 checks RBAC as the acting user, appends to `engine.record_change_log`, and
 records into `workflow_run.source_writes` (migration `0021`) so watcher
 cycle-checks keep working. Every schema write appends to
-`engine.app_schema_log` with the exact DDL applied. The records source is
+`engine.app_schema_log` with the submitted GraphJin DDL and preview response. The records source is
 mutations-capable (D5), so the executors themselves may write through
 GraphJin's mutation surface under the `service` role — one data plane — with
 direct SQL retained where the transactional shape demands it (record write +
@@ -485,7 +491,8 @@ CREATE TABLE engine.app_schema_log (       -- D6/D7; the schema audit trail
   action text NOT NULL,        -- app_create|object_create|field_add|field_modify|
                                -- object_archive|permission_set|layout_update|hard_drop
   detail jsonb NOT NULL,       -- proposed change, resolved names
-  ddl text,                    -- exact SQL applied (null for registry-only changes)
+  ddl jsonb,                   -- {graphjin_ddl, preview} as submitted/returned
+                               -- (null for registry-only changes)
   actor_user_id text,
   action_request_id text,
   at timestamptz NOT NULL DEFAULT now()
@@ -534,26 +541,28 @@ Executor rules (one transaction against `records-db` per action, mirrored to
 `app_state` in the metadata DB after commit):
 
 1. Everything named passes through `naming.ts`; identifiers are always quoted.
-2. The executor projects the registry delta into **GraphJin DDL** (the
-   desired-state schema format) and calls GraphJin's
-   `preview_schema_changes` → `apply_schema_changes` against the `records`
-   source (D5) — GraphJin's schema-diff engine generates and transactionally
-   applies the SQL and reloads its own schema, so new tables are queryable
-   immediately with no separate config-regen step for table exposure (role
-   /permission projection still regenerates under
-   `acquireGraphjinConfigLock`). The `destructive` flag is **never passed** —
-   archive semantics (D7) mean the engine never asks GraphJin to drop
-   anything. Schema conventions: PK `id` (`text`; imported apps keep source
-   IDs, from-scratch apps default to UUID-as-text), indexes on reference
-   columns and the name field, **no FK constraints** (integrity reported, not
-   enforced — legacy data has dangles). Anything GraphJin DDL can't express
-   (e.g. specialized index types) is applied by the engine directly as a
-   documented residue — small by design.
+2. The executor projects the registry delta into a **GraphJin DDL document**
+   (desired-state `type` definitions — no SQL authored anywhere in OpenNeko)
+   and submits it through GraphJin's GraphQL execution surface against the
+   `records` source (D5), preview then apply — GraphJin's schema-diff engine
+   internally generates and transactionally applies the SQL and reloads its
+   own schema, so new tables are queryable immediately with no separate
+   config-regen step for table exposure (role/permission projection still
+   regenerates under `acquireGraphjinConfigLock`). The `destructive` flag is
+   **never passed** — archive semantics (D7) mean the engine never asks
+   GraphJin to drop anything. Schema conventions expressed in the DDL doc:
+   PK `id` (`text`; imported apps keep source IDs, from-scratch apps default
+   to UUID-as-text), indexes on reference columns and the name field, **no FK
+   constraints** (integrity reported, not enforced — legacy data has
+   dangles). Anything the GraphJin DDL format can't express (e.g.
+   specialized index types) is applied by the engine directly as a
+   documented residue — small by design, ideally empty.
 3. Registry write + `app_schema_log` append commit together, recording the
-   previewed SQL; `app_state` mirror updates after apply.
-4. Approval-card rendering: the adapter runs `preview_schema_changes` at
-   propose time — **the SQL on the card is the SQL that will run**, not a
-   summary.
+   submitted GraphJin DDL and GraphJin's preview response; `app_state`
+   mirror updates after apply.
+4. Approval-card rendering: the adapter runs the preview at propose time —
+   the card shows the GraphJin DDL delta plus the generated SQL GraphJin
+   returned, so the admin approves exactly what GraphJin will execute.
 5. `hard_drop` is **not an action kind**. It exists only as
    `openneko records drop --app X --object Y` with typed confirmation and a
    fresh-verified-backup check (D7).
@@ -1212,7 +1221,10 @@ each with its approving action request.
 - **GraphJin DDL expressiveness & version coupling.** C3 leans on GraphJin's
   schema-diff engine (pinned v3.18.x). Constructs it can't express fall to
   the engine-applied residue path — keep that list short and tested, and gate
-  GraphJin version bumps on a schema-diff regression fixture.
+  GraphJin version bumps on a schema-diff regression fixture. The invocation
+  shape of the preview/apply surface has shifted across GraphJin versions
+  (MCP tool ↔ control-plane GraphQL root), so C3 wraps it behind one client
+  function pinned to the shipped version.
 - **GraphJin subscription semantics.** Live queries are polling-based under
   the hood; latency and load characteristics at hundreds of watched queries
   need measurement before subscription-triggered watchers become the default
