@@ -15,6 +15,7 @@ import {
   type ProcessingJobPayload,
   type RecordsIdentityLinkPayload,
   type RecordsImportPayload,
+  type RecordsSalesforceExportPayload,
   type WorkflowRunFirePayload,
   type WorkRunPayload,
 } from "@neko/db/jobs";
@@ -82,6 +83,7 @@ import { runWorkflowOutputTtlSweep } from "./jobs/workflow-output-ttl-sweep.js";
 import { runActionExecute } from "./jobs/action-execute.js";
 import { runRecordsImport } from "./jobs/records-import.js";
 import { runRecordsIdentityLink } from "./jobs/records-identity-link.js";
+import { runRecordsSalesforceExport } from "./jobs/records-salesforce-export.js";
 import {
   reconcileStaleProcessingJobs,
   reconcileStaleRuns,
@@ -94,6 +96,7 @@ import {
 import { registerRecordSchemaActions } from "./records/schema-adapters.js";
 import { registerRecordImportActions } from "./records/import-adapters.js";
 import { registerRecordIdentityActions } from "./records/identity-adapters.js";
+import { registerRecordSalesforceActions } from "./records/salesforce-adapters.js";
 import { createRecordsSchemaRuntime } from "./records/schema-runtime.js";
 
 const PORT: number = 4100;
@@ -388,6 +391,15 @@ await seedDefaultActionPolicies(ADMIN_ORG_ID);
 registerBuiltinAdapters();
 registerRecordActionAdapters(recordsWriteExecutor);
 registerRecordIdentityActions(recordsOwnerBackfillExecutor);
+registerRecordSalesforceActions({
+  enqueueExport: (payload) =>
+    enqueue(QUEUE.RECORDS_SALESFORCE_EXPORT, payload, {
+      retryLimit: 8,
+      retryDelay: 60,
+      retryBackoff: true,
+      singletonKey: `records-salesforce-export:${payload.exportJobId}`,
+    }),
+});
 const unregisterRecordSchemaPreflight = registerRecordSchemaActions({
   planner: recordsSchemaRuntime.planner,
   saga: recordsSchemaRuntime.saga,
@@ -755,6 +767,23 @@ await b.work(
       } catch (e) {
         console.warn(
           `[records-identity-link] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
+        );
+        throw e;
+      }
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_SALESFORCE_EXPORT,
+  { batchSize: 1, pollingIntervalSeconds: 0.5 },
+  async (jobs: PgBossLib.Job<RecordsSalesforceExportPayload>[]) => {
+    for (const job of jobs) {
+      try {
+        await runRecordsSalesforceExport(job.data);
+      } catch (e) {
+        console.warn(
+          `[records-salesforce-export] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
         );
         throw e;
       }

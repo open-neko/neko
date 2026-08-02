@@ -17,6 +17,7 @@ import {
 import { RECORD_SCHEMA_ACTION_KINDS } from "../../src/records/schema-adapters.js";
 import { RECORD_IMPORT_ACTION_KINDS } from "../../src/records/import-adapters.js";
 import { RECORD_IDENTITY_ACTION_DESCRIPTORS } from "../../src/records/identity-adapters.js";
+import { RECORD_SALESFORCE_ACTION_DESCRIPTORS } from "../../src/records/salesforce-adapters.js";
 
 function actionRequest(
   kind: string,
@@ -95,11 +96,12 @@ describe("records worker action adapters", () => {
       ...RECORD_SCHEMA_ACTION_KINDS,
       ...RECORD_IMPORT_ACTION_KINDS,
       ...RECORD_IDENTITY_ACTION_DESCRIPTORS.map((descriptor) => descriptor.kind),
+      ...RECORD_SALESFORCE_ACTION_DESCRIPTORS.map((descriptor) => descriptor.kind),
       "send_message",
     ]);
     expect(
       descriptors
-        .slice(0, -1)
+        .slice(0, RECORD_ACTION_KINDS.length)
         .every((descriptor) => descriptor.scope === "internal"),
     ).toBe(true);
     expect(descriptors.at(-1)?.scope).toBeUndefined();

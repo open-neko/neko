@@ -403,6 +403,45 @@ export async function seedDefaultActionPolicies(orgId: string): Promise<void> {
       enabled: true,
     });
   }
+  if (!names.has("records_salesforce_control_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "records_salesforce_control_default",
+      description:
+        "Discovering Salesforce metadata or starting and cancelling a Salesforce export requires admin approval.",
+      appliesToKinds: [
+        "records_salesforce_discover",
+        "records_salesforce_export_start",
+        "records_salesforce_export_cancel",
+      ],
+      appliesToScopes: ["internal", "external"],
+      mode: "approval_required" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: "admin",
+      priority: 90,
+      enabled: true,
+    });
+  }
+  if (!names.has("records_salesforce_status_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "records_salesforce_status_default",
+      description: "Reading Salesforce export progress is safe to auto-approve.",
+      appliesToKinds: ["records_salesforce_export_status"],
+      appliesToScopes: ["internal", "external"],
+      mode: "auto_approve" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: null,
+      priority: 90,
+      enabled: true,
+    });
+  }
   // OL5: configuring the customer GraphJin (sources/roles/access) from
   // chat needs an ADMIN. (The OpenNeko internal GraphJin is never a target.)
   if (!names.has("source_config_management_default")) {
