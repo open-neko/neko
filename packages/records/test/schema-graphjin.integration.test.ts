@@ -18,7 +18,10 @@ import {
   loadRecordsGraphjinPolicyModel,
   projectRecordsGraphjinRoles,
 } from "../src/policy/graphjin";
-import { buildRecordsGraphjinDdl } from "../src/schema/ddl";
+import {
+  buildRecordsGraphjinDdl,
+  verifyRecordsGraphjinDdlApplied,
+} from "../src/schema/ddl";
 
 async function recordsDbReachable(): Promise<boolean> {
   const probe = new pg.Pool(buildRecordsPoolConfig());
@@ -97,26 +100,24 @@ describeIfLive("records GraphJin live schema integration", () => {
         secretKey: "schema-cursor-secret-that-is-at-least-thirty-two-bytes",
       });
       await writeFile(join(directory, "dev.yml"), config, { mode: 0o600 });
-      await writeRecordsGraphjinDdl(
-        directory,
-        buildRecordsGraphjinDdl([
-          {
-            appId: "equipment",
-            apiName: validateRecordIdentifier("loan"),
-            tableName: validateRecordIdentifier("equipment__loan"),
-            nameField: validateRecordIdentifier("name"),
-            visibility: "owner",
-            fields: [
-              { columnName: validateRecordIdentifier("name"), kind: "text", required: true },
-              {
-                columnName: validateRecordIdentifier("replacement_cost"),
-                kind: "currency",
-                required: false,
-              },
-            ],
-          },
-        ]),
-      );
+      const desiredObjects = [
+        {
+          appId: "equipment",
+          apiName: validateRecordIdentifier("loan"),
+          tableName: validateRecordIdentifier("equipment__loan"),
+          nameField: validateRecordIdentifier("name"),
+          visibility: "owner",
+          fields: [
+            { columnName: validateRecordIdentifier("name"), kind: "text", required: true },
+            {
+              columnName: validateRecordIdentifier("replacement_cost"),
+              kind: "currency",
+              required: false,
+            },
+          ],
+        },
+      ];
+      await writeRecordsGraphjinDdl(directory, buildRecordsGraphjinDdl(desiredObjects));
 
       const baseArgs = [
         "run",
@@ -172,6 +173,10 @@ describeIfLive("records GraphJin live schema integration", () => {
           },
         ]),
       );
+      await expect(verifyRecordsGraphjinDdlApplied(testPool, desiredObjects)).resolves.toEqual({
+        applied: true,
+        problems: [],
+      });
       const repeated = await runDocker([
         ...baseArgs,
         "diff",
@@ -181,6 +186,20 @@ describeIfLive("records GraphJin live schema integration", () => {
         "/config",
       ]);
       expect(repeated.stdout).not.toContain('CREATE TABLE "equipment__loan"');
+
+      await writeRecordsGraphjinDdl(
+        directory,
+        "# No live records objects. Archived tables remain physically retained.\n",
+      );
+      const archived = await runDocker([
+        ...baseArgs,
+        "diff",
+        "--format",
+        "sql",
+        "--path",
+        "/config",
+      ]);
+      expect(archived.stdout).not.toMatch(/\bDROP\b/i);
     },
     40_000,
   );

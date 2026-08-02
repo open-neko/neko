@@ -16,6 +16,7 @@
     "./schema/audit": "./src/schema/audit.ts",
     "./schema/catalog": "./src/schema/catalog.ts",
     "./schema/ddl": "./src/schema/ddl.ts",
+    "./schema/saga": "./src/schema/saga.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {

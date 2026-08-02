@@ -7,4 +7,5 @@ export * from "./registry";
 export * from "./schema/audit";
 export * from "./schema/catalog";
 export * from "./schema/ddl";
+export * from "./schema/saga";
 export * from "./types";

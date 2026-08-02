@@ -1,5 +1,7 @@
+import type { Pool, PoolClient } from "pg";
 import { recordIdentifier, validateRecordIdentifier } from "../naming";
 import { RECORD_SYSTEM_COLUMNS } from "../policy/graphjin";
+import { loadRecordsCatalogSnapshot } from "./catalog";
 import type {
   RecordFieldKind,
   RecordIdentifier,
@@ -24,6 +26,8 @@ export type RecordDdlObjectDefinition = {
   archived?: boolean;
   fields: RecordDdlFieldDefinition[];
 };
+
+type Queryable = Pick<Pool | PoolClient, "query">;
 
 const RESERVED_COLUMNS = new Set<string>([
   "id",
@@ -197,7 +201,119 @@ export function buildRecordsGraphjinDdl(objects: RecordDdlObjectDefinition[]): s
     seenTables.add(tableName);
   }
   if (liveObjects.length === 0) {
-    throw new Error("records GraphJin DDL requires at least one live object");
+    return "# No live records objects. Archived tables remain physically retained.\n";
   }
   return `${liveObjects.map(objectBlock).join("\n\n")}\n`;
+}
+
+function expectedPostgresType(field: RecordDdlFieldDefinition): string {
+  const mapped = graphjinType(field);
+  if (mapped.type === "Boolean") return "boolean";
+  if (mapped.type === "BigInt") return "bigint";
+  if (mapped.type === "Numeric") {
+    const match = mapped.typeDirective?.match(/^@type\(args: "([0-9]+), ([0-9]+)"\)$/);
+    return match ? `numeric(${match[1]},${match[2]})` : "numeric";
+  }
+  if (mapped.type === "Date") return "date";
+  if (mapped.type === "Timestamptz") return "timestamp with time zone";
+  if (mapped.type === "Jsonb") return "jsonb";
+  return "text";
+}
+
+export type RecordsDdlVerification = {
+  applied: boolean;
+  problems: string[];
+};
+
+/** Prove the additive desired shape exists after sync or during recovery. */
+export async function verifyRecordsGraphjinDdlApplied(
+  client: Queryable,
+  objects: RecordDdlObjectDefinition[],
+): Promise<RecordsDdlVerification> {
+  const catalog = await loadRecordsCatalogSnapshot(client);
+  const problems: string[] = [];
+  const columnByRelation = new Map<string, Map<string, { dataType: string; notNull: boolean }>>();
+  for (const column of catalog.columns) {
+    const key = `${column.schema}\u0000${column.table}`;
+    const relation = columnByRelation.get(key) ?? new Map();
+    relation.set(column.column, { dataType: column.dataType, notNull: column.notNull });
+    columnByRelation.set(key, relation);
+  }
+
+  for (const object of objects.filter((candidate) => !candidate.archived)) {
+    const tableName = validateRecordIdentifier(object.tableName);
+    const relationKey = `public\u0000${tableName}`;
+    const columns = columnByRelation.get(relationKey);
+    if (!columns) {
+      problems.push(`missing relation public.${tableName}`);
+      continue;
+    }
+
+    const expectedColumns: Array<{ name: string; dataType: string; notNull: boolean }> = [
+      { name: "id", dataType: "text", notNull: true },
+      { name: RECORD_SYSTEM_COLUMNS.orgId, dataType: "text", notNull: true },
+      ...(object.visibility === "owner"
+        ? [{ name: RECORD_SYSTEM_COLUMNS.ownerUserId, dataType: "text", notNull: true }]
+        : []),
+      ...object.fields
+        .filter((field) => !field.archived && field.kind !== "id")
+        .map((field) => ({
+          name: validateRecordIdentifier(field.columnName),
+          dataType: expectedPostgresType(field),
+          notNull: field.required,
+        })),
+      { name: RECORD_SYSTEM_COLUMNS.createdAt, dataType: "timestamp with time zone", notNull: true },
+      { name: RECORD_SYSTEM_COLUMNS.createdBy, dataType: "text", notNull: true },
+      { name: RECORD_SYSTEM_COLUMNS.updatedAt, dataType: "timestamp with time zone", notNull: true },
+      { name: RECORD_SYSTEM_COLUMNS.updatedBy, dataType: "text", notNull: true },
+      { name: RECORD_SYSTEM_COLUMNS.actionRequestId, dataType: "text", notNull: true },
+      { name: RECORD_SYSTEM_COLUMNS.mutationId, dataType: "text", notNull: true },
+      { name: RECORD_SYSTEM_COLUMNS.deletedAt, dataType: "timestamp with time zone", notNull: false },
+    ];
+    for (const expected of expectedColumns) {
+      const actual = columns.get(expected.name);
+      if (!actual) {
+        problems.push(`missing column public.${tableName}.${expected.name}`);
+        continue;
+      }
+      if (actual.dataType !== expected.dataType) {
+        problems.push(
+          `type drift public.${tableName}.${expected.name}: expected ${expected.dataType}, found ${actual.dataType}`,
+        );
+      }
+      if (expected.notNull && !actual.notNull) {
+        problems.push(`nullable required column public.${tableName}.${expected.name}`);
+      }
+    }
+
+    const primaryKey = catalog.constraints.some(
+      (constraint) =>
+        constraint.schema === "public" &&
+        constraint.table === tableName &&
+        /^PRIMARY KEY \("?id"?\)$/i.test(constraint.definition),
+    );
+    if (!primaryKey) problems.push(`missing id primary key public.${tableName}`);
+
+    const indexedColumns = new Set(
+      object.fields
+        .filter(
+          (field) =>
+            !field.archived &&
+            field.kind !== "id" &&
+            (field.columnName === object.nameField || field.kind === "reference"),
+        )
+        .map((field) => field.columnName),
+    );
+    for (const column of indexedColumns) {
+      const escaped = column.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const index = catalog.indexes.some(
+        (candidate) =>
+          candidate.schema === "public" &&
+          candidate.table === tableName &&
+          new RegExp(`\\(\\s*"?${escaped}"?\\s*\\)`, "i").test(candidate.definition),
+      );
+      if (!index) problems.push(`missing index public.${tableName}.${column}`);
+    }
+  }
+  return { applied: problems.length === 0, problems };
 }

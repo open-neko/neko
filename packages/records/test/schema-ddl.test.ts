@@ -64,6 +64,22 @@ describe("buildRecordsGraphjinDdl", () => {
     expect(ddl).not.toContain("crm__legacy");
   });
 
+  it("represents an all-archived registry without requesting table drops", () => {
+    const ddl = buildRecordsGraphjinDdl([
+      {
+        appId: "crm",
+        apiName: id("legacy"),
+        tableName: id("crm__legacy"),
+        nameField: id("name"),
+        visibility: "org",
+        archived: true,
+        fields: [{ columnName: id("name"), kind: "text", required: false }],
+      },
+    ]);
+    expect(ddl).toMatch(/^# No live records objects/);
+    expect(ddl).not.toMatch(/\bDROP\b/i);
+  });
+
   it("rejects malformed, duplicate, or system-column fields", () => {
     const base = {
       appId: "crm",
