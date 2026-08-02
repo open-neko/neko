@@ -442,6 +442,24 @@ export async function seedDefaultActionPolicies(orgId: string): Promise<void> {
       enabled: true,
     });
   }
+  if (!names.has("records_salesforce_sync_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "records_salesforce_sync_default",
+      description:
+        "Enabling a recurring Salesforce delta sync requires admin approval.",
+      appliesToKinds: ["records_salesforce_sync_delta"],
+      appliesToScopes: ["internal", "external"],
+      mode: "approval_required" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: "admin",
+      priority: 90,
+      enabled: true,
+    });
+  }
   if (!names.has("records_salesforce_status_default")) {
     await createActionPolicy({
       orgId,

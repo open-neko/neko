@@ -6,7 +6,10 @@ import {
   processing_job,
   sql,
 } from "@neko/db";
-import type { RecordsSalesforceExportPayload } from "@neko/db/jobs";
+import type {
+  RecordsSalesforceExportPayload,
+  RecordsSalesforceSyncPayload,
+} from "@neko/db/jobs";
 import type {
   RecordConnectorInventory,
   SalesforceConnector,
@@ -26,12 +29,17 @@ import {
   parseSalesforceActionConfig,
   SalesforceActionConfigError,
 } from "./salesforce-runtime.js";
+import {
+  enableSalesforceSync,
+  type SalesforceSyncState,
+} from "./salesforce-sync-state.js";
 
 export const RECORD_SALESFORCE_ACTION_KINDS = [
   "records_salesforce_discover",
   "records_salesforce_export_start",
   "records_salesforce_export_status",
   "records_salesforce_export_cancel",
+  "records_salesforce_sync_delta",
 ] as const;
 
 export type RecordSalesforceActionKind =
@@ -87,6 +95,14 @@ export const RECORD_SALESFORCE_ACTION_DESCRIPTORS = [
     default_mode: "ask",
     example: { export_job_id: "00000000-0000-4000-a000-000000000001" },
   },
+  {
+    kind: "records_salesforce_sync_delta",
+    scope: "external",
+    description:
+      "Enable scheduled one-way Salesforce delta sync for an imported mirror app; each run advances target-side watermarks only after all governed writes reconcile.",
+    default_mode: "ask",
+    example: { app: "crm", interval_minutes: 15 },
+  },
 ] as const;
 
 export class RecordSalesforceActionPayloadError extends Error {
@@ -116,6 +132,15 @@ export type RecordSalesforceActionDependencies = {
   getExport: (orgId: string, id: string) => Promise<SalesforceExportJobSummary | null>;
   cancelExport: (orgId: string, id: string) => Promise<SalesforceExportJobSummary | null>;
   enqueueExport: (payload: RecordsSalesforceExportPayload) => Promise<string | null>;
+  enableSync: (
+    request: ActionRequestRecord,
+    intervalMinutes: number,
+  ) => Promise<SalesforceSyncState>;
+  createSync: (
+    request: ActionRequestRecord,
+    state: SalesforceSyncState,
+  ) => Promise<SalesforceExportJobSummary>;
+  enqueueSync: (payload: RecordsSalesforceSyncPayload) => Promise<string | null>;
 };
 
 const CONNECTOR_KEYS = [
@@ -158,6 +183,24 @@ function exportJobId(request: ActionRequestRecord): string {
     throw new RecordSalesforceActionPayloadError("export_job_id: a UUID is required");
   }
   return id;
+}
+
+function syncPayload(request: ActionRequestRecord): {
+  appId: string;
+  intervalMinutes: number;
+} {
+  assertOnlyKeys(request.payload, ["app", "interval_minutes"]);
+  const app = request.payload.app;
+  const interval = request.payload.interval_minutes ?? 15;
+  if (typeof app !== "string" || !app.trim() || app.trim().length > 500) {
+    throw new RecordSalesforceActionPayloadError("app: a non-empty string is required");
+  }
+  if (!Number.isSafeInteger(interval) || Number(interval) < 5 || Number(interval) > 1_440) {
+    throw new RecordSalesforceActionPayloadError(
+      "interval_minutes: an integer between 5 and 1440 is required",
+    );
+  }
+  return { appId: app.trim(), intervalMinutes: Number(interval) };
 }
 
 function assertAdmin(request: ActionRequestRecord): void {
@@ -325,6 +368,50 @@ export const defaultSalesforceActionDependencies: RecordSalesforceActionDependen
   enqueueExport: async () => {
     throw new Error("Salesforce export queue is not configured");
   },
+  enableSync: async (request, intervalMinutes) =>
+    enableSalesforceSync(
+      request.orgId,
+      String(request.payload.app ?? ""),
+      intervalMinutes,
+    ),
+  createSync: async (request, state) =>
+    db().transaction(async (transaction) => {
+      await transaction.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${request.orgId}:${request.id}:salesforce-sync`}, 0))`,
+      );
+      const existing = await transaction
+        .select()
+        .from(processing_job)
+        .where(
+          and(
+            eq(processing_job.org_id, request.orgId),
+            eq(processing_job.kind, "records_salesforce_sync"),
+            sql`${processing_job.trigger_payload}->>'action_request_id' = ${request.id}`,
+          ),
+        )
+        .limit(1);
+      if (existing[0]) return mapJob(existing[0]);
+      const [row] = await transaction
+        .insert(processing_job)
+        .values({
+          org_id: request.orgId,
+          kind: "records_salesforce_sync",
+          status: "queued",
+          trigger: "action_request",
+          trigger_payload: {
+            action_request_id: request.id,
+            app_id: state.appId,
+            source_instance_id: state.sourceInstanceId,
+          },
+          progress: { stage: "queued" },
+        })
+        .returning();
+      if (!row) throw new Error("Salesforce sync job could not be created");
+      return mapJob(row);
+    }),
+  enqueueSync: async () => {
+    throw new Error("Salesforce sync queue is not configured");
+  },
 };
 
 export function createRecordSalesforceActionAdapter(
@@ -386,6 +473,37 @@ export function createRecordSalesforceActionAdapter(
         },
       };
     }
+    if (kind === "records_salesforce_sync_delta") {
+      const payload = syncPayload(request);
+      const state = await dependencies.enableSync(request, payload.intervalMinutes);
+      const job = await dependencies.createSync(request, state);
+      let queueId: string | null;
+      try {
+        queueId = await dependencies.enqueueSync({
+          processingJobId: job.id,
+          orgId: request.orgId,
+          appId: state.appId,
+          sourceInstanceId: state.sourceInstanceId,
+        });
+      } catch (error) {
+        throw new RetryableActionAdapterError(
+          `Salesforce sync ${job.id} could not be queued and will be retried`,
+          { cause: error },
+        );
+      }
+      return {
+        commandOrOperation: kind,
+        externalRef: job.id,
+        result: {
+          ...job,
+          appId: state.appId,
+          sourceInstanceId: state.sourceInstanceId,
+          intervalMinutes: state.intervalMinutes,
+          queueId,
+          ...(queueId === null ? { deduplicated: true } : {}),
+        },
+      };
+    }
 
     const id = exportJobId(request);
     const job =
@@ -403,7 +521,11 @@ export function createRecordSalesforceActionAdapter(
 
 export function registerRecordSalesforceActions(input: {
   enqueueExport: RecordSalesforceActionDependencies["enqueueExport"];
-  dependencies?: Omit<RecordSalesforceActionDependencies, "enqueueExport">;
+  enqueueSync: RecordSalesforceActionDependencies["enqueueSync"];
+  dependencies?: Omit<
+    RecordSalesforceActionDependencies,
+    "enqueueExport" | "enqueueSync"
+  >;
   register?: (kind: string, adapter: ActionAdapter) => void;
   registerPreflight?: (hook: ActionRequestCreatedHook) => () => void;
 }): () => void {
@@ -411,6 +533,7 @@ export function registerRecordSalesforceActions(input: {
     ...defaultSalesforceActionDependencies,
     ...input.dependencies,
     enqueueExport: input.enqueueExport,
+    enqueueSync: input.enqueueSync,
   };
   const register = input.register ?? registerActionAdapter;
   for (const kind of RECORD_SALESFORCE_ACTION_KINDS) {

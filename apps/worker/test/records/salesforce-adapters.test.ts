@@ -124,6 +124,32 @@ function job(status = "queued"): SalesforceExportJobSummary {
   };
 }
 
+function syncState() {
+  return {
+    orgId: "org-a",
+    appId: "crm",
+    appStatus: "active",
+    mode: "mirror" as const,
+    sourceInstanceId: "salesforce-production",
+    exportActionRequestId: ACTION_ID,
+    objects: [
+      {
+        sourceApiName: "Account",
+        objectApiName: "account",
+        watermark: { system_modstamp: "2026-08-02T12:00:00.000Z" },
+      },
+    ],
+    enabled: true,
+    intervalMinutes: 15,
+    status: "queued",
+    lastEnqueuedAt: "2026-08-02T12:00:00.000Z",
+    lastStartedAt: null,
+    lastCompletedAt: null,
+    lastError: null,
+    apiBudget: null,
+  };
+}
+
 function dependencies(
   overrides: Partial<RecordSalesforceActionDependencies> = {},
 ): RecordSalesforceActionDependencies {
@@ -142,6 +168,9 @@ function dependencies(
     getExport: vi.fn().mockResolvedValue(job("running")),
     cancelExport: vi.fn().mockResolvedValue(job("cancel_requested")),
     enqueueExport: vi.fn().mockResolvedValue("boss-job-1"),
+    enableSync: vi.fn().mockResolvedValue(syncState()),
+    createSync: vi.fn().mockResolvedValue(job()),
+    enqueueSync: vi.fn().mockResolvedValue("boss-sync-1"),
     ...overrides,
   };
 }
@@ -155,6 +184,7 @@ describe("Salesforce worker action adapters", () => {
       "auto",
       "ask",
       { internal: "auto" },
+      "ask",
       "ask",
     ]);
     expect(RECORD_SALESFORCE_ACTION_DESCRIPTORS[0]?.example).not.toHaveProperty(
@@ -265,6 +295,33 @@ describe("Salesforce worker action adapters", () => {
     });
   });
 
+  it("enables a reviewed schedule and queues the first delta run", async () => {
+    const deps = dependencies();
+    await expect(
+      createRecordSalesforceActionAdapter("records_salesforce_sync_delta", deps)({
+        request: request("records_salesforce_sync_delta", {
+          app: "crm",
+          interval_minutes: 15,
+        }),
+      }),
+    ).resolves.toMatchObject({
+      commandOrOperation: "records_salesforce_sync_delta",
+      externalRef: EXPORT_ID,
+      result: {
+        appId: "crm",
+        sourceInstanceId: "salesforce-production",
+        intervalMinutes: 15,
+        queueId: "boss-sync-1",
+      },
+    });
+    expect(deps.enqueueSync).toHaveBeenCalledWith({
+      processingJobId: EXPORT_ID,
+      orgId: "org-a",
+      appId: "crm",
+      sourceInstanceId: "salesforce-production",
+    });
+  });
+
   it("preflights a complete credential-free migration plan before approval", async () => {
     const deps = dependencies();
     const updatePayload = vi.fn(async (input: {
@@ -294,6 +351,7 @@ describe("Salesforce worker action adapters", () => {
     const unregister = vi.fn();
     registerRecordSalesforceActions({
       enqueueExport: vi.fn(),
+      enqueueSync: vi.fn(),
       dependencies: dependencies(),
       register: (kind) => registered.push(kind),
       registerPreflight: (candidate) => {

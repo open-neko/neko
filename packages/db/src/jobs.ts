@@ -25,6 +25,8 @@ export const QUEUE = {
   RECORDS_IMPORT: "records_import",
   RECORDS_IDENTITY_LINK: "records_identity_link",
   RECORDS_SALESFORCE_EXPORT: "records_salesforce_export",
+  RECORDS_SALESFORCE_SYNC: "records_salesforce_sync",
+  RECORDS_SALESFORCE_SYNC_SWEEP: "records_salesforce_sync_sweep",
   CHANNEL_DELIVER: "channel_deliver",
 } as const;
 
@@ -106,6 +108,11 @@ export type RecordsSalesforceExportPayload = ProcessingJobPayload & {
   actionRequestId: string;
   /** Equal to processingJobId; retained as an explicit connector-domain id. */
   exportJobId: string;
+};
+
+export type RecordsSalesforceSyncPayload = ProcessingJobPayload & {
+  appId: string;
+  sourceInstanceId: string;
 };
 
 let _boss: PgBoss | null = null;

@@ -16,6 +16,7 @@ import {
   type RecordsIdentityLinkPayload,
   type RecordsImportPayload,
   type RecordsSalesforceExportPayload,
+  type RecordsSalesforceSyncPayload,
   type WorkflowRunFirePayload,
   type WorkRunPayload,
 } from "@neko/db/jobs";
@@ -86,6 +87,11 @@ import { runActionExecute } from "./jobs/action-execute.js";
 import { runRecordsImport } from "./jobs/records-import.js";
 import { runRecordsIdentityLink } from "./jobs/records-identity-link.js";
 import { runRecordsSalesforceExport } from "./jobs/records-salesforce-export.js";
+import { runRecordsSalesforceSync } from "./jobs/records-salesforce-sync.js";
+import {
+  defaultSalesforceSyncSweepDependencies,
+  runRecordsSalesforceSyncSweep,
+} from "./jobs/records-salesforce-sync-sweep.js";
 import {
   reconcileStaleProcessingJobs,
   reconcileStaleRuns,
@@ -415,6 +421,13 @@ const unregisterRecordSalesforcePreflight = registerRecordSalesforceActions({
       retryDelay: 60,
       retryBackoff: true,
       singletonKey: `records-salesforce-export:${payload.exportJobId}`,
+    }),
+  enqueueSync: (payload) =>
+    enqueue(QUEUE.RECORDS_SALESFORCE_SYNC, payload, {
+      retryLimit: 8,
+      retryDelay: 60,
+      retryBackoff: true,
+      singletonKey: `records-salesforce-sync:${payload.processingJobId}`,
     }),
 });
 const unregisterRecordSchemaPreflight = registerRecordSchemaActions({
@@ -825,6 +838,39 @@ await b.work(
 );
 
 await b.work(
+  QUEUE.RECORDS_SALESFORCE_SYNC,
+  { batchSize: 1, pollingIntervalSeconds: 0.5 },
+  async (jobs: PgBossLib.Job<RecordsSalesforceSyncPayload>[]) => {
+    for (const job of jobs) {
+      try {
+        await runRecordsSalesforceSync(recordsWriteExecutor, recordsPool, job.data);
+      } catch (e) {
+        console.warn(
+          `[records-salesforce-sync] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
+        );
+        throw e;
+      }
+    }
+  },
+);
+
+await b.work(QUEUE.RECORDS_SALESFORCE_SYNC_SWEEP, async () => {
+  const summary = await runRecordsSalesforceSyncSweep({
+    ...defaultSalesforceSyncSweepDependencies,
+    enqueue: (payload) =>
+      enqueue(QUEUE.RECORDS_SALESFORCE_SYNC, payload, {
+        retryLimit: 8,
+        retryDelay: 60,
+        retryBackoff: true,
+        singletonKey: `records-salesforce-sync:${payload.processingJobId}`,
+      }),
+  });
+  if (summary.queued > 0) {
+    console.log(`[records-salesforce-sync] scheduled ${summary.queued} delta run(s)`);
+  }
+});
+
+await b.work(
   QUEUE.CHANNEL_DELIVER,
   { batchSize: 1, pollingIntervalSeconds: 0.5 },
   async (jobs: PgBossLib.Job<ChannelDeliverPayload>[]) => {
@@ -847,6 +893,13 @@ await b.schedule(QUEUE.WORKFLOW_CRON_SWEEP, "* * * * *", {}, {
   retryDelay: 15,
 });
 console.log("[worker] scheduled workflow cron sweep every minute");
+
+await b.schedule(QUEUE.RECORDS_SALESFORCE_SYNC_SWEEP, "* * * * *", {}, {
+  tz: "UTC",
+  retryLimit: 1,
+  retryDelay: 15,
+});
+console.log("[worker] scheduled Salesforce delta sync sweep every minute");
 
 await b.work(QUEUE.WORKFLOW_OUTPUT_TTL_SWEEP, async () => {
   await runWorkflowOutputTtlSweep();

@@ -232,6 +232,14 @@ export class SalesforceConnector implements RecordsConnector {
     );
   }
 
+  budgetSnapshot(): SalesforceApiBudgetSnapshot | null {
+    return this.options.client.budgetSnapshot();
+  }
+
+  restoreBudget(snapshot: SalesforceApiBudgetSnapshot | null): void {
+    this.options.client.restoreBudget(snapshot);
+  }
+
   private async sobjects(signal?: AbortSignal): Promise<NonNullable<SObjectList["sobjects"]>> {
     if (!this.discovered) {
       const value = await this.options.client.json<SObjectList>(
