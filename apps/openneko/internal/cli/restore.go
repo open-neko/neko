@@ -70,7 +70,7 @@ func runRestore(ctx context.Context, cmd *cobra.Command, target string) error {
 		return err
 	}
 	configureOpenShellDBURL()
-	if err := requireFreshVerifiedBackup(ctx, project, files, time.Now()); err != nil {
+	if err := requireFreshVerifiedBackupFor(ctx, project, files, time.Now(), "restore"); err != nil {
 		return err
 	}
 
@@ -124,24 +124,25 @@ func runRestore(ctx context.Context, cmd *cobra.Command, target string) error {
 	return nil
 }
 
-func requireFreshVerifiedBackup(
+func requireFreshVerifiedBackupFor(
 	ctx context.Context,
 	project string,
 	files []string,
 	now time.Time,
+	operation string,
 ) error {
 	raw, err := composeCommandOutput(ctx, project, files,
 		"exec", "-T", "neko-backup", "curl", "-fsS",
 		"http://127.0.0.1:9470/v1/backups/status")
 	if err != nil {
-		return fmt.Errorf("restore refused: cannot verify backup protection: %w", err)
+		return fmt.Errorf("%s refused: cannot verify backup protection: %w", operation, err)
 	}
 	var status backupDoctorStatus
 	if err := json.Unmarshal(raw, &status); err != nil {
-		return fmt.Errorf("restore refused: invalid backup status: %w", err)
+		return fmt.Errorf("%s refused: invalid backup status: %w", operation, err)
 	}
 	if ok, detail := backupRestoreProtection(status, now); !ok {
-		return fmt.Errorf("restore refused: %s; run `openneko backup now` followed by `openneko backup verify`", detail)
+		return fmt.Errorf("%s refused: %s; run `openneko backup now` followed by `openneko backup verify`", operation, detail)
 	}
 	return nil
 }
