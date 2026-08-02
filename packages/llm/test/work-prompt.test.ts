@@ -39,6 +39,12 @@ function build(
     supportsPluginManagerTool?: boolean;
     pluginCatalog?: PluginCatalog;
     installedSkills?: Array<{ name: string; description: string }>;
+    pluginActions?: Array<{
+      kind: string;
+      description: string;
+      scope?: "external" | "internal";
+      default_mode?: "auto" | "ask" | "deny";
+    }>;
   } = {},
 ): string {
   return buildWorkPrompt({
@@ -57,6 +63,7 @@ function build(
     supportsPluginManagerTool: overrides.supportsPluginManagerTool ?? false,
     pluginCatalog: overrides.pluginCatalog,
     installedSkills: overrides.installedSkills,
+    pluginActions: overrides.pluginActions,
     inlineTranscript: false,
   });
 }
@@ -102,6 +109,33 @@ describe("buildWorkPrompt skill catalog", () => {
     expect(prompt).toContain(`${workspace.skillsRoot}/pdf/SKILL.md`);
     expect(prompt).toContain("When a skill matches, read its SKILL.md");
     expect(prompt).not.toContain("Full PDF skill body");
+  });
+});
+
+describe("buildWorkPrompt action scopes", () => {
+  it("teaches fence-based agents the fixed scope for records and plugin actions", () => {
+    const prompt = build("hermes", {
+      pluginActions: [
+        {
+          kind: "record_create",
+          description: "Create a generated-app record.",
+          scope: "internal",
+          default_mode: "ask",
+        },
+        {
+          kind: "send_slack_dm",
+          description: "Send a Slack direct message.",
+          default_mode: "ask",
+        },
+      ],
+    });
+
+    expect(prompt).toContain("`record_create` (scope:internal; mode:ask)");
+    expect(prompt).toContain("`send_slack_dm` (scope:external; mode:ask)");
+    expect(prompt).toContain(
+      '"scope": "<the exact scope shown for the selected kind>"',
+    );
+    expect(prompt).toMatch(/Never relabel an internal records\s+action as external/);
   });
 });
 

@@ -1113,6 +1113,8 @@ export function buildWorkMemoryServer(
 export interface PluginActionDescriptor {
   kind: string;
   description: string;
+  /** Fixed policy scope. External preserves the plugin compatibility default. */
+  scope?: "external" | "internal";
   /**
    * Seeded approval mode from the manifest; runtime policy may
    * override. Accepts either a scalar (applies to all scopes) or a
@@ -1217,6 +1219,7 @@ export function buildPluginActionServer(
   const controlPlane = opts.controlPlane ?? inProcessControlPlane;
 
   const tools = active.map((d) => {
+    const actionScope = d.scope ?? "external";
     const needsIntent = needsIntentForKind(d.default_mode);
     const baseSchema = {
       target: z
@@ -1289,7 +1292,7 @@ export function buildPluginActionServer(
       async (args) => {
         const decision = await controlPlane.evaluateActionPolicy({
           orgId: opts.orgId,
-          scope: "external",
+          scope: actionScope,
           kind: d.kind,
           target:
             typeof args.target === "string" && args.target.length > 0
@@ -1352,7 +1355,7 @@ export function buildPluginActionServer(
           // runs it.
           const request = await controlPlane.createActionRequest({
             orgId: opts.orgId,
-            scope: "external",
+            scope: actionScope,
             kind: d.kind,
             target,
             payload,
@@ -1372,7 +1375,7 @@ export function buildPluginActionServer(
             type: "action_request_emit",
             action_request_id: request.id,
             kind: d.kind,
-            scope: "external",
+            scope: actionScope,
             decision: "auto_approved",
             summary: intent,
             ...(riskLevel ? { risk_level: riskLevel } : {}),
@@ -1441,7 +1444,7 @@ export function buildPluginActionServer(
         // conversation.
         const request = await controlPlane.createActionRequest({
           orgId: opts.orgId,
-          scope: "external",
+          scope: actionScope,
           kind: d.kind,
           target,
           payload,
@@ -1457,7 +1460,7 @@ export function buildPluginActionServer(
           type: "action_request_emit",
           action_request_id: request.id,
           kind: d.kind,
-          scope: "external",
+          scope: actionScope,
           decision: "pending_approval",
           intent,
           summary: intent,

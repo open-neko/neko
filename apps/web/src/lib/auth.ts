@@ -144,6 +144,7 @@ export async function beginAuth(params: {
 export interface PluginActionDescriptor {
   kind: string;
   description: string;
+  scope?: "external" | "internal";
   default_mode?:
     | "auto"
     | "ask"

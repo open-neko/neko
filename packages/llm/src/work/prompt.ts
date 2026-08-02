@@ -526,6 +526,7 @@ turn ran long; never drop it.
 export interface PluginActionPromptDescriptor {
   kind: string;
   description: string;
+  scope?: "external" | "internal";
   default_mode?:
     | "auto"
     | "ask"
@@ -574,18 +575,17 @@ function buildPluginActionsSection(
   if (active.length === 0) return "";
   const rows = active
     .map((d) => {
-      const head = `  - \`${d.kind}\` (${summarizeMode(d.default_mode)}) — ${d.description.split("\n")[0]}`;
+      const head = `  - \`${d.kind}\` (scope:${d.scope ?? "external"}; mode:${summarizeMode(d.default_mode)}) — ${d.description.split("\n")[0]}`;
       return d.example
         ? `${head}\n    example payload: ${JSON.stringify(d.example)}`
         : head;
     })
     .join("\n");
   return `<action_tools>
-The following are tools you can call to take action in external systems
-(Slack, webhooks, etc.). They are tools — not files, not session
-history. Don't search the filesystem or session memory for them. Call
-them by emitting a fenced JSON block; the runtime executes the call on
-the same turn.
+The following are policy-governed action tools. They can change OpenNeko's
+internal state or an external system. They are tools — not files, not session
+history. Don't search the filesystem or session memory for them. Call them by
+emitting a fenced JSON block; the runtime executes the call on the same turn.
 
 Available tools:
 ${rows}
@@ -594,7 +594,7 @@ How to call:
 
 \`\`\`neko_action_request
 {
-  "scope": "external",
+  "scope": "<the exact scope shown for the selected kind>",
   "kind": "<one of the kinds above>",
   "payload": { /* kind-specific */ },
   "summary": "One sentence — what you're doing and why, written for the user.",
@@ -608,6 +608,9 @@ token and connection are already configured; nothing to look up first.
 
 For ask-mode tools: \`summary\` is the one-line text the operator sees
 on the approval card. Write it for them.
+
+Use each kind's displayed scope exactly. Never relabel an internal records
+action as external, or an external integration action as internal.
 
 Auto-mode tools wait for execution and return their actual outcome in the same
 turn. Use that outcome to answer. If execution fails, report the failure; never

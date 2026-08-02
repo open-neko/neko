@@ -20,6 +20,7 @@ export const RECORD_SCHEMA_ACTION_KINDS = RECORD_SCHEMA_ACTIONS;
 export const RECORD_SCHEMA_ACTION_DESCRIPTORS = [
   {
     kind: "app_create",
+    scope: "internal",
     description:
       "Propose a complete generated app in one approval: permanent app/object/field names, relationships, ownership, permissions, layouts, and pages.",
     default_mode: "ask",
@@ -46,6 +47,7 @@ export const RECORD_SCHEMA_ACTION_DESCRIPTORS = [
   },
   {
     kind: "app_object_create",
+    scope: "internal",
     description: "Add one object and its complete initial field set to an existing app.",
     default_mode: "ask",
     example: {
@@ -65,6 +67,7 @@ export const RECORD_SCHEMA_ACTION_DESCRIPTORS = [
   },
   {
     kind: "app_field_add",
+    scope: "internal",
     description:
       "Add one optional field to an existing object. Required fields need an additive backfill sequence.",
     default_mode: "ask",
@@ -76,6 +79,7 @@ export const RECORD_SCHEMA_ACTION_DESCRIPTORS = [
   },
   {
     kind: "app_field_modify",
+    scope: "internal",
     description:
       "Change field metadata such as label, required validation, read-only state, picklist values, or reference targets; types are permanent.",
     default_mode: "ask",
@@ -88,18 +92,21 @@ export const RECORD_SCHEMA_ACTION_DESCRIPTORS = [
   },
   {
     kind: "app_object_archive",
+    scope: "internal",
     description: "Hide an object without dropping its physical table or stored rows.",
     default_mode: "ask",
     example: { app: "crm", object: "legacy_note" },
   },
   {
     kind: "app_field_archive",
+    scope: "internal",
     description: "Hide a field without dropping its physical column or stored values.",
     default_mode: "ask",
     example: { app: "crm", object: "account", field: "legacy_code" },
   },
   {
     kind: "app_permission_set",
+    scope: "internal",
     description: "Set one admin/member object's CRUD grants and regenerate GraphJin policy.",
     default_mode: "ask",
     example: {
@@ -114,6 +121,7 @@ export const RECORD_SCHEMA_ACTION_DESCRIPTORS = [
   },
   {
     kind: "app_layout_update",
+    scope: "internal",
     description: "Update an object's detail/list layout or an app page definition.",
     default_mode: "ask",
     example: {

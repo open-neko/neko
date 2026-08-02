@@ -28,6 +28,7 @@ export const RECORD_IMPORT_ACTION_KINDS = [
 export const RECORD_IMPORT_ACTION_DESCRIPTORS = [
   {
     kind: "records_import_start",
+    scope: "internal",
     description:
       "Import a staged CSV into an existing generated-app object after reviewing its immutable column mapping, row count, samples, and duplicate key.",
     default_mode: "ask",
@@ -41,12 +42,14 @@ export const RECORD_IMPORT_ACTION_DESCRIPTORS = [
   },
   {
     kind: "records_import_status",
+    scope: "internal",
     description: "Read the durable progress and reconciliation report for a records CSV import.",
     default_mode: { internal: "auto" },
     example: { import_run_id: "00000000-0000-4000-a000-000000000001" },
   },
   {
     kind: "records_import_cancel",
+    scope: "internal",
     description:
       "Cancel a records CSV import at its next batch boundary; rows in committed batches remain imported and reported.",
     default_mode: "ask",
@@ -323,4 +326,3 @@ export function registerRecordImportActions(input: {
     createRecordImportPreflightHook(input),
   );
 }
-

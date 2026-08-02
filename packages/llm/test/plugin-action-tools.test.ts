@@ -145,4 +145,57 @@ describe("auto-mode plugin action tools", () => {
     });
     expect(String(result.body.note)).toContain("taking longer");
   });
+
+  it("uses a descriptor's fixed internal scope through policy, persistence, and events", async () => {
+    const evaluateActionPolicy = vi.fn(async () => ({
+      decision: "allow" as const,
+      mode: "auto" as const,
+      reason: "test",
+      policy: { id: "policy-records", name: "Records status" },
+    }));
+    const createActionRequest = vi.fn(async () => ({ id: "action-records" }));
+    const enqueueActionExecute = vi.fn(async () => {});
+    const waitForActionExecution = vi.fn(async () => ({
+      status: "succeeded" as const,
+      outcome: { result: { status: "running" } },
+    }));
+    const emit = vi.fn();
+
+    buildPluginActionServer({
+      orgId: "org-1",
+      threadId: "thread-1",
+      runId: "run-1",
+      descriptors: [
+        {
+          kind: "records_import_status",
+          scope: "internal",
+          description: "Read import status.",
+          default_mode: { internal: "auto" },
+        },
+      ],
+      emit,
+      controlPlane: {
+        evaluateActionPolicy,
+        createActionRequest,
+        enqueueActionExecute,
+        waitForActionExecution,
+      } as unknown as AgentControlPlane,
+    });
+
+    const registered = sdk.tools.get("records_import_status");
+    if (!registered) throw new Error("records import tool was not registered");
+    await registered.handler({ payload: { import_run_id: "run-1" } });
+
+    const expectedScope = {
+      scope: "internal",
+      kind: "records_import_status",
+    };
+    expect(evaluateActionPolicy).toHaveBeenCalledWith(
+      expect.objectContaining(expectedScope),
+    );
+    expect(createActionRequest).toHaveBeenCalledWith(
+      expect.objectContaining(expectedScope),
+    );
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining(expectedScope));
+  });
 });

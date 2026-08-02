@@ -138,6 +138,7 @@ export interface PluginsHandlerSurface {
   getRegisteredActionDescriptors(): Array<{
     kind: string;
     description: string;
+    scope?: "external" | "internal";
     default_mode?:
       | "auto"
       | "ask"

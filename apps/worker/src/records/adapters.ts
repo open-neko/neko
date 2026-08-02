@@ -39,6 +39,7 @@ export type RecordActionKind = (typeof RECORD_ACTION_KINDS)[number];
 export const RECORD_ACTION_DESCRIPTORS = [
   {
     kind: "record_create",
+    scope: "internal",
     description:
       "Create one record in an OpenNeko app through registry validation, app RBAC, and durable audit history.",
     default_mode: "ask",
@@ -53,6 +54,7 @@ export const RECORD_ACTION_DESCRIPTORS = [
   },
   {
     kind: "record_update",
+    scope: "internal",
     description:
       "Update one OpenNeko app record; include expected field values when the change depends on what was read.",
     default_mode: "ask",
@@ -66,6 +68,7 @@ export const RECORD_ACTION_DESCRIPTORS = [
   },
   {
     kind: "record_delete",
+    scope: "internal",
     description:
       "Soft-delete one OpenNeko app record into its recycle bin; no data is physically dropped.",
     default_mode: "ask",
@@ -77,6 +80,7 @@ export const RECORD_ACTION_DESCRIPTORS = [
   },
   {
     kind: "record_restore",
+    scope: "internal",
     description: "Restore one soft-deleted OpenNeko app record from its recycle bin.",
     default_mode: "ask",
     example: {
@@ -90,6 +94,8 @@ export const RECORD_ACTION_DESCRIPTORS = [
 export type WorkerActionDescriptor = {
   kind: string;
   description: string;
+  /** Fixed policy scope. Plugin actions default to external when omitted. */
+  scope?: "external" | "internal";
   default_mode?:
     | "auto"
     | "ask"

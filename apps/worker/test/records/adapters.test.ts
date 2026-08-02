@@ -79,22 +79,28 @@ describe("records worker action adapters", () => {
     );
     for (const descriptor of RECORD_ACTION_DESCRIPTORS) {
       expect(descriptor.default_mode).toBe("ask");
+      expect(descriptor.scope).toBe("internal");
       expect(descriptor.example).toMatchObject({ app: "crm" });
     }
-    expect(
-      includeRecordActionDescriptors([
-        {
-          kind: "record_create",
-          description: "must not override the built-in",
-        },
-        { kind: "send_message", description: "Send a message" },
-      ]).map((descriptor) => descriptor.kind),
-    ).toEqual([
+    const descriptors = includeRecordActionDescriptors([
+      {
+        kind: "record_create",
+        description: "must not override the built-in",
+      },
+      { kind: "send_message", description: "Send a message" },
+    ]);
+    expect(descriptors.map((descriptor) => descriptor.kind)).toEqual([
       ...RECORD_ACTION_KINDS,
       ...RECORD_SCHEMA_ACTION_KINDS,
       ...RECORD_IMPORT_ACTION_KINDS,
       "send_message",
     ]);
+    expect(
+      descriptors
+        .slice(0, -1)
+        .every((descriptor) => descriptor.scope === "internal"),
+    ).toBe(true);
+    expect(descriptors.at(-1)?.scope).toBeUndefined();
   });
 
   it("maps create and update payloads through the snapshotted actor", async () => {
