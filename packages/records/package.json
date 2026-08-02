@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./actions/execution": "./src/actions/execution.ts",
     "./graphjin/config": "./src/graphjin/config.ts",
+    "./graphjin/client": "./src/graphjin/client.ts",
     "./graphjin/schema": "./src/graphjin/schema.ts",
     "./naming": "./src/naming.ts",
     "./policy/evaluate": "./src/policy/evaluate.ts",
