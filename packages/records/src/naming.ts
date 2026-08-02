@@ -162,6 +162,18 @@ export function recordIdentifier(sourceName: string): RecordIdentifier {
   return finalizeIdentifier(canonicalize(sourceName), sourceName);
 }
 
+/** Validate a persisted identifier without silently renaming registry data. */
+export function validateRecordIdentifier(identifier: string): RecordIdentifier {
+  if (
+    typeof identifier !== "string" ||
+    !SAFE_IDENTIFIER.test(identifier) ||
+    Buffer.byteLength(identifier, "utf8") > POSTGRES_IDENTIFIER_MAX_BYTES
+  ) {
+    throw new InvalidRecordNameError(String(identifier));
+  }
+  return identifier as RecordIdentifier;
+}
+
 /** Build the `<app>__<object>` physical table name mandated by the registry. */
 export function recordTableName(appId: string, objectApiName: string): RecordIdentifier {
   const canonical = `${canonicalize(appId)}__${canonicalize(objectApiName)}`;
@@ -174,11 +186,5 @@ export function recordTableName(appId: string, objectApiName: string): RecordIde
  * escape hatch.
  */
 export function quoteRecordIdentifier(identifier: RecordIdentifier): string {
-  if (
-    !SAFE_IDENTIFIER.test(identifier) ||
-    Buffer.byteLength(identifier, "utf8") > POSTGRES_IDENTIFIER_MAX_BYTES
-  ) {
-    throw new InvalidRecordNameError(identifier);
-  }
-  return `"${identifier}"`;
+  return `"${validateRecordIdentifier(identifier)}"`;
 }

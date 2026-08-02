@@ -19,3 +19,106 @@ export const RECORD_APP_STATUSES = [
 ] as const;
 
 export type RecordAppStatus = (typeof RECORD_APP_STATUSES)[number];
+
+export const RECORD_FIELD_KINDS = [
+  "id",
+  "text",
+  "textarea",
+  "boolean",
+  "integer",
+  "decimal",
+  "currency",
+  "percent",
+  "date",
+  "datetime",
+  "email",
+  "phone",
+  "url",
+  "picklist",
+  "multipicklist",
+  "reference",
+  "readonly_formula",
+] as const;
+
+export type RecordFieldKind = (typeof RECORD_FIELD_KINDS)[number];
+export type RecordVisibility = "org" | "owner";
+export type RecordLayoutKind = "detail" | "list";
+export type JsonObject = Record<string, unknown>;
+
+export type RecordApp = {
+  orgId: string;
+  appId: string;
+  label: string;
+  purpose: string | null;
+  status: RecordAppStatus;
+  navOrder: number;
+  registryRevision: string;
+};
+
+export type RecordObject = {
+  id: string;
+  orgId: string;
+  appId: string;
+  apiName: RecordIdentifier;
+  sourceApiName: string | null;
+  label: string;
+  pluralLabel: string;
+  tableSchema: RecordIdentifier;
+  tableName: RecordIdentifier;
+  nameField: RecordIdentifier;
+  visibility: RecordVisibility;
+  custom: boolean;
+  archivedAt: Date | null;
+  recordCount: string | null;
+};
+
+export type RecordField = {
+  id: string;
+  orgId: string;
+  objectId: string;
+  apiName: RecordIdentifier;
+  sourceApiName: string | null;
+  label: string;
+  kind: RecordFieldKind;
+  columnName: RecordIdentifier;
+  required: boolean;
+  readOnly: boolean;
+  archivedAt: Date | null;
+  picklistValues: unknown[] | null;
+  referenceTargets: string[] | null;
+  length: number | null;
+  scale: number | null;
+};
+
+export type RecordLayout = {
+  objectId: string;
+  kind: RecordLayoutKind;
+  definition: JsonObject;
+};
+
+export type AppPage = {
+  id: string;
+  apiName: RecordIdentifier;
+  label: string;
+  definition: JsonObject;
+  navOrder: number;
+};
+
+export type RecordPermission = {
+  role: string;
+  objectApiName: RecordIdentifier;
+  canRead: boolean;
+  canCreate: boolean;
+  canUpdate: boolean;
+  canDelete: boolean;
+};
+
+export type AppRegistrySnapshot = {
+  revision: string;
+  app: RecordApp;
+  objects: RecordObject[];
+  fields: RecordField[];
+  layouts: RecordLayout[];
+  pages: AppPage[];
+  permissions: RecordPermission[];
+};

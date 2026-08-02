@@ -5,6 +5,7 @@ import {
   quoteRecordIdentifier,
   recordIdentifier,
   recordTableName,
+  validateRecordIdentifier,
 } from "../src/naming";
 
 describe("recordIdentifier", () => {
@@ -79,6 +80,13 @@ describe("quoteRecordIdentifier", () => {
 
   it("fails closed if an unsafe cast attempts to bypass naming", () => {
     expect(() => quoteRecordIdentifier('bad"name' as never)).toThrow(
+      InvalidRecordNameError,
+    );
+  });
+
+  it("validates persisted identifiers without silently renaming them", () => {
+    expect(validateRecordIdentifier("crm__account")).toBe("crm__account");
+    expect(() => validateRecordIdentifier("CRM Account")).toThrow(
       InvalidRecordNameError,
     );
   });

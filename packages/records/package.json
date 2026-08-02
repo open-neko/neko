@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./naming": "./src/naming.ts",
+    "./registry": "./src/registry.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {
@@ -15,8 +16,13 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "pg": "^8.20.0"
+  },
   "devDependencies": {
+    "@neko/db": "workspace:*",
     "@types/node": "^20",
+    "@types/pg": "^8.20.0",
     "typescript": "^5",
     "vitest": "^2.1.8"
   }
