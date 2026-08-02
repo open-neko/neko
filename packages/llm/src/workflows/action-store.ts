@@ -342,6 +342,55 @@ export type CreateActionRequestInput = {
   actorBackend?: string | null;
 };
 
+export type ActionRequestCreatedHook = (
+  request: ActionRequestRecord,
+) => Promise<ActionRequestRecord | void>;
+
+const actionRequestCreatedHooks = new Set<ActionRequestCreatedHook>();
+
+/**
+ * Register worker-owned preflight work that must finish before a newly
+ * persisted action request is returned to its caller (and therefore before
+ * the caller can emit an approval card or enqueue execution).
+ */
+export function registerActionRequestCreatedHook(
+  hook: ActionRequestCreatedHook,
+): () => void {
+  actionRequestCreatedHooks.add(hook);
+  return () => {
+    actionRequestCreatedHooks.delete(hook);
+  };
+}
+
+/** Replace an action payload after a successful, request-bound preflight. */
+export async function updateActionRequestPayload(args: {
+  id: string;
+  orgId: string;
+  payload: Record<string, unknown>;
+}): Promise<ActionRequestRecord> {
+  const [row] = await db()
+    .update(action_request)
+    .set({ payload: args.payload, updated_at: new Date() })
+    .where(
+      and(
+        eq(action_request.org_id, args.orgId),
+        eq(action_request.id, args.id),
+      ),
+    )
+    .returning();
+  if (!row) throw new Error(`action_request ${args.id} not found`);
+  const record = toRequestRecord(row);
+  const { recordAuditEvent } = await import("./audit-chain");
+  await recordAuditEvent({
+    orgId: args.orgId,
+    entityKind: "action_request",
+    entityId: record.id,
+    event: "payload_prepared",
+    payload: { kind: record.kind, payloadKeys: Object.keys(record.payload).sort() },
+  });
+  return record;
+}
+
 export async function createActionRequest(
   input: CreateActionRequestInput,
 ): Promise<ActionRequestRecord> {
@@ -413,7 +462,24 @@ export async function createActionRequest(
       actorBackend: record.actorBackend,
     },
   });
-  return record;
+  let prepared = record;
+  try {
+    for (const hook of actionRequestCreatedHooks) {
+      prepared = (await hook(prepared)) ?? prepared;
+    }
+    return prepared;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await markActionRequestFailed(record.id, `action preflight failed: ${message}`);
+    await recordAuditEvent({
+      orgId: input.orgId,
+      entityKind: "action_request",
+      entityId: record.id,
+      event: "preflight_failed",
+      payload: { kind: record.kind, error: message },
+    });
+    throw error;
+  }
 }
 
 export async function getActionRequest(

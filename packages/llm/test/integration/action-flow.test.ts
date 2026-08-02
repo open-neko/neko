@@ -12,9 +12,11 @@ import {
   listActionExecutions,
   rejectActionRequest,
   registerActionAdapter,
+  registerActionRequestCreatedHook,
   RetryableActionAdapterError,
   saveWorkflow,
   createWorkflowRun,
+  updateActionRequestPayload,
 } from "../../src/workflows";
 import { createWorkRun, createWorkThread } from "../../src/work/store";
 
@@ -95,6 +97,69 @@ describeIfDb("action stack — approve → execute → executed", () => {
         .from(action_request)
         .where(and(eq(action_request.org_id, orgId), eq(action_request.id, request.id)));
       expect(rows[0]?.status).toBe("executed");
+    });
+  });
+
+  it("finishes request preflight before returning an approvable request", async () => {
+    await withTestOrg(async (orgId) => {
+      const unregister = registerActionRequestCreatedHook(async (request) => {
+        if (request.kind !== "test_preflight") return;
+        return updateActionRequestPayload({
+          id: request.id,
+          orgId: request.orgId,
+          payload: { ...request.payload, preview_hash: "sha256:test" },
+        });
+      });
+      try {
+        const request = await createActionRequest({
+          orgId,
+          scope: "internal",
+          kind: "test_preflight",
+          payload: { app: "support" },
+          status: "pending_approval",
+        });
+        expect(request).toMatchObject({
+          status: "pending_approval",
+          payload: { app: "support", preview_hash: "sha256:test" },
+        });
+      } finally {
+        unregister();
+      }
+    });
+  });
+
+  it("fails a request when its preflight cannot produce an approval artifact", async () => {
+    await withTestOrg(async (orgId) => {
+      const unregister = registerActionRequestCreatedHook(async (request) => {
+        if (request.kind === "test_preflight_failure") {
+          throw new Error("catalog unavailable");
+        }
+      });
+      try {
+        await expect(
+          createActionRequest({
+            orgId,
+            scope: "internal",
+            kind: "test_preflight_failure",
+            status: "pending_approval",
+          }),
+        ).rejects.toThrow("catalog unavailable");
+        const [failed] = await db()
+          .select()
+          .from(action_request)
+          .where(
+            and(
+              eq(action_request.org_id, orgId),
+              eq(action_request.kind, "test_preflight_failure"),
+            ),
+          );
+        expect(failed).toMatchObject({
+          status: "failed",
+          rejection_reason: "action preflight failed: catalog unavailable",
+        });
+      } finally {
+        unregister();
+      }
     });
   });
 
