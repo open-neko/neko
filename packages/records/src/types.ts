@@ -105,6 +105,7 @@ export type AppPage = {
 };
 
 export type RecordPermission = {
+  appId: string;
   role: string;
   objectApiName: RecordIdentifier;
   canRead: boolean;

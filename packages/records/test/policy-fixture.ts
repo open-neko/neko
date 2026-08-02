@@ -1,0 +1,137 @@
+import { validateRecordIdentifier } from "../src/naming";
+import type { RecordsGraphjinPolicyModel } from "../src/policy/graphjin";
+
+const id = validateRecordIdentifier;
+
+export function recordsPolicyFixture(): RecordsGraphjinPolicyModel {
+  return {
+    orgId: "org-a",
+    catalog: [
+      {
+        schema: id("engine"),
+        name: id("actor"),
+        columns: [id("org_id"), id("user_id"), id("role")],
+      },
+      {
+        schema: id("public"),
+        name: id("crm__account"),
+        columns: [
+          id("id"),
+          id("org_id"),
+          id("name"),
+          id("industry"),
+          id("owner_user_id"),
+          id("nk_created_at"),
+          id("nk_created_by"),
+          id("nk_updated_at"),
+          id("nk_updated_by"),
+          id("nk_action_request_id"),
+          id("nk_mutation_id"),
+          id("nk_deleted_at"),
+        ],
+      },
+      {
+        schema: id("public"),
+        name: id("crm__contact"),
+        columns: [
+          id("id"),
+          id("org_id"),
+          id("name"),
+          id("owner_user_id"),
+          id("nk_updated_at"),
+          id("nk_deleted_at"),
+        ],
+      },
+      {
+        schema: id("public"),
+        name: id("crm__legacy"),
+        columns: [id("id"), id("org_id"), id("name"), id("nk_deleted_at")],
+      },
+      {
+        schema: id("public"),
+        name: id("orphan_table"),
+        columns: [id("id"), id("secret")],
+      },
+    ],
+    apps: [{ orgId: "org-a", appId: "crm", status: "active" }],
+    objects: [
+      {
+        id: "object-account",
+        orgId: "org-a",
+        appId: "crm",
+        apiName: id("account"),
+        tableSchema: id("public"),
+        tableName: id("crm__account"),
+        nameField: id("name"),
+        visibility: "org",
+        archived: false,
+      },
+      {
+        id: "object-contact",
+        orgId: "org-a",
+        appId: "crm",
+        apiName: id("contact"),
+        tableSchema: id("public"),
+        tableName: id("crm__contact"),
+        nameField: id("name"),
+        visibility: "owner",
+        archived: false,
+      },
+      {
+        id: "object-legacy",
+        orgId: "org-a",
+        appId: "crm",
+        apiName: id("legacy"),
+        tableSchema: id("public"),
+        tableName: id("crm__legacy"),
+        nameField: id("name"),
+        visibility: "org",
+        archived: true,
+      },
+    ],
+    fields: [
+      { objectId: "object-account", columnName: id("name"), archived: false },
+      { objectId: "object-account", columnName: id("industry"), archived: true },
+      { objectId: "object-contact", columnName: id("name"), archived: false },
+      { objectId: "object-legacy", columnName: id("name"), archived: false },
+    ],
+    permissions: [
+      {
+        appId: "crm",
+        role: "member",
+        objectApiName: id("account"),
+        canRead: true,
+        canCreate: true,
+        canUpdate: true,
+        canDelete: false,
+      },
+      {
+        appId: "crm",
+        role: "admin",
+        objectApiName: id("account"),
+        canRead: true,
+        canCreate: true,
+        canUpdate: true,
+        canDelete: true,
+      },
+      {
+        appId: "crm",
+        role: "member",
+        objectApiName: id("contact"),
+        canRead: true,
+        canCreate: true,
+        canUpdate: true,
+        canDelete: true,
+      },
+      {
+        appId: "crm",
+        role: "admin",
+        objectApiName: id("contact"),
+        canRead: true,
+        canCreate: true,
+        canUpdate: true,
+        canDelete: true,
+      },
+    ],
+  };
+}

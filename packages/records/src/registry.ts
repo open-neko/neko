@@ -75,6 +75,7 @@ type RawPage = {
 };
 
 type RawPermission = {
+  app_id: string;
   role: string;
   object_api_name: string;
   can_read: boolean;
@@ -235,7 +236,7 @@ export class RecordRegistry {
         [orgId, appId],
       );
       const permissionsResult = await client.query<RawPermission>(
-        `select role, object_api_name, can_read, can_create, can_update, can_delete
+        `select app_id, role, object_api_name, can_read, can_create, can_update, can_delete
          from engine.record_permission
          where org_id = $1 and app_id = $2
          order by role, object_api_name`,
@@ -260,6 +261,7 @@ export class RecordRegistry {
           navOrder: row.nav_order,
         })),
         permissions: permissionsResult.rows.map((row): RecordPermission => ({
+          appId: row.app_id,
           role: row.role,
           objectApiName: validateRecordIdentifier(row.object_api_name),
           canRead: row.can_read,

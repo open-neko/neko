@@ -278,6 +278,9 @@ importers:
       pg:
         specifier: ^8.20.0
         version: 8.20.0
+      yaml:
+        specifier: ^2.8.1
+        version: 2.9.0
     devDependencies:
       '@neko/db':
         specifier: workspace:*

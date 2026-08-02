@@ -7,7 +7,10 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./graphjin/config": "./src/graphjin/config.ts",
     "./naming": "./src/naming.ts",
+    "./policy/evaluate": "./src/policy/evaluate.ts",
+    "./policy/graphjin": "./src/policy/graphjin.ts",
     "./registry": "./src/registry.ts",
     "./types": "./src/types.ts"
   },
@@ -17,7 +20,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@neko/db": "workspace:*",
