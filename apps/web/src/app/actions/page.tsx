@@ -165,7 +165,10 @@ function ActionsPageInner() {
   }, [filter, focusedId]);
 
   useEffect(() => {
-    void load();
+    const initialLoadId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(initialLoadId);
   }, [load]);
 
   const switchFilter = useCallback((next: Filter) => {

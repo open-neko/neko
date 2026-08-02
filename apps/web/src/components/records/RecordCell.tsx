@@ -46,6 +46,9 @@ function DateValue({ value, includeTime }: { value: unknown; includeTime: boolea
     dateStyle: "medium",
     ...(includeTime ? { timeStyle: "short" as const } : {}),
   }).format(date);
+  // Relative labels are presentation-only and intentionally use the render
+  // instant; the absolute timestamp remains canonical in dateTime/title.
+  // eslint-disable-next-line react-hooks/purity
   const ageDays = Math.round((Date.now() - date.getTime()) / 86_400_000);
   const relative =
     Math.abs(ageDays) <= 7
@@ -56,6 +59,17 @@ function DateValue({ value, includeTime }: { value: unknown; includeTime: boolea
       {relative ?? absolute}
     </time>
   );
+}
+
+function safeHttpUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function NumberValue({ column, value }: { column: RecordViewColumn; value: unknown }) {
@@ -158,17 +172,13 @@ export function RecordCell({
     return <a href={`tel:${valueText}`}>{valueText}</a>;
   }
   if (linkify && column.kind === "url") {
-    try {
-      const url = new URL(valueText);
-      if (url.protocol === "http:" || url.protocol === "https:") {
-        return (
-          <a href={url.toString()} target="_blank" rel="noreferrer">
-            {valueText}
-          </a>
-        );
-      }
-    } catch {
-      // Render malformed imported URLs as plain text.
+    const url = safeHttpUrl(valueText);
+    if (url) {
+      return (
+        <a href={url} target="_blank" rel="noreferrer">
+          {valueText}
+        </a>
+      );
     }
   }
   if (linkify && column.kind === "reference" && column.referenceTargets?.length === 1) {

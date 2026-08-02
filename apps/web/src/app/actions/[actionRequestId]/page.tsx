@@ -144,7 +144,10 @@ export default function ActionPage() {
   }, [actionRequestId]);
 
   useEffect(() => {
-    void load();
+    const initialLoadId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(initialLoadId);
   }, [load]);
 
   // Poll while pending so an auto-approval or executor result lands without
