@@ -33,6 +33,14 @@ import type {
   GraphjinAgentStatus,
 } from "../graphjin/agent";
 import type { OpenApiSpecAssetView } from "../graphjin/openapi-assets";
+import type {
+  RecordListFilter,
+  RecordsCatalogResult,
+  RecordsDetailResult,
+  RecordsQueryResult,
+  RecordsReadGateway,
+  RecordsViewer,
+} from "@neko/records";
 
 type PolicyRequestSubject = Parameters<typeof evaluateActionPolicy>[0];
 type PolicyDecision = ReturnType<typeof evaluateActionPolicy>;
@@ -193,6 +201,104 @@ export type WaitForActionExecutionResult =
       status: "timeout";
     };
 
+type RecordsControlPlaneRuntime = {
+  gateway: RecordsReadGateway;
+};
+
+const recordsRuntimeGlobal = globalThis as typeof globalThis & {
+  __opennekoLlmRecordsRuntime?: Promise<RecordsControlPlaneRuntime>;
+};
+
+async function recordsControlPlaneRuntime(): Promise<RecordsControlPlaneRuntime> {
+  const existing = recordsRuntimeGlobal.__opennekoLlmRecordsRuntime;
+  if (existing) return existing;
+  const created = Promise.all([
+    import("pg"),
+    import("@neko/db"),
+    import("@neko/records"),
+  ]).then(([pgModule, dbModule, records]) => {
+    const pool = new pgModule.default.Pool({
+      ...dbModule.buildRecordsPoolConfig(),
+      application_name: "openneko-agent-records",
+    });
+    return {
+      gateway: new records.RecordsReadGateway(
+        pool,
+        new records.RecordRegistry(pool),
+        new records.RecordsGraphjinClient({
+          baseUrl:
+            process.env.OPENNEKO_RECORDS_GRAPHJIN_URL ??
+            "http://127.0.0.1:8090",
+        }),
+      ),
+    };
+  });
+  recordsRuntimeGlobal.__opennekoLlmRecordsRuntime = created;
+  return created;
+}
+
+async function recordsViewerForRun(input: {
+  orgId: string;
+  runId: string;
+}): Promise<RecordsViewer> {
+  const { and, app_user, db, eq, work_run } = await import("@neko/db");
+  const [run] = await db()
+    .select({
+      orgId: work_run.org_id,
+      userId: work_run.actor_user_id,
+      snapshotRole: work_run.actor_role,
+    })
+    .from(work_run)
+    .where(eq(work_run.id, input.runId))
+    .limit(1);
+  if (!run || run.orgId !== input.orgId) {
+    throw new Error("records tools are not available to this run");
+  }
+
+  if (run.userId) {
+    const [user] = await db()
+      .select({ role: app_user.role, disabledAt: app_user.disabled_at })
+      .from(app_user)
+      .where(
+        and(eq(app_user.id, run.userId), eq(app_user.org_id, input.orgId)),
+      )
+      .limit(1);
+    if (
+      !user ||
+      user.disabledAt ||
+      (user.role !== "admin" && user.role !== "member")
+    ) {
+      throw new Error("records tools are not available to this actor");
+    }
+    return { orgId: input.orgId, userId: run.userId, role: user.role };
+  }
+
+  // A userless admin exists only in the solo profile. Once the org has any
+  // user, a detached/deleted run must not inherit this synthetic authority.
+  const [anyUser] = await db()
+    .select({ id: app_user.id })
+    .from(app_user)
+    .where(eq(app_user.org_id, input.orgId))
+    .limit(1);
+  if (anyUser || run.snapshotRole !== "admin") {
+    throw new Error("records tools are not available to this actor");
+  }
+  return {
+    orgId: input.orgId,
+    userId: `urn:openneko:solo-admin:${input.orgId}`,
+    role: "admin",
+  };
+}
+
+async function activeRecordAppIds(orgId: string): Promise<ReadonlySet<string>> {
+  const { and, app_state, db, eq } = await import("@neko/db");
+  const rows = await db()
+    .select({ appId: app_state.app_id })
+    .from(app_state)
+    .where(and(eq(app_state.org_id, orgId), eq(app_state.status, "active")));
+  return new Set(rows.map((row) => row.appId));
+}
+
 /**
  * The narrow control-plane surface an agent turn touches: policy eval,
  * action-request create + enqueue, the two memory ops, and the builder
@@ -233,6 +339,34 @@ export interface AgentControlPlane {
     data: unknown;
     errors?: Array<{ message: string; path?: (string | number)[] }>;
   }>;
+  /** Actor-scoped registry catalog for native generated records apps. */
+  listRecordCatalog(input: {
+    orgId: string;
+    runId: string;
+    appId?: string;
+  }): Promise<RecordsCatalogResult>;
+  /** Generated, bounded GraphJin list/search query under the run's actor. */
+  findRecords(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    first?: number;
+    after?: string | null;
+    sort?: { field: string; direction: "asc" | "desc" };
+    search?: string | null;
+    filters?: RecordListFilter[];
+    myRecords?: boolean;
+  }): Promise<RecordsQueryResult>;
+  /** Exact actor-scoped record lookup after an id has been resolved. */
+  getRecord(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    recordId: string;
+    allFields?: boolean;
+  }): Promise<RecordsDetailResult>;
   saveWorkflowWithTrigger(
     input: SaveWorkflowInput,
   ): Promise<Wire<SaveWorkflowWithTriggerResult>>;
@@ -583,6 +717,59 @@ export class InProcessControlPlane implements AgentControlPlane {
       headers,
       signal: AbortSignal.timeout(60_000),
     });
+  }
+
+  async listRecordCatalog(input: {
+    orgId: string;
+    runId: string;
+    appId?: string;
+  }): Promise<RecordsCatalogResult> {
+    const [viewer, activeAppIds, runtime] = await Promise.all([
+      recordsViewerForRun(input),
+      activeRecordAppIds(input.orgId),
+      recordsControlPlaneRuntime(),
+    ]);
+    return runtime.gateway.listCatalog({
+      viewer,
+      activeAppIds,
+      ...(input.appId ? { appId: input.appId } : {}),
+    });
+  }
+
+  async findRecords(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    first?: number;
+    after?: string | null;
+    sort?: { field: string; direction: "asc" | "desc" };
+    search?: string | null;
+    filters?: RecordListFilter[];
+    myRecords?: boolean;
+  }): Promise<RecordsQueryResult> {
+    const [viewer, activeAppIds, runtime] = await Promise.all([
+      recordsViewerForRun(input),
+      activeRecordAppIds(input.orgId),
+      recordsControlPlaneRuntime(),
+    ]);
+    return runtime.gateway.findRecords({ ...input, viewer, activeAppIds });
+  }
+
+  async getRecord(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    recordId: string;
+    allFields?: boolean;
+  }): Promise<RecordsDetailResult> {
+    const [viewer, activeAppIds, runtime] = await Promise.all([
+      recordsViewerForRun(input),
+      activeRecordAppIds(input.orgId),
+      recordsControlPlaneRuntime(),
+    ]);
+    return runtime.gateway.getRecord({ ...input, viewer, activeAppIds });
   }
 
   async saveWorkflowWithTrigger(

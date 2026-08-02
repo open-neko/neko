@@ -10,6 +10,7 @@ export {
   buildChannelManagerServer,
   buildDataSourceManagerServer,
   buildGraphjinReadServer,
+  buildRecordsReadServer,
   buildPluginActionServer,
   buildPluginManagerServer,
   buildRenderCardsServer,

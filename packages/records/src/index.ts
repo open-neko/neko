@@ -12,6 +12,7 @@ export * from "./policy/evaluate";
 export * from "./policy/actor";
 export * from "./policy/graphjin";
 export * from "./read/query";
+export * from "./read/gateway";
 export * from "./registry";
 export * from "./schema/audit";
 export * from "./schema/catalog";

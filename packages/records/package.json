@@ -20,6 +20,7 @@
     "./policy/evaluate": "./src/policy/evaluate.ts",
     "./policy/actor": "./src/policy/actor.ts",
     "./policy/graphjin": "./src/policy/graphjin.ts",
+    "./read/gateway": "./src/read/gateway.ts",
     "./read/query": "./src/read/query.ts",
     "./registry": "./src/registry.ts",
     "./schema/audit": "./src/schema/audit.ts",

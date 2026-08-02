@@ -8,6 +8,7 @@ import {
   buildGraphjinReadServer,
   buildPluginActionServer,
   buildPluginManagerServer,
+  buildRecordsReadServer,
   buildSkillBuilderServer,
   buildSourceConfigManagerServer,
   buildUserManagerServer,
@@ -76,6 +77,8 @@ export function buildBridgeServer(
           exposeSave: process.env.OPENNEKO_MCP_MEMORY_READ_ONLY !== "1",
         },
       );
+    case "neko_records":
+      return buildRecordsReadServer({ orgId, runId, controlPlane });
     case "neko_workflow_builder":
       return buildWorkflowBuilderServer({
         orgId,

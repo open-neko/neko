@@ -37,6 +37,7 @@ describe("work workspace", () => {
     const workspace = await ensureOrgWorkspace("org-test");
     const skills = await readdir(workspace.skillsRoot);
     expect(skills).toContain("app-builder");
+    expect(skills).toContain("records");
     expect(skills).toContain("skill-creator");
     expect(skills).toContain("pdf");
   }, 30_000);

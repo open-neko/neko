@@ -1008,6 +1008,138 @@ export function buildGraphjinReadServer(opts: {
   });
 }
 
+/**
+ * Native records read surface. Unlike neko_graphjin (customer sources), every
+ * document here is generated from the records registry and executes with the
+ * requesting run's current human identity. The sandbox never receives a raw
+ * endpoint, signing secret, or ability to submit arbitrary GraphQL.
+ */
+export function buildRecordsReadServer(opts: {
+  orgId: string;
+  runId: string;
+  controlPlane?: AgentControlPlane;
+}) {
+  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const browseCatalog = tool(
+    "browse_catalog",
+    [
+      "Browse active generated records apps, readable objects, fields,",
+      "layouts, and the current actor's CRUD grants. Use this before querying",
+      "or proposing a record action; app and field names must come from here.",
+    ].join(" "),
+    {
+      app: z.string().trim().min(1).max(63).optional(),
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            await controlPlane.listRecordCatalog({
+              orgId: opts.orgId,
+              runId: opts.runId,
+              ...(args.app ? { appId: args.app } : {}),
+            }),
+          ),
+        },
+      ],
+    }),
+  );
+
+  const filterSchema = z.object({
+    field: z.string().trim().min(1).max(63),
+    operator: z.enum(["eq", "neq", "in", "contains", "starts_with", "is_null"]),
+    value: z.unknown().optional(),
+  });
+  const findRecords = tool(
+    "find_records",
+    [
+      "Search or list records through a bounded, registry-generated GraphJin",
+      "query under the current actor's permissions. Use the returned exact id",
+      "before proposing record_update, record_delete, or record_restore. If",
+      "multiple rows could match, disambiguate with the user; never guess.",
+    ].join(" "),
+    {
+      app: z.string().trim().min(1).max(63),
+      object: z.string().trim().min(1).max(63),
+      first: z.number().int().min(1).max(50).optional(),
+      after: z.string().trim().min(1).max(4_096).optional(),
+      search: z.string().trim().min(1).max(200).optional(),
+      filters: z.array(filterSchema).max(20).optional(),
+      sort: z
+        .object({
+          field: z.string().trim().min(1).max(63),
+          direction: z.enum(["asc", "desc"]),
+        })
+        .optional(),
+      myRecords: z.boolean().optional(),
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            await controlPlane.findRecords({
+              orgId: opts.orgId,
+              runId: opts.runId,
+              appId: args.app,
+              objectApiName: args.object,
+              ...(args.first !== undefined ? { first: args.first } : {}),
+              ...(args.after ? { after: args.after } : {}),
+              ...(args.search ? { search: args.search } : {}),
+              ...(args.filters ? { filters: args.filters } : {}),
+              ...(args.sort ? { sort: args.sort } : {}),
+              ...(args.myRecords !== undefined
+                ? { myRecords: args.myRecords }
+                : {}),
+            }),
+          ),
+        },
+      ],
+    }),
+  );
+
+  const getRecord = tool(
+    "get_record",
+    [
+      "Read one record by an exact id already obtained from find_records.",
+      "Returns null when that id is absent or invisible to the current actor.",
+      "Use allFields only when fields outside the detail layout are needed.",
+    ].join(" "),
+    {
+      app: z.string().trim().min(1).max(63),
+      object: z.string().trim().min(1).max(63),
+      id: z.string().trim().min(1).max(512),
+      allFields: z.boolean().optional(),
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            await controlPlane.getRecord({
+              orgId: opts.orgId,
+              runId: opts.runId,
+              appId: args.app,
+              objectApiName: args.object,
+              recordId: args.id,
+              ...(args.allFields !== undefined
+                ? { allFields: args.allFields }
+                : {}),
+            }),
+          ),
+        },
+      ],
+    }),
+  );
+
+  return createSdkMcpServer({
+    name: "neko_records",
+    version: "1.0.0",
+    tools: [browseCatalog, findRecords, getRecord],
+  });
+}
+
 // Two-tool memory surface: `save` and `search`. Reads use pgvector
 // context-search (matches the auto-context retrieval path), writes go
 // through the same rememberWorkMemory used by the `save:` chat command,

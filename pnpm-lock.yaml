@@ -224,6 +224,9 @@ importers:
       '@neko/interaction':
         specifier: workspace:*
         version: link:../interaction
+      '@neko/records':
+        specifier: workspace:*
+        version: link:../records
       '@neko/secret-crypt':
         specifier: workspace:*
         version: link:../secret-crypt

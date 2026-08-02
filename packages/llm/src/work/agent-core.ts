@@ -15,6 +15,7 @@ import {
   buildSourceConfigManagerServer,
   buildUserManagerServer,
   buildRenderCardsServer,
+  buildRecordsReadServer,
   buildSkillBuilderServer,
   buildWorkMemoryServer,
   type PluginActionDescriptor,
@@ -91,6 +92,7 @@ export async function runAgentBackend(
         ...(wantsCards ? { neko_ui: buildRenderCardsServer(emit) } : {}),
         neko_skills: buildSkillBuilderServer(workspace.skillsRoot),
         neko_memory: buildWorkMemoryServer({ orgId, threadId, runId }, { controlPlane }),
+        neko_records: buildRecordsReadServer({ orgId, runId, controlPlane }),
         neko_workflow_builder: buildWorkflowBuilderServer({
           orgId,
           createdByThreadId: threadId,
