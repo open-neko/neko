@@ -8,8 +8,11 @@ implements. The agent designs the schema in conversation, the engine applies it,
 the UI is generated from metadata, GraphJin serves reads and change
 subscriptions, and access follows the established user/role pattern.
 
-Salesforce liberation (CSV export or connected live-org import) is the first
-**app feeder**, not the product's shape.
+Every app — however it was created — can **ingest CSVs as a baseline
+capability** (D14): the schema comes from a conversation, the data usually
+comes from a spreadsheet. Salesforce liberation (CSV export or connected
+live-org import) is the first *connector-grade* feeder, not the product's
+shape.
 
 **Repo touched:** `open-neko/openneko` only. This is a native feature — **no
 plugin** is involved (see D1). The `open-neko/plugins` repo needs no changes.
@@ -95,14 +98,22 @@ engine, UI, adapters, connectors. *Rejected:* the `module` plugin capability;
 
 **D2 — "App" is the unit; apps are agent-authored registry content.**
 An app = a row in `engine.record_app` + its objects/fields/layouts/permissions
-+ a dedicated Postgres schema in `records-db`. Apps come into existence three
-ways, all converging on the same schema executor (C3): (a) conversation from
-scratch ("app to replace Zendesk"), (b) conversation from a shipped blueprint
-the agent adapts, (c) derived from imported metadata (Salesforce describe →
-proposed app). *Rejected:* apps as shipped code modules (predicting domains
++ a dedicated Postgres schema in `records-db`. Apps come into existence four
+ways, all converging on the same schema executor (C3): (a) **conversation from
+scratch** — including apps that have never been built before; blueprints are
+priors, not limits, and the agent models a genuinely novel domain by
+interviewing for entities, relationships, and workflows; (b) conversation from
+a shipped blueprint the agent adapts; (c) derived from imported metadata
+(Salesforce describe → proposed app) or a CSV's inferred shape (D14);
+(d) **proposed by the agent on its own initiative** — when work memory shows a
+recurring need (the user keeps asking for the same ad-hoc view, keeps tracking
+the same list in chat), the agent surfaces an app proposal as a briefing
+finding / chat suggestion. Self-initiated proposals are suggestions only:
+nothing is created until a human approves the same `app_create` card every
+other path uses. *Rejected:* apps as shipped code modules (predicting domains
 instead of extracting them); a visual app-builder UI as the primary surface
 (chat is the builder; admin UI edits come later and go through the same
-actions).
+actions); silent auto-creation of agent-proposed apps.
 
 **D3 — Domain-neutral engine naming.**
 Tables/adapters/routes say `record`/`app`, never `crm`: `record_object`,
@@ -220,6 +231,62 @@ With no plugin in the picture the earlier OSS-core vs paid-module question
 collapses to feature packaging inside the product (edition gating at most).
 Nothing below depends on the answer.
 
+**D14 — CSV import is a baseline capability of every app.**
+An app built in conversation starts empty; the data it needs almost always
+exists as a spreadsheet. So every app accepts CSVs from day one, in two forms,
+both through the C8 machinery: **(a) into an existing object** — the agent
+proposes a column→field mapping (suggesting new fields via `app_field_add`
+where headers don't match), the approval card shows the mapping, row count,
+and sample rows before anything loads; **(b) as new objects or a new app** —
+headers + typed sampling infer a schema that becomes an ordinary
+`app_create` / `app_object_create` proposal. v1 loads are insert-only with a
+duplicate-detection report; upsert-by-chosen-key is a follow-on option. The
+full artifact-directory contract (describe metadata, manifests, watermarks)
+remains the connector-grade path; plain CSV is the floor beneath it.
+*Rejected:* routing bulk rows through `record_create` one at a time (the
+action stack carries intent, not 50k rows — one approval covers the load, the
+import report is its audit); treating import as a Salesforce-only feature.
+
+**D15 — Apps have pages; shipped screens can become built-in apps.**
+The generated UI is not only CRUD. An app can declare **pages** —
+compositions of query-driven blocks (metric card, list, feed/timeline) stored
+as registry content (`record_layout kind='page'`; definition = blocks of
+`{label, query, renderer, span}`) and rendered by one generic page renderer,
+every block's query running under the viewer's JWT like any read (D5). That
+makes "why hardcode screens?" the right question: a CRM overview with
+pipeline metric cards is registry data the agent can create and evolve, not
+code. And since the metadata DB is already served by its own GraphJin
+instance, core read surfaces are candidates for re-expression as **seeded,
+non-archivable built-in apps** — the home dashboard (metric cards + briefing
+feed) first. Two boundaries hold this together: (1) **control-plane surfaces
+stay code** — setup, settings, approvals, and action cards must never be
+definable by data the agent can write (an agent-authored page must not be
+able to imitate or alter an approval card); (2) **sequencing discipline** —
+the page layer lands when the first real app needs an overview page, and a
+core screen is re-expressed only when doing so *deletes* the hardcoded
+version, never as a parallel implementation. *Rejected:* a widget/plugin SDK
+for pages (blocks are a fixed renderer set the engine grows deliberately);
+rewriting existing screens as apps before the page layer has proven itself on
+app-native pages.
+
+**D16 — Screen taxonomy, decided now: native, built-in app, or on-demand app.**
+
+| Tier | Surfaces | Rationale |
+|---|---|---|
+| **Native code** | Setup wizard; Settings (users, secrets, sources, plugins, health); approval cards & the action stack UI; the Work/chat thread surface; the nav shell | The control plane and the trust surface: these mutate platform state, render approvals, or *are* the agent interface. Never definable by data the agent can write (D15 boundary). |
+| **Built-in apps** (seeded, non-archivable registry content) | Home dashboard (metric cards + briefing feed) — first candidate; findings and workflow-run browsers as later page-layer candidates | Read views over the metadata GraphJin instance. Being registry content makes them agent-tunable ("add a card for open deals to my dashboard") like any app page. Re-expressed only under the D15 rule: the hardcoded version is deleted, not duplicated. |
+| **On-demand apps** | CRM, support desk, and anything the user + agent decide to build (D2a–d) | Business domains: records + pages, per app. |
+
+**Shipping apps on demand:** because an app is data, a vendor-shipped app is
+a **versioned app definition** — blueprint JSON + optional connector reference
++ skill pack. v1 ships definitions in-repo (`packages/records/blueprints/`);
+follow-on adds a remotely-updatable catalog ("OpenNeko ships a field-service
+app this quarter" without a platform release). Installing or upgrading a
+shipped app applies the definition (or its version diff) through the same
+approval-gated C3 executor as every schema change — the vendor proposes,
+the operator approves, and an upgrade can never silently reshape data (D7
+rules apply: additive, archive-not-drop).
+
 ---
 
 ## 3. Components
@@ -233,8 +300,8 @@ Nothing below depends on the answer.
 | C5 | GraphJin integration (source, roles, tokens, subscriptions) | `packages/llm/src/graphjin/`, `packages/records/src/policy/` | 1 |
 | C6 | Auto-generated web UI (`/a/[app]`) | `apps/web/src/app/a/` | 1 (read) / 3 (forms) |
 | C7 | RBAC policy module (shared read/write source of truth) | `packages/records/src/policy/` | 1 |
-| C8 | Importer (staged artifacts → live app) + Salesforce CSV feeder | `packages/records/src/import/`, worker job | 2 |
-| C9 | Connected Salesforce export (native worker connector) | `packages/records/src/connect/salesforce/` | 2 |
+| C8 | Importer — baseline CSV import (every app) + staged-artifact import | `packages/records/src/import/`, worker job | 1 (CSV) / 2 (artifacts) |
+| C9 | First-party connector framework + Salesforce connector (mirror/cutover sync) | `packages/records/src/connect/` | 2 |
 | C10 | Identity mapping (source users ↔ `app_user`) | `packages/records/src/identity/` | 2 |
 | C11 | Agent skills & blueprints (app-builder, records, domain packs) | `packages/llm/assets/builtin-skills/` | 1–2 |
 | C12 | Watcher/briefing integration & change subscriptions | worker + seeds + docs | 3 |
@@ -566,7 +633,8 @@ app gets it with zero app-specific code; it appears in nav the moment
 Routes:
 
 ```
-/a/[app]                       → app home: object nav (registry), pinned views
+/a/[app]                       → app home: generated overview page (D15 blocks)
+                                 when defined; else object nav + pinned views
 /a/[app]/[object]              → list view: server-driven table; filter/sort/
                                  search on registry fields; saved views (later)
 /a/[app]/[object]/[id]         → record detail: layout sections; related lists
@@ -584,6 +652,11 @@ Routes:
 - **Field rendering/edit widgets** keyed on `record_field.kind` — one
   component per kind. Reference lookups search the target object's
   `name_field` via the same read path.
+- **Page renderer (D15, Phase 3):** one generic component walking a
+  `record_layout kind='page'` definition — block renderers for metric card,
+  list, and feed/timeline to start; each block's query is registry-generated
+  and runs under the viewer's JWT. Layout edits arrive via the
+  `app_layout_update` action ("add a card for open deals to my dashboard").
 - **The ask-box** (the differentiator): every list and record view embeds a
   chat entry pre-scoped with app/object/record context (routes into the
   existing work-thread machinery with a context preamble). "Log yesterday's
@@ -622,19 +695,37 @@ set.
 
 ### C8 — Importer
 
-**What:** `staged artifact directory → live app`. Runs as a worker pg-boss job
-(new `QUEUE.RECORDS_IMPORT` in `packages/db/src/jobs.ts`), triggered by an
+**What:** one import machinery, two granularities. Runs as a worker pg-boss
+job (new `QUEUE.RECORDS_IMPORT` in `packages/db/src/jobs.ts`), triggered by an
 action adapter (`records_import_start`, with `_status` / `_cancel`) so chat
 drives it with an approval card, and by CLI
-(`openneko records import --app crm --dir ./sf-export`).
+(`openneko records import --app crm --dir ./sf-export` /
+`--object equipment --file loans.csv`).
 
-**Input contract (one contract, any feeder — D11):** a directory containing
-`data/<object>.csv`, optionally `describe/*.json` (source metadata) and
-`export-manifest.json` (per-object expected row counts + export watermarks).
-The connected connector (C9) produces all three; a client-supplied CSV dump is
-the manual feeder, with type inference filling in for missing describes.
-Import *is* app creation: stage 2 runs through the C3 executor, so an imported
-app and a conversation-built app are the same kind of thing.
+**Baseline CSV import — every app, Phase 1 (D14):** one or more plain CSVs
+into an existing object, or as new objects/apps. The flow is the D14 mapping
+card: agent proposes column→field mapping (with `app_field_add` suggestions
+for unmatched headers, chained as one approval), card shows mapping + row
+count + sample rows, then the load runs stages 1→3→6 below (schema stage only
+when fields/objects are being created). CSVs arrive by web upload on the
+`/a/[app]/admin` import surface (staged to a worker-owned directory), by host
+path via CLI, or from an already-registered `file` data source (local|s3|gcs).
+Insert-only in v1 with a duplicate report; upsert-by-key later.
+
+**Artifact-directory import — connector-grade, Phase 2 (one contract, any
+feeder — D11):** a directory containing `data/<object>.csv`, optionally
+`describe/*.json` (source metadata) and `export-manifest.json` (per-object
+expected row counts + export watermarks). The connector framework (C9)
+produces all three; a client-supplied CSV dump of a whole system is the manual
+feeder, with type inference filling in for missing describes. Import *is* app
+creation: the schema stage runs through the C3 executor, so an imported app
+and a conversation-built app are the same kind of thing.
+
+**Change-log policy for bulk loads:** loads below a row threshold write
+per-record `import` entries to `engine.record_change_log`; above it, one
+aggregate import event per object (file hash, row counts, reject counts,
+provenance in `app_state.config`) with the import report as the audit — the
+change log stays useful instead of drowning.
 
 Pipeline stages (each checkpointed in `app_state.config.import` so a restart
 resumes; progress via `records_import_status` and a briefing card):
@@ -673,14 +764,44 @@ refs, a user CSV with one email collision); property tests for the CSV parser;
 resume test (kill between stages, re-run, assert idempotence — every stage
 `ON CONFLICT`-safe / `IF NOT EXISTS`-guarded).
 
-### C9 — Connected Salesforce export (native)
+### C9 — First-party connector framework (Salesforce first)
 
-**What:** "just connect and import everything" — a worker-native connector in
-`packages/records/src/connect/salesforce/`, run as a pg-boss job with
-checkpointed state in `app_state.config.export`. Action kinds:
-`salesforce_discover` (`auto`), `salesforce_export_start` (`ask`),
+**What:** "just connect and import everything" — and keep syncing where the
+source API makes it feasible. A connector is worker-native code implementing
+one interface against the C8 staging contract:
+
+```
+discover()  → object/field/count inventory (the migration plan)
+export()    → full extraction into the artifact directory
+delta(wm)   → changes since watermark, applied through the C4 executor
+```
+
+Each connector declares its **sync feasibility** from what the source API
+offers — Salesforce: `SystemModstamp` watermarks + `queryAll` for deletes
+(good); Zendesk: the incremental export APIs (good); a source with no
+change-tracking API: export-only, honestly labeled. Apps fed by a connector
+run in one of two modes, chosen at setup and switchable by approval:
+
+- **Mirror mode** — ongoing scheduled inbound sync; the source system remains
+  the system of record; local records are read-only (the agent can still
+  query, watch, and brief over them — that's most of the value on day one).
+- **Primary mode (cutover)** — sync stops (or winds down through a transition
+  window), local writes open up, and the app is the system of record.
+
+The natural adoption arc is mirror first, cutover when trust is earned.
+Two-way write-back to the source is explicitly **out of scope** for v1 —
+one-way inbound only, which is what makes mirror mode safe. Mechanically the
+mode lives in `app_state.config.mode`; the C4 adapters and form routes refuse
+writes on a mirror app with a typed error ("mirrored from Salesforce — writes
+happen there until cutover"), while reads, watchers, and briefings work
+unchanged.
+
+**Salesforce connector** (`packages/records/src/connect/salesforce/`), run as
+a pg-boss job with checkpointed state in `app_state.config.export`. Action
+kinds: `salesforce_discover` (`auto`), `salesforce_export_start` (`ask`),
 `salesforce_export_status` (`auto`), `salesforce_export_cancel` (`ask`),
-`salesforce_sync_delta` (`ask`).
+`salesforce_sync_delta` (`ask` to enable the schedule; individual runs then
+`auto` as `service`).
 
 - **Auth:** Connected App client-credentials flow; `SALESFORCE_INSTANCE_URL` /
   client id in `app_state.config`, client secret in `data_source_secret`
@@ -698,11 +819,12 @@ checkpointed state in `app_state.config.export`. Action kinds:
   `export-manifest.json` (expected counts + the watermark delta sync resumes
   from), then chain into `records_import_start` (C8) — export and import
   reconcile counts independently.
-- **Delta sync (transition window only):** `SystemModstamp > watermark`
-  (+ `queryAll` for deletes) from the manifest watermark; changes are applied
-  **through the C4 executor** as the `service` actor (logged as `sync` in the
-  change log) so even sync writes hit the one write path. Explicitly framed as
-  transition-only, not a permanent two-way bridge.
+- **Delta sync:** `SystemModstamp > watermark` (+ `queryAll` for deletes)
+  from the manifest watermark; changes are applied **through the C4 executor**
+  as the `service` actor (logged as `sync` in the change log) so even sync
+  writes hit the one write path. In mirror mode this runs on a schedule
+  indefinitely; in primary mode it's the transition window that winds down at
+  cutover. One-way inbound either way — never a write-back bridge.
 - **Client discipline:** token caching/refresh, 429/`Retry-After` and
   `REQUEST_LIMIT_EXCEEDED` backoff, and a **daily API-budget governor**
   (job/batch limits and org API-call allowances tracked in checkpoint state;
@@ -719,9 +841,10 @@ checkpointed state in `app_state.config.export`. Action kinds:
   plan card → one approval starts export → import chains → the briefing
   announces the app is live with validation + identity reports.
 
-The connector interface (`discover / export / delta` against the staging
-contract) is deliberately generic — a Zendesk connector is the same shape with
-a different client, which is the "replace my Zendesk" path when it comes.
+A Zendesk connector is the same interface with a different client (incremental
+export APIs for delta, ticket/user/organization objects for describe) — the
+"replace my Zendesk" path starts as a mirror-mode support app and earns
+cutover.
 
 **Testing:** mocked-SF-server harness covering the export end-to-end (Bulk job
 lifecycle, locator pagination, kill/resume from checkpoint, manifest count
@@ -753,11 +876,17 @@ fresh SSO sign-in links a previously unlinked user and backfills ownership.
 
 - **App-builder skill** `packages/llm/assets/builtin-skills/app-builder/SKILL.md`
   (pattern: the existing `graphjin-config` skill): how to interview for
-  requirements, adapt a blueprint, propose `app_create` with a complete
-  object/field set in one card, evolve schemas additively, and when to
-  counter-propose (lossy type change → add + backfill). Hard rules: never
-  propose `hard_drop` (it doesn't exist as an action); archived means hidden,
-  not gone.
+  requirements and model a **novel domain from scratch** (entities →
+  relationships → ownership → workflows; blueprints are priors, not limits),
+  adapt a blueprint, propose `app_create` with a complete object/field set in
+  one card, offer CSV mapping when the user mentions a spreadsheet (D14),
+  evolve schemas additively, and when to counter-propose (lossy type change →
+  add + backfill). **Proactive proposals** (D2d): when work memory shows the
+  same ad-hoc view or hand-tracked list recurring, suggest an app — as a
+  briefing finding or in-thread suggestion, never an unprompted approval
+  card, and drop the suggestion cleanly if declined (no nagging). Hard rules:
+  never propose `hard_drop` (it doesn't exist as an action); archived means
+  hidden, not gone.
 - **Records skill** `.../records/SKILL.md`: browsing the registry catalog,
   querying via GraphJin, proposing `record_*` actions — with the hard rule
   *resolve the record id via query first; never guess-and-write*,
@@ -810,44 +939,56 @@ clean recovery; weekly verify job tested against the golden fixture backup.
 
 ## 5. Phases & acceptance criteria
 
-**Phase 1 — The engine and the app builder (C1–C7, C11-builder, C13-backup).**
+**Phase 1 — The engine and the app builder (C1–C7, C8-CSV, C11-builder,
+C13-backup).**
 "Create a simple app to track equipment loans" works end to end: the agent
 proposes the app (one approval card), the schema is applied and logged, the
 app appears in nav with generated list/detail views, records are created and
-updated through chat with approval cards, RBAC separates admin from member,
-and the change log shows everything.
-*Acceptance:* blueprint-fixture app create → CRUD → browse passes as e2e;
-member vs admin see different rows on an owner-visibility object in both UI
-and chat; hostile-label identifier injection rejected; archive hides but
-retains; WAL archiving + base backup running against both databases and a
-manual restore drill documented and executed once — **no real business data
-before the backup path works**.
+updated through chat with approval cards, **a spreadsheet loads into it via
+the CSV mapping card** (chat attachment or admin upload), RBAC separates
+admin from member, and the change log shows everything.
+*Acceptance:* blueprint-fixture app create → CRUD → browse passes as e2e; a
+5k-row CSV imports into an existing object with unmatched-header field
+suggestions, quarantined-row report, and correct duplicate detection, from
+both chat and admin upload; member vs admin see different rows on an
+owner-visibility object in both UI and chat; hostile-label identifier
+injection rejected; archive hides but retains; WAL archiving + base backup
+running against both databases and a manual restore drill documented and
+executed once — **no real business data before the backup path works**.
 
-**Phase 2 — Salesforce liberation (C8, C9, C10, C11-crm-pack,
+**Phase 2 — Salesforce liberation (C8-artifacts, C9, C10, C11-crm-pack,
 C13-verify/watchers).**
-Both feeders live: CSV-dump import and connected import ("create an app that
-will let me bring in my Salesforce data"), producing a CRM app with identity
-mapping and import report; transition-window delta sync.
+Both connector-grade feeders live: whole-system CSV-dump import and connected
+import ("create an app that will let me bring in my Salesforce data"),
+producing a CRM app with identity mapping and import report; **mirror-mode
+ongoing sync** and primary-mode cutover with a transition window.
 *Acceptance:* golden fixture import completes resumably and is idempotent;
 mocked-SF full export → import chain completes hands-free from one approval,
-reconciles counts, survives kill/resume at every stage; delta run applies
-through the C4 executor as `service` and doesn't re-fire watchers; API budget
+reconciles counts, survives kill/resume at every stage; a mirror-mode app
+rejects local writes with the typed error while chat reads/watchers work;
+delta runs apply through the C4 executor as `service` and don't re-fire
+watchers; cutover flips the mode by approval and opens writes; API budget
 governor demonstrably throttles; weekly restore-verification job green and
 alerting through a channel; unlinked/conflict identity report visible.
 
-**Phase 3 — App ergonomics (C6-forms + admin, C12).**
+**Phase 3 — App ergonomics (C6-forms + pages + admin, C12).**
 Generated create/edit forms on every object through the same action path;
+the D15 page layer with an app overview page on the CRM blueprint;
 permissions admin; identity admin; schema-history page; saved list views;
 watcher/briefing seeds (subscription-triggered where enabled).
 *Acceptance:* e2e create/edit/delete round-trips per field kind; a `deny`
-policy blocks the form path too; permission edit regenerates GraphJin config
-and the drift test stays green; seed watchers fire on subscribed changes and
-skip self-writes.
+policy blocks the form path too; an `app_layout_update` adds a metric card to
+an app page and it renders under the viewer's JWT; permission edit
+regenerates GraphJin config and the drift test stays green; seed watchers
+fire on subscribed changes and skip self-writes.
 
-**Phase 4 — Second feeder & scale-out.**
-A second connector (Zendesk-shaped) proving the C9 interface generic; saved
-view sharing; per-app role extensions beyond admin/member if a real app
-demands them (D3 discipline); ContentVersion/file import.
+**Phase 4 — Second feeder, built-in apps & scale-out.**
+A second connector (Zendesk-shaped, mirror-first) proving the C9 interface
+generic; the first core-screen re-expression as a built-in app (home
+dashboard, under the D16 delete-not-duplicate rule); the shipped-app
+definition format versioned toward a remotely-updatable catalog; saved view
+sharing; per-app role extensions beyond admin/member if a real app demands
+them (D3 discipline); ContentVersion/file import.
 
 ---
 
@@ -1043,3 +1184,16 @@ each with its approving action request.
 - **Email collisions & shared mailboxes.** `identity_map.status='conflict'`
   rows need a human; the report must make this loud — silent mis-ownership is
   the worst failure mode of a migration.
+- **Proactive proposal noise (D2d).** An agent that suggests an app every
+  time a pattern half-repeats erodes trust fast. The skill needs a high bar
+  (recurrence over weeks, not sessions), one suggestion per pattern, and
+  declined-means-dropped memory.
+- **Page layer as a trust surface (D15/D16).** Agent-authored pages must be
+  visually and structurally incapable of imitating approval cards or settings
+  controls: block renderers are a closed set with their own chrome, and
+  approval cards exist only in the native thread surface. Enforced by
+  construction, verified by an e2e that tries.
+- **Cutover ordering (C9).** Flipping mirror → primary while a delta run is
+  in flight could interleave sync writes with first local writes. Cutover is
+  a small orchestration: freeze the schedule → run a final delta → verify
+  watermark → open writes. Scoped into C9, tested in the mocked-SF harness.
