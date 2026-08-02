@@ -81,6 +81,14 @@ export type RecordDetailQuery = {
   resultField: string;
 };
 
+export type RecordReferenceLabelQuery = {
+  operationName: "RecordsReferenceLabels";
+  query: string;
+  variables: { record_ids: string[] };
+  view: RecordObjectView;
+  resultField: "rows";
+};
+
 export type RecordAggregateQuery = {
   operationName: "RecordsMetric";
   query: string;
@@ -678,6 +686,49 @@ export function buildRecordDetailQuery(input: {
     operationName: "RecordsDetail",
     query,
     variables: { record_id: recordId },
+    view,
+    resultField: "rows",
+  };
+}
+
+/**
+ * Resolve reference display labels without widening the caller's access.
+ * The target object passes through the same active-object and role checks as
+ * every generated list/detail query, and GraphJin still enforces org,
+ * soft-delete, and row policies on the viewer token.
+ */
+export function buildRecordReferenceLabelQuery(input: {
+  snapshot: AppRegistrySnapshot;
+  objectApiName: string;
+  role: RecordViewerRole;
+  recordIds: string[];
+}): RecordReferenceLabelQuery {
+  const target = input.snapshot.objects.find(
+    (candidate) =>
+      candidate.apiName === readIdentifier(input.objectApiName, "reference target") &&
+      candidate.archivedAt === null,
+  );
+  if (!target) {
+    throw new RecordReadTargetError("reference target is unknown or archived");
+  }
+  const recordIds = [...new Set(input.recordIds.map(recordIdValue))];
+  if (recordIds.length < 1 || recordIds.length > 100) {
+    throw new RecordReadTargetError("reference label queries require 1 to 100 record ids");
+  }
+  const view = resolveView({
+    snapshot: input.snapshot,
+    objectApiName: target.apiName,
+    role: input.role,
+    layoutKind: "list",
+    columns: [target.nameField],
+  });
+  const query =
+    `query RecordsReferenceLabels { rows: ${view.object.tableName}` +
+    `(where: { id: { in: $record_ids } }, limit: ${recordIds.length}) { id ${view.object.nameField} } }`;
+  return {
+    operationName: "RecordsReferenceLabels",
+    query,
+    variables: { record_ids: recordIds },
     view,
     resultField: "rows",
   };

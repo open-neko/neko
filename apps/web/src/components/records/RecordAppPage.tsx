@@ -5,6 +5,7 @@ import type {
   RecordAppPageRowsBlock,
 } from "@/lib/records";
 import { RecordCell } from "./RecordCell";
+import { recordReferenceIdentityKey } from "@/lib/records-reference";
 
 function metricValue(block: RecordAppPageMetricBlock): string {
   const numeric = Number(block.value);
@@ -46,6 +47,12 @@ function RowsBlock({ appId, block }: { appId: string; block: RecordAppPageRowsBl
                             ? block.owners[String(row[column.columnName])]
                             : undefined
                         }
+                        reference={block.references[
+                          recordReferenceIdentityKey(
+                            column.apiName,
+                            String(row[column.columnName] ?? ""),
+                          )
+                        ]}
                       />
                     </span>
                   ))}
@@ -78,6 +85,12 @@ function RowsBlock({ appId, block }: { appId: string; block: RecordAppPageRowsBl
                           ? block.owners[String(row[column.columnName])]
                           : undefined
                       }
+                      reference={block.references[
+                        recordReferenceIdentityKey(
+                          column.apiName,
+                          String(row[column.columnName] ?? ""),
+                        )
+                      ]}
                       linkify={column.columnName !== block.view.object.nameField}
                     />
                   );

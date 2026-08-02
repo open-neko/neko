@@ -19,6 +19,7 @@ import {
   buildRecordListQuery,
   buildRecordRecycleDetailQuery,
   buildRecordRecycleListQuery,
+  buildRecordReferenceLabelQuery,
   buildRecordSchemaLogQuery,
   mintRecordsGraphjinToken,
   parseRecordAppPage,
@@ -39,6 +40,10 @@ import {
   type RecordViewerRole,
 } from "@neko/records";
 import { getCurrentActor } from "@/lib/actor";
+import {
+  recordReferenceIdentityKey,
+  type RecordReferenceIdentity,
+} from "@/lib/records-reference";
 import {
   groupPendingRecordActions,
   PENDING_RECORD_ACTION_STATUSES,
@@ -414,6 +419,7 @@ export type RecordListResult = {
   view: RecordObjectView;
   app: AppRegistrySnapshot["app"];
   owners: Record<string, RecordOwnerIdentity>;
+  references: Record<string, RecordReferenceIdentity>;
   pendingActions: Record<string, PendingRecordAction[]>;
 };
 
@@ -483,6 +489,7 @@ export type RecordAppPageRowsBlock = {
   rows: Array<Record<string, unknown>>;
   view: RecordObjectView;
   owners: Record<string, RecordOwnerIdentity>;
+  references: Record<string, RecordReferenceIdentity>;
 };
 
 export type RecordAppPageResult = {
@@ -563,6 +570,13 @@ export async function readRecordAppPage(input: {
           appId: shell.snapshot.app.appId,
           rows,
         }),
+        references: await resolveReferenceIdentities({
+          snapshot: shell.snapshot,
+          view: generated.view,
+          rows,
+          role: viewer.role,
+          token: viewer.token,
+        }),
       };
     }),
   );
@@ -630,6 +644,75 @@ async function resolveOwnerIdentities(input: {
         },
       ];
     }),
+  );
+}
+
+async function resolveReferenceIdentities(input: {
+  snapshot: AppRegistrySnapshot;
+  view: RecordObjectView;
+  rows: Array<Record<string, unknown>>;
+  role: RecordViewerRole;
+  token: string;
+}): Promise<Record<string, RecordReferenceIdentity>> {
+  const columns = input.view.columns.filter(
+    (column) => column.kind === "reference" && column.referenceTargets?.length,
+  );
+  if (columns.length === 0 || input.rows.length === 0) return {};
+
+  const candidates = new Map<string, RecordReferenceIdentity[]>();
+  await Promise.all(
+    columns.flatMap((column) => {
+      const recordIds = [
+        ...new Set(
+          input.rows.flatMap((row) => {
+            const value = row[column.columnName];
+            return typeof value === "string" && value ? [value] : [];
+          }),
+        ),
+      ];
+      if (recordIds.length === 0) return [];
+      return (column.referenceTargets ?? []).map(async (target) => {
+        let generated;
+        try {
+          generated = buildRecordReferenceLabelQuery({
+            snapshot: input.snapshot,
+            objectApiName: target,
+            role: input.role,
+            recordIds,
+          });
+        } catch {
+          // An archived or unreadable target remains a raw, non-expanded id.
+          // The source field is already readable, but the resolver never
+          // widens access merely to improve presentation.
+          return;
+        }
+        const data = await recordsRuntime().graphjin.execute<Record<string, unknown>>({
+          operationName: generated.operationName,
+          query: generated.query,
+          variables: generated.variables,
+          token: input.token,
+        });
+        for (const row of rowsFrom(data[generated.resultField])) {
+          if (row.id === null || row.id === undefined) continue;
+          const id = String(row.id);
+          const key = recordReferenceIdentityKey(column.apiName, id);
+          const identity = {
+            id,
+            label: String(row[generated.view.object.nameField] ?? id),
+            objectApiName: generated.view.object.apiName,
+          };
+          const existing = candidates.get(key);
+          if (existing) existing.push(identity);
+          else candidates.set(key, [identity]);
+        }
+      });
+    }),
+  );
+
+  return Object.fromEntries(
+    [...candidates.entries()].flatMap(([key, matches]) =>
+      matches.length === 1 ? [[key, matches[0]!]] : [],
+    ),
   );
 }
 
@@ -707,11 +790,18 @@ export async function readRecordList(input: {
     token: viewer.token,
   });
   const rows = rowsFrom(data[generated.resultField]);
-  const [owners, pendingActions] = await Promise.all([
+  const [owners, references, pendingActions] = await Promise.all([
     resolveOwnerIdentities({
       orgId: input.orgId,
       appId: shell.snapshot.app.appId,
       rows,
+    }),
+    resolveReferenceIdentities({
+      snapshot: shell.snapshot,
+      view: generated.view,
+      rows,
+      role: viewer.role,
+      token: viewer.token,
     }),
     input.includePendingActions === false
       ? Promise.resolve({} as Record<string, PendingRecordAction[]>)
@@ -734,6 +824,7 @@ export async function readRecordList(input: {
     view: generated.view,
     app: shell.snapshot.app,
     owners,
+    references,
     pendingActions,
   };
 }
@@ -774,6 +865,7 @@ export type RecordDetailResult = {
   view: RecordObjectView;
   app: AppRegistrySnapshot["app"];
   owners: Record<string, RecordOwnerIdentity>;
+  references: Record<string, RecordReferenceIdentity>;
   layout: JsonObject | null;
   relatedLists: RecordRelatedList[];
   history: RecordChangeLogEntry[];
@@ -786,6 +878,7 @@ export type RecordRelatedList = {
   view: RecordObjectView;
   rows: Array<Record<string, unknown>>;
   owners: Record<string, RecordOwnerIdentity>;
+  references: Record<string, RecordReferenceIdentity>;
 };
 
 export type RecordChangeLogEntry = {
@@ -871,6 +964,13 @@ export async function readRecordDetail(input: {
                 appId: shell.snapshot.app.appId,
                 rows: relatedRows,
               }),
+              references: await resolveReferenceIdentities({
+                snapshot: shell.snapshot,
+                view: relatedQuery.view,
+                rows: relatedRows,
+                role: viewer.role,
+                token: viewer.token,
+              }),
             };
           }),
         ),
@@ -905,6 +1005,13 @@ export async function readRecordDetail(input: {
       orgId: input.orgId,
       appId: shell.snapshot.app.appId,
       rows: row ? [row] : [],
+    }),
+    references: await resolveReferenceIdentities({
+      snapshot: shell.snapshot,
+      view: generated.view,
+      rows: row ? [row] : [],
+      role: viewer.role,
+      token: viewer.token,
     }),
     layout:
       shell.snapshot.layouts.find(

@@ -65,6 +65,7 @@ export default async function RecordDetailPage({
         view={result.view}
         row={result.row}
         owners={result.owners}
+        references={result.references}
         layout={result.layout}
       />
       <RecordRelatedLists appId={result.app.appId} lists={result.relatedLists} />

@@ -1,5 +1,9 @@
 import type { JsonObject, RecordObjectView, RecordViewColumn } from "@neko/records";
 import type { RecordOwnerIdentity } from "@/lib/records";
+import {
+  recordReferenceIdentityKey,
+  type RecordReferenceIdentity,
+} from "@/lib/records-reference";
 import { RecordCell } from "./RecordCell";
 
 export function RecordDetailCard({
@@ -7,12 +11,14 @@ export function RecordDetailCard({
   view,
   row,
   owners,
+  references = {},
   layout,
 }: {
   appId: string;
   view: RecordObjectView;
   row: Record<string, unknown>;
   owners: Record<string, RecordOwnerIdentity>;
+  references?: Record<string, RecordReferenceIdentity>;
   layout?: JsonObject | null;
 }) {
   const ownerId =
@@ -37,6 +43,12 @@ export function RecordDetailCard({
                         ? owners[ownerId]
                         : undefined
                     }
+                    reference={references[
+                      recordReferenceIdentityKey(
+                        column.apiName,
+                        String(row[column.columnName] ?? ""),
+                      )
+                    ]}
                   />
                 </dd>
               </div>

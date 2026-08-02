@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { RecordViewColumn } from "@neko/records";
 import type { RecordOwnerIdentity } from "@/lib/records";
+import type { RecordReferenceIdentity } from "@/lib/records-reference";
 
 const PILL_TONES = ["violet", "green", "amber", "blue", "rose", "slate"] as const;
 
@@ -117,12 +118,14 @@ export function RecordCell({
   column,
   value,
   owner,
+  reference,
   linkify = true,
 }: {
   appId: string;
   column: RecordViewColumn;
   value: unknown;
   owner?: RecordOwnerIdentity;
+  reference?: RecordReferenceIdentity;
   linkify?: boolean;
 }) {
   if (value === null || value === undefined || value === "") {
@@ -181,12 +184,15 @@ export function RecordCell({
       );
     }
   }
-  if (linkify && column.kind === "reference" && column.referenceTargets?.length === 1) {
-    return (
-      <Link href={`/a/${appId}/${column.referenceTargets[0]}/${encodeURIComponent(valueText)}`}>
-        {valueText}
+  if (column.kind === "reference") {
+    const target = reference?.objectApiName ??
+      (column.referenceTargets?.length === 1 ? column.referenceTargets[0] : null);
+    const label = reference?.label ?? valueText;
+    return linkify && target ? (
+      <Link href={`/a/${appId}/${target}/${encodeURIComponent(valueText)}`}>
+        {label}
       </Link>
-    );
+    ) : <span>{label}</span>;
   }
   return <span className={column.kind === "readonly_formula" ? "records-readonly" : undefined}>{valueText}</span>;
 }

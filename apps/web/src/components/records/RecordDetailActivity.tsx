@@ -5,6 +5,7 @@ import type {
   RecordRelatedList,
 } from "@/lib/records";
 import { RecordCell } from "./RecordCell";
+import { recordReferenceIdentityKey } from "@/lib/records-reference";
 
 function display(value: unknown): string {
   if (value === null || value === undefined || value === "") return "Not set";
@@ -64,6 +65,12 @@ export function RecordRelatedLists({
                                       ? list.owners[String(row[column.columnName])]
                                       : undefined
                                   }
+                                  reference={list.references[
+                                    recordReferenceIdentityKey(
+                                      column.apiName,
+                                      String(row[column.columnName] ?? ""),
+                                    )
+                                  ]}
                                 />
                               )}
                             </td>

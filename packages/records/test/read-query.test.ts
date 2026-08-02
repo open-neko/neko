@@ -5,6 +5,7 @@ import {
   buildRecordChangeLogQuery,
   buildRecordAggregateQuery,
   buildRecordListQuery,
+  buildRecordReferenceLabelQuery,
   buildRecordRecycleDetailQuery,
   buildRecordRecycleListQuery,
   buildRecordSchemaLogQuery,
@@ -367,6 +368,75 @@ describe("generated record read queries", () => {
       object_api_name: "work_order",
       record_id: "wo-deleted",
     });
+  });
+
+  it("builds a bounded, policy-checked reference label query", () => {
+    const current = snapshot();
+    current.objects.push({
+      id: "object-account",
+      orgId: "org-a",
+      appId: "operations",
+      apiName: id("account"),
+      sourceApiName: null,
+      label: "Account",
+      pluralLabel: "Accounts",
+      tableSchema: id("public"),
+      tableName: id("operations__account"),
+      nameField: id("name"),
+      visibility: "org",
+      custom: false,
+      archivedAt: null,
+      recordCount: "2",
+    });
+    current.fields.push({
+      id: "field-account-name",
+      orgId: "org-a",
+      objectId: "object-account",
+      apiName: id("name"),
+      sourceApiName: null,
+      label: "Account name",
+      kind: "text",
+      columnName: id("name"),
+      required: true,
+      readOnly: false,
+      archivedAt: null,
+      picklistValues: null,
+      referenceTargets: null,
+      length: 200,
+      scale: null,
+    });
+    current.permissions.push({
+      appId: "operations",
+      role: "admin",
+      objectApiName: id("account"),
+      canRead: true,
+      canCreate: true,
+      canUpdate: true,
+      canDelete: true,
+    });
+
+    const built = buildRecordReferenceLabelQuery({
+      snapshot: current,
+      objectApiName: "account",
+      role: "admin",
+      recordIds: ["001-b", "001-a", "001-a"],
+    });
+    expect(built.query).toBe(
+      "query RecordsReferenceLabels { rows: operations__account(where: { id: { in: $record_ids } }, limit: 2) { id name } }",
+    );
+    expect(built.variables).toEqual({ record_ids: ["001-b", "001-a"] });
+
+    current.permissions = current.permissions.filter(
+      (permission) => permission.objectApiName !== "account",
+    );
+    expect(() =>
+      buildRecordReferenceLabelQuery({
+        snapshot: current,
+        objectApiName: "account",
+        role: "admin",
+        recordIds: ["001-a"],
+      }),
+    ).toThrow(RecordReadPermissionError);
   });
 
   it("treats an explicit stale layout as a fail-closed field allowlist", () => {

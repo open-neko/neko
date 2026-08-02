@@ -91,6 +91,7 @@ describe("RecordAppPage", () => {
           rows: [{ id: "deal-1", name: "Meridian", amount: "12500.5" }],
           view: { object, permission, columns },
           owners: {},
+          references: {},
         },
         {
           renderer: "timeline",
@@ -99,6 +100,7 @@ describe("RecordAppPage", () => {
           rows: [{ id: "deal-1", name: "Meridian", amount: "12500.5" }],
           view: { object, permission, columns },
           owners: {},
+          references: {},
         },
       ],
     };

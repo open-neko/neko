@@ -60,6 +60,17 @@ function view(): RecordObjectView {
         referenceTargets: null,
         scale: null,
       },
+      {
+        apiName: "account_manager",
+        columnName: "account_manager",
+        label: "Account manager",
+        kind: "reference",
+        required: false,
+        readOnly: false,
+        picklistValues: null,
+        referenceTargets: ["contact"],
+        scale: null,
+      },
     ],
   };
 }
@@ -70,8 +81,20 @@ describe("record detail metadata surfaces", () => {
     const detail = renderToStaticMarkup(createElement(RecordDetailCard, {
       appId: "crm",
       view: current,
-      row: { id: "account-1", name: "Meridian", industry: "Technology" },
+      row: {
+        id: "account-1",
+        name: "Meridian",
+        industry: "Technology",
+        account_manager: "contact-1",
+      },
       owners: {},
+      references: {
+        ["account_manager\u0000contact-1"]: {
+          id: "contact-1",
+          label: "Kavya Menon",
+          objectApiName: "contact",
+        },
+      },
       layout: {
         sections: [
           { label: "Identity", fields: ["name"] },
@@ -82,6 +105,9 @@ describe("record detail metadata surfaces", () => {
     expect(detail).toContain("Identity");
     expect(detail).toContain("Classification");
     expect(detail.indexOf("Account name")).toBeLessThan(detail.indexOf("Industry"));
+    expect(detail).toContain("Kavya Menon");
+    expect(detail).toContain('/a/crm/contact/contact-1');
+    expect(detail).not.toContain(">contact-1</a>");
 
     const related = renderToStaticMarkup(createElement(RecordRelatedLists, {
       appId: "crm",
@@ -91,6 +117,7 @@ describe("record detail metadata surfaces", () => {
         view: current,
         rows: [{ id: "account-2", name: "Meridian India", industry: "Technology" }],
         owners: {},
+        references: {},
       }],
     }));
     expect(related).toContain("Child accounts");

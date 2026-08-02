@@ -2,6 +2,10 @@ import Link from "next/link";
 import type { RecordObjectView } from "@neko/records";
 import type { RecordOwnerIdentity } from "@/lib/records";
 import type { PendingRecordAction } from "@/lib/records-pending";
+import {
+  recordReferenceIdentityKey,
+  type RecordReferenceIdentity,
+} from "@/lib/records-reference";
 import { RecordCell } from "./RecordCell";
 import { PendingChangeMarker } from "./PendingChangeMarker";
 
@@ -28,6 +32,7 @@ export function RecordTable({
   rows,
   owners,
   pendingActions = {},
+  references = {},
   total,
   cursor,
   page,
@@ -38,6 +43,7 @@ export function RecordTable({
   rows: Array<Record<string, unknown>>;
   owners: Record<string, RecordOwnerIdentity>;
   pendingActions?: Record<string, PendingRecordAction[]>;
+  references?: Record<string, RecordReferenceIdentity>;
   total: number;
   cursor: string | null;
   page: number;
@@ -100,6 +106,9 @@ export function RecordTable({
                         column={column}
                         value={value}
                         owner={ownerId ? owners[ownerId] : undefined}
+                        reference={references[
+                          recordReferenceIdentityKey(column.apiName, String(value ?? ""))
+                        ]}
                         linkify={!nameColumn}
                       />
                     );
