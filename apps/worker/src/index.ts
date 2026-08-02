@@ -13,6 +13,7 @@ import {
   type ActionExecutePayload,
   type ChannelDeliverPayload,
   type ProcessingJobPayload,
+  type RecordsIdentityLinkPayload,
   type RecordsImportPayload,
   type WorkflowRunFirePayload,
   type WorkRunPayload,
@@ -79,6 +80,7 @@ import { runWorkflowRunFire } from "./jobs/workflow-run-fire.js";
 import { runWorkflowOutputTtlSweep } from "./jobs/workflow-output-ttl-sweep.js";
 import { runActionExecute } from "./jobs/action-execute.js";
 import { runRecordsImport } from "./jobs/records-import.js";
+import { runRecordsIdentityLink } from "./jobs/records-identity-link.js";
 import {
   reconcileStaleProcessingJobs,
   reconcileStaleRuns,
@@ -727,6 +729,23 @@ await b.work(
       } catch (e) {
         console.warn(
           `[records-import] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
+        );
+        throw e;
+      }
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_IDENTITY_LINK,
+  { batchSize: 1, pollingIntervalSeconds: 0.5 },
+  async (jobs: PgBossLib.Job<RecordsIdentityLinkPayload>[]) => {
+    for (const job of jobs) {
+      try {
+        await runRecordsIdentityLink(recordsPool, job.data);
+      } catch (e) {
+        console.warn(
+          `[records-identity-link] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
         );
         throw e;
       }

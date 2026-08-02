@@ -23,6 +23,7 @@ export const QUEUE = {
   WORKFLOW_OUTPUT_TTL_SWEEP: "workflow_output_ttl_sweep",
   ACTION_EXECUTE: "action_execute",
   RECORDS_IMPORT: "records_import",
+  RECORDS_IDENTITY_LINK: "records_identity_link",
   CHANNEL_DELIVER: "channel_deliver",
 } as const;
 
@@ -92,6 +93,12 @@ export type RecordsImportPayload = {
   orgId: string;
   importRunId: string;
   actorUserId: string;
+};
+
+export type RecordsIdentityLinkPayload = {
+  orgId: string;
+  appUserId: string;
+  email: string;
 };
 
 let _boss: PgBoss | null = null;

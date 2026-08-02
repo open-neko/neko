@@ -15,6 +15,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { enqueue, QUEUE } from "@neko/db/jobs";
+import { getOrgId } from "@/lib/db";
 import {
   buildRedirectUri,
   completeAuth,
@@ -81,6 +83,18 @@ export async function GET(request: NextRequest) {
     });
     const user = await upsertUserFromIdentity(identity);
     await writeSessionCookie(user.id);
+    await enqueue(
+      QUEUE.RECORDS_IDENTITY_LINK,
+      { orgId: await getOrgId(), appUserId: user.id, email: user.email },
+      {
+        retryLimit: 5,
+        retryDelay: 30,
+      },
+    ).catch((queueError) => {
+      console.warn(
+        `[auth] records identity linking was not queued: ${queueError instanceof Error ? queueError.message : queueError}`,
+      );
+    });
     return NextResponse.redirect(new URL(stored.returnPath, request.url), {
       status: 302,
     });
