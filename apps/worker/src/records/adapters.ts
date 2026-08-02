@@ -22,6 +22,10 @@ import {
   RECORD_SCHEMA_ACTION_DESCRIPTORS,
   RECORD_SCHEMA_ACTION_KINDS,
 } from "./schema-adapters.js";
+import {
+  RECORD_IMPORT_ACTION_DESCRIPTORS,
+  RECORD_IMPORT_ACTION_KINDS,
+} from "./import-adapters.js";
 
 export const RECORD_ACTION_KINDS = [
   "record_create",
@@ -103,10 +107,12 @@ export function includeRecordActionDescriptors(
   const builtins = new Set<string>([
     ...RECORD_ACTION_KINDS,
     ...RECORD_SCHEMA_ACTION_KINDS,
+    ...RECORD_IMPORT_ACTION_KINDS,
   ]);
   return [
     ...RECORD_ACTION_DESCRIPTORS,
     ...RECORD_SCHEMA_ACTION_DESCRIPTORS,
+    ...RECORD_IMPORT_ACTION_DESCRIPTORS,
     ...descriptors.filter((descriptor) => !builtins.has(descriptor.kind)),
   ];
 }

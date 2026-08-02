@@ -329,6 +329,44 @@ export async function seedDefaultActionPolicies(orgId: string): Promise<void> {
       enabled: true,
     });
   }
+  // C8: a reviewed mapping may create thousands of app rows, so starting or
+  // cancelling an import stays admin-approved. Status is a read-only control
+  // operation and can execute without manufacturing another approval card.
+  if (!names.has("records_import_mutation_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "records_import_mutation_default",
+      description:
+        "Starting or cancelling a generated-app CSV import requires admin approval.",
+      appliesToKinds: ["records_import_start", "records_import_cancel"],
+      appliesToScopes: ["internal", "external"],
+      mode: "approval_required" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: "admin",
+      priority: 90,
+      enabled: true,
+    });
+  }
+  if (!names.has("records_import_status_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "records_import_status_default",
+      description: "Reading records import progress is safe to auto-approve.",
+      appliesToKinds: ["records_import_status"],
+      appliesToScopes: ["internal", "external"],
+      mode: "auto_approve" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: null,
+      priority: 90,
+      enabled: true,
+    });
+  }
   // OL5: configuring the customer GraphJin (sources/roles/access) from
   // chat needs an ADMIN. (The OpenNeko internal GraphJin is never a target.)
   if (!names.has("source_config_management_default")) {

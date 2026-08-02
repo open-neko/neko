@@ -531,7 +531,14 @@ export class RecordImportExecutor {
     const fields = snapshot.fields.filter(
       (field) => field.objectId === object.id && field.archivedAt === null,
     );
-    const source = await this.dependencies.readSource(run.orgId, run.plan.source.path);
+    let source: Uint8Array;
+    try {
+      source = await this.dependencies.readSource(run.orgId, run.plan.source.path);
+    } catch (error) {
+      throw new RecordImportTerminalError("approved import source is unavailable", {
+        cause: error,
+      });
+    }
     if (
       source.byteLength !== run.plan.source.bytes ||
       sha256(source) !== run.plan.source.sha256

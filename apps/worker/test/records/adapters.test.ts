@@ -15,6 +15,7 @@ import {
   registerRecordActionAdapters,
 } from "../../src/records/adapters.js";
 import { RECORD_SCHEMA_ACTION_KINDS } from "../../src/records/schema-adapters.js";
+import { RECORD_IMPORT_ACTION_KINDS } from "../../src/records/import-adapters.js";
 
 function actionRequest(
   kind: string,
@@ -91,6 +92,7 @@ describe("records worker action adapters", () => {
     ).toEqual([
       ...RECORD_ACTION_KINDS,
       ...RECORD_SCHEMA_ACTION_KINDS,
+      ...RECORD_IMPORT_ACTION_KINDS,
       "send_message",
     ]);
   });

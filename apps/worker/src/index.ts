@@ -1,7 +1,9 @@
 import "dotenv/config";
 
 import { randomUUID } from "node:crypto";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { createServer } from "node:http";
+import { resolve, sep } from "node:path";
 import pg from "pg";
 import type PgBoss from "pg-boss";
 import {
@@ -11,12 +13,15 @@ import {
   type ActionExecutePayload,
   type ChannelDeliverPayload,
   type ProcessingJobPayload,
+  type RecordsImportPayload,
   type WorkflowRunFirePayload,
   type WorkRunPayload,
 } from "@neko/db/jobs";
 import { buildRecordsPoolConfig } from "@neko/db/records-migrate";
 import {
   mintRecordsGraphjinToken,
+  normalizeRecordImportSourcePath,
+  RecordImportExecutor,
   recordsGraphjinSigningSecret,
   RecordsGraphjinClient,
   RecordWriteExecutor,
@@ -73,6 +78,7 @@ import { runWorkflowCronSweep } from "./jobs/workflow-cron-sweep.js";
 import { runWorkflowRunFire } from "./jobs/workflow-run-fire.js";
 import { runWorkflowOutputTtlSweep } from "./jobs/workflow-output-ttl-sweep.js";
 import { runActionExecute } from "./jobs/action-execute.js";
+import { runRecordsImport } from "./jobs/records-import.js";
 import {
   reconcileStaleProcessingJobs,
   reconcileStaleRuns,
@@ -83,6 +89,7 @@ import {
   registerRecordActionAdapters,
 } from "./records/adapters.js";
 import { registerRecordSchemaActions } from "./records/schema-adapters.js";
+import { registerRecordImportActions } from "./records/import-adapters.js";
 import { createRecordsSchemaRuntime } from "./records/schema-runtime.js";
 
 const PORT: number = 4100;
@@ -103,21 +110,47 @@ const recordsPool = new pg.Pool({
   ...buildRecordsPoolConfig(),
   application_name: "openneko-worker-records",
 });
+const recordsGraphjin = new RecordsGraphjinClient({
+  baseUrl:
+    process.env.OPENNEKO_RECORDS_GRAPHJIN_URL ?? "http://127.0.0.1:8090",
+});
+const recordsServiceToken = (orgId: string) =>
+  mintRecordsGraphjinToken({
+    secret: recordsGraphjinSigningSecret(orgId),
+    orgId,
+    userId: "records-service",
+    role: "service",
+  });
+
+async function readRecordImportSource(orgId: string, sourcePath: string): Promise<Uint8Array> {
+  const relativePath = normalizeRecordImportSourcePath(sourcePath);
+  const workspace = await ensureOrgWorkspace(orgId);
+  const root = await realpath(workspace.orgRoot);
+  const file = await realpath(resolve(root, relativePath));
+  if (file !== root && !file.startsWith(`${root}${sep}`)) {
+    throw new Error("records import source escapes its organization workspace");
+  }
+  const metadata = await stat(file);
+  if (!metadata.isFile()) throw new Error("records import source is not a regular file");
+  if (metadata.size > 256 * 1024 * 1024) {
+    throw new Error("records import source exceeds 256 MiB");
+  }
+  return readFile(file);
+}
+
 const recordsWriteExecutor = new RecordWriteExecutor({
   pool: recordsPool,
-  graphjin: new RecordsGraphjinClient({
-    baseUrl:
-      process.env.OPENNEKO_RECORDS_GRAPHJIN_URL ?? "http://127.0.0.1:8090",
-  }),
-  serviceToken: (orgId) =>
-    mintRecordsGraphjinToken({
-      secret: recordsGraphjinSigningSecret(orgId),
-      orgId,
-      userId: "records-service",
-      role: "service",
-    }),
+  graphjin: recordsGraphjin,
+  serviceToken: recordsServiceToken,
   leaseOwner: `worker:${process.pid}:${randomUUID()}`,
   recordSourceWrite: recordActionRequestSourceWrite,
+});
+const recordsImportExecutor = new RecordImportExecutor({
+  pool: recordsPool,
+  graphjin: recordsGraphjin,
+  serviceToken: recordsServiceToken,
+  leaseOwner: `worker-import:${process.pid}:${randomUUID()}`,
+  readSource: readRecordImportSource,
 });
 
 // SEC8: state the security posture once at boot; hardened warns when
@@ -347,6 +380,16 @@ registerRecordActionAdapters(recordsWriteExecutor);
 const unregisterRecordSchemaPreflight = registerRecordSchemaActions({
   planner: recordsSchemaRuntime.planner,
   saga: recordsSchemaRuntime.saga,
+});
+const unregisterRecordImportPreflight = registerRecordImportActions({
+  pool: recordsPool,
+  readSource: readRecordImportSource,
+  enqueueImport: (payload) =>
+    enqueue(QUEUE.RECORDS_IMPORT, payload, {
+      retryLimit: 5,
+      retryDelay: 15,
+      singletonKey: `records-import:${payload.importRunId}`,
+    }),
 });
 // ADM3: execute approved chat-proposed plugin installs/uninstalls.
 {
@@ -673,6 +716,23 @@ await b.work(
 );
 
 await b.work(
+  QUEUE.RECORDS_IMPORT,
+  { batchSize: 1, pollingIntervalSeconds: 0.5 },
+  async (jobs: PgBossLib.Job<RecordsImportPayload>[]) => {
+    for (const job of jobs) {
+      try {
+        await runRecordsImport(recordsImportExecutor, recordsPool, job.data);
+      } catch (e) {
+        console.warn(
+          `[records-import] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
+        );
+        throw e;
+      }
+    }
+  },
+);
+
+await b.work(
   QUEUE.CHANNEL_DELIVER,
   { batchSize: 1, pollingIntervalSeconds: 0.5 },
   async (jobs: PgBossLib.Job<ChannelDeliverPayload>[]) => {
@@ -853,6 +913,7 @@ const shutdown = async (signal: string) => {
   clearInterval(reconcileTimer);
   channelInbound.stop();
   unregisterRecordSchemaPreflight();
+  unregisterRecordImportPreflight();
   server.close();
   const cancelled = cancelAllAgents();
   if (cancelled > 0) {

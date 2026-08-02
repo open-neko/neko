@@ -22,6 +22,7 @@ export const QUEUE = {
   WORKFLOW_RUN_FIRE: "workflow_run_fire",
   WORKFLOW_OUTPUT_TTL_SWEEP: "workflow_output_ttl_sweep",
   ACTION_EXECUTE: "action_execute",
+  RECORDS_IMPORT: "records_import",
   CHANNEL_DELIVER: "channel_deliver",
 } as const;
 
@@ -85,6 +86,12 @@ export type WorkflowRunFirePayload = {
 export type ActionExecutePayload = {
   orgId: string;
   actionRequestId: string;
+};
+
+export type RecordsImportPayload = {
+  orgId: string;
+  importRunId: string;
+  actorUserId: string;
 };
 
 let _boss: PgBoss | null = null;
