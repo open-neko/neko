@@ -82,6 +82,8 @@ import {
   recordActionRequestSourceWrite,
   registerRecordActionAdapters,
 } from "./records/adapters.js";
+import { registerRecordSchemaActions } from "./records/schema-adapters.js";
+import { createRecordsSchemaRuntime } from "./records/schema-runtime.js";
 
 const PORT: number = 4100;
 const MAX_JOB_RETRIES: number = 2;
@@ -331,9 +333,21 @@ console.log(
   `[worker] host config provisioned from DB (data_source + llm_provider_config)`,
 );
 
+const recordsSchemaRuntime = await createRecordsSchemaRuntime({
+  pool: recordsPool,
+  orgId: ADMIN_ORG_ID,
+});
+console.log(
+  `[worker] records schema runtime ready (reconciled=${recordsSchemaRuntime.reconciliation.projected.length}, failed=${recordsSchemaRuntime.reconciliation.failed.length})`,
+);
+
 await seedDefaultActionPolicies(ADMIN_ORG_ID);
 registerBuiltinAdapters();
 registerRecordActionAdapters(recordsWriteExecutor);
+const unregisterRecordSchemaPreflight = registerRecordSchemaActions({
+  planner: recordsSchemaRuntime.planner,
+  saga: recordsSchemaRuntime.saga,
+});
 // ADM3: execute approved chat-proposed plugin installs/uninstalls.
 {
   const {
@@ -838,6 +852,7 @@ const shutdown = async (signal: string) => {
   console.log(`[worker] received ${signal}; shutting down`);
   clearInterval(reconcileTimer);
   channelInbound.stop();
+  unregisterRecordSchemaPreflight();
   server.close();
   const cancelled = cancelAllAgents();
   if (cancelled > 0) {

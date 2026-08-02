@@ -499,6 +499,32 @@ export async function projectRecordAppDefinition(
     return await transaction(client, async () => {
       const objectIds = new Map<string, string>();
       const fieldIds = new Map<string, string>();
+      const projectedApp = await client.query<{
+        registry_revision: string;
+      }>(
+        `select registry_revision::text as registry_revision
+         from engine.record_app
+         where org_id = $1 and app_id = $2
+         for update`,
+        [input.orgId, input.definition.appId],
+      );
+      const projectedRevision = projectedApp.rows[0]?.registry_revision;
+      if (
+        projectedRevision !== undefined &&
+        BigInt(projectedRevision) >= BigInt(input.desiredRevision)
+      ) {
+        await client.query(
+          `update engine.record_app
+           set status = $3, updated_at = now()
+           where org_id = $1 and app_id = $2`,
+          [
+            input.orgId,
+            input.definition.appId,
+            input.definition.archived ? "archived" : "active",
+          ],
+        );
+        return projectedRevision;
+      }
       await client.query(
         `insert into engine.record_app
            (org_id, app_id, label, purpose, status, nav_order, registry_revision)

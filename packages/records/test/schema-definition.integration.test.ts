@@ -129,6 +129,18 @@ describeIfLive("records app definition projection", () => {
         desiredRevision: "2",
       }),
     ).resolves.toBe("2");
+    await expect(
+      projectRecordAppDefinition(testPool, {
+        orgId: "org-a",
+        definition,
+        desiredRevision: "2",
+      }),
+    ).resolves.toBe("2");
+    await expect(
+      testPool.query(
+        "select revision::text as revision from engine.registry_version where org_id = 'org-a'",
+      ),
+    ).resolves.toMatchObject({ rows: [{ revision: "2" }] });
 
     const snapshot = await new RecordRegistry(testPool).loadApp("org-a", "support");
     expect(snapshot).toMatchObject({

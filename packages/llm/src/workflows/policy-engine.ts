@@ -300,6 +300,35 @@ export async function seedDefaultActionPolicies(orgId: string): Promise<void> {
       enabled: true,
     });
   }
+  // C3: app definitions and their additive physical schema are operator-owned
+  // changes. Every schema kind requires an admin approval by default.
+  if (!names.has("record_schema_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "record_schema_default",
+      description:
+        "Creating or changing a generated app schema, permissions, or layouts requires admin approval.",
+      appliesToKinds: [
+        "app_create",
+        "app_object_create",
+        "app_field_add",
+        "app_field_modify",
+        "app_object_archive",
+        "app_field_archive",
+        "app_permission_set",
+        "app_layout_update",
+      ],
+      appliesToScopes: ["internal", "external"],
+      mode: "approval_required" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: "admin",
+      priority: 91,
+      enabled: true,
+    });
+  }
   // OL5: configuring the customer GraphJin (sources/roles/access) from
   // chat needs an ADMIN. (The OpenNeko internal GraphJin is never a target.)
   if (!names.has("source_config_management_default")) {
