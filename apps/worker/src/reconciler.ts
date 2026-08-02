@@ -99,12 +99,16 @@ const ACTIVE_BOSS_STATES = new Set(["created", "active", "retry"]);
 
 export async function reconcileStaleProcessingJobs(opts?: {
   minAgeMs?: number;
+  orgId?: string;
 }): Promise<ReconcileSummary> {
   const minAgeMs = opts?.minAgeMs ?? 0;
 
-  const baseFilter = and(
-    inArray(processing_job.status, ["queued", "running"]),
-  );
+  const baseFilter = opts?.orgId
+    ? and(
+        eq(processing_job.org_id, opts.orgId),
+        inArray(processing_job.status, ["queued", "running"]),
+      )
+    : inArray(processing_job.status, ["queued", "running"]);
   const filter = minAgeMs > 0
     ? and(
         baseFilter,

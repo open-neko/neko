@@ -210,7 +210,7 @@ describeIfReady("reconcileStaleProcessingJobs", () => {
       state: "completed",
     });
 
-    const summary = await reconcileStaleProcessingJobs();
+    const summary = await reconcileStaleProcessingJobs({ orgId });
     expect(summary.succeeded).toBeGreaterThanOrEqual(1);
 
     const row = await readProcessingJob(jobId);
@@ -232,7 +232,7 @@ describeIfReady("reconcileStaleProcessingJobs", () => {
       outputMessage: "agent crashed: ENOENT",
     });
 
-    await reconcileStaleProcessingJobs();
+    await reconcileStaleProcessingJobs({ orgId });
 
     const row = await readProcessingJob(jobId);
     expect(row.status).toBe("failed");
@@ -252,7 +252,7 @@ describeIfReady("reconcileStaleProcessingJobs", () => {
       outputMessage: "job failed by timeout in active state",
     });
 
-    await reconcileStaleProcessingJobs();
+    await reconcileStaleProcessingJobs({ orgId });
     const row = await readProcessingJob(jobId);
     expect(row.status).toBe("failed");
     expect(row.error).toContain("timeout");
@@ -291,7 +291,7 @@ describeIfReady("reconcileStaleProcessingJobs", () => {
       outputMessage: "upstream provider unavailable",
     });
 
-    await reconcileStaleProcessingJobs();
+    await reconcileStaleProcessingJobs({ orgId });
 
     const m = await db()
       .select({
@@ -317,7 +317,7 @@ describeIfReady("reconcileStaleProcessingJobs", () => {
       state: "active",
     });
 
-    const summary = await reconcileStaleProcessingJobs();
+    const summary = await reconcileStaleProcessingJobs({ orgId });
     expect(summary.requeued).toBeGreaterThanOrEqual(1);
 
     const row = await readProcessingJob(jobId);
@@ -337,7 +337,7 @@ describeIfReady("reconcileStaleProcessingJobs", () => {
       state: "created",
     });
 
-    await reconcileStaleProcessingJobs();
+    await reconcileStaleProcessingJobs({ orgId });
     const row = await readProcessingJob(jobId);
     expect(row.status).toBe("queued");
   });
@@ -349,7 +349,7 @@ describeIfReady("reconcileStaleProcessingJobs", () => {
       status: "queued",
     });
 
-    const summary = await reconcileStaleProcessingJobs();
+    const summary = await reconcileStaleProcessingJobs({ orgId });
     expect(summary.lost).toBeGreaterThanOrEqual(1);
 
     const row = await readProcessingJob(jobId);
@@ -370,7 +370,10 @@ describeIfReady("reconcileStaleProcessingJobs", () => {
       outputMessage: "permanent",
     });
 
-    const summary = await reconcileStaleProcessingJobs({ minAgeMs: 10_000 });
+    const summary = await reconcileStaleProcessingJobs({
+      minAgeMs: 10_000,
+      orgId,
+    });
     expect(summary.failed).toBe(0);
 
     const row = await readProcessingJob(jobId);
