@@ -11,6 +11,7 @@ import {
   type RecordVisibility,
 } from "../types";
 import type { RecordDdlObjectDefinition } from "./ddl";
+import { parseRecordAppPage } from "../app-page";
 
 export type RecordAppFieldDefinition = {
   apiName: RecordIdentifier;
@@ -321,12 +322,13 @@ function parsePermission(
 
 function parsePage(value: unknown, path: string): RecordAppPageDefinition {
   const raw = objectValue(value, path);
+  const page = parseRecordAppPage(objectValue(raw.definition, `${path}.definition`));
   return {
     apiName: recordIdentifier(identifierSource(raw, path)),
     label: stringValue(raw.label ?? raw.name ?? raw.api_name, `${path}.label`, {
       max: 200,
     })!,
-    definition: { ...objectValue(raw.definition, `${path}.definition`) },
+    definition: { blocks: page.blocks },
     navOrder: integerValue(raw.nav_order, 0, `${path}.nav_order`, 0)!,
   };
 }

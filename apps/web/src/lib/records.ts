@@ -12,10 +12,12 @@ import {
 } from "@neko/db";
 import {
   buildRecordDetailQuery,
+  buildRecordAggregateQuery,
   buildRecordListQuery,
   buildRecordRecycleDetailQuery,
   buildRecordRecycleListQuery,
   mintRecordsGraphjinToken,
+  parseRecordAppPage,
   RecordRegistry,
   RecordSavedViewStore,
   recordsGraphjinSigningSecret,
@@ -27,6 +29,7 @@ import {
   type RecordListFilter,
   type RecordFilterExpression,
   type RecordObjectView,
+  type RecordViewColumn,
   type RecordSavedView,
   type RecycledRecordSummary,
   type RecordViewerRole,
@@ -378,6 +381,108 @@ export type RecordOwnerIdentity = {
   email: string | null;
   status: "linked" | "unlinked" | "conflict" | "ignored";
 };
+
+export type RecordAppPageMetricBlock = {
+  renderer: "metric";
+  label: string;
+  span: 1 | 2 | 3;
+  value: unknown;
+  valueField: string;
+  field: RecordViewColumn | null;
+};
+
+export type RecordAppPageRowsBlock = {
+  renderer: "list" | "timeline";
+  label: string;
+  span: 1 | 2 | 3;
+  rows: Array<Record<string, unknown>>;
+  view: RecordObjectView;
+  owners: Record<string, RecordOwnerIdentity>;
+};
+
+export type RecordAppPageResult = {
+  app: AppRegistrySnapshot["app"];
+  page: AppRegistrySnapshot["pages"][number];
+  blocks: Array<RecordAppPageMetricBlock | RecordAppPageRowsBlock>;
+};
+
+export async function readRecordAppPage(input: {
+  orgId: string;
+  appId: string;
+  pageApiName?: string;
+}): Promise<RecordAppPageResult | null> {
+  const shell = await loadRecordAppShell(input.orgId, input.appId);
+  if (shell.availability !== "active") {
+    throw new RecordAppRouteError(shell.degradedReason ?? "record app is degraded", 503);
+  }
+  const page = input.pageApiName
+    ? shell.snapshot.pages.find((candidate) => candidate.apiName === input.pageApiName)
+    : shell.snapshot.pages[0];
+  if (!page) return null;
+  const definition = parseRecordAppPage(page.definition);
+  const viewer = await recordsViewer(input.orgId);
+  const blocks = await Promise.all(
+    definition.blocks.map(async (block): Promise<RecordAppPageMetricBlock | RecordAppPageRowsBlock> => {
+      if (block.renderer === "metric") {
+        const generated = buildRecordAggregateQuery({
+          snapshot: shell.snapshot,
+          objectApiName: block.query.object,
+          role: viewer.role,
+          aggregate: block.query.aggregate!,
+          field: block.query.field,
+          filter: block.query.filter,
+        });
+        const data = await recordsRuntime().graphjin.execute<Record<string, unknown>>({
+          operationName: generated.operationName,
+          query: generated.query,
+          variables: generated.variables,
+          token: viewer.token,
+        });
+        const metric = rowsFrom(data[generated.resultField])[0];
+        const field = block.query.field
+          ? generated.view.columns.find((column) => column.apiName === block.query.field) ?? null
+          : null;
+        return {
+          renderer: "metric",
+          label: block.label,
+          span: block.span,
+          value: metric?.[generated.valueField] ?? 0,
+          valueField: generated.valueField,
+          field,
+        };
+      }
+      const generated = buildRecordListQuery({
+        snapshot: shell.snapshot,
+        objectApiName: block.query.object,
+        role: viewer.role,
+        userId: viewer.userId,
+        first: block.query.limit,
+        filter: block.query.filter,
+        sort: block.query.sort ?? undefined,
+      });
+      const data = await recordsRuntime().graphjin.execute<Record<string, unknown>>({
+        operationName: generated.operationName,
+        query: generated.query,
+        variables: generated.variables,
+        token: viewer.token,
+      });
+      const rows = rowsFrom(data[generated.resultField]);
+      return {
+        renderer: block.renderer,
+        label: block.label,
+        span: block.span,
+        rows,
+        view: generated.view,
+        owners: await resolveOwnerIdentities({
+          orgId: input.orgId,
+          appId: shell.snapshot.app.appId,
+          rows,
+        }),
+      };
+    }),
+  );
+  return { app: shell.snapshot.app, page, blocks };
+}
 
 async function resolveOwnerIdentities(input: {
   orgId: string;

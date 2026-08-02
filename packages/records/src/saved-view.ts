@@ -13,6 +13,7 @@ const FILTER_OPERATORS = new Set<RecordFilterOperator>([
   "eq",
   "neq",
   "in",
+  "not_in",
   "contains",
   "starts_with",
   "is_null",

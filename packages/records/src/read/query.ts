@@ -38,6 +38,7 @@ export type RecordFilterOperator =
   | "eq"
   | "neq"
   | "in"
+  | "not_in"
   | "contains"
   | "starts_with"
   | "is_null"
@@ -78,6 +79,15 @@ export type RecordDetailQuery = {
   variables: { record_id: string };
   view: RecordObjectView;
   resultField: string;
+};
+
+export type RecordAggregateQuery = {
+  operationName: "RecordsMetric";
+  query: string;
+  variables: Record<string, unknown>;
+  view: RecordObjectView;
+  resultField: "metric";
+  valueField: string;
 };
 
 export type RecordRecycleListQuery = {
@@ -377,12 +387,12 @@ function filterClause(
       variables: [],
     };
   }
-  if (filter.operator === "in") {
+  if (filter.operator === "in" || filter.operator === "not_in") {
     if (!Array.isArray(filter.value) || filter.value.length < 1 || filter.value.length > 100) {
-      throw new RecordReadTargetError("in record filters require 1 to 100 values");
+      throw new RecordReadTargetError(`${filter.operator} record filters require 1 to 100 values`);
     }
     return {
-      clause: `${field.columnName}: { in: $${variable} }`,
+      clause: `${field.columnName}: { ${filter.operator}: $${variable} }`,
       variables: [[variable, filter.value]],
     };
   }
@@ -576,6 +586,62 @@ export function buildRecordListQuery(input: {
     cursorField,
     resultField: "rows",
     totalField: "totals",
+  };
+}
+
+export function buildRecordAggregateQuery(input: {
+  snapshot: AppRegistrySnapshot;
+  objectApiName: string;
+  role: RecordViewerRole;
+  aggregate: "count" | "sum";
+  field?: string | null;
+  filter?: RecordFilterExpression | null;
+  now?: Date;
+}): RecordAggregateQuery {
+  const view = resolveView({ ...input, layoutKind: "list" });
+  const fields = new Map(
+    objectFields(input.snapshot, view.object).map((field) => [field.apiName, field]),
+  );
+  let valueField = "count_id";
+  if (input.aggregate === "sum") {
+    if (!input.field) {
+      throw new RecordReadTargetError("sum record metrics require a field");
+    }
+    const apiName = readIdentifier(input.field, "record metric field");
+    const field = fields.get(apiName);
+    if (
+      !field ||
+      !["integer", "decimal", "currency", "percent"].includes(field.kind)
+    ) {
+      throw new RecordReadTargetError("sum record metrics require a numeric field");
+    }
+    valueField = `sum_${field.columnName}`;
+  } else if (input.field) {
+    throw new RecordReadTargetError("count record metrics do not accept a field");
+  }
+  const variables: Record<string, unknown> = {};
+  const clauses = input.filter
+    ? [
+        expressionClause(
+          input.filter,
+          fields,
+          variables,
+          input.now ?? new Date(),
+        ),
+      ]
+    : [];
+  const where = whereDocument(clauses);
+  const tableName = view.object.tableName;
+  const query =
+    `query RecordsMetric { metric: ${tableName}` +
+    `${selectorArguments(where ? [`where: ${where}`] : [])} { ${valueField} } }`;
+  return {
+    operationName: "RecordsMetric",
+    query,
+    variables,
+    view,
+    resultField: "metric",
+    valueField,
   };
 }
 

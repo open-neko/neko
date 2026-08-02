@@ -255,8 +255,27 @@ describeIfLive("records schema action planner", () => {
         definition: { sections: [{ fields: ["name"] }] },
       },
     });
+    await planner.prepare({
+      ...base,
+      id: "request-page-layout",
+      kind: "app_layout_update",
+      payload: {
+        app: "crm",
+        page: "overview",
+        label: "Overview",
+        definition: {
+          blocks: [
+            {
+              label: "Accounts",
+              renderer: "metric",
+              query: { object: "account", aggregate: "count" },
+            },
+          ],
+        },
+      },
+    });
 
-    expect(plans.slice(-7).map((plan) => plan.action)).toEqual([
+    expect(plans.slice(-8).map((plan) => plan.action)).toEqual([
       "app_object_create",
       "app_field_add",
       "app_field_modify",
@@ -264,7 +283,26 @@ describeIfLive("records schema action planner", () => {
       "app_field_archive",
       "app_permission_set",
       "app_layout_update",
+      "app_layout_update",
     ]);
+    const pageLayout = plans.find(
+      (plan) => plan.actionRequestId === "request-page-layout",
+    )!;
+    expect(pageLayout.detail.definition).toMatchObject({
+      pages: [
+        {
+          api_name: "overview",
+          definition: {
+            blocks: [
+              {
+                renderer: "metric",
+                query: { object: "account", aggregate: "count" },
+              },
+            ],
+          },
+        },
+      ],
+    });
     const modify = plans.find((plan) => plan.actionRequestId === "request-modify")!;
     expect(
       modify.objects

@@ -107,7 +107,7 @@
         "definition": {
           "blocks": [
             { "label": "Open pipeline", "query": { "object": "opportunity", "aggregate": "sum", "field": "amount", "where": { "stage": { "not_in": ["closed_won", "closed_lost"] } } }, "renderer": "metric", "span": 1 },
-            { "label": "Closing soon", "query": { "object": "opportunity", "view": "closing_this_month", "limit": 8 }, "renderer": "list", "span": 2 },
+            { "label": "Closing soon", "query": { "object": "opportunity", "filter": { "field": "close_date", "operator": "relative", "value": { "macro": "this_quarter" } }, "sort": [{ "field": "close_date", "direction": "asc" }], "limit": 8 }, "renderer": "list", "span": 2 },
             { "label": "Recent activity", "query": { "object": "activity", "sort": [{ "field": "occurred_at", "direction": "desc" }], "limit": 12 }, "renderer": "timeline", "span": 3 }
           ]
         }

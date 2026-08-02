@@ -25,6 +25,7 @@ import {
 } from "../src/policy/graphjin";
 import {
   buildRecordListQuery,
+  buildRecordAggregateQuery,
   buildRecordRecycleListQuery,
 } from "../src/read/query";
 import { RecordRegistry } from "../src/registry";
@@ -141,6 +142,7 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
         id text primary key,
         org_id text not null,
         name text not null,
+        amount numeric,
         owner_user_id text,
         nk_created_at timestamptz not null default now(),
         nk_updated_at timestamptz not null default now(),
@@ -190,6 +192,8 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
       values
         ('org-a', '00000000-0000-0000-0000-000000000201',
          'name', 'Name', 'text', 'name', true),
+        ('org-a', '00000000-0000-0000-0000-000000000201',
+         'amount', 'Amount', 'currency', 'amount', false),
         ('org-a', '00000000-0000-0000-0000-000000000202',
          'name', 'Name', 'text', 'name', true);
       insert into engine.record_permission
@@ -204,11 +208,11 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
         ('org-a', 'member-2', 'member'),
         ('org-a', 'admin-1', 'admin'),
         ('org-a', 'service-1', 'service');
-      insert into public.equipment__loan (id, org_id, name, owner_user_id) values
-        ('loan-1', 'org-a', 'Member One Loan', 'member-1'),
-        ('loan-2', 'org-a', 'Member Two Loan', 'member-2'),
-        ('loan-deleted-1', 'org-a', 'Deleted Member One Loan', 'member-1'),
-        ('loan-deleted-2', 'org-a', 'Deleted Member Two Loan', 'member-2');
+      insert into public.equipment__loan (id, org_id, name, owner_user_id, amount) values
+        ('loan-1', 'org-a', 'Member One Loan', 'member-1', 100),
+        ('loan-2', 'org-a', 'Member Two Loan', 'member-2', 250),
+        ('loan-deleted-1', 'org-a', 'Deleted Member One Loan', 'member-1', 500),
+        ('loan-deleted-2', 'org-a', 'Deleted Member Two Loan', 'member-2', 750);
       update public.equipment__loan
       set nk_deleted_at = '2026-08-01T10:00:00Z'
       where id like 'loan-deleted-%';
@@ -739,11 +743,27 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
           {
             id: "loan-1",
             name: "Member One Loan",
+            amount: 100,
             owner_user_id: "member-1",
           },
         ]);
         expect(generatedPage.data?.[generated.cursorField]).toEqual(expect.any(String));
         expect(generatedPage.data?.totals).toEqual([{ count_id: 2 }]);
+
+        const generatedMetric = buildRecordAggregateQuery({
+          snapshot: registry!,
+          objectApiName: "loan",
+          role: "admin",
+          aggregate: "sum",
+          field: "amount",
+        });
+        const metric = await request(
+          "admin-1",
+          generatedMetric.query,
+          generatedMetric.variables,
+        );
+        expect(metric.errors).toBeUndefined();
+        expect(metric.data?.metric).toEqual([{ sum_amount: 350 }]);
 
         const missingActor = await request(
           "missing-actor",

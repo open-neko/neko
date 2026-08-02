@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { validateRecordIdentifier } from "../src/naming";
 import {
   buildRecordDetailQuery,
+  buildRecordAggregateQuery,
   buildRecordListQuery,
   buildRecordRecycleDetailQuery,
   buildRecordRecycleListQuery,
@@ -197,6 +198,48 @@ describe("generated record read queries", () => {
     });
     expect(built.query).toContain("id subject status owner_user_id nk_updated_at");
     expect(built.variables).toEqual({ record_id: "wo-1" });
+  });
+
+  it("builds permission-scoped count and sum metric queries", () => {
+    const count = buildRecordAggregateQuery({
+      snapshot: snapshot(),
+      objectApiName: "work_order",
+      role: "admin",
+      aggregate: "count",
+      filter: { field: "status", operator: "not_in", value: ["closed"] },
+    });
+    expect(count.query).toContain(
+      "metric: operations__work_order(where: { status: { not_in: $filter_0 } }) { count_id }",
+    );
+    expect(count.variables).toEqual({ filter_0: ["closed"] });
+
+    const current = snapshot();
+    current.fields.push({
+      id: "field-amount",
+      orgId: "org-a",
+      objectId: "object-work-order",
+      apiName: id("amount"),
+      sourceApiName: null,
+      label: "Amount",
+      kind: "currency",
+      columnName: id("amount"),
+      required: false,
+      readOnly: false,
+      archivedAt: null,
+      picklistValues: null,
+      referenceTargets: null,
+      length: null,
+      scale: 2,
+    });
+    const sum = buildRecordAggregateQuery({
+      snapshot: current,
+      objectApiName: "work_order",
+      role: "admin",
+      aggregate: "sum",
+      field: "amount",
+    });
+    expect(sum.query).toContain("{ sum_amount }");
+    expect(sum.valueField).toBe("sum_amount");
   });
 
   it("compiles nested semantic filters, relative dates, and picklist groups", () => {

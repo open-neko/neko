@@ -1,4 +1,5 @@
 export * from "./actions/execution";
+export * from "./app-page";
 export * from "./blueprints";
 export * from "./connect/artifacts";
 export * from "./connect/salesforce/client";
