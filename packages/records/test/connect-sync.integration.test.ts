@@ -48,7 +48,7 @@ describeIfDb("records connector delta receipts", () => {
   afterAll(async () => {
     if (pool) await pool.end();
     if (adminPool) {
-      await adminPool.query(`drop database if exists ${database} with (force)`);
+      await adminPool.query(`drop database if exists ${database}`);
       await adminPool.end();
     }
   });
