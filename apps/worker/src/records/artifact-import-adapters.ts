@@ -119,6 +119,16 @@ function optionalInteger(
   return Number(value);
 }
 
+function requiredHash(payload: Record<string, unknown>, field: string): string {
+  const value = payload[field];
+  if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) {
+    throw new RecordArtifactImportActionPayloadError(
+      `${field}: a lowercase SHA-256 hash is required`,
+    );
+  }
+  return value;
+}
+
 function assertOnlyKeys(payload: Record<string, unknown>, allowed: string[]): void {
   const allowlist = new Set(allowed);
   const unknown = Object.keys(payload).filter((key) => !allowlist.has(key));
@@ -164,6 +174,16 @@ function approvedPlan(request: ActionRequestRecord): RecordArtifactImportPlan {
   ) {
     throw new RecordArtifactImportActionPayloadError(
       "artifact import plan identity does not match its action",
+    );
+  }
+  if (
+    request.kind === "records_artifact_import_from_export" &&
+    (plan.manifest.source.instanceId !==
+      requiredString(request.payload, "source_instance_id") ||
+      plan.sourceSchemaHash !== requiredHash(request.payload, "approved_schema_hash"))
+  ) {
+    throw new RecordsSchemaApprovalStaleError(
+      "Salesforce artifact schema no longer matches the approved export",
     );
   }
   return plan;
@@ -219,7 +239,9 @@ export function createRecordArtifactImportPreflightHook(input: {
       "purpose",
       "batch_size",
       "owner_user_id",
-      ...(kind === "records_artifact_import_from_export" ? ["export_job_id"] : []),
+      ...(kind === "records_artifact_import_from_export"
+        ? ["export_job_id", "source_instance_id", "approved_schema_hash"]
+        : []),
     ]);
     const artifactPath = requiredString(request.payload, "artifact_path");
     const plan = await buildRecordArtifactImportPlan({
@@ -231,6 +253,21 @@ export function createRecordArtifactImportPreflightHook(input: {
       ownerUserId: optionalString(request.payload, "owner_user_id"),
       readFile: (path) => input.readSource(request.orgId, path),
     });
+    if (kind === "records_artifact_import_from_export") {
+      const sourceInstanceId = requiredString(request.payload, "source_instance_id");
+      const approvedSchemaHash = requiredHash(
+        request.payload,
+        "approved_schema_hash",
+      );
+      if (
+        plan.manifest.source.instanceId !== sourceInstanceId ||
+        plan.sourceSchemaHash !== approvedSchemaHash
+      ) {
+        throw new RecordsSchemaApprovalStaleError(
+          "Salesforce artifact schema does not match the reviewed export plan",
+        );
+      }
+    }
     const prepared = await input.planner.prepare({
       id: request.id,
       orgId: request.orgId,
@@ -250,7 +287,11 @@ export function createRecordArtifactImportPreflightHook(input: {
         batch_size: plan.imports[0]?.batchSize ?? 100,
         owner_user_id: plan.imports[0]?.ownerUserId ?? null,
         ...(kind === "records_artifact_import_from_export"
-          ? { export_job_id: request.payload.export_job_id }
+          ? {
+              export_job_id: request.payload.export_job_id,
+              source_instance_id: request.payload.source_instance_id,
+              approved_schema_hash: request.payload.approved_schema_hash,
+            }
           : {}),
         artifact_import_plan: plan,
         preview_hash: prepared.payload.preview_hash,
@@ -285,7 +326,9 @@ export function createRecordArtifactImportActionAdapter(
       "artifact_import_plan",
       "preview_hash",
       "schema_preview",
-      ...(kind === "records_artifact_import_from_export" ? ["export_job_id"] : []),
+      ...(kind === "records_artifact_import_from_export"
+        ? ["export_job_id", "source_instance_id", "approved_schema_hash"]
+        : []),
     ]);
     const plan = approvedPlan(request);
     try {

@@ -403,14 +403,31 @@ export async function seedDefaultActionPolicies(orgId: string): Promise<void> {
       enabled: true,
     });
   }
+  if (!names.has("records_salesforce_discovery_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "records_salesforce_discovery_default",
+      description:
+        "Salesforce metadata discovery is a read-only migration dry run and may execute automatically.",
+      appliesToKinds: ["records_salesforce_discover"],
+      appliesToScopes: ["internal", "external"],
+      mode: "auto_approve" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: null,
+      priority: 89,
+      enabled: true,
+    });
+  }
   if (!names.has("records_salesforce_control_default")) {
     await createActionPolicy({
       orgId,
       name: "records_salesforce_control_default",
       description:
-        "Discovering Salesforce metadata or starting and cancelling a Salesforce export requires admin approval.",
+        "Starting or cancelling a Salesforce export requires admin approval.",
       appliesToKinds: [
-        "records_salesforce_discover",
         "records_salesforce_export_start",
         "records_salesforce_export_cancel",
       ],

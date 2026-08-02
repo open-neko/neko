@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { RecordsSalesforceExportPayload } from "@neko/db/jobs";
 import type { ActionRequestRecord } from "@neko/llm/workflows";
 import {
+  buildSalesforceAppSchema,
+  createSalesforceSchemaReview,
   SalesforceApiError,
   type RecordConnectorExportResult,
 } from "@neko/records";
@@ -19,6 +21,40 @@ const payload: RecordsSalesforceExportPayload = {
   orgId: "org-a",
 };
 
+function schemaPlan() {
+  return buildSalesforceAppSchema({
+    app: "crm",
+    label: "CRM",
+    mode: "mirror",
+    describes: [
+      {
+        name: "Account",
+        label: "Account",
+        labelPlural: "Accounts",
+        fields: [
+          { name: "Id", label: "Account ID", type: "id" },
+          {
+            name: "Name",
+            label: "Account name",
+            type: "string",
+            nameField: true,
+            createable: true,
+            updateable: true,
+          },
+        ],
+      },
+    ],
+  });
+}
+
+function schemaReview() {
+  return createSalesforceSchemaReview({
+    sourceInstanceId: "salesforce-production",
+    mode: "mirror",
+    plan: schemaPlan(),
+  });
+}
+
 function request(): ActionRequestRecord {
   const now = new Date("2026-08-02T12:00:00.000Z");
   return {
@@ -35,7 +71,21 @@ function request(): ActionRequestRecord {
     target: null,
     payload: {
       source_instance_id: "salesforce-production",
+      instance_url: "https://example.my.salesforce.com",
+      client_id: "connected-app",
       client_secret_ref: "salesforce-production-secret",
+      app: "crm",
+      label: "CRM",
+      mode: "mirror",
+      objects: ["Account"],
+      salesforce_inventory: {
+        connector: "salesforce",
+        sourceInstanceId: "salesforce-production",
+        mode: "mirror",
+        objects: [],
+        warnings: [],
+      },
+      salesforce_schema_review: schemaReview(),
     },
     riskLevel: "high",
     status: "executed",
@@ -100,6 +150,7 @@ function dependencies(
     getJob: vi.fn().mockResolvedValue(job()),
     updateJob: vi.fn().mockResolvedValue(true),
     connectorForAction: vi.fn().mockResolvedValue({
+      schemaPlan: vi.fn().mockResolvedValue(schemaPlan()),
       export: vi.fn().mockResolvedValue(exportResult()),
     }),
     workspaceForOrg: vi.fn().mockResolvedValue({ orgRoot: "/safe/org" }),
@@ -115,7 +166,10 @@ describe("Salesforce export job", () => {
   it("exports into the org workspace and persists only a relative artifact path", async () => {
     const exportArtifact = vi.fn().mockResolvedValue(exportResult());
     const deps = dependencies({
-      connectorForAction: vi.fn().mockResolvedValue({ export: exportArtifact }),
+      connectorForAction: vi.fn().mockResolvedValue({
+        schemaPlan: vi.fn().mockResolvedValue(schemaPlan()),
+        export: exportArtifact,
+      }),
       getJob: vi.fn().mockResolvedValueOnce(job()).mockResolvedValue(job("running")),
     });
     await runRecordsSalesforceExport(payload, deps);
@@ -186,6 +240,7 @@ describe("Salesforce export job", () => {
     const deps = dependencies({
       getJob: vi.fn().mockResolvedValueOnce(job()).mockResolvedValue(job("running")),
       connectorForAction: vi.fn().mockResolvedValue({
+        schemaPlan: vi.fn().mockResolvedValue(schemaPlan()),
         export: vi.fn().mockRejectedValue(failure),
       }),
     });
@@ -210,6 +265,57 @@ describe("Salesforce export job", () => {
       "org-a",
       EXPORT_ID,
       expect.objectContaining({ status: "failed", error: "secret reference missing" }),
+    );
+  });
+
+  it("fails closed before export when Salesforce schema drifted after approval", async () => {
+    const exportArtifact = vi.fn();
+    const drifted = buildSalesforceAppSchema({
+      app: "crm",
+      label: "CRM",
+      mode: "mirror",
+      describes: [
+        {
+          name: "Account",
+          label: "Account",
+          labelPlural: "Accounts",
+          fields: [
+            { name: "Id", label: "Account ID", type: "id" },
+            {
+              name: "Name",
+              label: "Account name",
+              type: "string",
+              nameField: true,
+              createable: true,
+              updateable: true,
+            },
+            {
+              name: "Unreviewed__c",
+              label: "Unreviewed",
+              type: "string",
+              createable: true,
+              updateable: true,
+            },
+          ],
+        },
+      ],
+    });
+    const deps = dependencies({
+      getJob: vi.fn().mockResolvedValueOnce(job()).mockResolvedValue(job("running")),
+      connectorForAction: vi.fn().mockResolvedValue({
+        schemaPlan: vi.fn().mockResolvedValue(drifted),
+        export: exportArtifact,
+      }),
+    });
+    await expect(runRecordsSalesforceExport(payload, deps)).resolves.toBeUndefined();
+    expect(exportArtifact).not.toHaveBeenCalled();
+    expect(deps.updateJob).toHaveBeenLastCalledWith(
+      "org-a",
+      EXPORT_ID,
+      expect.objectContaining({
+        status: "failed",
+        error: "Salesforce schema changed after approval",
+      }),
     );
   });
 

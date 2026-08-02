@@ -20,12 +20,14 @@ import {
   type ActionRequestRecord,
 } from "@neko/llm/workflows";
 import {
+  assertSalesforceSchemaMatchesReview,
   SalesforceApiError,
   type RecordConnectorExportResult,
   type SalesforceConnector,
 } from "@neko/records";
 import {
   createSalesforceConnectorForAction,
+  parseApprovedSalesforceSchemaReview,
   parseSalesforceActionConfig,
 } from "../records/salesforce-runtime.js";
 
@@ -62,7 +64,7 @@ export type RecordsSalesforceExportDependencies = {
   ) => Promise<boolean>;
   connectorForAction: (
     request: ActionRequestRecord,
-  ) => Promise<Pick<SalesforceConnector, "export">>;
+  ) => Promise<Pick<SalesforceConnector, "export" | "schemaPlan">>;
   workspaceForOrg: (orgId: string) => Promise<{ orgRoot: string }>;
   cancellationPollMs: number;
   scheduleImport: (
@@ -107,6 +109,7 @@ export async function scheduleSalesforceArtifactImport(
       .limit(1);
     if (existing[0] && existing[0].status !== "failed") return existing[0];
     const config = parseSalesforceActionConfig(request.payload);
+    const review = parseApprovedSalesforceSchemaReview(request.payload);
     const summary = `Create ${config.label} from verified Salesforce export ${payload.exportJobId}`;
     const created = await inProcessControlPlane.createActionRequest({
       orgId: payload.orgId,
@@ -118,6 +121,8 @@ export async function scheduleSalesforceArtifactImport(
         app: config.app,
         label: config.label,
         export_job_id: payload.exportJobId,
+        source_instance_id: review.sourceInstanceId,
+        approved_schema_hash: review.planHash,
       },
       riskLevel: "high",
       status: "approved",
@@ -323,6 +328,11 @@ export async function runRecordsSalesforceExport(
 
   try {
     const connector = await dependencies.connectorForAction(request);
+    const review = parseApprovedSalesforceSchemaReview(request.payload);
+    assertSalesforceSchemaMatchesReview(
+      await connector.schemaPlan(controller.signal),
+      review,
+    );
     const result = await connector.export({
       directory,
       resume: true,

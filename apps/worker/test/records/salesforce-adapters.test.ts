@@ -4,10 +4,15 @@ import {
   type ActionRequestRecord,
 } from "@neko/llm/workflows";
 import {
+  buildSalesforceAppSchema,
+  createSalesforceSchemaReview,
+} from "@neko/records";
+import {
   RECORD_SALESFORCE_ACTION_DESCRIPTORS,
   RECORD_SALESFORCE_ACTION_KINDS,
   RecordSalesforceActionPayloadError,
   createRecordSalesforceActionAdapter,
+  createRecordSalesforceExportPreflightHook,
   registerRecordSalesforceActions,
   type RecordSalesforceActionDependencies,
   type SalesforceExportJobSummary,
@@ -26,6 +31,49 @@ function connectorPayload(): Record<string, unknown> {
     label: "CRM",
     mode: "mirror",
     objects: ["Account", "Contact"],
+  };
+}
+
+function schemaReview() {
+  const describes = ["Account", "Contact"].map((name) => ({
+    name,
+    label: name,
+    labelPlural: `${name}s`,
+    fields: [
+      { name: "Id", label: `${name} ID`, type: "id" },
+      {
+        name: "Name",
+        label: `${name} name`,
+        type: "string",
+        nameField: true,
+        createable: true,
+        updateable: true,
+      },
+    ],
+  }));
+  return createSalesforceSchemaReview({
+    sourceInstanceId: "salesforce-production",
+    mode: "mirror",
+    plan: buildSalesforceAppSchema({
+      app: "crm",
+      label: "CRM",
+      mode: "mirror",
+      describes,
+    }),
+  });
+}
+
+function preparedConnectorPayload(): Record<string, unknown> {
+  return {
+    ...connectorPayload(),
+    salesforce_inventory: {
+      connector: "salesforce",
+      sourceInstanceId: "salesforce-production",
+      mode: "mirror",
+      objects: [],
+      warnings: [],
+    },
+    salesforce_schema_review: schemaReview(),
   };
 }
 
@@ -88,6 +136,7 @@ function dependencies(
         objects: [],
         warnings: [],
       }),
+      schemaReview: vi.fn().mockResolvedValue(schemaReview()),
     }),
     createExport: vi.fn().mockResolvedValue(job()),
     getExport: vi.fn().mockResolvedValue(job("running")),
@@ -103,7 +152,7 @@ describe("Salesforce worker action adapters", () => {
       RECORD_SALESFORCE_ACTION_KINDS,
     );
     expect(RECORD_SALESFORCE_ACTION_DESCRIPTORS.map(({ default_mode }) => default_mode)).toEqual([
-      "ask",
+      "auto",
       "ask",
       { internal: "auto" },
       "ask",
@@ -131,7 +180,7 @@ describe("Salesforce worker action adapters", () => {
     const deps = dependencies();
     await expect(
       createRecordSalesforceActionAdapter("records_salesforce_export_start", deps)({
-        request: request("records_salesforce_export_start", connectorPayload()),
+        request: request("records_salesforce_export_start", preparedConnectorPayload()),
       }),
     ).resolves.toMatchObject({
       commandOrOperation: "records_salesforce_export_start",
@@ -186,6 +235,7 @@ describe("Salesforce worker action adapters", () => {
     const discoverDeps = dependencies({
       connectorForAction: vi.fn().mockResolvedValue({
         discover: vi.fn().mockRejectedValue(Object.assign(new Error("busy"), { status: 503 })),
+        schemaReview: vi.fn(),
       }),
     });
     await expect(
@@ -199,7 +249,7 @@ describe("Salesforce worker action adapters", () => {
     });
     await expect(
       createRecordSalesforceActionAdapter("records_salesforce_export_start", exportDeps)({
-        request: request("records_salesforce_export_start", connectorPayload()),
+        request: request("records_salesforce_export_start", preparedConnectorPayload()),
       }),
     ).rejects.toBeInstanceOf(RetryableActionAdapterError);
   });
@@ -208,20 +258,50 @@ describe("Salesforce worker action adapters", () => {
     const deps = dependencies({ enqueueExport: vi.fn().mockResolvedValue(null) });
     await expect(
       createRecordSalesforceActionAdapter("records_salesforce_export_start", deps)({
-        request: request("records_salesforce_export_start", connectorPayload()),
+        request: request("records_salesforce_export_start", preparedConnectorPayload()),
       }),
     ).resolves.toMatchObject({
       result: { id: EXPORT_ID, queueId: null, deduplicated: true },
     });
   });
 
-  it("registers every Salesforce action kind", () => {
+  it("preflights a complete credential-free migration plan before approval", async () => {
+    const deps = dependencies();
+    const updatePayload = vi.fn(async (input: {
+      payload: Record<string, unknown>;
+    }) => request("records_salesforce_export_start", input.payload));
+    const hook = createRecordSalesforceExportPreflightHook({
+      connectorForAction: deps.connectorForAction,
+      updatePayload: updatePayload as never,
+    });
+    const prepared = await hook(
+      request("records_salesforce_export_start", connectorPayload()),
+    );
+    expect(prepared?.payload).toMatchObject({
+      salesforce_inventory: { connector: "salesforce" },
+      salesforce_schema_review: {
+        format: "openneko.records.salesforce-schema-review.v1",
+        planHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        plan: { definition: { appId: "crm" }, mappings: expect.any(Array) },
+      },
+    });
+    expect(JSON.stringify(prepared?.payload)).not.toContain('"client_secret"');
+  });
+
+  it("registers every Salesforce action kind and one removable preflight", () => {
     const registered: string[] = [];
+    const hook = vi.fn();
+    const unregister = vi.fn();
     registerRecordSalesforceActions({
       enqueueExport: vi.fn(),
       dependencies: dependencies(),
       register: (kind) => registered.push(kind),
+      registerPreflight: (candidate) => {
+        hook(candidate);
+        return unregister;
+      },
     });
     expect(registered).toEqual(RECORD_SALESFORCE_ACTION_KINDS);
+    expect(hook).toHaveBeenCalledOnce();
   });
 });

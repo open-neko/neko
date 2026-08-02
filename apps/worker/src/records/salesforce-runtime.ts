@@ -5,7 +5,11 @@ import {
   SalesforceApiClient,
   SalesforceApiGovernor,
   SalesforceConnector,
+  SalesforceSchemaApprovalStaleError,
+  recordIdentifier,
+  verifySalesforceSchemaReview,
   type RecordConnectorMode,
+  type SalesforceSchemaReview,
 } from "@neko/records";
 
 export type SalesforceActionConfig = {
@@ -101,6 +105,39 @@ export function parseSalesforceActionConfig(
     label: requiredString(payload, "label", 500),
     objects: objectNames(payload.objects),
   };
+}
+
+/** Read the immutable, credential-free schema plan attached before approval. */
+export function parseApprovedSalesforceSchemaReview(
+  payload: Record<string, unknown>,
+): SalesforceSchemaReview {
+  const review = payload.salesforce_schema_review;
+  verifySalesforceSchemaReview(review);
+  const config = parseSalesforceActionConfig(payload);
+  if (
+    review.sourceInstanceId !== config.sourceInstanceId ||
+    review.mode !== config.mode ||
+    review.plan.definition.appId !== recordIdentifier(config.app) ||
+    review.plan.definition.label !== config.label
+  ) {
+    throw new SalesforceSchemaApprovalStaleError(
+      "Salesforce schema review does not match the connector configuration",
+    );
+  }
+  if (config.objects) {
+    const reviewed = review.plan.mappings
+      .map((mapping) => mapping.sourceObject)
+      .sort();
+    if (
+      reviewed.length !== config.objects.length ||
+      reviewed.some((name, index) => name !== config.objects![index])
+    ) {
+      throw new SalesforceSchemaApprovalStaleError(
+        "Salesforce object selection changed after schema review",
+      );
+    }
+  }
+  return review;
 }
 
 export async function createSalesforceConnectorForAction(

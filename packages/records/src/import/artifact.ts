@@ -7,6 +7,7 @@ import {
 import {
   buildSalesforceAppSchema,
   parseSalesforceObjectDescribe,
+  salesforceSchemaPlanHash,
   type SalesforceObjectDescribe,
 } from "../connect/salesforce/schema";
 import type { RecordsArtifactManifest } from "../connect/types";
@@ -28,6 +29,7 @@ export type RecordArtifactImportPlan = {
   directory: string;
   manifest: RecordsArtifactManifest;
   definition: RecordAppDefinition;
+  sourceSchemaHash: string;
   imports: RecordImportPlan[];
   warnings: string[];
   planHash: string;
@@ -191,6 +193,11 @@ export function verifyRecordArtifactImportPlan(plan: RecordArtifactImportPlan): 
     throw new RecordArtifactImportPlanError("artifact import format is invalid");
   }
   verifyManifest(plan.manifest);
+  if (!/^[0-9a-f]{64}$/.test(plan.sourceSchemaHash)) {
+    throw new RecordArtifactImportPlanError(
+      "artifact import source schema hash is invalid",
+    );
+  }
   if (plan.definition.appId === "" || plan.imports.length !== plan.manifest.objects.length) {
     throw new RecordArtifactImportPlanError("artifact import object set is incomplete");
   }
@@ -350,6 +357,11 @@ export async function buildRecordArtifactImportPlan(input: {
     directory,
     manifest,
     definition: schema.definition,
+    sourceSchemaHash: salesforceSchemaPlanHash({
+      sourceInstanceId: manifest.source.instanceId,
+      mode: manifest.source.mode,
+      plan: schema,
+    }),
     imports,
     warnings: schema.warnings,
   };

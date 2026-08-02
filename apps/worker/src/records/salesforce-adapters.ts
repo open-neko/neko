@@ -13,12 +13,16 @@ import type {
 } from "@neko/records";
 import {
   registerActionAdapter,
+  registerActionRequestCreatedHook,
   RetryableActionAdapterError,
+  updateActionRequestPayload,
   type ActionAdapter,
+  type ActionRequestCreatedHook,
   type ActionRequestRecord,
 } from "@neko/llm/workflows";
 import {
   createSalesforceConnectorForAction,
+  parseApprovedSalesforceSchemaReview,
   parseSalesforceActionConfig,
   SalesforceActionConfigError,
 } from "./salesforce-runtime.js";
@@ -39,7 +43,7 @@ export const RECORD_SALESFORCE_ACTION_DESCRIPTORS = [
     scope: "external",
     description:
       "Inspect Salesforce objects, row estimates, and describe metadata using a named secret reference; credentials never enter the action payload.",
-    default_mode: "ask",
+    default_mode: "auto",
     example: {
       source_instance_id: "salesforce-production",
       instance_url: "https://example.my.salesforce.com",
@@ -106,7 +110,7 @@ export type SalesforceExportJobSummary = {
 
 export type RecordSalesforceActionDependencies = {
   connectorForAction: (request: ActionRequestRecord) => Promise<
-    Pick<SalesforceConnector, "discover">
+    Pick<SalesforceConnector, "discover" | "schemaReview">
   >;
   createExport: (request: ActionRequestRecord) => Promise<SalesforceExportJobSummary>;
   getExport: (orgId: string, id: string) => Promise<SalesforceExportJobSummary | null>;
@@ -125,6 +129,11 @@ const CONNECTOR_KEYS = [
   "app",
   "label",
   "objects",
+] as const;
+
+const PREPARED_EXPORT_KEYS = [
+  "salesforce_inventory",
+  "salesforce_schema_review",
 ] as const;
 
 function assertOnlyKeys(payload: Record<string, unknown>, allowed: readonly string[]): void {
@@ -183,16 +192,52 @@ function retryable(error: unknown): boolean {
   );
 }
 
-function connectorPayload(request: ActionRequestRecord): void {
-  assertOnlyKeys(request.payload, CONNECTOR_KEYS);
+function connectorPayload(
+  request: ActionRequestRecord,
+  options: { requireReview?: boolean } = {},
+): void {
+  assertOnlyKeys(request.payload, [
+    ...CONNECTOR_KEYS,
+    ...(options.requireReview ? PREPARED_EXPORT_KEYS : []),
+  ]);
   try {
     parseSalesforceActionConfig(request.payload);
+    if (options.requireReview) parseApprovedSalesforceSchemaReview(request.payload);
   } catch (error) {
     if (error instanceof SalesforceActionConfigError) {
       throw new RecordSalesforceActionPayloadError(error.message);
     }
     throw error;
   }
+}
+
+/** Resolve and attach the exact migration plan before the approval card exists. */
+export function createRecordSalesforceExportPreflightHook(input: {
+  connectorForAction: RecordSalesforceActionDependencies["connectorForAction"];
+  updatePayload?: typeof updateActionRequestPayload;
+}): ActionRequestCreatedHook {
+  const updatePayload = input.updatePayload ?? updateActionRequestPayload;
+  return async (request) => {
+    if (request.kind !== "records_salesforce_export_start") return;
+    assertAdmin(request);
+    connectorPayload(request);
+    const connector = await input.connectorForAction(request);
+    // Discovery includes counts for the human plan. The review contains the
+    // complete object/field/mapping schema and reuses the cached describes.
+    const inventory = await connector.discover();
+    const review = await connector.schemaReview();
+    const prepared = {
+      ...request.payload,
+      salesforce_inventory: inventory,
+      salesforce_schema_review: review,
+    };
+    parseApprovedSalesforceSchemaReview(prepared);
+    return updatePayload({
+      id: request.id,
+      orgId: request.orgId,
+      payload: prepared,
+    });
+  };
 }
 
 function mapJob(row: typeof processing_job.$inferSelect): SalesforceExportJobSummary {
@@ -298,10 +343,11 @@ export function createRecordSalesforceActionAdapter(
       try {
         const connector = await dependencies.connectorForAction(request);
         const inventory: RecordConnectorInventory = await connector.discover();
+        const schemaReview = await connector.schemaReview();
         return {
           commandOrOperation: kind,
           externalRef: inventory.sourceInstanceId,
-          result: inventory,
+          result: { ...inventory, schemaReview },
         };
       } catch (error) {
         if (retryable(error)) {
@@ -314,7 +360,7 @@ export function createRecordSalesforceActionAdapter(
       }
     }
     if (kind === "records_salesforce_export_start") {
-      connectorPayload(request);
+      connectorPayload(request, { requireReview: true });
       const job = await dependencies.createExport(request);
       let queueId: string | null;
       try {
@@ -359,7 +405,8 @@ export function registerRecordSalesforceActions(input: {
   enqueueExport: RecordSalesforceActionDependencies["enqueueExport"];
   dependencies?: Omit<RecordSalesforceActionDependencies, "enqueueExport">;
   register?: (kind: string, adapter: ActionAdapter) => void;
-}): void {
+  registerPreflight?: (hook: ActionRequestCreatedHook) => () => void;
+}): () => void {
   const dependencies: RecordSalesforceActionDependencies = {
     ...defaultSalesforceActionDependencies,
     ...input.dependencies,
@@ -369,4 +416,9 @@ export function registerRecordSalesforceActions(input: {
   for (const kind of RECORD_SALESFORCE_ACTION_KINDS) {
     register(kind, createRecordSalesforceActionAdapter(kind, dependencies));
   }
+  return (input.registerPreflight ?? registerActionRequestCreatedHook)(
+    createRecordSalesforceExportPreflightHook({
+      connectorForAction: dependencies.connectorForAction,
+    }),
+  );
 }

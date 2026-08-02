@@ -408,7 +408,7 @@ await seedDefaultActionPolicies(ADMIN_ORG_ID);
 registerBuiltinAdapters();
 registerRecordActionAdapters(recordsWriteExecutor);
 registerRecordIdentityActions(recordsOwnerBackfillExecutor);
-registerRecordSalesforceActions({
+const unregisterRecordSalesforcePreflight = registerRecordSalesforceActions({
   enqueueExport: (payload) =>
     enqueue(QUEUE.RECORDS_SALESFORCE_EXPORT, payload, {
       retryLimit: 8,
@@ -1007,6 +1007,7 @@ const shutdown = async (signal: string) => {
   unregisterRecordSchemaPreflight();
   unregisterRecordImportPreflight();
   unregisterRecordArtifactImportPreflight();
+  unregisterRecordSalesforcePreflight();
   server.close();
   const cancelled = cancelAllAgents();
   if (cancelled > 0) {

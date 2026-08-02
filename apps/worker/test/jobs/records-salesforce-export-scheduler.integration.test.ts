@@ -16,6 +16,10 @@ import {
   seedDefaultActionPolicies,
   type ActionRequestRecord,
 } from "@neko/llm/workflows";
+import {
+  buildSalesforceAppSchema,
+  createSalesforceSchemaReview,
+} from "@neko/records";
 import { scheduleSalesforceArtifactImport } from "../../src/jobs/records-salesforce-export.js";
 
 const reachable = await dbReachable();
@@ -47,6 +51,41 @@ function exportRequest(orgId: string): ActionRequestRecord {
       app: "crm",
       label: "CRM",
       mode: "mirror",
+      objects: ["Account"],
+      salesforce_inventory: {
+        connector: "salesforce",
+        sourceInstanceId: "salesforce-production",
+        mode: "mirror",
+        objects: [],
+        warnings: [],
+      },
+      salesforce_schema_review: createSalesforceSchemaReview({
+        sourceInstanceId: "salesforce-production",
+        mode: "mirror",
+        plan: buildSalesforceAppSchema({
+          app: "crm",
+          label: "CRM",
+          mode: "mirror",
+          describes: [
+            {
+              name: "Account",
+              label: "Account",
+              labelPlural: "Accounts",
+              fields: [
+                { name: "Id", label: "Account ID", type: "id" },
+                {
+                  name: "Name",
+                  label: "Account name",
+                  type: "string",
+                  nameField: true,
+                  createable: true,
+                  updateable: true,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
     },
     riskLevel: "high",
     status: "executed",
@@ -123,6 +162,8 @@ describeIfDb("Salesforce export-to-import chaining", () => {
         app: "crm",
         label: "CRM",
         export_job_id: jobId,
+        source_instance_id: "salesforce-production",
+        approved_schema_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
       },
     });
     expect(JSON.stringify(rows[0]?.payload)).not.toContain("salesforce-production-secret");

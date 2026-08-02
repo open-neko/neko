@@ -16,7 +16,10 @@ import {
 import { normalizeSalesforceId } from "./id";
 import {
   buildSalesforceAppSchema,
+  createSalesforceSchemaReview,
+  parseSalesforceObjectDescribe,
   type SalesforceObjectDescribe,
+  type SalesforceSchemaReview,
   type SalesforceSchemaPlan,
 } from "./schema";
 
@@ -267,13 +270,14 @@ export class SalesforceConnector implements RecordsConnector {
   ): Promise<SalesforceObjectDescribe> {
     const existing = this.describes.get(sourceApiName);
     if (existing) return existing;
-    const value = await this.options.client.json<SalesforceObjectDescribe>(
+    const raw = await this.options.client.json<unknown>(
       this.options.client.dataPath(
         `/sobjects/${encodeURIComponent(assertApiName(sourceApiName, "Salesforce object"))}/describe`,
       ),
       { signal },
     );
-    if (value.name !== sourceApiName || !Array.isArray(value.fields)) {
+    const value = parseSalesforceObjectDescribe(raw);
+    if (value.name !== sourceApiName) {
       throw new SalesforceExportError(`${sourceApiName}: malformed Salesforce describe`);
     }
     this.describes.set(sourceApiName, value);
@@ -325,6 +329,29 @@ export class SalesforceConnector implements RecordsConnector {
           ? [`Discovery limited to ${selected.length} of ${queryableCount} queryable objects`]
           : [],
     };
+  }
+
+  /** Resolve the exact credential-free schema plan that export will consume. */
+  async schemaPlan(signal?: AbortSignal): Promise<SalesforceSchemaPlan> {
+    const selected = await this.selectedObjects(signal);
+    const describes: SalesforceObjectDescribe[] = [];
+    for (const name of selected) describes.push(await this.describe(name, signal));
+    return buildSalesforceAppSchema({
+      app: this.options.app,
+      label: this.options.label,
+      purpose: this.options.purpose,
+      mode: this.options.mode,
+      describes,
+    });
+  }
+
+  /** Package the exact migration plan for an approval card. */
+  async schemaReview(signal?: AbortSignal): Promise<SalesforceSchemaReview> {
+    return createSalesforceSchemaReview({
+      sourceInstanceId: this.options.sourceInstanceId,
+      mode: this.options.mode,
+      plan: await this.schemaPlan(signal),
+    });
   }
 
   private async loadCheckpoint(root: string, resume: boolean): Promise<ExportCheckpoint> {
@@ -506,15 +533,15 @@ export class SalesforceConnector implements RecordsConnector {
       mkdir(join(root, ".pages"), { recursive: true, mode: 0o700 }),
     ]);
     const checkpoint = await this.loadCheckpoint(root, input.resume === true);
-    const selected = await this.selectedObjects(input.signal);
-    const describes: SalesforceObjectDescribe[] = [];
-    for (const name of selected) describes.push(await this.describe(name, input.signal));
-    const schema = buildSalesforceAppSchema({
-      app: this.options.app,
-      label: this.options.label,
-      purpose: this.options.purpose,
-      mode: this.options.mode,
-      describes,
+    const schema = await this.schemaPlan(input.signal);
+    const describes = schema.mappings.map((mapping) => {
+      const describe = this.describes.get(mapping.sourceObject);
+      if (!describe) {
+        throw new SalesforceExportError(
+          `${mapping.sourceObject}: reviewed Salesforce describe is missing`,
+        );
+      }
+      return describe;
     });
     const artifacts = [];
     for (const describe of describes) {

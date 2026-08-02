@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { recordIdentifier } from "../../naming";
 import {
   parseRecordAppDefinition,
@@ -56,6 +57,129 @@ export type SalesforceSchemaPlan = {
   mappings: SalesforceObjectMapping[];
   warnings: string[];
 };
+
+export const SALESFORCE_SCHEMA_REVIEW_FORMAT =
+  "openneko.records.salesforce-schema-review.v1" as const;
+
+/** Complete, credential-free migration plan bound to the export approval. */
+export type SalesforceSchemaReview = {
+  format: typeof SALESFORCE_SCHEMA_REVIEW_FORMAT;
+  sourceInstanceId: string;
+  mode: RecordConnectorMode;
+  plan: SalesforceSchemaPlan;
+  planHash: string;
+};
+
+export class SalesforceSchemaApprovalStaleError extends Error {
+  readonly code = "salesforce_schema_approval_stale";
+
+  constructor(message = "Salesforce schema changed after approval") {
+    super(message);
+    this.name = "SalesforceSchemaApprovalStaleError";
+  }
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+    .join(",")}}`;
+}
+
+/** Hash every reviewed object, field, source mapping, warning, and mode. */
+export function salesforceSchemaPlanHash(input: {
+  sourceInstanceId: string;
+  mode: RecordConnectorMode;
+  plan: SalesforceSchemaPlan;
+}): string {
+  return createHash("sha256")
+    .update(
+      canonicalJson({
+        format: SALESFORCE_SCHEMA_REVIEW_FORMAT,
+        sourceInstanceId: input.sourceInstanceId,
+        mode: input.mode,
+        plan: input.plan,
+      }),
+      "utf8",
+    )
+    .digest("hex");
+}
+
+export function createSalesforceSchemaReview(input: {
+  sourceInstanceId: string;
+  mode: RecordConnectorMode;
+  plan: SalesforceSchemaPlan;
+}): SalesforceSchemaReview {
+  if (!input.sourceInstanceId.trim()) {
+    throw new SalesforceSchemaApprovalStaleError(
+      "Salesforce schema review is missing its source instance",
+    );
+  }
+  return {
+    format: SALESFORCE_SCHEMA_REVIEW_FORMAT,
+    sourceInstanceId: input.sourceInstanceId,
+    mode: input.mode,
+    plan: input.plan,
+    planHash: salesforceSchemaPlanHash(input),
+  };
+}
+
+/** Validate a persisted review before it authorizes export or import work. */
+export function verifySalesforceSchemaReview(
+  value: unknown,
+): asserts value is SalesforceSchemaReview {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new SalesforceSchemaApprovalStaleError(
+      "Salesforce export is missing its reviewed schema",
+    );
+  }
+  const review = value as Partial<SalesforceSchemaReview>;
+  if (
+    review.format !== SALESFORCE_SCHEMA_REVIEW_FORMAT ||
+    typeof review.sourceInstanceId !== "string" ||
+    !review.sourceInstanceId.trim() ||
+    (review.mode !== "mirror" && review.mode !== "primary") ||
+    typeof review.plan !== "object" ||
+    review.plan === null ||
+    !Array.isArray(review.plan.mappings) ||
+    !Array.isArray(review.plan.warnings) ||
+    typeof review.plan.definition !== "object" ||
+    review.plan.definition === null ||
+    typeof review.planHash !== "string" ||
+    !/^[0-9a-f]{64}$/.test(review.planHash)
+  ) {
+    throw new SalesforceSchemaApprovalStaleError(
+      "Salesforce schema review is incomplete",
+    );
+  }
+  const actual = salesforceSchemaPlanHash({
+    sourceInstanceId: review.sourceInstanceId,
+    mode: review.mode,
+    plan: review.plan,
+  });
+  if (actual !== review.planHash) {
+    throw new SalesforceSchemaApprovalStaleError(
+      "Salesforce schema review changed after approval",
+    );
+  }
+}
+
+export function assertSalesforceSchemaMatchesReview(
+  plan: SalesforceSchemaPlan,
+  review: SalesforceSchemaReview,
+): void {
+  verifySalesforceSchemaReview(review);
+  const actual = salesforceSchemaPlanHash({
+    sourceInstanceId: review.sourceInstanceId,
+    mode: review.mode,
+    plan,
+  });
+  if (actual !== review.planHash) {
+    throw new SalesforceSchemaApprovalStaleError();
+  }
+}
 
 export class SalesforceDescribeError extends Error {
   readonly code = "salesforce_describe_invalid";

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertSalesforceSchemaMatchesReview,
   buildSalesforceAppSchema,
+  createSalesforceSchemaReview,
   parseSalesforceObjectDescribe,
+  SalesforceSchemaApprovalStaleError,
   SalesforceDescribeError,
 } from "../src/connect/salesforce/schema";
 
@@ -185,6 +188,45 @@ describe("Salesforce schema translation", () => {
         expect.objectContaining({ role: "admin", canCreate: true, canUpdate: true }),
         expect.objectContaining({ role: "member", canCreate: false, canUpdate: false }),
       ]),
+    );
+  });
+
+  it("binds every reviewed field and mapping to a stable approval hash", () => {
+    const plan = buildSalesforceAppSchema({
+      app: "CRM",
+      label: "CRM",
+      mode: "mirror",
+      describes: [account],
+    });
+    const review = createSalesforceSchemaReview({
+      sourceInstanceId: "salesforce-production",
+      mode: "mirror",
+      plan,
+    });
+    expect(review.planHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(() => assertSalesforceSchemaMatchesReview(plan, review)).not.toThrow();
+    const drifted = buildSalesforceAppSchema({
+      app: "CRM",
+      label: "CRM",
+      mode: "mirror",
+      describes: [
+        {
+          ...account,
+          fields: [
+            ...account.fields,
+            {
+              name: "NewField__c",
+              label: "New field",
+              type: "string",
+              createable: true,
+              updateable: true,
+            },
+          ],
+        },
+      ],
+    });
+    expect(() => assertSalesforceSchemaMatchesReview(drifted, review)).toThrow(
+      SalesforceSchemaApprovalStaleError,
     );
   });
 });

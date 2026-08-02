@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import {
   buildRecordArtifactImportPlan,
+  RecordsSchemaApprovalStaleError,
   type RecordSchemaChange,
 } from "@neko/records";
 import type { ActionRequestRecord } from "@neko/llm/workflows";
@@ -223,6 +224,51 @@ describe("artifact import worker actions", () => {
     });
   });
 
+  it("accepts only the exported artifact covered by the reviewed schema", async () => {
+    const files = stagedFiles();
+    const artifactPlan = await plan();
+    const planner = {
+      prepare: vi.fn().mockResolvedValue({
+        payload: {
+          preview_hash: "a".repeat(64),
+          schema_preview: { app: "crm", objects: 1 },
+        },
+      }),
+    };
+    const updatePayload = vi.fn(async (input: {
+      payload: Record<string, unknown>;
+    }) => request("records_artifact_import_from_export", input.payload));
+    const hook = createRecordArtifactImportPreflightHook({
+      planner,
+      readSource: async (_orgId, path) => files.get(path)!,
+      updatePayload: updatePayload as never,
+    });
+    const original = {
+      artifact_path: directory,
+      app: "crm",
+      label: "CRM",
+      export_job_id: "00000000-0000-4000-a000-000000000822",
+      source_instance_id: "salesforce-production",
+      approved_schema_hash: artifactPlan.sourceSchemaHash,
+    };
+    await expect(
+      hook(request("records_artifact_import_from_export", original)),
+    ).resolves.toMatchObject({
+      payload: {
+        source_instance_id: "salesforce-production",
+        approved_schema_hash: artifactPlan.sourceSchemaHash,
+      },
+    });
+    await expect(
+      hook(
+        request("records_artifact_import_from_export", {
+          ...original,
+          approved_schema_hash: "b".repeat(64),
+        }),
+      ),
+    ).rejects.toBeInstanceOf(RecordsSchemaApprovalStaleError);
+  });
+
   it("projects schema, creates deterministic child runs, and queues every object", async () => {
     const artifactPlan = await plan();
     const enqueueImport = vi.fn().mockResolvedValue("boss-import-1");
@@ -246,6 +292,8 @@ describe("artifact import worker actions", () => {
       batch_size: 100,
       owner_user_id: null,
       export_job_id: "00000000-0000-4000-a000-000000000822",
+      source_instance_id: "salesforce-production",
+      approved_schema_hash: artifactPlan.sourceSchemaHash,
       artifact_import_plan: artifactPlan,
       preview_hash: "a".repeat(64),
       schema_preview: { app: "crm" },
