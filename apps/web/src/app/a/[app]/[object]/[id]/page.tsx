@@ -5,6 +5,7 @@ import { getOrgId } from "@/lib/db";
 import { readRecordDetail, RecordAppRouteError } from "@/lib/records";
 import { RecordCell } from "@/components/records/RecordCell";
 import { RecordsUnavailable } from "@/components/records/RecordsNotice";
+import { RecordAskBox } from "@/components/records/RecordAskBox";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +66,17 @@ export default async function RecordDetailPage({
             <code>{String(result.row.id)}</code>
           </footer>
         </section>
+        <RecordAskBox
+          context={{
+            surface: "detail",
+            appId: result.app.appId,
+            appLabel: result.app.label,
+            objectApiName: result.view.object.apiName,
+            objectLabel: result.view.object.label,
+            recordId: String(result.row.id),
+            recordLabel: name,
+          }}
+        />
       </main>
     );
   } catch (error) {
@@ -75,4 +87,3 @@ export default async function RecordDetailPage({
     throw error;
   }
 }
-

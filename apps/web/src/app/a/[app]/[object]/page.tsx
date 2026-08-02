@@ -13,6 +13,7 @@ import { RecordTable } from "@/components/records/RecordTable";
 import { RecordViewBar } from "@/components/records/RecordViewBar";
 import { RecordsUnavailable } from "@/components/records/RecordsNotice";
 import { SubstrateStrip } from "@/components/records/SubstrateStrip";
+import { RecordAskBox } from "@/components/records/RecordAskBox";
 
 export const dynamic = "force-dynamic";
 
@@ -157,6 +158,17 @@ export default async function RecordObjectPage({
         cursor={result.cursor}
         page={page}
         query={query}
+      />
+      <RecordAskBox
+        context={{
+          surface: "list",
+          appId: result.app.appId,
+          appLabel: result.app.label,
+          objectApiName: result.view.object.apiName,
+          objectLabel: result.view.object.pluralLabel,
+          ...(query.q ? { search: query.q } : {}),
+          ...(query.mine === "true" ? { myRecords: true } : {}),
+        }}
       />
       <SubstrateStrip status={substrate} />
     </main>
