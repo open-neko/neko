@@ -101,6 +101,7 @@ describe("pending record action surfaces", () => {
     expect(diff).toContain("Negotiation");
     expect(diff).toContain("No");
     expect(diff).toContain("Yes");
+    expect(diff).toContain("rechecked immediately before write");
     expect(diff).not.toContain("[object Object]");
   });
 });

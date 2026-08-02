@@ -267,7 +267,11 @@ export default function ActionPage() {
 
         {recordUpdate && (
           <Section title="Proposed change">
-            <RecordActionDiff kind={ar.kind} payload={ar.payload} />
+            <RecordActionDiff
+              kind={ar.kind}
+              payload={ar.payload}
+              policyContext={isPending && policy ? `rule "${policy.name}"` : null}
+            />
           </Section>
         )}
 

@@ -55,10 +55,12 @@ export function RecordActionDiff({
   kind,
   payload,
   compact = false,
+  policyContext,
 }: {
   kind?: string;
   payload: unknown;
   compact?: boolean;
+  policyContext?: string | null;
 }) {
   const parsed = parseRecordUpdatePayload(kind, payload);
   if (!parsed) return null;
@@ -87,6 +89,12 @@ export function RecordActionDiff({
           </div>
         ))}
       </dl>
+      {parsed.expected && (
+        <p className="record-action-diff-freshness">
+          Expected values captured with this request · rechecked immediately before write.
+          {policyContext && <> <strong>Rule:</strong> {policyContext}.</>}
+        </p>
+      )}
     </div>
   );
 }

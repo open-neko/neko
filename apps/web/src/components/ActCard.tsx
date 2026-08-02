@@ -6,6 +6,7 @@ import { Pill, type PillVariant } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
 import { formatSavedShort } from "@/lib/hours-saved";
 import { RecordActionDiff } from "@/components/records/RecordActionDiff";
+import { actionApprovalAttribution } from "@/lib/action-copy";
 
 export type ActRowTone = "good" | "watch" | "action";
 
@@ -165,7 +166,12 @@ export default function ActCard({
                     {row.detail}
                   </p>
                 )}
-                <RecordActionDiff kind={row.kind} payload={row.payload} compact />
+                <RecordActionDiff
+                  kind={row.kind}
+                  payload={row.payload}
+                  compact
+                  policyContext={isPending ? row.approverPhrase : null}
+                />
                 {row.rejectionReason && (
                   <p className="m-0 text-[13px] leading-[1.55] text-text2 italic">
                     {row.rejectionReason}
@@ -175,9 +181,8 @@ export default function ActCard({
                   <p className="mt-1 text-[11.5px] text-text3 flex items-center gap-2 flex-wrap">
                     {row.approverPhrase && (
                       <span>
-                        approved by{" "}
                         <span className="text-text2 font-medium">
-                          {row.approverPhrase}
+                          {actionApprovalAttribution(row.approverPhrase)}
                         </span>
                       </span>
                     )}

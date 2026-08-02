@@ -398,7 +398,15 @@ function ActionReadingPane({
           </div>
         )}
 
-        <RecordActionDiff kind={action.kind} payload={action.payload} />
+        <RecordActionDiff
+          kind={action.kind}
+          payload={action.payload}
+          policyContext={
+            action.status === "pending_approval"
+              ? approverPhrase(action.approverKind, action.approverLabel)
+              : null
+          }
+        />
 
         {payloadEntries.length > 0 && (
           <div className="mt-4">

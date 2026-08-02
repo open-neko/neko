@@ -694,6 +694,19 @@
   font-weight: 750;
 }
 
+.record-action-diff-freshness {
+  margin: 10px 0 0;
+  padding-top: 9px;
+  border-top: 1px dashed var(--border);
+  color: var(--text3);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.record-action-diff-freshness strong {
+  color: var(--text2);
+}
+
 .record-action-diff.is-compact {
   margin-top: 7px;
   padding: 7px 0 1px 9px;
@@ -719,6 +732,12 @@
 .record-action-diff.is-compact dd {
   gap: 6px;
   font-size: 10.5px;
+}
+
+.record-action-diff.is-compact .record-action-diff-freshness {
+  margin-top: 7px;
+  padding-top: 6px;
+  font-size: 9.5px;
 }
 
 .records-table .is-number {
