@@ -293,7 +293,7 @@ describeIfLive("records CSV import executor live integration", () => {
     if (containerId) await runCommand("docker", ["stop", containerId]).catch(() => undefined);
     if (pool) await pool.end();
     if (adminPool) {
-      await adminPool.query(`drop database if exists ${database} with (force)`);
+      await adminPool.query(`drop database if exists ${database}`);
       await adminPool.end();
     }
   });

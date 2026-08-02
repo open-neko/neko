@@ -58,7 +58,7 @@ describeIfLive("records schema action planner", () => {
   afterAll(async () => {
     if (testPool) await testPool.end();
     if (adminPool) {
-      await adminPool.query(`drop database if exists ${database} with (force)`);
+      await adminPool.query(`drop database if exists ${database}`);
       await adminPool.end();
     }
   });
