@@ -957,6 +957,275 @@
   opacity: 0.65;
 }
 
+.records-admin-nav {
+  margin-left: auto;
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--neutral-soft);
+}
+
+.records-admin-nav a {
+  min-height: 30px;
+  padding: 6px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: calc(var(--radius-control) - 2px);
+  color: var(--text3);
+  font-size: 10.5px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.records-admin-nav a:hover,
+.records-admin-nav a.is-active {
+  background: var(--card);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.records-admin-nav svg {
+  width: 13px;
+  height: 13px;
+}
+
+.records-identity-layout {
+  width: min(1240px, 100%);
+  margin: 22px auto;
+  display: grid;
+  gap: 14px;
+}
+
+.records-identity-filters {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow-x: auto;
+}
+
+.records-identity-filters a {
+  min-height: 32px;
+  padding: 6px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--card);
+  color: var(--text2);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.records-identity-filters a.is-active {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.records-identity-filters span {
+  min-width: 19px;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--neutral);
+  color: var(--text3);
+  font-size: 8.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.records-identity-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.records-identity-card > header {
+  padding: 15px 17px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.records-identity-card h2 {
+  margin: 0 0 3px;
+  color: var(--text);
+  font: 800 15px/1.25 var(--font-display), "Archivo", sans-serif;
+}
+
+.records-identity-card header p {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--text3);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.records-identity-card > header > span {
+  color: var(--text3);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.records-identity-scroll {
+  overflow-x: auto;
+}
+
+.records-identity-table {
+  width: 100%;
+  min-width: 1040px;
+  border-collapse: collapse;
+}
+
+.records-identity-table th {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--neutral-soft);
+  color: var(--text3);
+  font-family: var(--font-display), "Archivo", sans-serif;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.records-identity-table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 10.5px;
+  line-height: 1.35;
+  vertical-align: top;
+}
+
+.records-identity-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.records-identity-table td > strong,
+.records-identity-table td > small {
+  display: block;
+}
+
+.records-identity-table td > strong {
+  color: var(--text);
+  font-weight: 750;
+}
+
+.records-identity-table td > small {
+  margin-top: 2px;
+  color: var(--text3);
+  font-size: 9px;
+}
+
+.records-identity-table code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--neutral-soft);
+  color: var(--text2);
+  font-size: 9px;
+}
+
+.records-identity-status {
+  padding: 4px 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  background: var(--neutral);
+  color: var(--text2);
+  font-size: 9px;
+  font-weight: 750;
+  text-transform: capitalize;
+}
+
+.records-identity-status svg {
+  width: 11px;
+  height: 11px;
+}
+
+.records-identity-status.is-linked {
+  background: var(--success-soft);
+  color: var(--success-mid);
+}
+
+.records-identity-status.is-conflict {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.records-identity-control {
+  width: min(390px, 34vw);
+  display: grid;
+  grid-template-columns: minmax(145px, 1fr) auto auto;
+  gap: 6px;
+}
+
+.records-identity-control select,
+.records-identity-control button {
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  font: 700 9.5px/1 var(--font-body), sans-serif;
+}
+
+.records-identity-control select {
+  min-width: 0;
+  padding: 6px 8px;
+  outline: 0;
+  background: var(--neutral-soft);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.records-identity-control select:focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-soft) 80%, transparent);
+}
+
+.records-identity-control button {
+  padding: 6px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+
+.records-identity-control button.is-quiet {
+  background: var(--card);
+  color: var(--text2);
+}
+
+.records-identity-control button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.records-identity-control button svg {
+  width: 11px;
+  height: 11px;
+}
+
+.records-identity-control > span {
+  grid-column: 1 / -1;
+  color: var(--danger);
+  font-size: 9px;
+}
+
 .records-import-layout {
   width: min(1180px, 100%);
   margin: 22px auto;
@@ -1516,6 +1785,31 @@
 
   .records-import-review-footer .records-primary-action {
     width: 100%;
+  }
+
+  .records-admin-nav {
+    margin-left: auto;
+  }
+
+  .records-admin-nav a {
+    width: 32px;
+    padding-inline: 8px;
+    overflow: hidden;
+    color: transparent;
+    gap: 0;
+  }
+
+  .records-admin-nav a svg {
+    flex: none;
+    color: var(--text3);
+  }
+
+  .records-admin-nav a.is-active svg {
+    color: var(--text);
+  }
+
+  .records-identity-layout {
+    margin-block: 14px;
   }
 
   .records-degraded {

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileUp, UsersRound } from "lucide-react";
 import { getOrgId } from "@/lib/db";
 import {
   getRecordImportAdminModel,
@@ -54,6 +54,14 @@ export default async function RecordAppAdminPage({
           <span className="records-breadcrumb">{model.appLabel} / Admin</span>
           <h1>Import data</h1>
         </div>
+        <nav className="records-admin-nav" aria-label="App administration">
+          <Link className="is-active" href={`/a/${model.appId}/admin`}>
+            <FileUp aria-hidden="true" /> Import
+          </Link>
+          <Link href={`/a/${model.appId}/admin/identity`}>
+            <UsersRound aria-hidden="true" /> Identity
+          </Link>
+        </nav>
       </header>
       <RecordImportPanel
         appId={model.appId}

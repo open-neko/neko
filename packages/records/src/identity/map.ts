@@ -267,10 +267,12 @@ export async function listIdentityMappings(
     status?: IdentityMappingStatus;
   },
 ): Promise<IdentityMapping[]> {
-  const values: unknown[] = [input.orgId, input.appId];
+  const orgId = required(input.orgId, "organization id");
+  const appId = required(input.appId, "app id");
+  const values: unknown[] = [orgId, appId];
   const clauses = ["org_id = $1", "app_id = $2"];
   if (input.sourceInstanceId) {
-    values.push(input.sourceInstanceId);
+    values.push(required(input.sourceInstanceId, "source instance id"));
     clauses.push(`source_instance_id = $${values.length}`);
   }
   if (input.status) {
@@ -298,6 +300,13 @@ export async function decideIdentityMapping(
     appUserId?: string;
   },
 ): Promise<IdentityMapping> {
+  if (input.decision !== "link" && input.decision !== "ignore") {
+    throw new IdentityMappingError("decision must be link or ignore");
+  }
+  const orgId = required(input.orgId, "organization id");
+  const sourceInstanceId = required(input.sourceInstanceId, "source instance id");
+  const appId = required(input.appId, "app id");
+  const sourceUserId = required(input.sourceUserId, "source user id");
   const appUserId =
     input.decision === "link" ? required(input.appUserId ?? "", "app user id") : null;
   const client = await pool.connect();
@@ -310,11 +319,11 @@ export async function decideIdentityMapping(
              and app_user_id = $4 and status = 'linked' and source_user_id <> $5
            limit 1`,
           [
-            input.orgId,
-            input.sourceInstanceId,
-            input.appId,
+            orgId,
+            sourceInstanceId,
+            appId,
             appUserId,
-            input.sourceUserId,
+            sourceUserId,
           ],
         );
         if (occupied.rowCount) {
@@ -333,10 +342,10 @@ export async function decideIdentityMapping(
            and source_user_id = $4
          returning ${IDENTITY_COLUMNS}`,
         [
-          input.orgId,
-          input.sourceInstanceId,
-          input.appId,
-          input.sourceUserId,
+          orgId,
+          sourceInstanceId,
+          appId,
+          sourceUserId,
           appUserId,
           input.decision === "link" ? "linked" : "ignored",
         ],
