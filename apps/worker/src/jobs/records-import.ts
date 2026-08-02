@@ -10,9 +10,13 @@ export async function runRecordsImport(
   executor: RecordImportExecutor,
   pool: Pool,
   payload: RecordsImportPayload,
+  options: { leaseOwner?: string } = {},
 ): Promise<void> {
   try {
-    const report = await executor.execute(payload);
+    const report = await executor.execute({
+      ...payload,
+      ...(options.leaseOwner ? { leaseOwner: options.leaseOwner } : {}),
+    });
     console.log(
       `[records-import] run=${payload.importRunId} status=${report.status} inserted=${report.inserted} rejected=${report.rejected}`,
     );

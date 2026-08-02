@@ -46,6 +46,7 @@
     "@neko/db": "workspace:*",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
+    "tsx": "^4.19.2",
     "typescript": "^5",
     "vitest": "^2.1.8"
   }

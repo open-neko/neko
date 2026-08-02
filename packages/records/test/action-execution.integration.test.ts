@@ -130,6 +130,28 @@ describeIfRecordsDb("records action execution receipts", () => {
     });
   });
 
+  it("lets the same durable job identity resume an unexpired lease", async () => {
+    const input = {
+      ...claimInput,
+      actionRequestId: "request-same-job-resume",
+      actionKind: "records_import_start",
+      leaseOwner: "records-import-job:job-42",
+      leaseMs: 60_000,
+    };
+    const first = await claimRecordsActionExecution(testPool, input);
+    expect(first.kind).toBe("claimed");
+    const firstExpiry = first.execution.leaseExpiresAt?.getTime() ?? 0;
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const resumed = await claimRecordsActionExecution(testPool, input);
+
+    expect(resumed.kind).toBe("claimed");
+    expect(resumed.execution.leaseOwner).toBe(input.leaseOwner);
+    expect(resumed.execution.leaseExpiresAt?.getTime() ?? 0).toBeGreaterThan(
+      firstExpiry,
+    );
+  });
+
   it("rejects request-id identity reuse and terminal failure replays", async () => {
     await expect(
       claimRecordsActionExecution(testPool, {

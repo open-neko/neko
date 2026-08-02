@@ -721,7 +721,9 @@ await b.work(
   async (jobs: PgBossLib.Job<RecordsImportPayload>[]) => {
     for (const job of jobs) {
       try {
-        await runRecordsImport(recordsImportExecutor, recordsPool, job.data);
+        await runRecordsImport(recordsImportExecutor, recordsPool, job.data, {
+          leaseOwner: `records-import-job:${job.id}`,
+        });
       } catch (e) {
         console.warn(
           `[records-import] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,

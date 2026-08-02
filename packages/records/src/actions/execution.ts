@@ -204,6 +204,27 @@ export async function claimRecordsActionExecution(
       if (current.status === "failed") {
         throw new RecordsActionTerminalError(input.actionRequestId, current.error);
       }
+      // Durable queue retries keep the same lease-owner identity. Let that
+      // logical job resume immediately after a process/database restart; a
+      // different job or worker still waits for expiry and cannot steal it.
+      if (current.leaseOwner === input.leaseOwner) {
+        const resumed = await client.query<RawExecution>(
+          `update engine.action_execution
+           set status = 'running',
+               lease_expires_at = now() + ($3::bigint * interval '1 millisecond'),
+               error = null, finished_at = null
+           where action_request_id = $1 and lease_owner = $2
+             and status in ('claimed', 'running')
+           returning ${EXECUTION_COLUMNS}`,
+          [input.actionRequestId, input.leaseOwner, leaseMs],
+        );
+        if (!resumed.rows[0]) {
+          throw new Error(
+            `records action ${input.actionRequestId} disappeared during same-owner resume`,
+          );
+        }
+        return { kind: "claimed", execution: mapExecution(resumed.rows[0]) };
+      }
       const expired = current.leaseExpiresAt === null || currentRow.lease_expired;
       if (!expired) {
         throw new RecordsActionLeaseBusyError(

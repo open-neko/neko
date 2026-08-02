@@ -321,12 +321,13 @@ export class RecordImportExecutor {
     candidates: PreparedCandidate[];
     actorUserId: string;
     token: string;
+    leaseOwner: string;
   }): Promise<void> {
     if (input.candidates.length === 0) return;
     await this.assertNotCancelled(input.run);
     await renewRecordsActionExecutionLease(this.dependencies.pool, {
       actionRequestId: input.run.actionRequestId,
-      leaseOwner: this.dependencies.leaseOwner,
+      leaseOwner: input.leaseOwner,
       leaseMs: 5 * 60_000,
     });
     const hash = batchHash(input.run.plan, input.candidates);
@@ -421,7 +422,7 @@ export class RecordImportExecutor {
 
     await setRecordsActionExecutionContext(this.dependencies.pool, {
       actionRequestId: input.run.actionRequestId,
-      leaseOwner: this.dependencies.leaseOwner,
+      leaseOwner: input.leaseOwner,
       leaseMs: 5 * 60_000,
       context: {
         import_batch: {
@@ -499,7 +500,10 @@ export class RecordImportExecutor {
     orgId: string;
     importRunId: string;
     actorUserId: string;
+    /** Stable pg-boss job identity so the same job can resume after restart. */
+    leaseOwner?: string;
   }): Promise<RecordImportReport> {
+    const leaseOwner = input.leaseOwner ?? this.dependencies.leaseOwner;
     let run = await startRecordImportRun(this.dependencies.pool, {
       orgId: input.orgId,
       id: input.importRunId,
@@ -523,7 +527,7 @@ export class RecordImportExecutor {
         orgId: run.orgId,
         appId: run.appId,
         actionKind: "records_import_start",
-        leaseOwner: this.dependencies.leaseOwner,
+        leaseOwner,
         leaseMs: 5 * 60_000,
       });
       if (claim.kind === "replay") return claim.result as RecordImportReport;
@@ -534,7 +538,7 @@ export class RecordImportExecutor {
       });
       await succeedRecordsActionExecution(this.dependencies.pool, {
         actionRequestId: run.actionRequestId,
-        leaseOwner: this.dependencies.leaseOwner,
+        leaseOwner,
         result: report,
       });
       return report;
@@ -593,7 +597,7 @@ export class RecordImportExecutor {
       orgId: run.orgId,
       appId: run.appId,
       actionKind: "records_import_start",
-      leaseOwner: this.dependencies.leaseOwner,
+      leaseOwner,
       leaseMs: 5 * 60_000,
     });
     if (claim.kind === "replay") return claim.result as RecordImportReport;
@@ -610,6 +614,7 @@ export class RecordImportExecutor {
           candidates: chunk,
           actorUserId: input.actorUserId,
           token,
+          leaseOwner,
         });
         const summary = await summarizeRecordImportRun(this.dependencies.pool, run.id);
         await updateRecordImportProgress(this.dependencies.pool, {
@@ -644,7 +649,7 @@ export class RecordImportExecutor {
       });
       await succeedRecordsActionExecution(this.dependencies.pool, {
         actionRequestId: run.actionRequestId,
-        leaseOwner: this.dependencies.leaseOwner,
+        leaseOwner,
         result: report,
       });
       return report;
@@ -668,7 +673,7 @@ export class RecordImportExecutor {
         });
         await succeedRecordsActionExecution(this.dependencies.pool, {
           actionRequestId: run.actionRequestId,
-          leaseOwner: this.dependencies.leaseOwner,
+          leaseOwner,
           result: report,
         });
         return report;
@@ -676,7 +681,7 @@ export class RecordImportExecutor {
       if (error instanceof RecordImportTerminalError) {
         await failRecordsActionExecution(this.dependencies.pool, {
           actionRequestId: run.actionRequestId,
-          leaseOwner: this.dependencies.leaseOwner,
+          leaseOwner,
           error: { code: error.code, message: error.message },
         });
       }

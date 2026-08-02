@@ -1,8 +1,10 @@
 import pg from "pg";
 import { execFile } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   buildRecordsPoolConfig,
@@ -60,6 +62,54 @@ function runCommand(command: string, args: string[]): Promise<{ stdout: string; 
   });
 }
 
+function runKilledImportWorker(env: NodeJS.ProcessEnv): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const helper = fileURLToPath(
+      new URL("./helpers/import-kill-worker.ts", import.meta.url),
+    );
+    const child = spawn(
+      join(process.cwd(), "node_modules", ".bin", "tsx"),
+      [helper],
+      {
+        env: { ...process.env, ...env },
+        stdio: ["ignore", "ignore", "pipe"],
+      },
+    );
+    let stderr = "";
+    let settled = false;
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGKILL");
+      reject(new Error(`kill-worker timed out: ${stderr}`));
+    }, 30_000);
+    child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      // Direct Node reports SIGKILL as a signal; the tsx launcher forwards its
+      // child exit as the conventional 128 + 9 status instead.
+      if (signal === "SIGKILL" || code === 137) resolve();
+      else {
+        reject(
+          new Error(
+            `kill-worker exited code=${code} signal=${signal}: ${stderr}`,
+          ),
+        );
+      }
+    });
+  });
+}
+
 const reachable = await recordsDbReachable();
 const describeIfLive = reachable && graphjinImage ? describe : describe.skip;
 
@@ -108,6 +158,7 @@ describeIfLive("records CSV import executor live integration", () => {
   let pool: pg.Pool;
   let containerId = "";
   let graphjin: RecordsGraphjinClient;
+  let graphjinUrl = "";
 
   beforeAll(async () => {
     adminPool = new pg.Pool(buildRecordsPoolConfig());
@@ -231,7 +282,8 @@ describeIfLive("records CSV import executor live integration", () => {
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    graphjin = new RecordsGraphjinClient({ baseUrl: `http://127.0.0.1:${port}` });
+    graphjinUrl = `http://127.0.0.1:${port}`;
+    graphjin = new RecordsGraphjinClient({ baseUrl: graphjinUrl });
   }, 30_000);
 
   afterAll(async () => {
@@ -423,4 +475,120 @@ describeIfLive("records CSV import executor live integration", () => {
     );
     expect(rows.rows).toEqual([{ id: "cancel-1" }]);
   }, 30_000);
+
+  it("reconciles 5,000 rows after kills before and after every batch commit", async () => {
+    const rowCount = 5_000;
+    const batchSize = 250;
+    const bytes = Buffer.from(
+      [
+        "id,name,available",
+        ...Array.from({ length: rowCount }, (_, index) => {
+          const ordinal = String(index + 1).padStart(5, "0");
+          const available = index % 2 === 0 ? "true" : "false";
+          return `scale-${ordinal},Asset ${ordinal},${available}`;
+        }),
+      ].join("\n"),
+    );
+    const sourceDirectory = await mkdtemp(join(tmpdir(), "records-import-kill-"));
+    const sourceFile = join(sourceDirectory, "loans.csv");
+    await writeFile(sourceFile, bytes);
+
+    const registry = new (await import("../src/registry")).RecordRegistry(pool);
+    const loaded = await registry.loadApp("org-a", "equipment");
+    expect(loaded).not.toBeNull();
+    const plan = buildRecordImportPlan({
+      snapshot: loaded as AppRegistrySnapshot,
+      objectApiName: "loan",
+      sourcePath: "imports/run-scale/loans.csv",
+      sourceName: "loans.csv",
+      bytes,
+      batchSize,
+    });
+    const run = await createRecordImportRun(pool, {
+      id: "00000000-0000-4000-a000-000000000996",
+      orgId: "org-a",
+      actionRequestId: "import-executor-scale-action",
+      plan,
+    });
+    const leaseOwner = "records-import-job:scale-job";
+    const childEnv = {
+      RECORDS_IMPORT_TEST_DATABASE: database,
+      RECORDS_IMPORT_TEST_GRAPHJIN_URL: graphjinUrl,
+      RECORDS_IMPORT_TEST_JWT_SECRET: JWT_SECRET,
+      RECORDS_IMPORT_TEST_LEASE_OWNER: leaseOwner,
+      RECORDS_IMPORT_TEST_RUN_ID: run.id,
+      RECORDS_IMPORT_TEST_SOURCE: sourceFile,
+    };
+    const batchCount = rowCount / batchSize;
+
+    for (let batch = 0; batch < batchCount; batch += 1) {
+      await runKilledImportWorker({
+        ...childEnv,
+        RECORDS_IMPORT_KILL_MODE: "before",
+      });
+      const before = await pool.query<{ count: string }>(
+        "select count(*)::text as count from engine.import_batch_receipt where import_run_id = $1",
+        [run.id],
+      );
+      expect(Number(before.rows[0]?.count)).toBe(batch);
+
+      await runKilledImportWorker({
+        ...childEnv,
+        RECORDS_IMPORT_KILL_MODE: "after",
+      });
+      const after = await pool.query<{ count: string }>(
+        "select count(*)::text as count from engine.import_batch_receipt where import_run_id = $1",
+        [run.id],
+      );
+      expect(Number(after.rows[0]?.count)).toBe(batch + 1);
+    }
+
+    const executor = new RecordImportExecutor({
+      pool,
+      graphjin,
+      serviceToken: () =>
+        mintRecordsGraphjinToken({
+          secret: JWT_SECRET,
+          orgId: "org-a",
+          userId: "records-service",
+          role: "service",
+        }),
+      leaseOwner,
+      readSource: async () => bytes,
+    });
+    const report = await executor.execute({
+      orgId: "org-a",
+      importRunId: run.id,
+      actorUserId: "admin-1",
+      leaseOwner,
+    });
+
+    expect(report).toMatchObject({
+      status: "succeeded",
+      sourceRows: rowCount,
+      inserted: rowCount,
+      rejected: 0,
+      duplicates: 0,
+      batches: batchCount,
+      reconciled: true,
+    });
+    const rows = await pool.query<{ total: string; distinct_ids: string }>(
+      `select count(*)::text as total, count(distinct id)::text as distinct_ids
+       from public.equipment__loan where id like 'scale-%'`,
+    );
+    expect(rows.rows[0]).toEqual({
+      total: String(rowCount),
+      distinct_ids: String(rowCount),
+    });
+    const receipts = await pool.query<{ rows: string; batches: string }>(
+      `select coalesce(sum(row_count), 0)::text as rows,
+              count(*)::text as batches
+       from engine.import_batch_receipt where import_run_id = $1`,
+      [run.id],
+    );
+    expect(receipts.rows[0]).toEqual({
+      rows: String(rowCount),
+      batches: String(batchCount),
+    });
+  }, 120_000);
 });
