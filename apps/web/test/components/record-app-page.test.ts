@@ -107,7 +107,7 @@ describe("RecordAppPage", () => {
 
     const html = renderToStaticMarkup(createElement(RecordAppPage, { result }));
     expect(html).toContain("Open pipeline");
-    expect(html).toContain("12,500.50");
+    expect(html).toContain("$12,500.50");
     expect(html).toContain("Closing soon");
     expect(html).toContain("Recent activity");
     expect(html).toContain("/a/crm/opportunity/deal-1");

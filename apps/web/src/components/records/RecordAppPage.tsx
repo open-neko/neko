@@ -12,6 +12,9 @@ function metricValue(block: RecordAppPageMetricBlock): string {
   if (!Number.isFinite(numeric)) return String(block.value ?? "—");
   const scale = Math.min(Math.max(block.field?.scale ?? 0, 0), 6);
   return new Intl.NumberFormat("en", {
+    ...(block.field?.kind === "currency"
+      ? { style: "currency" as const, currency: "USD" }
+      : {}),
     maximumFractionDigits: scale,
     minimumFractionDigits: block.field?.kind === "currency" ? Math.min(scale, 2) : 0,
   }).format(numeric);

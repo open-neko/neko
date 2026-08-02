@@ -53,10 +53,17 @@ function view(): RecordObjectView {
         apiName: "industry",
         columnName: "industry",
         label: "Industry",
-        kind: "text",
+        kind: "picklist",
         required: false,
         readOnly: false,
-        picklistValues: null,
+        picklistValues: [
+          {
+            value: "technology",
+            label: "Technology",
+            color: "green",
+            emphasis: "strong",
+          },
+        ],
         referenceTargets: null,
         scale: null,
       },
@@ -84,7 +91,7 @@ describe("record detail metadata surfaces", () => {
       row: {
         id: "account-1",
         name: "Meridian",
-        industry: "Technology",
+        industry: "technology",
         account_manager: "contact-1",
       },
       owners: {},
@@ -106,6 +113,7 @@ describe("record detail metadata surfaces", () => {
     expect(detail).toContain("Classification");
     expect(detail.indexOf("Account name")).toBeLessThan(detail.indexOf("Industry"));
     expect(detail).toContain("Kavya Menon");
+    expect(detail).toContain("records-pill is-green is-emphasis");
     expect(detail).toContain('/a/crm/contact/contact-1');
     expect(detail).not.toContain(">contact-1</a>");
 

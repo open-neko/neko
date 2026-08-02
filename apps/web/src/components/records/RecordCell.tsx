@@ -4,8 +4,9 @@ import type { RecordOwnerIdentity } from "@/lib/records";
 import type { RecordReferenceIdentity } from "@/lib/records-reference";
 
 const PILL_TONES = ["violet", "green", "amber", "blue", "rose", "slate"] as const;
+type PillTone = (typeof PILL_TONES)[number];
 
-function stableTone(value: string): (typeof PILL_TONES)[number] {
+function stableTone(value: string): PillTone {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
     hash = (hash * 31 + value.charCodeAt(index)) | 0;
@@ -19,23 +20,41 @@ function text(value: unknown): string {
   return "";
 }
 
-function picklistLabel(column: RecordViewColumn, value: string): string {
+function picklistPresentation(
+  column: RecordViewColumn,
+  value: string,
+): { label: string; tone: PillTone; emphasis: boolean } {
   for (const option of column.picklistValues ?? []) {
-    if (typeof option === "string" && option === value) return option;
+    if (typeof option === "string" && option === value) {
+      return { label: option, tone: stableTone(value), emphasis: false };
+    }
     if (option && typeof option === "object" && !Array.isArray(option)) {
       const candidate = option as Record<string, unknown>;
       if (candidate.value === value) {
-        return typeof candidate.label === "string" ? candidate.label : value;
+        const tone =
+          typeof candidate.color === "string" &&
+          (PILL_TONES as readonly string[]).includes(candidate.color)
+            ? candidate.color as PillTone
+            : stableTone(value);
+        return {
+          label: typeof candidate.label === "string" ? candidate.label : value,
+          tone,
+          emphasis:
+            candidate.emphasis === true || candidate.emphasis === "strong",
+        };
       }
     }
   }
-  return value;
+  return { label: value, tone: stableTone(value), emphasis: false };
 }
 
 function PicklistPill({ column, value }: { column: RecordViewColumn; value: string }) {
+  const presentation = picklistPresentation(column, value);
   return (
-    <span className={`records-pill is-${stableTone(value)}`}>
-      {picklistLabel(column, value)}
+    <span
+      className={`records-pill is-${presentation.tone}${presentation.emphasis ? " is-emphasis" : ""}`}
+    >
+      {presentation.label}
     </span>
   );
 }
@@ -78,6 +97,9 @@ function NumberValue({ column, value }: { column: RecordViewColumn; value: unkno
   if (!Number.isFinite(numeric)) return <span className="records-null">—</span>;
   const scale = Math.min(Math.max(column.scale ?? (column.kind === "currency" ? 2 : 0), 0), 10);
   const formatted = new Intl.NumberFormat("en", {
+    ...(column.kind === "currency"
+      ? { style: "currency" as const, currency: "USD" }
+      : {}),
     minimumFractionDigits: column.kind === "integer" ? 0 : scale,
     maximumFractionDigits: scale,
   }).format(numeric);
