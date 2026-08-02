@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, FileUp, UsersRound } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import type { IdentityMappingStatus } from "@neko/records";
 import { RecordIdentityPanel } from "@/components/records/RecordIdentityPanel";
 import { RecordsUnavailable } from "@/components/records/RecordsNotice";
@@ -10,6 +10,7 @@ import {
   RecordIdentityWebPermissionError,
 } from "@/lib/records-identity";
 import { RecordAppRouteError } from "@/lib/records";
+import { RecordAdminNav } from "@/components/records/RecordAdminNav";
 
 export const dynamic = "force-dynamic";
 
@@ -64,14 +65,7 @@ export default async function RecordIdentityAdminPage({
           <span className="records-breadcrumb">{model.appLabel} / Admin</span>
           <h1>Identity mapping</h1>
         </div>
-        <nav className="records-admin-nav" aria-label="App administration">
-          <Link href={`/a/${model.appId}/admin`}>
-            <FileUp aria-hidden="true" /> Import
-          </Link>
-          <Link className="is-active" href={`/a/${model.appId}/admin/identity`}>
-            <UsersRound aria-hidden="true" /> Identity
-          </Link>
-        </nav>
+        <RecordAdminNav appId={model.appId} active="identity" />
       </header>
       <RecordIdentityPanel
         appId={model.appId}

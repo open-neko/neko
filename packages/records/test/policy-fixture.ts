@@ -67,6 +67,21 @@ export function recordsPolicyFixture(): RecordsGraphjinPolicyModel {
         ],
       },
       {
+        schema: id("engine"),
+        name: id("app_schema_log"),
+        columns: [
+          id("id"),
+          id("org_id"),
+          id("app_id"),
+          id("action"),
+          id("detail"),
+          id("ddl"),
+          id("actor_user_id"),
+          id("action_request_id"),
+          id("at"),
+        ],
+      },
+      {
         schema: id("public"),
         name: id("crm__account"),
         columns: [

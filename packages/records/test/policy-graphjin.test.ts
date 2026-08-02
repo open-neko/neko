@@ -219,6 +219,21 @@ describe("projectRecordsGraphjinRoles", () => {
     }
   });
 
+  it("exposes bounded schema history only to admins without DDL", () => {
+    const roles = projectRecordsGraphjinRoles(recordsPolicyFixture());
+    const admin = tableFor(roles.find((role) => role.name === "admin")!, "app_schema_log");
+    expect(admin.query).toMatchObject({
+      block: false,
+      columns: expect.arrayContaining(["action", "detail", "at"]),
+      disable_functions: true,
+    });
+    expect(admin.query.columns).not.toContain("ddl");
+    expect(admin.query.columns).not.toContain("org_id");
+    for (const roleName of ["anon", "user", "member", "service"] as const) {
+      expect(tableFor(roles.find((role) => role.name === roleName)!, "app_schema_log").query.block).toBe(true);
+    }
+  });
+
   it("makes service the only mutation role while retaining org and deletion scopes", () => {
     const service = projectRecordsGraphjinRoles(recordsPolicyFixture()).find(
       (role) => role.name === "service",

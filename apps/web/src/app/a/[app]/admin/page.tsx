@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, FileUp, UsersRound } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { getOrgId } from "@/lib/db";
 import {
   getRecordImportAdminModel,
@@ -9,6 +9,7 @@ import {
 import { RecordAppRouteError } from "@/lib/records";
 import { RecordImportPanel } from "@/components/records/RecordImportPanel";
 import { RecordsUnavailable } from "@/components/records/RecordsNotice";
+import { RecordAdminNav } from "@/components/records/RecordAdminNav";
 
 export const dynamic = "force-dynamic";
 
@@ -54,14 +55,7 @@ export default async function RecordAppAdminPage({
           <span className="records-breadcrumb">{model.appLabel} / Admin</span>
           <h1>Import data</h1>
         </div>
-        <nav className="records-admin-nav" aria-label="App administration">
-          <Link className="is-active" href={`/a/${model.appId}/admin`}>
-            <FileUp aria-hidden="true" /> Import
-          </Link>
-          <Link href={`/a/${model.appId}/admin/identity`}>
-            <UsersRound aria-hidden="true" /> Identity
-          </Link>
-        </nav>
+        <RecordAdminNav appId={model.appId} active="import" />
       </header>
       <RecordImportPanel
         appId={model.appId}

@@ -241,6 +241,11 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
         ('org-a', 'equipment', 'loan', 'loan-2', 'update',
          'loan-change-member-2', '{"name":{"old":"Old","new":"Member Two Loan"}}'::jsonb,
          'member-2');
+      insert into engine.app_schema_log
+        (org_id, app_id, action, detail, ddl, actor_user_id, action_request_id)
+      values
+        ('org-a', 'equipment', 'app_create', '{"effect":"Created equipment"}'::jsonb,
+         '{"previewSql":"secret ddl"}'::jsonb, 'admin-1', 'schema-request-1');
       insert into engine.identity_map
         (org_id, source_instance_id, app_id, source_user_id, source_email,
          source_name, source_is_active, status)
@@ -665,6 +670,12 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
             changes: { name: { old: "Old", new: "Member One Loan" } },
           },
         ]);
+        const memberSchemaHistory = await request(
+          "member-1",
+          "query MemberSchemaHistory { app_schema_log { action detail } }",
+        );
+        expect(memberSchemaHistory.data?.app_schema_log ?? []).toEqual([]);
+        expect(JSON.stringify(memberSchemaHistory)).not.toContain("Created equipment");
 
         const admin = await request(
           "admin-1",
@@ -684,6 +695,20 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
           { record_id: "loan-1" },
           { record_id: "loan-2" },
         ]);
+        const adminSchemaHistory = await request(
+          "admin-1",
+          "query AdminSchemaHistory { app_schema_log { app_id action detail actor_user_id } }",
+        );
+        expect(adminSchemaHistory.errors).toBeUndefined();
+        expect(adminSchemaHistory.data?.app_schema_log).toEqual([
+          {
+            app_id: "equipment",
+            action: "app_create",
+            detail: { effect: "Created equipment" },
+            actor_user_id: "admin-1",
+          },
+        ]);
+        expect(JSON.stringify(adminSchemaHistory)).not.toContain("secret ddl");
 
         const memberRecycle = await request(
           "member-1",

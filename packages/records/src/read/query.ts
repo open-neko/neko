@@ -124,6 +124,13 @@ export type RecordChangeLogQuery = {
   resultField: "history";
 };
 
+export type RecordSchemaLogQuery = {
+  operationName: "RecordsSchemaLog";
+  query: string;
+  variables: { app_id: string; first: number };
+  resultField: "history";
+};
+
 export class RecordReadTargetError extends Error {
   readonly code = "records_read_target_invalid";
 
@@ -716,6 +723,30 @@ export function buildRecordChangeLogQuery(input: {
       object_api_name: view.object.apiName,
       record_id: recordIdValue(input.recordId),
       first: boundedPageSize(input.first ?? 25),
+    },
+    resultField: "history",
+  };
+}
+
+export function buildRecordSchemaLogQuery(input: {
+  snapshot: AppRegistrySnapshot;
+  role: RecordViewerRole;
+  first?: number;
+}): RecordSchemaLogQuery {
+  if (input.role !== "admin") throw new RecordReadPermissionError();
+  if (input.snapshot.app.status !== "active") {
+    throw new RecordReadTargetError("record app is not active");
+  }
+  return {
+    operationName: "RecordsSchemaLog",
+    query:
+      "query RecordsSchemaLog { history: app_schema_log(" +
+      "first: $first, order_by: { at: desc, id: desc }, " +
+      "where: { app_id: { eq: $app_id } }) { id action detail " +
+      "actor_user_id action_request_id at } }",
+    variables: {
+      app_id: input.snapshot.app.appId,
+      first: boundedPageSize(input.first ?? 50),
     },
     resultField: "history",
   };

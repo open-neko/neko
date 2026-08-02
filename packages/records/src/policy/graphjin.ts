@@ -95,6 +95,21 @@ export const RECORD_CHANGE_LOG_READ_COLUMNS = [
   "at",
 ] as const;
 
+export const RECORD_SCHEMA_LOG_RELATION = {
+  schema: "engine",
+  table: "app_schema_log",
+} as const;
+
+export const RECORD_SCHEMA_LOG_READ_COLUMNS = [
+  "id",
+  "app_id",
+  "action",
+  "detail",
+  "actor_user_id",
+  "action_request_id",
+  "at",
+] as const;
+
 export type RecordCatalogTable = {
   schema: RecordIdentifier;
   name: RecordIdentifier;
@@ -492,6 +507,25 @@ function humanChangeLogTable(input: {
   };
 }
 
+function adminSchemaLogTable(
+  table: RecordCatalogTable,
+  orgId: string,
+): GraphjinRoleTable {
+  if (!hasColumns(table, [RECORD_SYSTEM_COLUMNS.orgId, ...RECORD_SCHEMA_LOG_READ_COLUMNS])) {
+    return blockedTable(table);
+  }
+  return {
+    ...blockedTable(table),
+    query: {
+      block: false,
+      filters: [orgFilter(orgId)],
+      columns: [...RECORD_SCHEMA_LOG_READ_COLUMNS],
+      limit: HUMAN_QUERY_LIMIT,
+      disable_functions: true,
+    },
+  };
+}
+
 function serviceTable(input: {
   table: RecordCatalogTable;
   object: RecordPolicyRegistryObject;
@@ -633,6 +667,14 @@ export function projectRecordsGraphjinRoles(model: RecordsGraphjinPolicyModel): 
       ) {
         return role === "admin" || role === "member"
           ? humanChangeLogTable({ role, table, model })
+          : blockedTable(table);
+      }
+      if (
+        table.schema === RECORD_SCHEMA_LOG_RELATION.schema &&
+        table.name === RECORD_SCHEMA_LOG_RELATION.table
+      ) {
+        return role === "admin"
+          ? adminSchemaLogTable(table, model.orgId)
           : blockedTable(table);
       }
       const object = objectByRelation.get(relationKey(table.schema, table.name));

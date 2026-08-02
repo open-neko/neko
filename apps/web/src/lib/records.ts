@@ -17,6 +17,7 @@ import {
   buildRecordListQuery,
   buildRecordRecycleDetailQuery,
   buildRecordRecycleListQuery,
+  buildRecordSchemaLogQuery,
   mintRecordsGraphjinToken,
   parseRecordAppPage,
   RecordRegistry,
@@ -117,6 +118,15 @@ export class RecordAppRouteError extends Error {
   ) {
     super(message);
     this.name = "RecordAppRouteError";
+  }
+}
+
+export class RecordAdminPermissionError extends Error {
+  readonly code = "records_admin_permission_denied";
+
+  constructor() {
+    super("Record app administration requires an admin.");
+    this.name = "RecordAdminPermissionError";
   }
 }
 
@@ -259,6 +269,72 @@ export async function getRecordAppNav(input: {
     label: shell.snapshot.app.label,
     purpose: shell.snapshot.app.purpose,
     objects,
+  };
+}
+
+export type RecordSchemaHistoryEntry = {
+  id: string;
+  action: string;
+  detail: JsonObject;
+  actorUserId: string | null;
+  actionRequestId: string | null;
+  at: string;
+};
+
+export async function getRecordAdminModel(input: {
+  orgId: string;
+  appId: string;
+}): Promise<{
+  app: AppRegistrySnapshot["app"];
+  objects: AppRegistrySnapshot["objects"];
+  permissions: AppRegistrySnapshot["permissions"];
+  history: RecordSchemaHistoryEntry[];
+  fallbackHref: string;
+}> {
+  const shell = await loadRecordAppShell(input.orgId, input.appId);
+  if (shell.availability !== "active") {
+    throw new RecordAppRouteError(shell.degradedReason ?? "record app is degraded", 503);
+  }
+  const viewer = await recordsViewer(input.orgId);
+  if (viewer.role !== "admin") throw new RecordAdminPermissionError();
+  const generated = buildRecordSchemaLogQuery({
+    snapshot: shell.snapshot,
+    role: viewer.role,
+    first: 100,
+  });
+  const data = await recordsRuntime().graphjin.execute<Record<string, unknown>>({
+    operationName: generated.operationName,
+    query: generated.query,
+    variables: generated.variables,
+    token: viewer.token,
+  });
+  const objects = shell.snapshot.objects.filter((object) => object.archivedAt === null);
+  return {
+    app: shell.snapshot.app,
+    objects,
+    permissions: shell.snapshot.permissions,
+    history: rowsFrom(data[generated.resultField]).flatMap((row): RecordSchemaHistoryEntry[] => {
+      if (
+        (typeof row.id !== "string" && typeof row.id !== "number") ||
+        typeof row.action !== "string" ||
+        typeof row.at !== "string" ||
+        !row.detail ||
+        typeof row.detail !== "object" ||
+        Array.isArray(row.detail)
+      ) return [];
+      return [{
+        id: String(row.id),
+        action: row.action,
+        detail: row.detail as JsonObject,
+        actorUserId: typeof row.actor_user_id === "string" ? row.actor_user_id : null,
+        actionRequestId:
+          typeof row.action_request_id === "string" ? row.action_request_id : null,
+        at: row.at,
+      }];
+    }),
+    fallbackHref: objects[0]
+      ? `/a/${shell.snapshot.app.appId}/${objects[0].apiName}`
+      : `/a/${shell.snapshot.app.appId}`,
   };
 }
 

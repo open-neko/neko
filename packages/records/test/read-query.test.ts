@@ -7,6 +7,7 @@ import {
   buildRecordListQuery,
   buildRecordRecycleDetailQuery,
   buildRecordRecycleListQuery,
+  buildRecordSchemaLogQuery,
   RecordReadPermissionError,
   RecordReadTargetError,
 } from "../src/read/query";
@@ -218,6 +219,19 @@ describe("generated record read queries", () => {
       record_id: "work-1' } secret {",
       first: 25,
     });
+  });
+
+  it("builds admin-only schema history without DDL fields", () => {
+    const built = buildRecordSchemaLogQuery({
+      snapshot: snapshot(),
+      role: "admin",
+      first: 50,
+    });
+    expect(built.query).toContain("history: app_schema_log(first: $first");
+    expect(built.query).not.toContain(" ddl ");
+    expect(built.variables).toEqual({ app_id: "operations", first: 50 });
+    expect(() => buildRecordSchemaLogQuery({ snapshot: snapshot(), role: "member" }))
+      .toThrow(RecordReadPermissionError);
   });
 
   it("builds permission-scoped count and sum metric queries", () => {
