@@ -2,9 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Database, LogOut, Settings2, Table2 } from "lucide-react";
+import { Database, LogOut, Search, Settings2, Star, Table2 } from "lucide-react";
 import DensityToggle from "@/components/DensityToggle";
 import {
   ALL_NAV,
@@ -13,6 +13,10 @@ import {
   useApprovalsCount,
   type NavDestination,
 } from "@/lib/nav";
+import {
+  buildRecordNavSections,
+  type RecordNavObject,
+} from "@/lib/record-nav";
 
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0";
 const VERSION_POLL_MS = 60_000;
@@ -26,14 +30,181 @@ type RecordAppNav = {
   appId: string;
   label: string;
   purpose: string | null;
-  objects: Array<{
-    apiName: string;
-    label: string;
-    pluralLabel: string;
-    recordCount: string | null;
-    custom: boolean;
-  }>;
+  objects: RecordNavObject[];
 };
+
+function storedObjectIds(key: string): string[] {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) ?? "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function RecordObjectNavigation({
+  app,
+  pathname,
+  canAdmin,
+}: {
+  app: RecordAppNav;
+  pathname: string;
+  canAdmin: boolean;
+}) {
+  const appHref = `/a/${app.appId}`;
+  const pathObject = pathname.split("/")[3];
+  const activeObjectApiName = app.objects.some(
+    (object) => object.apiName === pathObject,
+  ) ? pathObject : null;
+  const favoritesKey = `openneko.record-favorites.${app.appId}`;
+  const recentsKey = `openneko.record-recents.${app.appId}`;
+  const [query, setQuery] = useState("");
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [recents, setRecents] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setFavorites(storedObjectIds(favoritesKey));
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [favoritesKey]);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const stored = storedObjectIds(recentsKey);
+      const next = activeObjectApiName
+        ? [activeObjectApiName, ...stored.filter((value) => value !== activeObjectApiName)].slice(0, 8)
+        : stored;
+      setRecents(next);
+      window.localStorage.setItem(recentsKey, JSON.stringify(next));
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [activeObjectApiName, recentsKey]);
+
+  const navigation = useMemo(
+    () => buildRecordNavSections({
+      objects: app.objects,
+      favorites,
+      recents,
+      activeObjectApiName,
+      query,
+      expanded,
+    }),
+    [activeObjectApiName, app.objects, expanded, favorites, query, recents],
+  );
+
+  function toggleFavorite(apiName: string) {
+    setFavorites((current) => {
+      const next = current.includes(apiName)
+        ? current.filter((value) => value !== apiName)
+        : [...current, apiName];
+      window.localStorage.setItem(favoritesKey, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  return (
+    <div className="app-rail-record-browser">
+      <label className="app-rail-record-search">
+        <Search aria-hidden="true" strokeWidth={2} />
+        <span className="sr-only">Search {app.label} objects</span>
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setExpanded(false);
+          }}
+          placeholder="Find an object"
+        />
+      </label>
+      <div className="app-rail-record-objects" aria-label={`${app.label} objects`}>
+        {navigation.sections.map((section) => (
+          <section className="app-rail-record-section" key={section.id}>
+            <div className="app-rail-record-section-label">{section.label}</div>
+            {section.objects.map((object) => {
+              const href = `${appHref}/${object.apiName}`;
+              const active = isActive(pathname, href);
+              const favorite = favorites.includes(object.apiName);
+              return (
+                <div className="app-rail-record-object-wrap" key={object.apiName}>
+                  <Link
+                    href={href}
+                    className={`app-rail-record-object${active ? " is-active" : ""}`}
+                    aria-current={active ? "page" : undefined}
+                    title={object.pluralLabel}
+                  >
+                    <Table2 aria-hidden="true" strokeWidth={1.8} />
+                    <span className="app-rail-record-object-label">
+                      {object.pluralLabel}
+                    </span>
+                    {object.custom && (
+                      <span className="app-rail-record-custom">__c</span>
+                    )}
+                    {object.recordCount !== null && (
+                      <span className="app-rail-record-count font-mono">
+                        {object.recordCount}
+                      </span>
+                    )}
+                  </Link>
+                  <button
+                    type="button"
+                    className={`app-rail-record-favorite${favorite ? " is-favorite" : ""}`}
+                    aria-label={`${favorite ? "Remove" : "Add"} ${object.pluralLabel} ${favorite ? "from" : "to"} favorites`}
+                    aria-pressed={favorite}
+                    onClick={() => toggleFavorite(object.apiName)}
+                  >
+                    <Star aria-hidden="true" fill={favorite ? "currentColor" : "none"} />
+                  </button>
+                </div>
+              );
+            })}
+          </section>
+        ))}
+        {navigation.sections.length === 0 && (
+          <div className="app-rail-record-empty">No objects match “{query}”.</div>
+        )}
+        {navigation.hiddenCount > 0 && (
+          <button
+            type="button"
+            className="app-rail-record-more"
+            onClick={() => setExpanded(true)}
+          >
+            Show {navigation.hiddenCount} more
+          </button>
+        )}
+        {expanded && navigation.hiddenCount === 0 && app.objects.length > 12 && (
+          <button
+            type="button"
+            className="app-rail-record-more"
+            onClick={() => setExpanded(false)}
+          >
+            Show less
+          </button>
+        )}
+        {canAdmin && (
+          <section className="app-rail-record-section is-admin">
+            <div className="app-rail-record-section-label">Manage</div>
+            <div className="app-rail-record-object-wrap">
+              <Link
+                href={`${appHref}/admin`}
+                className={`app-rail-record-object${isActive(pathname, `${appHref}/admin`) ? " is-active" : ""}`}
+                aria-current={isActive(pathname, `${appHref}/admin`) ? "page" : undefined}
+                title={`${app.label} admin`}
+              >
+                <Settings2 aria-hidden="true" strokeWidth={1.8} />
+                <span className="app-rail-record-object-label">Admin</span>
+              </Link>
+            </div>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function initials(user: SessionUser | null) {
   const source = user?.name || user?.email || "A";
@@ -80,6 +251,7 @@ function RailLink({
 
 export default function AppRail() {
   const pathname = usePathname() ?? "/";
+  const router = useRouter();
   const hidden = hideAppChrome(pathname);
   const pending = useApprovalsCount();
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -190,6 +362,9 @@ export default function AppRail() {
 
   const updateAvailable =
     latestVersion !== null && latestVersion !== APP_VERSION;
+  const activeRecordApp = recordApps.find((app) =>
+    isActive(pathname, `/a/${app.appId}`),
+  ) ?? null;
 
   return (
     <aside className="app-rail-wrap" aria-label="Primary navigation">
@@ -237,6 +412,22 @@ export default function AppRail() {
             <div className="app-rail-heading app-rail-records-heading">
               {recordAppsUnavailable ? "Apps unavailable" : "Apps"}
             </div>
+            <label className="app-rail-record-switcher">
+              <span className="sr-only">Choose an app</span>
+              <Database aria-hidden="true" strokeWidth={2} />
+              <select
+                value={activeRecordApp?.appId ?? ""}
+                onChange={(event) => {
+                  if (event.target.value) router.push(`/a/${event.target.value}`);
+                }}
+              >
+                <option value="">Choose an app</option>
+                {recordApps.map((app) => (
+                  <option key={app.appId} value={app.appId}>{app.label}</option>
+                ))}
+              </select>
+            </label>
+            <div className="app-rail-record-compact-apps">
             {recordApps.map((app) => {
               const appHref = `/a/${app.appId}`;
               const appActive = isActive(pathname, appHref);
@@ -256,50 +447,18 @@ export default function AppRail() {
                       </Link>
                     </div>
                   </div>
-                  {appActive && (
-                    <div className="app-rail-record-objects" aria-label={`${app.label} objects`}>
-                      {app.objects.map((object) => {
-                        const href = `${appHref}/${object.apiName}`;
-                        const active = isActive(pathname, href);
-                        return (
-                          <Link
-                            key={object.apiName}
-                            href={href}
-                            className={`app-rail-record-object${active ? " is-active" : ""}`}
-                            aria-current={active ? "page" : undefined}
-                            title={object.pluralLabel}
-                          >
-                            <Table2 aria-hidden="true" strokeWidth={1.8} />
-                            <span className="app-rail-record-object-label">
-                              {object.pluralLabel}
-                            </span>
-                            {object.custom && (
-                              <span className="app-rail-record-custom">__c</span>
-                            )}
-                            {object.recordCount !== null && (
-                              <span className="app-rail-record-count font-mono">
-                                {object.recordCount}
-                              </span>
-                            )}
-                          </Link>
-                        );
-                      })}
-                      {sessionMode !== "member" && sessionMode !== "loading" && (
-                        <Link
-                          href={`${appHref}/admin`}
-                          className={`app-rail-record-object${isActive(pathname, `${appHref}/admin`) ? " is-active" : ""}`}
-                          aria-current={isActive(pathname, `${appHref}/admin`) ? "page" : undefined}
-                          title={`${app.label} admin`}
-                        >
-                          <Settings2 aria-hidden="true" strokeWidth={1.8} />
-                          <span className="app-rail-record-object-label">Admin</span>
-                        </Link>
-                      )}
-                    </div>
-                  )}
                 </div>
               );
             })}
+            </div>
+            {activeRecordApp && (
+              <RecordObjectNavigation
+                key={activeRecordApp.appId}
+                app={activeRecordApp}
+                pathname={pathname}
+                canAdmin={sessionMode !== "member" && sessionMode !== "loading"}
+              />
+            )}
           </>
         )}
 

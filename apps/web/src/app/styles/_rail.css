@@ -258,6 +258,31 @@ body {
     width: 100%;
   }
 
+  .app-rail-record-switcher,
+  .app-rail-record-search,
+  .app-rail-record-section-label,
+  .app-rail-record-favorite,
+  .app-rail-record-more,
+  .app-rail-record-empty {
+    display: none;
+  }
+
+  .app-rail-record-compact-apps,
+  .app-rail-record-browser,
+  .app-rail-record-section,
+  .app-rail-record-object-wrap {
+    width: 100%;
+  }
+
+  .app-rail-record-section {
+    display: contents;
+  }
+
+  .app-rail-record-object-wrap {
+    display: flex;
+    justify-content: center;
+  }
+
   .app-rail-record-objects {
     display: flex;
     flex-direction: column;
@@ -557,17 +582,128 @@ body {
     margin-top: 4px;
   }
 
+  .app-rail-record-compact-apps {
+    display: none;
+  }
+
+  .app-rail-record-switcher {
+    width: 100%;
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--text2);
+  }
+
+  .app-rail-record-switcher:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  .app-rail-record-switcher svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+  }
+
+  .app-rail-record-switcher select {
+    min-width: 0;
+    flex: 1;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text);
+    font: 700 12px/1.2 var(--font-body), "Manrope", sans-serif;
+    cursor: pointer;
+  }
+
+  .app-rail-record-browser {
+    display: grid;
+    gap: 8px;
+  }
+
+  .app-rail-record-search {
+    width: 100%;
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--neutral-soft);
+    color: var(--text3);
+  }
+
+  .app-rail-record-search:focus-within {
+    border-color: var(--accent);
+    background: var(--card);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  .app-rail-record-search svg {
+    width: 14px;
+    height: 14px;
+    flex: none;
+  }
+
+  .app-rail-record-search input {
+    min-width: 0;
+    flex: 1;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--text);
+    font: 600 11.5px/1.2 var(--font-body), "Manrope", sans-serif;
+  }
+
+  .app-rail-record-search input::placeholder {
+    color: var(--text3);
+  }
+
   .app-rail-record-objects {
     align-items: stretch;
+    gap: 7px;
+    margin: 0;
+    padding: 0;
+    border-left: 0;
+  }
+
+  .app-rail-record-section {
+    display: grid;
     gap: 1px;
-    margin: 1px 0 5px 20px;
-    padding-left: 10px;
-    border-left: 1px solid var(--border);
+  }
+
+  .app-rail-record-section + .app-rail-record-section {
+    padding-top: 7px;
+    border-top: 1px solid var(--border);
+  }
+
+  .app-rail-record-section-label {
+    display: block;
+    padding: 2px 8px 4px;
+    color: var(--text3);
+    font: 800 8.5px/1.2 var(--font-display), "Archivo", sans-serif;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .app-rail-record-object-wrap {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
   }
 
   .app-rail-record-object {
-    width: 100%;
+    width: auto;
     min-height: 34px;
+    min-width: 0;
+    flex: 1;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -607,6 +743,67 @@ body {
     font-size: 9px;
     font-variant-numeric: tabular-nums;
     text-align: right;
+  }
+
+  .app-rail-record-favorite {
+    width: 28px;
+    height: 28px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text3);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
+  }
+
+  .app-rail-record-object-wrap:hover .app-rail-record-favorite,
+  .app-rail-record-favorite:focus-visible,
+  .app-rail-record-favorite.is-favorite {
+    opacity: 1;
+  }
+
+  .app-rail-record-favorite:hover,
+  .app-rail-record-favorite.is-favorite {
+    background: var(--watch-soft);
+    color: var(--warn-ink);
+  }
+
+  .app-rail-record-favorite:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .app-rail-record-favorite svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  .app-rail-record-more {
+    min-height: 30px;
+    display: block;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--accent);
+    font: 750 10px/1.2 var(--font-body), "Manrope", sans-serif;
+    cursor: pointer;
+  }
+
+  .app-rail-record-more:hover {
+    background: var(--accent-soft);
+  }
+
+  .app-rail-record-empty {
+    display: block;
+    padding: 12px 8px;
+    color: var(--text3);
+    font-size: 10.5px;
+    line-height: 1.4;
+    text-align: center;
   }
 
   .app-rail-record-object.is-active .app-rail-record-count,
