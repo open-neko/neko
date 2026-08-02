@@ -31,6 +31,20 @@ export type RecordPolicyRow = {
   ownerUserId: string | null;
 };
 
+export function selectRecordPolicyGrant(
+  grants: RecordPolicyGrant[],
+  input: { appId: string; role: string; objectApiName: RecordIdentifier },
+): RecordPolicyGrant | null {
+  return (
+    grants.find(
+      (grant) =>
+        grant.appId === input.appId &&
+        grant.role === input.role &&
+        grant.objectApiName === input.objectApiName,
+    ) ?? null
+  );
+}
+
 function grantAllows(grant: RecordPolicyGrant, operation: RecordCrudOperation): boolean {
   switch (operation) {
     case "read":

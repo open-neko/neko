@@ -37,9 +37,7 @@ const HUMAN_SYSTEM_READ_COLUMNS = new Set([
   RECORD_SYSTEM_COLUMNS.updatedBy,
 ]);
 
-const SERVICE_IMMUTABLE_UPDATE_COLUMNS = new Set([
-  "id",
-  RECORD_SYSTEM_COLUMNS.orgId,
+const SERVICE_IMMUTABLE_UPDATE_COLUMNS = new Set<string>([
   RECORD_SYSTEM_COLUMNS.createdAt,
   RECORD_SYSTEM_COLUMNS.createdBy,
 ]);
@@ -245,7 +243,7 @@ function serviceUpdateColumns(table: RecordCatalogTable): string[] {
 function servicePresets(table: RecordCatalogTable, orgId: string, operation: "insert" | "update") {
   const columns = new Set<string>(table.columns);
   const presets: Record<string, string> = {};
-  if (operation === "insert" && columns.has(RECORD_SYSTEM_COLUMNS.orgId)) {
+  if (columns.has(RECORD_SYSTEM_COLUMNS.orgId)) {
     presets[RECORD_SYSTEM_COLUMNS.orgId] = orgId;
   }
   if (operation === "insert" && columns.has(RECORD_SYSTEM_COLUMNS.createdAt)) {

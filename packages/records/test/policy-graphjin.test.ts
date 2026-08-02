@@ -123,7 +123,9 @@ describe("projectRecordsGraphjinRoles", () => {
     });
     expect(account.insert.columns).not.toContain("org_id");
     expect(account.update.filters).toEqual(['{ org_id: { eq: "org-a" } }']);
-    expect(account.update.columns).not.toContain("id");
+    expect(account.update.columns).toContain("id");
+    expect(account.update.columns).toContain("org_id");
+    expect(account.update.presets).toMatchObject({ org_id: "org-a" });
     expect(account.update.columns).toContain("nk_deleted_at");
     expect(account.upsert.block).toBe(true);
     expect(account.delete.block).toBe(true);

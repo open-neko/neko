@@ -20,6 +20,7 @@
     "./schema/ddl": "./src/schema/ddl.ts",
     "./schema/saga": "./src/schema/saga.ts",
     "./types": "./src/types.ts",
+    "./write/executor": "./src/write/executor.ts",
     "./write/validate": "./src/write/validate.ts"
   },
   "scripts": {
