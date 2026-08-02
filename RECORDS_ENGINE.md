@@ -1,223 +1,250 @@
-# Records Engine & CRM Module — Implementation Plan
+# Records Engine & Apps — Implementation Plan
 
-**Scope:** Salesforce → OpenNeko CRM as the first shipped module of a domain-neutral
-records engine, with marketing tools and ERP as follow-on modules. Two migration
-inputs, converging on one importer: a client-supplied full export (every SObject as
-CSV, plus describe metadata where available), or a **connected import** where the
-plugin extracts everything from a live org via the Salesforce APIs (D13).
+**Scope:** a native OpenNeko records engine on which the **agent builds "apps"** —
+a CRM is an app, a Zendesk-style support desk is an app, an inventory tracker is
+an app. "Create an app that will let me bring in my Salesforce data" and "create
+an app to help me replace Zendesk" are the product sentences this plan
+implements. The agent designs the schema in conversation, the engine applies it,
+the UI is generated from metadata, GraphJin serves reads and change
+subscriptions, and access follows the established user/role pattern.
 
-**Repos touched:** `open-neko/openneko` (engine, UI, worker, migrations) and
-`open-neko/plugins` (new `module` capability in the SDK, the
-`@open-neko/plugin-salesforce-crm` package, marketplace entry).
+Salesforce liberation (CSV export or connected live-org import) is the first
+**app feeder**, not the product's shape.
+
+**Repo touched:** `open-neko/openneko` only. This is a native feature — **no
+plugin** is involved (see D1). The `open-neko/plugins` repo needs no changes.
 
 ---
 
 ## 1. Philosophy
 
-### 1.1 Free the data and the CRM follows
+### 1.1 Free the data and the app follows
 
-Clients don't stay on Salesforce because they like it; they stay because their
-operational memory — accounts, contacts, deals, a decade of custom objects — is
-held hostage inside it. OpenNeko's founding premise is that *the intelligence is
-rented; the memory is yours*. This work extends that premise one step: the system
-of record itself moves onto the client's infrastructure, in their own Postgres,
-behind their own agent. Migration is not a feature of the CRM; the CRM is the
-consequence of the migration.
+Clients don't stay on Salesforce or Zendesk because they like them; they stay
+because their operational memory — accounts, deals, tickets, a decade of custom
+objects — is held hostage inside them. OpenNeko's founding premise is that *the
+intelligence is rented; the memory is yours*. This work extends that premise:
+the system of record itself moves onto the client's infrastructure, in their own
+Postgres, behind their own agent. Migration is not a feature of the app; the app
+is the consequence of the migration — or of a conversation.
 
-### 1.2 Metadata over schema
+### 1.2 The agent is the app builder
 
-No two Salesforce orgs have the same shape. Custom objects (`__c`), custom fields,
-picklists, and relationships differ per client, so **nothing in the engine may
-hardcode a business schema**. Every screen, validator, permission check, and agent
-affordance is generated from a metadata registry that the import populates. This is
-also what makes the engine domain-neutral: "CRM" is not code, it is the first set of
-registry rows.
+There is no app store and no app SDK. An app is **registry content**: objects,
+fields, relationships, layouts, permissions — created and evolved through the
+same propose → approve → execute → audit action stack every other OpenNeko
+mutation uses. "Add a `warranty_expires` date to equipment" is an approval card,
+not a migration PR. Starter **blueprints** (CRM, support desk, …) ship as data
+the agent adapts in conversation, never as code paths. This is what makes the
+roadmap (CRM → support → marketing → ERP) cheap: each next domain is a
+conversation plus a feeder, not an engineering project.
 
-### 1.3 Engine + domain packs, extracted not predicted
+### 1.3 Metadata over schema
 
-The roadmap (CRM → marketing → ERP) means the core investment must be a **records
-engine** with domain-neutral names (`record_*`, `module_id`), and each domain is a
-pack: metadata (imported from Salesforce for CRM; shipped as canonical starter
-schemas for marketing/ERP), an agent skill, and domain-specific action adapters.
-Discipline rule: the engine only grows features that the *current* module actually
-needs. Generic workflow states, posting rules, or campaign machinery do not enter
-the engine until a real module demands them. Domain *behavior* (campaign sends, ERP
-postings) is never an engine concern — it lands as per-module adapters and jobs.
+No two businesses have the same shape — and no two Salesforce orgs do either.
+**Nothing in the engine may hardcode a business schema.** Every screen,
+validator, permission check, and agent affordance is generated from the metadata
+registry. The engine only grows features a *current* app actually needs; domain
+behavior (campaign sends, ERP postings) never enters the engine — it lands as
+per-app automations built on the existing workflow machinery.
 
 ### 1.4 Chat-first writes, one write path, one audit trail
 
-The primary create/update surface is the chat agent proposing typed actions through
-the existing propose → approve → execute → audit action stack. UI forms exist (it
-must feel like a proper CRM) but submit through the *same* action path, auto-approved
-because a human filled the form. There is exactly one write path, one validation
-layer, one change log. Nothing writes to record tables except the record action
-executor.
+The primary create/update surface is chat: the agent proposes typed actions
+through the action stack. Generated UI forms exist (an app must feel like a real
+tool) but submit through the *same* action path, auto-approved because a human
+filled the form. There is exactly one write path, one validation layer, one
+change log — **and that now includes schema changes**, which are just another
+action kind with a stricter safety profile (D6, D7).
 
 ### 1.5 One RBAC enforcement point
 
-Reads — human UI, chat agent, watchers — all flow through GraphJin running
-`auth: jwt`, with per-actor short-lived tokens (the existing GJ4 mechanism). Row
-policies and role grants are *generated* from the same policy tables that the write
-executor checks. Access rules cannot drift between surfaces because they have a
-single source of truth and two mechanical projections (GraphJin config, write-path
-checks).
+Reads — human UI, chat agent, watchers, subscriptions — all flow through
+GraphJin running `auth: jwt` with per-actor short-lived tokens (the existing GJ4
+mechanism). Role grants and row policies are *generated* from the same policy
+tables the write executor checks. Access rules cannot drift between surfaces
+because they have a single source of truth and two mechanical projections
+(GraphJin config, write-path checks). Every app inherits this on creation for
+free.
 
-### 1.6 Plugins stay narrow; core ships dormant surfaces
+### 1.6 Native core; the sandbox is for third parties
 
-The plugin sandbox model (one-shot JSON-RPC, no host DB, no UI, allowlisted egress)
-is a security asset and is not weakened. The CRM follows the proven Scalekit
-pattern: the heavy machinery ships **dormant in core**, and a thin marketplace
-plugin is the *switch* that lights it up — plus the only parts that genuinely fit a
-sandbox (Salesforce-facing connectors: discovery, delta sync). Installing
-`@open-neko/plugin-salesforce-crm` makes the CRM section appear, exactly like
-installing scalekit makes "Sign in with Scalekit" appear.
+The plugin sandbox exists to run **untrusted marketplace code** safely. The
+records engine is first-party core — sandboxing it bought nothing but an
+enable-switch plugin and an artificial split of the Salesforce connector across
+a VM boundary. Dropped (D1). The plugin system is unaffected and remains the
+boundary for third-party code; first-party connectors run in the worker like
+every other first-party integration.
 
 ---
 
 ## 2. Decisions
 
-Each decision records what was chosen, why, and what was rejected.
+Each decision records what was chosen, why, and what was rejected — including
+two reversals of the previous draft of this plan.
 
-**D1 — First-party core module, not plugin-delivered UI/schema.**
-The plugin RPC surface (`packages/types/src/rpc.ts` in the plugins repo) has eleven
-JSON-in/JSON-out methods and deliberately no way to deliver components, routes,
-SQL, or jobs. Extending it into an app-platform SDK would be months of trust-model
-work before the first screen renders and would dilute the sandbox story. *Rejected:*
-plugin-hosted UI; a fifth-generation "apps" SDK.
+**D1 — Native core feature, not a plugin. (Reverses the earlier D1/D2.)**
+The earlier draft shipped the engine dormant in core with a marketplace plugin
+as the enable switch (the Scalekit pattern) plus sandboxed Salesforce
+connectors. Once app creation is conversational, the switch is redundant — **an
+app existing in the registry is the enable switch** — and the sandbox split
+forced the connected import through a two-stage VM-work-root handoff for no
+security gain on first-party code. Everything lands in `open-neko/openneko`:
+engine, UI, adapters, connectors. *Rejected:* the `module` plugin capability;
+`@open-neko/plugin-salesforce-crm`; any plugins-repo change.
 
-**D2 — New declarative `module` plugin capability as the enable switch.**
-A fifth key in `PluginCapabilitiesDeclaration` (`module: { id, sections }`),
-mirroring how `auth` toggles the sign-in button. Presence of an installed,
-policy-clean plugin declaring `module.id = "crm"` is what un-hides the CRM nav and
-allows engine provisioning. Singleton per module id. *Rejected:* env-flag or
-settings-toggle enablement (loses the marketplace install story and the
-`installSource`/policy audit trail).
+**D2 — "App" is the unit; apps are agent-authored registry content.**
+An app = a row in `engine.record_app` + its objects/fields/layouts/permissions
++ a dedicated Postgres schema in `records-db`. Apps come into existence three
+ways, all converging on the same schema executor (C3): (a) conversation from
+scratch ("app to replace Zendesk"), (b) conversation from a shipped blueprint
+the agent adapts, (c) derived from imported metadata (Salesforce describe →
+proposed app). *Rejected:* apps as shipped code modules (predicting domains
+instead of extracting them); a visual app-builder UI as the primary surface
+(chat is the builder; admin UI edits come later and go through the same
+actions).
 
-**D3 — Domain-neutral engine naming from day one.**
-Tables/adapters/routes say `record`/`module`, never `crm`: `record_object`,
-`record_field`, `record_create` adapter, `/m/[module]` routes. Cost now: naming
-discipline. Cost of retrofitting after marketing ships: migrations across every
-installed deployment. *Rejected:* `crm_*` naming with a later rename.
+**D3 — Domain-neutral engine naming.**
+Tables/adapters/routes say `record`/`app`, never `crm`: `record_object`,
+`record_create` adapter, `/a/[app]` routes. "CRM" is the label of the first
+app's registry rows, not an identifier in code.
 
-**D4 — One dedicated business-data Postgres, one schema per module.**
+**D4 — One dedicated business-data Postgres, one schema per app.**
 A new `records-db` compose service, fully separate from the neko metadata DB.
-Inside it: schema `engine` (registry, change log) and one schema per module
-(`crm`, later `marketing`, `erp`). Cross-module joins (campaign → contact,
-order → account) stay ordinary SQL and GraphJin sees one database. *Rejected:* one
-Postgres per module (turns the highest-value queries into federation); tables in the
-metadata DB (mixes operating loop with business data, breaks the "take a backup,
-take it with you" story for business records).
+Inside it: schema `engine` (registry, change logs) and one schema per app
+(`crm`, `support`, …). Cross-app joins (ticket → account) stay ordinary SQL and
+GraphJin sees one database. *Rejected:* one Postgres per app (federation tax);
+tables in the metadata DB (mixes operating loop with business data, breaks the
+"take a backup, take it with you" story for business records).
 
-**D5 — All reads through GraphJin with per-actor JWTs.**
-`records-db` is registered as a data source with `auth_mode: 'jwt'`
-(migration `0036_data_source_auth_mode.sql`). Chat runs already mint HS256 actor
-tokens (`packages/llm/src/graphjin/token.ts`: `sub` = userId, `role` ∈
-admin|member|service, 5-min TTL, per-org derived secret). The web UI's `/m/*` pages
-mint the same tokens for the signed-in user and query GraphJin — **no second SQL
-read path**. Watchers read as `service`. *Rejected:* direct SQL from Next.js API
-routes (second enforcement point, guaranteed drift).
+**D5 — All reads through GraphJin with per-actor JWTs; watching via GraphJin
+subscriptions.**
+`records-db` is registered as a data source with `auth_mode: 'jwt'` (migration
+`0036_data_source_auth_mode.sql`). Chat runs already mint HS256 actor tokens
+(`packages/llm/src/graphjin/token.ts`: `sub` = userId, `role` ∈
+admin|member|service, 5-min TTL, per-org derived secret). The web UI's `/a/*`
+pages mint the same tokens for the signed-in user — **no second SQL read path**.
+Watchers read as `service`, and change-watching uses GraphJin's subscription /
+live-query support over the same role config where enabled, falling back to the
+existing scheduled-watch path. Precision on "GraphJin creates the schema": it
+doesn't — GraphJin serves and subscribes over tables that exist. **The engine
+generates and applies DDL (C3); GraphJin's config is regenerated to expose it.**
+*Rejected:* direct SQL from Next.js API routes (second enforcement point,
+guaranteed drift).
 
-**D6 — All writes through core action adapters.**
-`record_create` / `record_update` / `record_delete` registered with
-`registerActionAdapter` in the worker (the `user_admin` / `data_source_admin`
-precedent in `apps/worker/src/plugins/manage-adapters.ts`). Chat proposes → approval
-card → execute. UI form submits create pre-approved action requests through the same
-executor. Every write validates against the registry, checks RBAC as the acting
-user, appends to `engine.record_change_log`, and records into
-`workflow_run.source_writes` (migration `0021`) so watcher cycle-checks keep
-working. Default modes: create/update `ask`, delete `ask` (operators can rule-in
-`auto` for safe classes). *Rejected:* GraphJin mutations from the agent (bypasses
-approval cards and payload validation); sandboxed plugin writes (no DB access, by
-design).
+**D6 — All writes through core action adapters — data writes *and* schema
+writes.**
+Data: `record_create` / `record_update` / `record_delete`. Schema: `app_create`
+/ `app_object_create` / `app_field_add` / `app_field_modify` /
+`app_object_archive` / `app_permission_set` / `app_layout_update` — all
+registered with `registerActionAdapter` in the worker (the `user_admin` /
+`data_source_admin` precedent in `apps/worker/src/plugins/manage-adapters.ts`).
+Chat proposes → approval card → execute. UI forms create pre-approved requests
+through the same executor. Every data write validates against the registry,
+checks RBAC as the acting user, appends to `engine.record_change_log`, and
+records into `workflow_run.source_writes` (migration `0021`) so watcher
+cycle-checks keep working. Every schema write appends to
+`engine.app_schema_log` with the exact DDL applied. *Rejected:* GraphJin
+mutations from the agent (bypasses approval cards and validation); a separate
+"migration" pipeline for schema changes (two write paths again).
 
-**D7 — RBAC v1: org roles + per-object grants + ownership row policies.**
-`admin`/`member` from SSO groups (existing `app_user.role`), per-object CRUD grants
-in `engine.record_permission` (seeded from Salesforce profiles at import), and a
-per-object visibility default (`org` | `owner`) mirroring Salesforce org-wide
-defaults, enforced as GraphJin row filters (`owner_user_id = $sub OR role = admin`).
-**Explicitly deferred:** role hierarchy, sharing rules, territory management — the
-complexity clients are fleeing. The import report shows exactly what collapsed.
-*Rejected for v1:* faithful SF sharing-model port.
+**D7 — Schema evolution is additive-by-default; the agent can never destroy
+data.**
+The safety profile that makes agent-authored DDL acceptable: `api_name`s are
+immutable (labels are freely editable — "rename" is a label change); adding
+objects/fields is the normal path (`ask` mode); type changes apply only when a
+lossless cast exists, otherwise the executor proposes add-column + backfill;
+"delete" of a field or object is **archive** (hidden from UI/agent surface,
+column and data retained); hard drops exist only as an admin CLI command with
+typed confirmation and a fresh-verified-backup check (per RESILIENCE.md §4.6).
+All generated identifiers pass through one sanitizer (`naming.ts`), the single
+security-sensitive chokepoint. *Rejected:* free-form DDL from the agent;
+symmetric create/drop powers.
 
-**D8 — Salesforce fidelity rules.**
-18-char Salesforce IDs remain primary keys; every relationship survives verbatim as
-an ID column. Formula and rollup fields are **materialized as values** (the formulas
-die with Salesforce; the data survives) and marked read-only in the registry.
-Compound fields (Address, Geolocation) flatten to columns. Legacy audit columns
-(`CreatedById`, `CreatedDate`, `LastModifiedById`, `LastModifiedDate`,
-`SystemModstamp`) are preserved read-only; new local audit columns
-(`nk_created_*`, `nk_updated_*`) track post-migration writes. Binary content
-(`ContentVersion` bodies) is out of v1 scope; the rows import, the blobs defer.
+**D8 — RBAC v1: org roles + per-object grants + ownership row policies.**
+`admin`/`member` from SSO groups (existing `app_user.role`), per-object CRUD
+grants in `engine.record_permission` (seeded from a blueprint's defaults or
+from Salesforce profiles at import), and a per-object visibility default
+(`org` | `owner`) enforced as GraphJin row filters
+(`owner_user_id = $sub OR role = admin`). **Explicitly deferred:** role
+hierarchy, sharing rules, territories — the complexity clients are fleeing.
+Import reports show exactly what collapsed. *Rejected for v1:* a faithful
+Salesforce sharing-model port.
 
-**D9 — User mapping by email, lazy, conflict-explicit.**
-`crm.user` (from SF `User.csv`) maps to `app_user` on `lower(email)`, mirroring the
+**D9 — Salesforce fidelity rules (for the SF feeder).**
+18-char Salesforce IDs remain primary keys; every relationship survives
+verbatim as an ID column. Formula and rollup fields are **materialized as
+values** (the formulas die with Salesforce; the data survives) and marked
+read-only in the registry. Compound fields flatten to columns. Legacy audit
+columns (`CreatedById`, `CreatedDate`, `LastModifiedById`,
+`LastModifiedDate`, `SystemModstamp`) are preserved read-only; new local audit
+columns (`nk_created_*`, `nk_updated_*`) track post-migration writes. Binary
+content (`ContentVersion` bodies) is out of v1 scope; rows import, blobs defer.
+
+**D10 — User mapping by email, lazy, conflict-explicit.**
+Imported user tables map to `app_user` on `lower(email)`, mirroring the
 channel-identity pattern (`apps/worker/src/channels/identity.ts`): auto-link
-matches, record non-matches as unlinked (they link lazily when that person first
-signs in via SSO — same email key the auth plugin guarantees), and surface a
-mapping report. Note the host's SSO upsert keys on `sub` first and **fails closed**
+matches, record non-matches as unlinked (they link lazily when that person
+first signs in via SSO — same email key the auth plugin guarantees), surface a
+mapping report. The host's SSO upsert keys on `sub` first and **fails closed**
 on an email bound to a different `sub` (`apps/web/src/lib/auth.ts`,
-`upsertUserFromIdentity`), so the report flags email collisions rather than
-assuming clean matches. Ownership columns carry both `sf_owner_id` (immutable) and
+`upsertUserFromIdentity`), so the report flags collisions rather than assuming
+clean matches. Ownership columns carry both the source owner id (immutable) and
 `owner_user_id` (mapped, nullable until linked).
 
-**D10 — Import runs in the worker, not the sandbox.**
-CSV loading needs direct `records-db` access and hours of COPY throughput — host
-work. The plugin's role in import is to *trigger and monitor* it (action kinds →
-core adapters → a pg-boss job), not to move bytes. Salesforce-*API*-facing work
-(discovery against a live org, delta sync during the transition window) does run in
-the plugin sandbox, using the detached-job-plus-checkpoint-files pattern forced by
-the one-shot 30s RPC (`DEFAULT_RPC_TIMEOUT_MS` in
-`apps/worker/src/plugins/openshell-runtime.ts`); the sandbox VM persists across
-calls and its bind-mounted work root holds job state.
+**D11 — Importers and connectors run natively in the worker.
+(Reverses the earlier D10/D13 sandbox split.)**
+CSV loading needs direct `records-db` access and hours of COPY throughput;
+connected import needs a long-lived Salesforce Bulk API 2.0 client. Both are
+first-party code and both now live in the worker as pg-boss jobs — no VM
+work-root handoff, no 30s-RPC detached-job contortions. Credentials live in
+`data_source_secret` (enc:v1) like every other source credential; outbound
+hosts are declared per connector and surfaced in the approval card that
+authorizes it (the worker already holds egress for LLM and channel traffic —
+what changes is visibility, so we make the connector's destinations explicit).
+The **artifact contract stays**: connectors stage
+`export-manifest.json` + `describe/*.json` + `data/<object>.csv` into a
+worker-owned staging directory, and the importer consumes that directory — so
+the manual-CSV path and every future connector (Zendesk, HubSpot, …) feed one
+importer. *Rejected:* streaming source records straight into tables (couples
+every connector to the loader; loses the resumable, inspectable staging
+artifact); keeping the connector in a sandbox plugin (D1).
 
-**D11 — Org scoping everywhere.**
-All engine and module tables carry `org_id` matching core conventions, even though
-deployments today are effectively single-org. Cheap now, painful to add later; the
-GraphJin JWT already carries `org_id` claims for filter generation.
+**D12 — Org scoping everywhere.**
+All engine and app tables carry `org_id` matching core conventions, even
+though deployments today are effectively single-org. Cheap now, painful later;
+the GraphJin JWT already carries `org_id` claims for filter generation.
 
-**D12 — Open (product, not architecture):** OSS-core vs paid-module packaging for
-the engine; affects nothing below except final package placement, so it does not
-block Phase 1. Default assumption in this plan: engine in Apache-2.0 core, plugin in
-the official marketplace.
-
-**D13 — Connected import: the plugin exports, the importer imports, one contract.**
-"Just connect to Salesforce and import everything" is built as a two-stage handoff,
-not a new pipeline. The sandboxed plugin (which can reach `*.salesforce.com` but
-never records-db) runs a detached export job that writes into its bind-mounted VM
-work root; the core importer (which can reach records-db but makes no external API
-calls) consumes that directory. The export produces **exactly the artifact set the
-manual CSV path expects** — `export-manifest.json`, `describe/*.json`,
-`data/<object>.csv` — so C3 has one input contract and two feeders, and the
-connected path is strictly *better* fed (real describe metadata instead of type
-inference). Salesforce API traffic stays inside the sandbox with allowlisted
-egress and egress-injected credentials; the worker never talks to Salesforce.
-*Rejected:* a worker-side Salesforce client (breaks the "external services live in
-sandboxes" security story); streaming records through action-request RPC results
-(payloads are logged and size-bounded, per D10).
+**D13 — Packaging: engine ships in core.**
+With no plugin in the picture the earlier OSS-core vs paid-module question
+collapses to feature packaging inside the product (edition gating at most).
+Nothing below depends on the answer.
 
 ---
 
 ## 3. Components
 
-| # | Component | Repo / location | Phase |
-|---|-----------|-----------------|-------|
-| C1 | `records-db` service & provisioning | openneko: `compose.yml`, `db/records/` | 1 |
-| C2 | Engine metadata registry | openneko: `db/records/migrations/`, `packages/records/` | 1 |
-| C3 | Importer (CSV + describe → tables + registry) | openneko: `packages/records/src/import/`, worker job | 1 |
-| C4 | Identity mapping (SF user ↔ `app_user`) | openneko: `packages/records/src/identity/` | 1 |
-| C5 | GraphJin integration (source, roles, tokens) | openneko: `packages/llm/src/graphjin/`, `packages/records/src/policy/` | 1 |
-| C6 | Write path (`record_*` adapters, validation, change log) | openneko: `apps/worker/src/records/` | 2 |
-| C7 | Web UI module (`/m/[module]`) | openneko: `apps/web/src/app/m/` | 1 (read) / 3 (write) |
-| C8 | RBAC policy module (shared read/write source of truth) | openneko: `packages/records/src/policy/` | 1–2 |
-| C9 | Agent skills (`records` engine skill + `crm` pack skill) | openneko: `packages/llm/assets/builtin-skills/`; plugins: `packages/salesforce-crm/skill/` | 2 |
-| C10 | `module` plugin capability | plugins: `packages/types/`; openneko: worker registry + web gating | 1 |
-| C11 | `@open-neko/plugin-salesforce-crm` | plugins: `packages/salesforce-crm/` | 1 (switch) / 4 (sync) |
-| C12 | Watcher/briefing seeds for CRM | openneko: seeds + docs | 2 |
-| C13 | Backup, disk & ops resilience (see §6) | openneko: compose sidecar, worker jobs, CLI | 1 (backup) / 2 (verify + watchers) |
+| # | Component | Location | Phase |
+|---|-----------|----------|-------|
+| C1 | `records-db` service & provisioning | `compose.yml`, `db/records/` | 1 |
+| C2 | Engine metadata registry | `db/records/migrations/`, `packages/records/` | 1 |
+| C3 | App builder — schema action adapters + DDL executor | `apps/worker/src/records/schema/`, `packages/records/` | 1 |
+| C4 | Record write path (`record_*` adapters) | `apps/worker/src/records/` | 1 |
+| C5 | GraphJin integration (source, roles, tokens, subscriptions) | `packages/llm/src/graphjin/`, `packages/records/src/policy/` | 1 |
+| C6 | Auto-generated web UI (`/a/[app]`) | `apps/web/src/app/a/` | 1 (read) / 3 (forms) |
+| C7 | RBAC policy module (shared read/write source of truth) | `packages/records/src/policy/` | 1 |
+| C8 | Importer (staged artifacts → live app) + Salesforce CSV feeder | `packages/records/src/import/`, worker job | 2 |
+| C9 | Connected Salesforce export (native worker connector) | `packages/records/src/connect/salesforce/` | 2 |
+| C10 | Identity mapping (source users ↔ `app_user`) | `packages/records/src/identity/` | 2 |
+| C11 | Agent skills & blueprints (app-builder, records, domain packs) | `packages/llm/assets/builtin-skills/` | 1–2 |
+| C12 | Watcher/briefing integration & change subscriptions | worker + seeds + docs | 3 |
+| C13 | Backup, disk & ops resilience (see §6) | compose sidecar, worker jobs, CLI | 1 (backup) / 2 (verify + watchers) |
 
-Dependency spine: C1 → C2 → {C3, C5, C10} → C7(read) → C6/C8 → C7(write) → C11(sync).
-C13 depends only on C1 and lands with it — business-critical data is never live
-without a backup path.
+Dependency spine:
+C1 → C2 → C3 → {C4, C5} → C6(read) → C6(forms);
+C8 depends on C3 (imports *are* app creation) and feeds C10; C9 feeds C8's
+contract; C11 rides C3/C4; C12 rides C5. C13 depends only on C1 and lands with
+it — business-critical data is never live without a backup path.
 
 ---
 
@@ -225,33 +252,38 @@ without a backup path.
 
 ### C1 — `records-db` service & provisioning
 
-**What:** A dedicated Postgres container for business data, plus lifecycle plumbing.
+**What:** a dedicated Postgres container for business data, plus lifecycle
+plumbing.
 
 - `compose.yml`: add `records-db` (postgres:16, own named volume, healthcheck,
-  password provisioned like `neko-db`'s and rotated via `/setup`). Not started in
-  `--mode demo` unless the CRM module is enabled — lazy provisioning keeps the
-  default stack unchanged.
+  password provisioned like `neko-db`'s and rotated via `/setup`). Lazily
+  provisioned: not started until the first app is created, so the default stack
+  is unchanged.
 - `db/records/migrations/`: engine-schema migrations, numbered from `0001`,
   **separate stream** from `db/migrations/` (different database, different
-  lifecycle). Applied by the worker on module enablement and on boot when the
-  module is active (same runner pattern as the metadata migrations; add
+  lifecycle). Applied by the worker on first app creation and on boot when any
+  app exists (same runner pattern as the metadata migrations; add
   `packages/db/src/records-migrate.ts`).
-- Metadata-DB migration `0051_module_state.sql` (next free number after `0050`):
+- Metadata-DB migration `0051_app_state.sql` (next free number after `0050`):
 
   ```sql
-  CREATE TABLE module_state (
-    org_id      text NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
-    module_id   text NOT NULL,              -- 'crm'
-    plugin_name text NOT NULL,              -- '@open-neko/plugin-salesforce-crm'
-    status      text NOT NULL DEFAULT 'provisioning',
-      -- provisioning | importing | active | disabled
-    enabled_at  timestamptz NOT NULL DEFAULT now(),
-    config      jsonb NOT NULL DEFAULT '{}'::jsonb,
-    PRIMARY KEY (org_id, module_id)
+  CREATE TABLE app_state (
+    org_id     text NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
+    app_id     text NOT NULL,               -- 'crm', 'support'
+    status     text NOT NULL DEFAULT 'provisioning',
+      -- provisioning | importing | active | archived
+    created_by text,                        -- app_user id of the approver
+    created_at timestamptz NOT NULL DEFAULT now(),
+    config     jsonb NOT NULL DEFAULT '{}'::jsonb,   -- import provenance, connector state
+    PRIMARY KEY (org_id, app_id)
   );
   ```
-- `openneko` CLI: `openneko records status` (connectivity, migration level, module
-  states) folded into `openneko doctor`.
+
+  (Mirror of the registry's `record_app` status, held in the metadata DB so
+  nav gating, job orchestration, and doctor checks don't depend on
+  `records-db` being reachable.)
+- `openneko` CLI: `openneko records status` (connectivity, migration level,
+  app states) folded into `openneko doctor`.
 
 **Testing:** migration integration test in the existing style
 (`packages/db/test/integration/migrations.test.ts`); compose smoke via
@@ -259,46 +291,52 @@ without a backup path.
 
 ### C2 — Engine metadata registry
 
-**What:** The tables that make everything else generated, in `records-db` schema
-`engine`, plus a typed accessor package.
+**What:** the tables that make everything else generated, in `records-db`
+schema `engine`, plus a typed accessor package. Unlike the earlier draft, the
+registry is **writable at runtime** — by exactly one writer, the C3 schema
+executor.
 
 Registry DDL (abridged; all tables carry `org_id`):
 
 ```sql
-CREATE TABLE engine.record_module (
-  module_id text NOT NULL, org_id text NOT NULL,
-  label text NOT NULL, nav_order int NOT NULL DEFAULT 0,
-  PRIMARY KEY (org_id, module_id)
+CREATE TABLE engine.record_app (
+  app_id text NOT NULL, org_id text NOT NULL,
+  label text NOT NULL, purpose text,        -- the sentence the app was created from
+  status text NOT NULL DEFAULT 'provisioning',
+  nav_order int NOT NULL DEFAULT 0,
+  PRIMARY KEY (org_id, app_id)
 );
 
 CREATE TABLE engine.record_object (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id text NOT NULL, module_id text NOT NULL,
-  api_name text NOT NULL,          -- 'account', 'my_object__c' (sanitized)
-  sf_api_name text,                -- 'Account', 'My_Object__c' (verbatim)
+  org_id text NOT NULL, app_id text NOT NULL,
+  api_name text NOT NULL,          -- 'account', 'my_object__c' (sanitized, immutable)
+  source_api_name text,            -- 'Account', 'My_Object__c' (verbatim, when imported)
   label text NOT NULL, plural_label text NOT NULL,
-  table_schema text NOT NULL,      -- 'crm'
+  table_schema text NOT NULL,      -- = app_id
   table_name text NOT NULL,
   name_field text NOT NULL DEFAULT 'name',
-  visibility text NOT NULL DEFAULT 'org',   -- 'org' | 'owner'  (D7)
+  visibility text NOT NULL DEFAULT 'org',   -- 'org' | 'owner'  (D8)
   is_custom boolean NOT NULL DEFAULT false,
-  record_count bigint,             -- refreshed post-import, for nav/report
-  UNIQUE (org_id, module_id, api_name)
+  archived_at timestamptz,                  -- D7 archive, never drop
+  record_count bigint,             -- refreshed post-import / periodically, for nav
+  UNIQUE (org_id, app_id, api_name)
 );
 
 CREATE TABLE engine.record_field (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   object_id uuid NOT NULL REFERENCES engine.record_object(id) ON DELETE CASCADE,
-  api_name text NOT NULL, sf_api_name text,
+  api_name text NOT NULL, source_api_name text,
   label text NOT NULL,
   kind text NOT NULL,
     -- id|text|textarea|boolean|integer|decimal|currency|percent|date|datetime|
     -- email|phone|url|picklist|multipicklist|reference|readonly_formula
   column_name text NOT NULL,
   required boolean NOT NULL DEFAULT false,
-  read_only boolean NOT NULL DEFAULT false,   -- formulas, legacy audit (D8)
+  read_only boolean NOT NULL DEFAULT false,   -- formulas, legacy audit (D9)
+  archived_at timestamptz,                    -- D7
   picklist_values jsonb,                       -- [{value,label,active}]
-  reference_object text,                       -- api_name of target (for kind=reference)
+  reference_object text,                       -- api_name of target (kind=reference)
   length int, scale int,
   UNIQUE (object_id, api_name)
 );
@@ -312,7 +350,7 @@ CREATE TABLE engine.record_relationship (
   relationship_label text                      -- related-list heading
 );
 
-CREATE TABLE engine.record_layout (        -- detail/form sections; import-generated,
+CREATE TABLE engine.record_layout (        -- generated defaults; editable via actions
   object_id uuid NOT NULL REFERENCES engine.record_object(id) ON DELETE CASCADE,
   org_id text NOT NULL,
   kind text NOT NULL DEFAULT 'detail',     -- 'detail' | 'list'
@@ -320,428 +358,449 @@ CREATE TABLE engine.record_layout (        -- detail/form sections; import-gener
   PRIMARY KEY (object_id, kind)
 );
 
-CREATE TABLE engine.record_permission (    -- D7; seeded from SF profiles
-  org_id text NOT NULL, module_id text NOT NULL,
+CREATE TABLE engine.record_permission (    -- D8
+  org_id text NOT NULL, app_id text NOT NULL,
   role text NOT NULL,                      -- 'admin' | 'member' (extensible)
   object_api_name text NOT NULL,
   can_read boolean NOT NULL DEFAULT false,
   can_create boolean NOT NULL DEFAULT false,
   can_update boolean NOT NULL DEFAULT false,
   can_delete boolean NOT NULL DEFAULT false,
-  PRIMARY KEY (org_id, module_id, role, object_api_name)
+  PRIMARY KEY (org_id, app_id, role, object_api_name)
 );
 
-CREATE TABLE engine.record_change_log (    -- D6; the post-migration audit trail
+CREATE TABLE engine.record_change_log (    -- D6; the data audit trail
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  org_id text NOT NULL, module_id text NOT NULL,
+  org_id text NOT NULL, app_id text NOT NULL,
   object_api_name text NOT NULL, record_id text NOT NULL,
-  action text NOT NULL,                    -- create|update|delete|import
+  action text NOT NULL,                    -- create|update|delete|import|sync
   actor_user_id text,                      -- null = service/import
   action_request_id text,                  -- FK-by-value into metadata DB
   changes jsonb NOT NULL,                  -- {field: {from, to}}
   at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX ON engine.record_change_log (org_id, object_api_name, record_id, at DESC);
+CREATE UNIQUE INDEX ON engine.record_change_log (action_request_id)
+  WHERE action_request_id IS NOT NULL;     -- §6.3 idempotency
 
-CREATE TABLE engine.identity_map (         -- C4
+CREATE TABLE engine.app_schema_log (       -- D6/D7; the schema audit trail
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  org_id text NOT NULL, app_id text NOT NULL,
+  action text NOT NULL,        -- app_create|object_create|field_add|field_modify|
+                               -- object_archive|permission_set|layout_update|hard_drop
+  detail jsonb NOT NULL,       -- proposed change, resolved names
+  ddl text,                    -- exact SQL applied (null for registry-only changes)
+  actor_user_id text,
+  action_request_id text,
+  at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE engine.identity_map (         -- C10
   org_id text NOT NULL,
-  sf_user_id char(18) NOT NULL,
-  sf_email text NOT NULL, sf_name text, sf_is_active boolean,
+  source_user_id text NOT NULL,            -- e.g. 18-char SF user id
+  source_email text NOT NULL, source_name text, source_is_active boolean,
   app_user_id text,                        -- null until linked
   status text NOT NULL DEFAULT 'unlinked', -- linked|unlinked|conflict|ignored
   linked_at timestamptz,
-  PRIMARY KEY (org_id, sf_user_id)
+  PRIMARY KEY (org_id, source_user_id)
 );
 ```
 
 **Accessor package:** new `packages/records/` workspace package —
-`registry.ts` (typed loads + an in-process cache keyed on a registry version row),
-`naming.ts` (SF → sanitized identifier rules: lowercase, `__c` preserved, reserved
-words suffixed, 63-byte truncation with hash disambiguation), `types.ts`. The web
-app, worker, and importer all consume this package; nobody re-implements
-registry access.
+`registry.ts` (typed loads + an in-process cache invalidated on a registry
+version row the C3 executor bumps), `naming.ts` (source-name → sanitized
+identifier rules: lowercase, `__c` preserved, reserved words suffixed, 63-byte
+truncation with hash disambiguation — **the only path to an identifier**,
+security-sensitive), `types.ts`. Web, worker, importer, and executor all
+consume this package; nobody re-implements registry access.
 
-**Testing:** unit tests for naming edge cases (needs to be exhaustive — this is
-permanent API surface); registry round-trip integration test against a disposable
-Postgres.
+**Testing:** exhaustive unit tests for naming edge cases (permanent API
+surface); registry round-trip integration test against a disposable Postgres;
+cache-invalidation test across two connections.
 
-### C3 — Importer
+### C3 — App builder: schema action adapters + DDL executor
 
-**What:** `export directory → live module`. Runs as a worker pg-boss job
-(new `QUEUE.RECORDS_IMPORT` in `packages/db/src/jobs.ts`), triggered by an action
-adapter (`records_import_start`) so chat can drive it with an approval card, and by
-CLI (`openneko records import --module crm --dir ./sf-export`).
+**What:** the component the rethink adds — the machinery that turns "create an
+app to replace Zendesk" into a schema. Action kinds (D6), all registered via
+`registerActionAdapter`:
 
-**Input contract (one contract, two feeders — D13):** a directory containing
-`data/<object>.csv` files, optionally `describe/*.json` (Salesforce describe
-output) and `export-manifest.json` (per-object expected row counts + export
-watermarks). The **connected path** (C11's export job) produces all three into the
-plugin's bind-mounted work root and hands the path to `records_import_start`; the
-**manual path** is a client-supplied CSV dump, with type inference filling in for
-missing describe files. Everything below is identical for both feeders.
+| Kind | Default mode | Effect |
+|---|---|---|
+| `app_create` | `ask` | registry app row + `CREATE SCHEMA` + `app_state` row; body carries the full initial object/field set so **one approval card shows the whole proposed app** |
+| `app_object_create` | `ask` | registry rows + `CREATE TABLE` (+ indexes, `nk_*` audit columns, `owner_user_id` when owned) |
+| `app_field_add` | `ask` | registry row + `ALTER TABLE ... ADD COLUMN` |
+| `app_field_modify` | `ask` | label/picklist/required/layout tweaks (registry-only), or type change **only via lossless cast**; else the adapter returns a counter-proposal (add + backfill) for the agent to propose instead |
+| `app_object_archive` / field archive | `ask` | sets `archived_at`; hides from UI/agent/GraphJin projection; **no DDL, no data loss** |
+| `app_permission_set` | `ask` | updates `record_permission`; triggers C5 role regeneration |
+| `app_layout_update` | `auto` | layout JSON only — no schema or policy effect |
 
-Pipeline stages (each checkpointed in `module_state.config.import` so a restart
-resumes; progress surfaced via `records_import_status` and a briefing card):
+Executor rules (one transaction against `records-db` per action, mirrored to
+`app_state` in the metadata DB after commit):
 
-1. **Manifest.** Read `describe/*.json` when present (exact types, picklists,
-   relationships, profiles); else infer per CSV: header names + typed sampling
-   (10k rows) with the SF type-mapping table below. Emit an **import plan**
-   (objects, fields, row counts, inferred vs described, collapsed features) that
-   the approval card shows *before* anything is written.
-2. **DDL.** Generate `crm.*` tables from the plan. SF → PG mapping:
-   `id/reference → char(18)`, `string/textarea/email/phone/url/picklist → text`,
-   `multipicklist → text[]`, `boolean → boolean`, `int → integer`,
-   `double/currency/percent → numeric`, `date → date`, `datetime → timestamptz`,
-   `address/location → flattened columns`, `base64 → skipped (D8)`.
-   Formula/rollup → materialized column of result type, `read_only` in registry.
-   Add `owner_user_id text` beside `ownerid` where the object has ownership.
-   PK on `id`; indexes on every reference column, `SystemModstamp`, and the
-   name field. **No FK constraints** — legacy data has dangling references;
-   integrity is reported, not enforced.
-3. **Load.** Stream each CSV through `COPY ... FROM STDIN` in batches; RFC-4180
-   parsing with embedded newlines; empty-string → NULL except for genuinely empty
-   text; SF datetime/boolean literal handling; per-file row-count reconciliation
-   against the manifest. Failures quarantine the offending rows to
-   `engine.import_reject` with reasons rather than aborting the object.
-4. **Registry.** Populate C2 tables: objects, fields, relationships (from
-   describe `referenceTo` or inferred by 18-char-ID column naming), default
-   layouts (detail: sections of ≤2-column field groups in describe order; list:
-   name + 5 highest-cardinality-of-use columns), permissions seeded from profiles
-   (collapsed to admin/member per D7, mapping report notes what collapsed).
-5. **Identity.** Run C4 mapping from `crm.user`.
-6. **Validate & report.** Row counts per object vs CSV line counts, sampled
-   checksums, dangling-reference counts, unmatched users, permission collapse
-   summary → persisted as an import report (briefing finding + `/m/crm/admin`
-   page). Set `module_state.status = 'active'`, refresh `record_object.record_count`.
+1. Everything named passes through `naming.ts`; identifiers are always quoted.
+2. Generated DDL follows the same conventions as the importer's (C8): PK `id`
+   (`text`; imported apps keep source IDs, from-scratch apps default to
+   UUID-as-text), indexes on reference columns and the name field, **no FK
+   constraints** (integrity reported, not enforced — legacy data has dangles).
+3. Registry write + DDL + `app_schema_log` append commit together; the
+   GraphJin projection (C5) regenerates after commit under
+   `acquireGraphjinConfigLock`.
+4. Approval-card rendering: the adapter's plan output lists objects, fields
+   with kinds, and the exact DDL summary — the admin approves what will run,
+   not a vibe.
+5. `hard_drop` is **not an action kind**. It exists only as
+   `openneko records drop --app X --object Y` with typed confirmation and a
+   fresh-verified-backup check (D7).
 
-**Testing:** golden-fixture test with a miniature fake SF export (a dozen objects
-incl. one `__c`, compound address, formula field, multipicklist, dangling refs,
-a user CSV with one email collision); property tests for the CSV parser; resume
-test (kill between stages, re-run, assert idempotence — every stage is
-`ON CONFLICT`-safe / `IF NOT EXISTS`-guarded).
+**Blueprints:** `packages/records/blueprints/*.json` — starter app definitions
+(CRM: account/contact/opportunity/activity; support: ticket/requester/queue
+with status/priority picklists). A blueprint is input the agent adapts and
+proposes through `app_create`; it is never auto-applied.
 
-### C4 — Identity mapping
+**Testing:** adapter integration tests in the `action-flow` style
+(`packages/llm/test/integration/action-flow.test.ts`): full app create from a
+blueprint fixture; lossless vs lossy type-change paths; archive hides but
+retains; identifier-injection attempts (hostile labels) rejected by
+`naming.ts`; schema-log/DDL correspondence; concurrent app-create races
+(second one fails cleanly on the registry unique).
 
-**What:** `engine.identity_map` population + lazy linking + admin surface.
+### C4 — Record write path
 
-- **At import:** for each `crm.user` row, `lower(email)` match against
-  `app_user` (active only) → `status='linked'`; no match → `'unlinked'`; email
-  present on an `app_user` with a conflicting existing link → `'conflict'`.
-  Then backfill `owner_user_id` on every owned table via one UPDATE join per
-  object.
-- **Lazy linking:** hook the SSO upsert (`upsertUserFromIdentity` in
-  `apps/web/src/lib/auth.ts`) — after a user row is created/attached, attempt
-  `identity_map` linking for that email and backfill `owner_user_id` for newly
-  linked SF users (worker job, not in the login request path).
-- **Admin surface:** `/m/[module]/admin/identity` — list by status, manual
-  link/ignore, re-run backfill. Mirrors the channel-identities settings page
-  pattern.
-- **Agent access:** the mapping is readable through GraphJin (admin-role only)
-  so chat can answer "who owned these accounts in Salesforce?" during transition.
+**What:** the data-side adapters — `record_create` / `record_update` /
+`record_delete` in `apps/worker/src/records/adapters.ts`, registered alongside
+the manage-adapters at worker boot.
 
-**Testing:** unit tests for match/conflict states; integration test that a fresh
-SSO sign-in links a previously unlinked SF user and backfills ownership.
-
-### C5 — GraphJin integration
-
-**What:** Register `records-db` as a jwt-mode data source and generate role config
-from the policy tables.
-
-- **Registration:** on module activation, drive the existing
-  `register_source` machinery (`packages/llm/src/work/tools.ts`,
-  `persistGraphjinSourceConfigUpdate` under `acquireGraphjinConfigLock`) with a
-  `database` source named `records`, connection secret via `data_source_secret`,
-  `auth_mode: 'jwt'`, signing secret from `graphjinSigningSecretB64(orgId)`
-  (`packages/llm/src/graphjin/token.ts`). Approval-gated like every source change.
-- **Role generation (C8 output):** a new `packages/records/src/policy/graphjin.ts`
-  projects `record_permission` + `record_object.visibility` into GraphJin config:
-  role match on the JWT `role` claim; per-table allow/deny from CRUD grants
-  (reads only — writes stay `blocked` in GraphJin per D6); row filter
-  `{ owner_user_id: { eq: $sub } }` on `visibility='owner'` tables for the
-  `member` role; `service` role read-everything (watchers). Regenerated (and
-  approval-gated as a config change) whenever permissions change.
-- **Web tokens:** small helper for `/m/*` API routes minting
-  `mintGraphjinToken({orgId, userId, role})` from the session — same claims shape
-  the agent path uses, `GRAPHJIN_TOKEN_TTL_SECONDS` refresh handling included.
-- **Blocklist:** `engine.identity_map.sf_email` etc. are fine; ensure nothing in
-  records-db matches the global blocklist terms (no secrets stored there, by
-  construction).
-
-**Testing:** config-generation snapshot tests (permission fixtures → YAML);
-integration test with a live GraphJin container asserting member-vs-admin row
-visibility on an `owner`-visibility table.
-
-### C6 — Write path
-
-**What:** Three core action adapters in a new `apps/worker/src/records/adapters.ts`,
-registered alongside the manage-adapters at worker boot.
-
-Payload shapes (declared with `example` payloads so the agent emits them correctly
-on the first try):
+Payload shapes (declared with `example` payloads so the agent emits them
+correctly on the first try):
 
 ```jsonc
 // record_create                          // record_update
-{ "module": "crm",                        { "module": "crm",
+{ "app": "crm",                           { "app": "crm",
   "object": "contact",                      "object": "opportunity",
   "fields": {                               "id": "0065g00000ABCDEAA4",
     "lastname": "Rivera",                   "fields": { "stagename": "Negotiation",
     "accountid": "0015g00000XYZ" } }          "closedate": "2026-08-15" },
                                             "expected": { "stagename": "Proposal" } }
 // record_delete
-{ "module": "crm", "object": "contact", "id": "0035g00000QRSTU" }
+{ "app": "crm", "object": "contact", "id": "0035g00000QRSTU" }
 ```
 
 Executor steps, in order, all inside one transaction against `records-db`:
 
-1. Resolve registry entry (object + fields); unknown object/field → typed error.
+1. Resolve registry entry (object + fields, non-archived); unknown → typed
+   error.
 2. **Validate** from `record_field`: kinds, required (create only), picklist
-   membership, length/scale, `read_only` rejection (formulas, legacy audit,
-   `id`), reference-target existence check (warn-not-block for legacy dangles,
-   block for new dangles).
-3. **RBAC** (C8): acting user's role + `record_permission` CRUD grant +
-   ownership rule for `visibility='owner'` objects (member may update own
-   records; admin any). Actor comes from the action request's actor snapshot —
-   the K1 identity the run already carries.
+   membership, length/scale, `read_only` rejection, reference-target existence
+   (warn-not-block for legacy dangles, block for new dangles).
+3. **RBAC** (C7): acting user's role + `record_permission` CRUD grant +
+   ownership rule for `visibility='owner'` objects. Actor comes from the
+   action request's actor snapshot.
 4. **Optimistic concurrency:** `record_update.expected` (optional map of
-   field → expected-current-value) guards chat races; mismatch → error the agent
-   can re-plan on.
+   field → expected-current-value) guards chat races; mismatch → typed error
+   the agent can re-plan on.
 5. Write; stamp `nk_updated_by/at` (`nk_created_*` on create); soft-delete via
-   `nk_deleted_at` (recycle-bin semantics; hard delete is admin-only, later).
+   `nk_deleted_at` (recycle-bin semantics; hard delete admin-only, later).
 6. Append `engine.record_change_log` with field-level diff and
-   `action_request_id`.
-7. Return `PluginActionOutcome`-shaped result `{externalRef: recordId, result:
-   {changed fields}}`; the workflow layer records `(table, pk)` into
+   `action_request_id` (unique-index idempotency, §6.3).
+7. Return the outcome; the workflow layer records `(table, pk)` into
    `workflow_run.source_writes` for the subscription cycle-check.
 
-Default `action_policy` seeding: create/update/delete → `ask` (per D6), seeded on
-module activation the same way plugin `default_mode` seeds policies.
+Default `action_policy` seeding on app creation: create/update/delete → `ask`
+(operators can rule-in `auto` for safe classes, e.g. activity logging).
 
-**UI form path:** `/m/*` form submits POST to a records API route that creates the
-action request pre-approved (actor = session user, `commandOrOperation` notes
-"form submit") and awaits execution — one executor, one log, and rules/policies
-still apply (a `deny` policy blocks forms too, which is correct).
+**UI form path:** `/a/*` form submits POST to a records API route that creates
+the action request pre-approved (actor = session user, noted "form submit")
+and awaits execution — one executor, one log; a `deny` policy blocks forms
+too, which is correct.
 
-**Testing:** extend the `action-flow` integration-test pattern
-(`packages/llm/test/integration/action-flow.test.ts`) for the three kinds:
-validation failures, RBAC denials, concurrency conflict, change-log/diff
-correctness, source_writes recording, soft delete.
+**Testing:** extend the `action-flow` pattern for the three kinds: validation
+failures, RBAC denials, concurrency conflict, change-log diff correctness,
+`source_writes` recording, soft delete, replay idempotency.
 
-### C7 — Web UI module
+### C5 — GraphJin integration
 
-**What:** `apps/web/src/app/m/[module]/` — a metadata-driven section, hidden unless
-`module_state` has an active module (gating identical in spirit to
-`getAuthProvider()`-based sign-in rendering).
+**What:** register `records-db` as a jwt-mode source; project policy into role
+config; serve reads and change subscriptions.
+
+- **Registration:** on first app creation, drive the existing
+  `register_source` machinery (`persistGraphjinSourceConfigUpdate` under
+  `acquireGraphjinConfigLock`) with a `database` source named `records`,
+  connection secret via `data_source_secret`, `auth_mode: 'jwt'`, signing
+  secret from `graphjinSigningSecretB64(orgId)`. Approval-gated like every
+  source change.
+- **Role generation (C7 output):** `packages/records/src/policy/graphjin.ts`
+  projects `record_permission` + `record_object.visibility` into GraphJin
+  config: role match on the JWT `role` claim; per-table allow/deny from CRUD
+  grants (reads only — writes stay `blocked` in GraphJin per D6); row filter
+  `{ owner_user_id: { eq: $sub } }` on `visibility='owner'` tables for
+  `member`; `service` reads everything (watchers). Archived objects/fields are
+  excluded from the projection. Regenerated on every C3 schema action and
+  every permission change.
+- **Subscriptions (the "watch" in the rethink):** GraphJin's live-query /
+  subscription support runs over the same role config, so a watcher
+  subscribing to `opportunities where stagename = 'Negotiation'` is enforced
+  identically to a one-shot query. The existing watcher machinery gains a
+  subscription-backed trigger option for records sources; the scheduled-watch
+  path remains the fallback, and `workflow_run.source_writes` keeps
+  self-triggering loops broken in both modes.
+- **Web tokens:** helper for `/a/*` API routes minting
+  `mintGraphjinToken({orgId, userId, role})` from the session — same claims
+  shape the agent path uses.
+
+**Testing:** config-generation snapshot tests (permission fixtures → YAML);
+live-GraphJin integration test asserting member-vs-admin row visibility on an
+`owner`-visibility table; subscription smoke (insert via executor → subscribed
+watcher fires; write from the same run → cycle-check suppresses).
+
+### C6 — Auto-generated web UI (`/a/[app]`)
+
+**What:** `apps/web/src/app/a/[app]/` — a fully metadata-driven section. Every
+app gets it with zero app-specific code; it appears in nav the moment
+`app_state.status = 'active'`.
 
 > **Mockup & detailed UI plan:** [`mockups/crm-main-screen.html`](mockups/crm-main-screen.html)
-> shows the list view built from the app's design tokens;
+> shows the list view (for the CRM app) built from the app's design tokens;
 > [`mockups/README.md`](mockups/README.md) maps every mockup region to
-> components, routes, data sources, and milestones (M1–M3 aligned with
-> Phases 1–3 below).
+> components, routes, data sources, and milestones.
 
 Routes:
 
 ```
-/m/[module]                       → module home: object nav (registry), pinned views
-/m/[module]/[object]              → list view: server-driven table; filter/sort/
-                                    search on registry fields; saved views (later)
-/m/[module]/[object]/[id]         → record detail: layout sections; related lists
-                                    from record_relationship; change-log timeline;
-                                    inline ask-box
-/m/[module]/[object]/new          → create form (generated)
-/m/[module]/[object]/[id]/edit    → edit form (generated)
-/m/[module]/admin                 → import report, identity mapping, permissions
+/a/[app]                       → app home: object nav (registry), pinned views
+/a/[app]/[object]              → list view: server-driven table; filter/sort/
+                                 search on registry fields; saved views (later)
+/a/[app]/[object]/[id]         → record detail: layout sections; related lists
+                                 from record_relationship; change-log timeline;
+                                 inline ask-box
+/a/[app]/[object]/new          → create form (generated)
+/a/[app]/[object]/[id]/edit    → edit form (generated)
+/a/[app]/admin                 → import report, identity mapping, permissions,
+                                 schema history (app_schema_log)
 ```
 
-- **Reads:** API routes under `/api/m/...` mint the user's GraphJin token (C5) and
-  query GraphJin — list queries are generated GraphQL (object, requested columns,
-  filter args, cursor pagination); detail queries batch the record + its related
-  lists. No direct SQL (D5).
-- **Field rendering/edit widgets** keyed on `record_field.kind` — one component
-  per kind (text, picklist select, reference lookup-with-typeahead, date,
-  checkbox, currency…). Reference lookups search the target object's `name_field`
-  via the same read path.
-- **The ask-box** (the differentiator): every list and record view embeds a chat
-  entry pre-scoped with module/object/record context (route into the existing
-  work-thread machinery with a context preamble). "Log yesterday's call, push
-  close date two weeks" → agent proposes `record_update` → the approval card
-  renders inline in the thread, consistent with `/work`.
-- **Nav integration:** module sections injected into the app shell nav from
-  `record_module` + `module_state`, after Briefing/Work — CRM appears only when
-  active (D2).
-- **Change-log timeline** on record detail reads `engine.record_change_log` —
-  this is the audit surface that replaces SF field history.
+- **Reads:** API routes under `/api/a/...` mint the user's GraphJin token (C5)
+  and query GraphJin — generated GraphQL documents (columns, filter args,
+  cursor pagination); no direct SQL (D5).
+- **Field rendering/edit widgets** keyed on `record_field.kind` — one
+  component per kind. Reference lookups search the target object's
+  `name_field` via the same read path.
+- **The ask-box** (the differentiator): every list and record view embeds a
+  chat entry pre-scoped with app/object/record context (routes into the
+  existing work-thread machinery with a context preamble). "Log yesterday's
+  call, push close date two weeks" → agent proposes `record_update` → the
+  approval card renders inline in the thread, consistent with `/work`.
+  Schema-change proposals render the same way — "add a T-shirt-size field to
+  deals" is an approval card in the same thread.
+- **Nav integration:** app sections injected into the app shell nav from
+  `record_app` + `app_state`, after Briefing/Work.
+- **Change-log timeline** on record detail reads `engine.record_change_log`;
+  the admin schema-history page reads `engine.app_schema_log`.
 
-**Testing:** component tests for the field-widget matrix; e2e in the web test
-style (`apps/web/test/`) against a seeded mini-registry: nav gating, list
-filtering, detail related-lists, form create/update round-trip through the action
-path, member-vs-admin visibility.
+**Testing:** component tests for the field-widget matrix; e2e against a seeded
+mini-registry: nav gating, list filtering, detail related-lists, form
+round-trip through the action path, member-vs-admin visibility.
 
-### C8 — RBAC policy module
+### C7 — RBAC policy module
 
 **What:** the single source of truth both surfaces consume —
 `packages/records/src/policy/`:
 
-- `evaluate.ts`: `canRead/canCreate/canUpdate/canDelete(actor, object, record?)`
-  from `record_permission` + `visibility` + ownership — used by C6 (writes) and by
-  C7's form/route guards (defense in depth over GraphJin's read enforcement).
-- `graphjin.ts`: the C5 role/filter projection. Same inputs, mechanical output.
-- Permissions admin UI (C7 `/admin`) edits `record_permission`; saving triggers the
-  approval-gated GraphJin config regeneration.
+- `evaluate.ts`: `canRead/canCreate/canUpdate/canDelete(actor, object,
+  record?)` from `record_permission` + `visibility` + ownership — used by C4
+  (writes), C3 (schema actions are admin-only), and C6's route guards
+  (defense in depth over GraphJin's read enforcement).
+- `graphjin.ts`: the C5 role/filter projection. Same inputs, mechanical
+  output.
+- Permissions admin UI (C6 `/admin`) edits via `app_permission_set` actions;
+  approval triggers the config regeneration.
 
 Rule: no other module may read `record_permission` directly.
 
 **Testing:** table-driven unit tests over the permission matrix; a drift test
-asserting `evaluate.ts` and the generated GraphJin filters agree on a fixture set
-(generate config, run both against the same records, compare visibility).
+asserting `evaluate.ts` and the generated GraphJin filters agree on a fixture
+set.
 
-### C9 — Agent skills
+### C8 — Importer
 
-- **Builtin engine skill** `packages/llm/assets/builtin-skills/records/SKILL.md`
-  (pattern: the existing `graphjin-config` skill): how to browse the registry
-  catalog, query records via the GraphJin MCP surface, and propose `record_*`
-  actions — with the hard rule *resolve the record id via query first; never
-  guess-and-write*, disambiguation guidance ("three John Smiths — ask"), and the
-  `expected`-field concurrency idiom.
-- **CRM pack skill** shipped in the plugin (`packages/salesforce-crm/skill/`,
-  declared via `package.json → openneko.skill` like Shopify/Slack): Salesforce
-  domain knowledge — object semantics (Account/Contact/Opportunity/Lead
-  conversions), stage/pipeline conventions, "owner" language mapping to
-  `owner_user_id`, and import/report interpretation.
+**What:** `staged artifact directory → live app`. Runs as a worker pg-boss job
+(new `QUEUE.RECORDS_IMPORT` in `packages/db/src/jobs.ts`), triggered by an
+action adapter (`records_import_start`, with `_status` / `_cancel`) so chat
+drives it with an approval card, and by CLI
+(`openneko records import --app crm --dir ./sf-export`).
 
-**Testing:** skill lint via the existing skills validation; scenario transcripts in
-the worker's agent test harness for propose-flow correctness.
+**Input contract (one contract, any feeder — D11):** a directory containing
+`data/<object>.csv`, optionally `describe/*.json` (source metadata) and
+`export-manifest.json` (per-object expected row counts + export watermarks).
+The connected connector (C9) produces all three; a client-supplied CSV dump is
+the manual feeder, with type inference filling in for missing describes.
+Import *is* app creation: stage 2 runs through the C3 executor, so an imported
+app and a conversation-built app are the same kind of thing.
 
-### C10 — `module` plugin capability
+Pipeline stages (each checkpointed in `app_state.config.import` so a restart
+resumes; progress via `records_import_status` and a briefing card):
 
-**What:** the fifth declarative key (D2), across both repos.
+1. **Manifest.** Read `describe/*.json` when present (exact types, picklists,
+   relationships, profiles); else infer per CSV: header names + typed sampling
+   (10k rows) with the type-mapping table below. Emit an **import plan** — a
+   proposed `app_create` payload — that the approval card shows *before*
+   anything is written.
+2. **Schema.** Apply the plan through the C3 executor (one logged
+   `app_create`). Source → PG mapping (Salesforce flavor):
+   `id/reference → char(18)`, `string/textarea/email/phone/url/picklist → text`,
+   `multipicklist → text[]`, `boolean → boolean`, `int → integer`,
+   `double/currency/percent → numeric`, `date → date`, `datetime → timestamptz`,
+   `address/location → flattened columns`, `base64 → skipped (D9)`.
+   Formula/rollup → materialized column of result type, `read_only`.
+   `owner_user_id text` beside the source owner column where owned.
+3. **Load.** Stream each CSV through `COPY ... FROM STDIN` in batches;
+   RFC-4180 with embedded newlines; empty-string → NULL except genuinely empty
+   text; source datetime/boolean literal handling; per-file row-count
+   reconciliation against the manifest. Failures quarantine rows to
+   `engine.import_reject` with reasons rather than aborting the object.
+4. **Registry finishing.** Relationships (from describe `referenceTo` or
+   inferred), default layouts (detail: ≤2-column field groups in describe
+   order; list: name + 5 most-used columns), permissions seeded from source
+   profiles (collapsed to admin/member per D8; report notes what collapsed).
+5. **Identity.** Run C10 mapping from the imported user object.
+6. **Validate & report.** Row counts vs manifest, sampled checksums,
+   dangling-reference counts, unmatched users, permission-collapse summary →
+   persisted import report (briefing finding + `/a/[app]/admin`). Set
+   `app_state.status='active'`, refresh `record_object.record_count`.
 
-Plugins repo (`packages/types`, minor+bump to 0.8.0):
+**Testing:** golden-fixture test with a miniature fake export (a dozen objects
+incl. one `__c`, compound address, formula field, multipicklist, dangling
+refs, a user CSV with one email collision); property tests for the CSV parser;
+resume test (kill between stages, re-run, assert idempotence — every stage
+`ON CONFLICT`-safe / `IF NOT EXISTS`-guarded).
 
-- `manifest.ts`: `PluginModuleDeclaration = { id, label, sections? }`;
-  `capabilities.module` optional key; singleton **per module id** (two plugins may
-  not claim `crm`).
-- `schema/marketplace.schema.json`: matching `$defs` addition.
-- `define-plugin.ts`: structural validation (id nonempty, lowercase slug). No
-  handlers — purely declarative, so no new RPC methods and no `runner.ts` change.
+### C9 — Connected Salesforce export (native)
 
-openneko host:
+**What:** "just connect and import everything" — a worker-native connector in
+`packages/records/src/connect/salesforce/`, run as a pg-boss job with
+checkpointed state in `app_state.config.export`. Action kinds:
+`salesforce_discover` (`auto`), `salesforce_export_start` (`ask`),
+`salesforce_export_status` (`auto`), `salesforce_export_cancel` (`ask`),
+`salesforce_sync_delta` (`ask`).
 
-- `plugin-registry.ts`: parse/validate the declaration (enforce per-id
-  singleton, mirroring the `auth` singleton check); expose active modules in
-  `status()`; on manifest refresh, upsert/disable `module_state` rows via a new
-  `onModuleChange` hook wired in `apps/worker/src/index.ts` (activation kicks C1
-  provisioning + C5 registration as approval-gated steps; uninstall sets
-  `status='disabled'` — **data is never dropped by uninstall**, surfaced as
-  "module disabled, data retained" in admin).
-- Web: nav gating reads `module_state` (C7).
+- **Auth:** Connected App client-credentials flow; `SALESFORCE_INSTANCE_URL` /
+  client id in `app_state.config`, client secret in `data_source_secret`
+  (enc:v1). The `salesforce_export_start` approval card states the outbound
+  hosts (`*.salesforce.com`, `*.force.com`, `*.my.salesforce.com`) — the
+  operator approves the egress along with the job.
+- **Discover:** describe sweep → object/field/count inventory, rendered as the
+  migration plan the admin approves before bulk export.
+- **Export:** per object, submit a **Bulk API 2.0 query job**, poll, stream
+  result CSV pages (`Sforce-Locator` pagination) into
+  `data/<object>.csv` under a worker-owned staging directory — atomic per-page
+  appends with a checkpoint (object, locator, rows written) so a killed worker
+  resumes mid-object. PK-chunked fallback for objects past Bulk limits; plain
+  REST for the small/unsupported tail. Persist `describe/*.json` and
+  `export-manifest.json` (expected counts + the watermark delta sync resumes
+  from), then chain into `records_import_start` (C8) — export and import
+  reconcile counts independently.
+- **Delta sync (transition window only):** `SystemModstamp > watermark`
+  (+ `queryAll` for deletes) from the manifest watermark; changes are applied
+  **through the C4 executor** as the `service` actor (logged as `sync` in the
+  change log) so even sync writes hit the one write path. Explicitly framed as
+  transition-only, not a permanent two-way bridge.
+- **Client discipline:** token caching/refresh, 429/`Retry-After` and
+  `REQUEST_LIMIT_EXCEEDED` backoff, and a **daily API-budget governor**
+  (job/batch limits and org API-call allowances tracked in checkpoint state;
+  the job self-throttles rather than exhausting the quota their still-live
+  Salesforce needs).
+- **Staging hygiene:** 0700 directory on a worker-owned path, excluded from
+  backups (re-derivable), deleted after the import report validates (the org
+  remains the source of truth until cutover). Disk pre-flight covers staging
+  *plus* DB footprint (~3× CSV bytes) before export starts; §6.4 watermark
+  backpressure pauses the job like any bulk work.
+- **Chat-first onboarding:** "create an app that will let me bring in my
+  Salesforce data" → the agent walks the admin through Connected App setup →
+  secret lands via `openneko secrets set` → `salesforce_discover` renders the
+  plan card → one approval starts export → import chains → the briefing
+  announces the app is live with validation + identity reports.
 
-**Testing:** registry unit tests (singleton conflict, activation hook fire,
-disable-on-uninstall); schema validation tests in the plugins repo
-(`scripts/validate-marketplace.mjs` fixtures).
+The connector interface (`discover / export / delta` against the staging
+contract) is deliberately generic — a Zendesk connector is the same shape with
+a different client, which is the "replace my Zendesk" path when it comes.
 
-### C11 — `@open-neko/plugin-salesforce-crm`
+**Testing:** mocked-SF-server harness covering the export end-to-end (Bulk job
+lifecycle, locator pagination, kill/resume from checkpoint, manifest count
+reconciliation, rate-limit backoff, budget-governor throttling) and the delta
+job's watermark/resume.
 
-**What:** the marketplace package — enable switch + sandbox-appropriate
-Salesforce connectors.
+### C10 — Identity mapping
 
-- **Manifest:** `capabilities.module = {id:"crm", label:"CRM"}` +
-  `capabilities.action` kinds below. `permissions.network`:
-  `*.salesforce.com`, `*.force.com`, `*.my.salesforce.com`. `permissions.env`:
-  `SALESFORCE_INSTANCE_URL` (required, not secret), `SALESFORCE_CLIENT_ID`
-  (required, not secret), `SALESFORCE_CLIENT_SECRET` (required, secret,
-  `inject:"egress"`). Env values only required for live-org features — a
-  CSV-only migration installs with none (all marked `required:false`, with the
-  skill explaining when they're needed).
-- **Action kinds:**
-  - `salesforce_discover` (`auto`) — live-org describe sweep → object/field/count
-    inventory, rendered as the migration plan the admin approves before any bulk
-    export starts (CSV-only users skip this).
-  - `salesforce_export_start` (`ask`) — **the connected import (D13)**: kicks off
-    a detached export job inside the plugin VM that drives the full org →
-    work-root extraction:
-    1. Authenticate via the Connected App (client-credentials flow; secret
-       egress-injected).
-    2. Persist `describe/*.json` for every object in the approved plan
-       (standard + custom, fields, picklists, relationships, profiles).
-    3. Per object, submit a **Bulk API 2.0 query job**, poll to completion, and
-       stream the result CSV pages (`Sforce-Locator` pagination) into
-       `data/<object>.csv` — atomic per-page appends with a checkpoint file
-       (object, locator, rows written), so a killed VM resumes mid-object.
-       PK-chunked fallback queries for objects past Bulk job limits; plain REST
-       for the small/unsupported-by-Bulk tail. `ContentVersion` blob download
-       stays out of v1 (D8) — rows yes, binaries no.
-    4. Write `export-manifest.json` (per-object expected counts from the job
-       stats + the export watermark that delta sync later resumes from), then
-       report completion; the orchestrating workflow hands the directory to
-       `records_import_start` (C3) — export and import reconcile counts
-       independently.
-  - `salesforce_export_status` (`auto`) — one-shot read of the checkpoint/state
-    file: per-object progress, API-limit consumption, ETA; drives chat progress
-    updates and the briefing card.
-  - `salesforce_export_cancel` (`ask`) — stop the detached job, keep checkpoints
-    (a later start resumes rather than restarts).
-  - `salesforce_sync_delta` (`ask`) — transition-window incremental sync:
-    the same detached-job machinery querying `SystemModstamp > watermark`
-    (+`queryAll` for deletes) from the manifest's watermark, writing normalized
-    change CSVs to the VM work root; a paired core job applies them through the
-    C6 executor (as `service` actor, logged as such) so even sync writes hit one
-    write path. Explicitly framed as transition-only, not a permanent two-way
-    bridge.
-  - One shared Salesforce client under all kinds: token caching/refresh,
-    429/`Retry-After` and `REQUEST_LIMIT_EXCEEDED` backoff, and a **daily
-    API-budget governor** (Bulk API 2.0 job/batch limits and org API-call
-    allowances tracked in the state file; the job self-throttles rather than
-    exhausting the org's quota that their still-live Salesforce needs). No
-    precedent exists in other plugins; must be built, not assumed.
-- **Export staging hygiene:** the work-root export is transient business data —
-  0700 directory, excluded from backups (it's re-derivable), deleted after the
-  import report validates (the C3 rule "keep source until validation passes"
-  applies to the staged files; for connected imports the org itself remains the
-  source of truth until cutover). Disk pre-flight covers the staging footprint
-  *plus* the DB footprint (~3× CSV bytes total) before the export starts, and
-  the C13/§6.4 watermark backpressure pauses the export job like any bulk work.
-- **Chat-first onboarding flow** (the product story this enables): install the
-  plugin → the agent walks the admin through Connected App setup → secrets land
-  via `openneko secrets set` → `salesforce_discover` renders the migration plan
-  card → one approval starts export → import chains automatically → the
-  briefing announces the CRM is live with the validation + identity report.
-- Note: the *import trigger* (`records_import_start/status`) is a **core**
-  adapter (D10), not a plugin action — the plugin's presence merely makes the
-  module (and thus the import surface) available.
-- **Marketplace entry** in `marketplace.json` (draft:true until first publish),
-  synced via `scripts/sync-marketplace.mjs`.
+**What:** `engine.identity_map` population + lazy linking + admin surface.
 
-**Testing:** plugin unit tests in the repo's per-package style; a mocked-SF-server
-harness covering the export job end-to-end (Bulk job lifecycle, locator
-pagination, kill/resume from checkpoint, manifest count reconciliation,
-rate-limit backoff and budget-governor throttling) and the delta job's
-watermark/resume; marketplace schema validation.
+- **At import:** for each imported user row, `lower(email)` match against
+  `app_user` (active only) → `status='linked'`; no match → `'unlinked'`;
+  email already bound to a conflicting link → `'conflict'`. Then backfill
+  `owner_user_id` on every owned table via one UPDATE join per object.
+- **Lazy linking:** hook the SSO upsert (`upsertUserFromIdentity`) — after a
+  user row is created/attached, attempt `identity_map` linking for that email
+  and backfill `owner_user_id` for newly linked users (worker job, not in the
+  login request path).
+- **Admin surface:** `/a/[app]/admin/identity` — list by status, manual
+  link/ignore, re-run backfill. Mirrors the channel-identities settings page.
+- **Agent access:** the mapping is readable through GraphJin (admin-role only)
+  so chat can answer "who owned these accounts in Salesforce?" during
+  transition.
 
-### C12 — Watcher & briefing seeds
+**Testing:** unit tests for match/conflict states; integration test that a
+fresh SSO sign-in links a previously unlinked user and backfills ownership.
 
-**What:** make the payoff visible on day one post-import. Ship (docs + optional
-seed workflows, enabled by choice): "opportunities with no activity in 30 days",
-"accounts whose owner is an unlinked/departed SF user", "deals closing this month
-by owner", each scoped through the `service` GraphJin role. Also: the import
-report lands as a briefing finding (C3 stage 6).
+### C11 — Agent skills & blueprints
 
-**Testing:** seed workflows run green against the golden import fixture.
+- **App-builder skill** `packages/llm/assets/builtin-skills/app-builder/SKILL.md`
+  (pattern: the existing `graphjin-config` skill): how to interview for
+  requirements, adapt a blueprint, propose `app_create` with a complete
+  object/field set in one card, evolve schemas additively, and when to
+  counter-propose (lossy type change → add + backfill). Hard rules: never
+  propose `hard_drop` (it doesn't exist as an action); archived means hidden,
+  not gone.
+- **Records skill** `.../records/SKILL.md`: browsing the registry catalog,
+  querying via GraphJin, proposing `record_*` actions — with the hard rule
+  *resolve the record id via query first; never guess-and-write*,
+  disambiguation guidance, and the `expected`-field concurrency idiom.
+- **Domain packs as skills + blueprints:** the CRM pack (Salesforce object
+  semantics, stage conventions, "owner" language → `owner_user_id`,
+  import-report interpretation) and later a support-desk pack. Domain
+  knowledge ships as skill text and blueprint JSON — never as engine code
+  (§1.3).
+
+**Testing:** skill lint via existing skills validation; scenario transcripts
+in the worker's agent test harness for propose-flow correctness (app create
+from blueprint; ambiguous record update → clarify).
+
+### C12 — Watcher & briefing integration
+
+**What:** make the payoff visible on day one. Ship (docs + optional seed
+workflows, enabled by choice, blueprint-aware): "opportunities with no
+activity in 30 days", "records owned by an unlinked/departed source user",
+"deals closing this month by owner" — each scoped through the `service`
+GraphJin role, subscription-triggered where C5 subscriptions are enabled,
+scheduled otherwise. The import report and app-creation summary land as
+briefing findings.
+
+**Testing:** seed workflows run green against the golden import fixture, in
+both trigger modes.
 
 ### C13 — Backup, disk & ops resilience
 
 **What:** the operational floor under C1, detailed in §6. Concretely:
 
-- `compose.yml`: `records-backup` sidecar (pgBackRest) with WAL archiving +
-  scheduled base backups for **both** `records-db` and `neko-db`; `records-db`
-  gets its own named volume, healthcheck, and `restart: unless-stopped` matching
-  the `neko-db` pattern.
+- `compose.yml`: backup sidecar (pgBackRest) with WAL archiving + scheduled
+  base backups for **both** `records-db` and `neko-db`; `records-db` gets its
+  own named volume, healthcheck, and `restart: unless-stopped` matching the
+  `neko-db` pattern.
 - Worker: `QUEUE.RECORDS_BACKUP_VERIFY` (weekly restore-verification job),
   disk-watermark sampler feeding backpressure state, ops watcher seeds.
-- CLI: `openneko records backup now|status|restore --to <time>`; `openneko doctor`
-  gains disk-headroom, backup-age, and WAL-archive checks.
-- C3/C6 integration: importer pre-flight headroom check; write-path and sync
-  backpressure at watermarks; executor idempotency via
-  `record_change_log.action_request_id` uniqueness.
+- CLI: `openneko records backup now|status|restore --to <time>`;
+  `openneko doctor` gains disk-headroom, backup-age, and WAL-archive checks.
+- C8/C4/C3 integration: importer pre-flight headroom check; write-path and
+  sync backpressure at watermarks; executor idempotency via the
+  `record_change_log.action_request_id` unique index; `hard_drop` CLI gated on
+  a fresh verified backup.
 
 **Testing:** kill/restart matrix in CI (compose harness): kill `records-db`
 mid-write, fill a small test volume to ENOSPC during import, verify resume and
@@ -751,66 +810,59 @@ clean recovery; weekly verify job tested against the golden fixture backup.
 
 ## 5. Phases & acceptance criteria
 
-**Phase 1 — Read-only CRM (C1, C2, C3, C4, C5, C7-read, C10, C11-switch,
-C13-backup).**
-Install plugin → CRM appears → run import from CSV dir → browse every object
-(standard + custom) in list/detail with related lists → chat answers questions
-over CRM data as the signed-in user with owner-visibility enforced → watchers can
-read as service → import report + identity report visible.
-*Acceptance:* golden fixture import completes resumably; member vs admin see
-different rows on an owner-visibility object in both UI and chat; zero writes
-possible; WAL archiving + base backup running against both databases and a
-manual restore drill documented and executed once — **no import against real
-client data before the backup path works**.
+**Phase 1 — The engine and the app builder (C1–C7, C11-builder, C13-backup).**
+"Create a simple app to track equipment loans" works end to end: the agent
+proposes the app (one approval card), the schema is applied and logged, the
+app appears in nav with generated list/detail views, records are created and
+updated through chat with approval cards, RBAC separates admin from member,
+and the change log shows everything.
+*Acceptance:* blueprint-fixture app create → CRUD → browse passes as e2e;
+member vs admin see different rows on an owner-visibility object in both UI
+and chat; hostile-label identifier injection rejected; archive hides but
+retains; WAL archiving + base backup running against both databases and a
+manual restore drill documented and executed once — **no real business data
+before the backup path works**.
 
-**Phase 2 — Chat CRUD (C6, C8, C9, C12, C13-verify/watchers).**
-Agent proposes `record_*` actions from natural language; approval cards render;
-executed writes appear in record change-log timeline and don't re-fire watchers.
-*Acceptance:* action-flow integration suite green incl. RBAC denials and
-concurrency conflicts; policy drift test green; replayed action requests are
-no-ops (idempotency); weekly restore-verification job green and its failure
-alerts through a channel; disk-watermark backpressure demonstrated in the CI
-kill/ENOSPC matrix.
+**Phase 2 — Salesforce liberation (C8, C9, C10, C11-crm-pack,
+C13-verify/watchers).**
+Both feeders live: CSV-dump import and connected import ("create an app that
+will let me bring in my Salesforce data"), producing a CRM app with identity
+mapping and import report; transition-window delta sync.
+*Acceptance:* golden fixture import completes resumably and is idempotent;
+mocked-SF full export → import chain completes hands-free from one approval,
+reconciles counts, survives kill/resume at every stage; delta run applies
+through the C4 executor as `service` and doesn't re-fire watchers; API budget
+governor demonstrably throttles; weekly restore-verification job green and
+alerting through a channel; unlinked/conflict identity report visible.
 
-**Phase 3 — Full CRM ergonomics (C7-write + admin).**
+**Phase 3 — App ergonomics (C6-forms + admin, C12).**
 Generated create/edit forms on every object through the same action path;
-permissions admin; identity mapping admin; saved list views.
-*Acceptance:* e2e create/edit/delete round-trips per field kind; `deny` policy
-blocks the form path too.
+permissions admin; identity admin; schema-history page; saved list views;
+watcher/briefing seeds (subscription-triggered where enabled).
+*Acceptance:* e2e create/edit/delete round-trips per field kind; a `deny`
+policy blocks the form path too; permission edit regenerates GraphJin config
+and the drift test stays green; seed watchers fire on subscribed changes and
+skip self-writes.
 
-**Phase 4 — Connected-org tooling (C11-export, C11-sync).**
-Connected import ("just connect and import everything", D13) and
-transition-window delta sync from a still-live org until cutover. The
-connected-import half depends only on Phase 1 (it feeds the same C3 contract),
-so it can be pulled forward as an onboarding feature the moment Phase 1 ships —
-sequenced here only because CSV import unblocks migrations sooner.
-*Acceptance:* mocked-SF full export → import chain completes hands-free from
-one approval, reconciles counts, survives kill/resume at every stage; delta
-run applies changes through the C6 executor, survives kill/resume, records
-`service` actor in the change log; API budget governor demonstrably throttles
-before exhausting the mocked org's daily quota.
-
-**Follow-on (out of this plan's scope, enabled by it):** marketing pack (starter
-schema + send-actions reusing existing Gmail/Slack/Telegram plugins), ERP pack
-(records + posting adapters), files/ContentVersion import, saved-view sharing,
-role model extensions beyond admin/member.
+**Phase 4 — Second feeder & scale-out.**
+A second connector (Zendesk-shaped) proving the C9 interface generic; saved
+view sharing; per-app role extensions beyond admin/member if a real app
+demands them (D3 discipline); ContentVersion/file import.
 
 ---
 
 ## 6. Resilience & operations
 
-> **Platform note:** the posture below has been generalized to everything
-> OpenNeko ships — see [RESILIENCE.md](RESILIENCE.md) for the platform
-> baseline (whole-deployment backup unit incl. the config/secrets volumes,
-> watermark backpressure, ops watcher pack, HA ladder). The records engine
-> **inherits** that baseline; this section retains the module-specific
-> application: importer pre-flight estimates, write-path idempotency keys,
-> records-db watermark behavior, and the CRM restore/identity specifics.
-> Where the two documents overlap, RESILIENCE.md is authoritative.
+> **Platform note:** the posture below is generalized to everything OpenNeko
+> ships — see [RESILIENCE.md](RESILIENCE.md) for the platform baseline
+> (whole-deployment backup unit incl. the config/secrets volumes, watermark
+> backpressure, ops watcher pack, HA ladder). The records engine **inherits**
+> that baseline; this section retains the engine-specific application. Where
+> the two documents overlap, RESILIENCE.md is authoritative.
 
 The engine holds business-critical daily-operations data on self-hosted,
 often single-host infrastructure. The posture: **crash safety is Postgres's
-job; our job is restart orchestration, idempotency, backups that are proven
+job; ours is restart orchestration, idempotency, backups that are proven
 restorable, disk headroom management, and honest degradation** — with an HA
 ladder for clients who need more than a single host, and OpenNeko's own
 watcher machinery monitoring the substrate it runs on.
@@ -821,13 +873,15 @@ watcher machinery monitoring the substrate it runs on.
 |---|---|---|
 | Container crash (web/worker/graphjin) | Requests fail until restart | Stateless services + `restart: unless-stopped` + healthchecks (exists); pg-boss jobs resume; no state lost |
 | Container crash (`records-db`) | Reads/writes fail; no data loss | Postgres WAL crash recovery; healthcheck-gated dependents; fast restart (C13) |
-| Worker dies mid-write | Half-applied action? | Single transactional write path (C6); action journal + retry (§6.3) |
-| Worker dies mid-import / mid-sync | Stuck migration | Checkpointed idempotent stages (C3); detached VM job + watermark files (C11) |
+| Worker dies mid-write | Half-applied action? | Single transactional write path (C4); action journal + retry (§6.3) |
+| Worker dies mid-schema-change | Half-created app? | C3: registry + DDL + schema log commit in one transaction; `app_state` mirror updated after commit; re-run is `IF NOT EXISTS`-safe |
+| Worker dies mid-import / mid-export | Stuck migration | Checkpointed idempotent stages (C8); export checkpoints + resumable Bulk pagination (C9) |
 | Disk full | Postgres PANICs; stack down | Dedicated volume, watermarks + backpressure, pre-flight checks (§6.4) |
 | Volume/host loss | **Data loss** | Continuous WAL archiving + base backups + verified restore (§6.5) |
 | Silent backup rot | Discovered at the worst moment | Weekly automated restore verification + backup-age watcher (§6.5) |
-| GraphJin down | CRM reads fail | Stateless restart; degraded UI banner; agent reports source unavailable (§6.6) |
-| Human error (bad bulk update) | Corrupted operational data | Approval cards, change log, soft delete, PITR via WAL (§6.5, C6) |
+| GraphJin down | App reads fail | Stateless restart; degraded UI banner; agent reports source unavailable (§6.6) |
+| Human error (bad bulk update) | Corrupted operational data | Approval cards, change log, soft delete, PITR via WAL (§6.5, C4) |
+| Agent error (bad schema proposal) | Wrong shape, not lost data | Approval cards on all schema actions; additive-by-default; archive-not-drop (D7); schema log + PITR |
 
 ### 6.2 Process & container crashes
 
@@ -844,16 +898,17 @@ mid-transaction rolls back cleanly on restart.
 
 The single-write-path decision (D6) is also the durability story:
 
-- Every write exists first as an `action_request` row **in the metadata DB** —
-  a durable journal independent of `records-db`. If `records-db` is down, the
-  approval card and intent survive; execution fails fast with a typed error and
-  is retried by pg-boss (`retryLimit`/`retryDelay`/`retryBackoff`, per-queue —
-  the `CHANNEL_DELIVER` precedent uses 8 retries with exponential backoff).
-- Retries must not double-apply: `engine.record_change_log` gains a **unique
-  index on `action_request_id`**, and the C6 executor checks it inside the
-  write transaction — a replayed action becomes a no-op with the original
-  result returned. (This lands in C6's implementation, not as an afterthought.)
-- Delta-sync applies through the same executor, so a crashed sync run resumes
+- Every write — data or schema — exists first as an `action_request` row **in
+  the metadata DB**, a durable journal independent of `records-db`. If
+  `records-db` is down, the approval card and intent survive; execution fails
+  fast with a typed error and is retried by pg-boss
+  (`retryLimit`/`retryDelay`/`retryBackoff`, per-queue — the `CHANNEL_DELIVER`
+  precedent uses 8 retries with exponential backoff).
+- Retries must not double-apply: `engine.record_change_log` carries a
+  **unique index on `action_request_id`**, checked inside the write
+  transaction — a replayed action becomes a no-op returning the original
+  result. Schema actions get the same guard via `app_schema_log`.
+- Delta sync applies through the same executor, so a crashed sync run resumes
   from its watermark and re-applies safely.
 
 ### 6.4 Disk exhaustion — the #1 self-hosted killer
@@ -865,16 +920,16 @@ recovers. The plan's job is to make that event rare and non-catastrophic:
   model cache elsewhere cannot starve the database, and so disk accounting is
   attributable.
 - **Pre-flight checks:** the importer estimates footprint (~CSV bytes × 2 for
-  heap + indexes + WAL) and refuses to start below that headroom, telling the
-  admin exactly how much is needed (C3 stage 1).
-- **Watermarks with backpressure** (C13): a worker sampler tracks volume usage.
-  At 80% — warning finding on the Briefing + channel alert. At 90% — degrade
-  deliberately: pause delta sync and new imports, refuse new bulk operations,
-  keep interactive single-record writes alive (they're small and
-  business-critical) until a hard stop at 95%. Recovery is automatic when
-  space frees.
+  heap + indexes + WAL; connected export adds staging bytes) and refuses to
+  start below that headroom, telling the admin exactly how much is needed.
+- **Watermarks with backpressure** (C13): a worker sampler tracks volume
+  usage. At 80% — warning finding on the Briefing + channel alert. At 90% —
+  degrade deliberately: pause delta sync, imports, and exports, refuse new
+  bulk operations, keep interactive single-record writes alive until a hard
+  stop at 95%. Recovery is automatic when space frees.
 - **Hygiene:** `temp_file_limit` set, WAL retention bounded by the archiver
-  (§6.5), autovacuum/bloat surfaced in `openneko doctor` and `records status`.
+  (§6.5), autovacuum/bloat surfaced in `openneko doctor` and
+  `records status`.
 
 ### 6.5 Backups — the redundancy floor (non-negotiable, Phase 1)
 
@@ -883,10 +938,11 @@ backup**:
 
 - **Mechanism:** pgBackRest sidecar — continuous WAL archiving plus scheduled
   (default nightly) base backups, covering **both** `records-db` and `neko-db`
-  (the action journal and module state live in the metadata DB; a restore
-  needs a consistent pair, and cross-DB references are by-value for exactly
-  this reason). RPO with WAL archiving: minutes. Point-in-time recovery also
-  covers the human-error case ("restore to just before the bad bulk update").
+  (the action journal and app state live in the metadata DB; a restore needs
+  a consistent pair, and cross-DB references are by-value for exactly this
+  reason). RPO with WAL archiving: minutes. Point-in-time recovery also
+  covers the human-error *and agent-error* cases ("restore to just before the
+  bad bulk update").
 - **Targets:** local path / mounted NAS by default; S3/GCS configurable at
   setup. The backup target must be a different failure domain than the data
   volume — setup warns loudly when it isn't.
@@ -898,25 +954,25 @@ backup**:
   row-count and sampled-checksum sanity against the live DB's change-log
   high-water mark, and posts the result as a Briefing finding. A failing or
   stale verification is an alert, not a log line.
-- **Import safety:** source CSVs are retained until stage-6 validation passes,
-  and the import report reminds the admin to keep the Salesforce export until
-  the first *verified* backup exists.
+- **Import safety:** source CSVs/staging are retained until stage-6 validation
+  passes, and the import report reminds the admin to keep the source export
+  (or the source org) until the first *verified* backup exists.
 
 ### 6.6 Degradation & self-monitoring
 
-- **Honest degradation:** when GraphJin or `records-db` is unreachable, `/m/*`
-  renders an explicit degraded banner (no stale-cache pretending), the agent
-  surfaces "records source unavailable" rather than hallucinating around it,
-  and queued writes state that they are queued. Approvals never disappear —
-  they live in the metadata DB.
+- **Honest degradation:** when GraphJin or `records-db` is unreachable,
+  `/a/*` renders an explicit degraded banner (no stale-cache pretending), the
+  agent surfaces "records source unavailable" rather than hallucinating
+  around it, and queued writes state that they are queued. Approvals never
+  disappear — they live in the metadata DB.
 - **OpenNeko watches itself** (C13 + C12): the same watcher machinery clients
   use on their business data ships an ops pack for the substrate — disk
   headroom, backup age and last verification result, WAL-archive failures,
   container restart counts, replication lag (when §6.7 Tier 1 is in play),
-  import/sync job health. Findings land on the Briefing; alerts go out through
-  whatever channels are installed (Slack/Telegram). The CRM monitoring its own
-  database is the dogfooding story, and it removes the "nobody was watching
-  the self-hosted box" failure mode.
+  import/export/sync job health. Findings land on the Briefing; alerts go out
+  through installed channels. The engine monitoring its own database is the
+  dogfooding story, and it removes the "nobody was watching the self-hosted
+  box" failure mode.
 
 ### 6.7 The HA ladder
 
@@ -927,49 +983,63 @@ engine only ever sees a Postgres connection string:
   continuous verified backups. RPO minutes, RTO tens of minutes (restore
   runbook). Right answer for most small/mid deployments.
 - **Tier 1 (warm standby):** streaming replication to a second host (async),
-  lag watched by the ops pack, documented manual-promote runbook. RPO seconds,
-  RTO minutes. Deliberately manual promotion — automated failover
+  lag watched by the ops pack, documented manual-promote runbook. RPO
+  seconds, RTO minutes. Deliberately manual promotion — automated failover
   (Patroni-class) is out of scope for a compose-based stack and easy to get
   dangerously wrong.
 - **Tier 2 (BYO / managed Postgres):** point `records-db` at RDS / Cloud SQL /
-  the client's DBA-run HA cluster via `module_state.config.records_db_url` +
-  a stored connection secret. The compose service is the default, not a
-  requirement; clients with real HA requirements bring infrastructure that
-  does HA for a living. Costs the engine nothing beyond honoring an external
-  connection string and skipping the sidecar for that database.
+  the client's DBA-run HA cluster via a stored connection secret. The compose
+  service is the default, not a requirement; skipping the sidecar for
+  externally-managed databases hands backup responsibility over — `doctor`
+  says so.
 
 ### 6.8 Data-lifecycle guards
 
-Already decided, restated as the safety net they form: plugin uninstall
-disables the module but **never drops data** (C10); deletes are soft
-(recycle-bin semantics, C6); hard-destructive operations (module drop,
-restore-overwrite, hard delete) require typed confirmation *and* a
-fresh-backup check; every write is attributable in the change log with its
-approving action request.
+Restated as the safety net they form: archiving an app or object **never
+drops data** (D7); deletes are soft (recycle-bin semantics, C4);
+hard-destructive operations (`hard_drop`, restore-overwrite) require typed
+confirmation *and* a fresh-verified-backup check; every data write is
+attributable in the change log and every schema change in the schema log,
+each with its approving action request.
 
 ---
 
 ## 7. Risks & open questions
 
-- **GraphJin role expressiveness.** Row filters + per-role table grants cover the
-  D7 model; if a future module needs per-object *roles* (not just per-object
-  grants for two roles), the generated-config approach scales but the JWT `role`
-  claim enum (`admin|member|service`) becomes the bottleneck — widening it touches
-  `token.ts` and every match expression. Decide when a real need appears (D3
-  discipline).
-- **Dynamic-DDL hygiene.** The importer generates identifiers from untrusted CSV
-  headers; `naming.ts` must be the only path to an identifier and is
-  security-sensitive (SQL injection via column name). Mitigation: strict
-  allowlist grammar + exhaustive tests + identifiers always quoted.
-- **Very large orgs.** COPY throughput is fine, but GraphJin schema discovery over
-  hundreds of tables and the UI nav both need the registry's `record_count`/
-  usage ordering to stay usable. Watch item, not a blocker.
-- **Import UX for describe-less exports.** Type inference will misjudge some
-  columns (e.g. all-empty fields). The import plan approval card is the mitigation
-  — the admin sees and can adjust inferred types before DDL (plan-edit is a
-  Phase 1 stretch; minimum is visibility).
-- **Email collisions & shared mailboxes.** `identity_map.status='conflict'` rows
-  need a human; the report must make this loud, since silent mis-ownership is the
-  worst failure mode of the whole migration.
-- **Packaging (D12).** OSS vs paid module — decide before Phase 1 merge only if it
-  moves code out of Apache-2.0 core; otherwise defer.
+- **Agent-authored schema quality.** The approval card is the control point,
+  but a plausible-looking bad schema (wrong kinds, missing relationships)
+  costs rework. Mitigations: blueprints as strong priors, the app-builder
+  skill's interview discipline, additive evolution making fixes cheap, and
+  the counter-proposal path for lossy changes. Watch item: whether Phase 1
+  needs a "draft app" state (visible to admin only) before go-live.
+- **GraphJin config churn.** Every schema action regenerates the records
+  source config. `acquireGraphjinConfigLock` serializes writers, but frequent
+  regeneration on a busy build session needs debouncing and a config-reload
+  cost check against a live GraphJin. Measure in Phase 1.
+- **GraphJin subscription semantics.** Live queries are polling-based under
+  the hood; latency and load characteristics at hundreds of watched queries
+  need measurement before subscription-triggered watchers become the default
+  (scheduled-watch remains the fallback either way).
+- **GraphJin role expressiveness.** Row filters + per-role table grants cover
+  the D8 model; per-app *roles* (beyond admin/member) would widen the JWT
+  `role` claim enum — touches `token.ts` and every match expression. Decide
+  when a real need appears.
+- **Dynamic-DDL hygiene.** `naming.ts` is the only path to an identifier and
+  is security-sensitive (SQL injection via labels/CSV headers). Strict
+  allowlist grammar + exhaustive tests + identifiers always quoted. Now
+  doubly important since schema actions accept conversational input, not just
+  CSV headers.
+- **Worker egress visibility.** D11 moves connector traffic into the worker.
+  The approval card names destinations, but a per-connector host allowlist
+  enforced at the HTTP-client layer (not just documented) is the stronger
+  posture — scoped for C9.
+- **Very large orgs.** COPY throughput is fine, but GraphJin schema discovery
+  over hundreds of tables and the UI nav both need `record_count`/usage
+  ordering to stay usable. Watch item, not a blocker.
+- **Type inference on describe-less CSV dumps.** Misjudged columns (all-empty
+  fields) are corrected by the import-plan approval card — the admin sees
+  inferred types before DDL; plan-edit is a Phase 2 stretch, visibility the
+  minimum.
+- **Email collisions & shared mailboxes.** `identity_map.status='conflict'`
+  rows need a human; the report must make this loud — silent mis-ownership is
+  the worst failure mode of a migration.

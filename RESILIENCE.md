@@ -171,8 +171,8 @@ services only ever see connection strings:
 
 ### 4.6 Data-lifecycle guards
 
-- Uninstalling a plugin or disabling a module **never drops data**; surfaces
-  say "disabled, data retained".
+- Uninstalling a plugin or archiving a records app **never drops data**;
+  surfaces say "disabled/archived, data retained".
 - Destructive operations (volume prune, restore-overwrite, hard delete, module
   drop) require typed confirmation **and** a fresh-verified-backup check.
 - Deletes on business records are soft (recycle-bin semantics) per module
@@ -218,7 +218,7 @@ sources reconnect, and the audit chain verifies.
 
 ---
 
-*Module plans (RECORDS_ENGINE.md and successors) reference this document and
-specify only their module-specific additions: pre-flight estimates for their
+*Feature plans (RECORDS_ENGINE.md and successors) reference this document and
+specify only their feature-specific additions: pre-flight estimates for their
 bulk operations, idempotency keys for their write paths, and any state they
 place outside the shipped Postgreses.*

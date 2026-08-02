@@ -1,15 +1,17 @@
-# CRM UI — Mockup & Implementation Plan
+# CRM App UI — Mockup & Implementation Plan
 
 **Mockup:** [`crm-main-screen.html`](crm-main-screen.html) — open directly in a
-browser; fully self-contained. It shows `/m/crm/opportunity` (the module list
-view) with the three zones this plan implements: registry-driven object rail,
-the working list view with substrate status strip, and the scoped Ask panel
-with an approval card.
+browser; fully self-contained. It shows `/a/crm/opportunity` (an app's list
+view — here the CRM app) with the three zones this plan implements:
+registry-driven object rail, the working list view with substrate status strip,
+and the scoped Ask panel with an approval card.
 
-This plan details **component C7 (web UI module)** of
+This plan details **component C6 (auto-generated web UI)** of
 [RECORDS_ENGINE.md](../RECORDS_ENGINE.md) to implementation level. Everything
-here assumes C1–C5 (records-db, registry, importer, identity, GraphJin/JWT) and
-lands read-only pieces in Phase 1, write pieces in Phases 2–3.
+here assumes C1–C5 (records-db, registry, app builder, record write path,
+GraphJin/JWT). The UI is generated per app from registry metadata — the CRM
+shown here is one app; a support-desk app renders through the exact same
+components.
 
 ---
 
@@ -33,7 +35,7 @@ lands read-only pieces in Phase 1, write pieces in Phases 2–3.
 
 | Mockup region | Component (new unless noted) | Data source |
 |---|---|---|
-| CRM group in app rail (objects, counts, `__c` badges) | `ModuleNavGroup` inside existing `AppRail` | `record_module` + `record_object` (incl. `record_count`), gated on `module_state.status='active'` |
+| CRM group in app rail (objects, counts, `__c` badges) | `AppNavGroup` inside existing `AppRail` | `record_app` + `record_object` (incl. `record_count`), gated on `app_state.status='active'` |
 | Breadcrumb + record count + search | `ObjectHeader` | registry + list-count query |
 | "New opportunity" / "Import" buttons | `ObjectHeaderActions` | `record_permission` (hide create without grant); Import → `records_import_*` surface (admin only) |
 | Saved-view picker + filter chips | `ViewBar` (`ViewPicker`, `FilterChip`, `AddFilterPopover`) | Phase 1: URL-state filters over registry fields · Phase 3: persisted saved views |
@@ -43,29 +45,29 @@ lands read-only pieces in Phase 1, write pieces in Phases 2–3.
 | Amount / dates | `NumberCell` / `DateCell` with `tabular-nums` | field `kind` + `scale` |
 | Owner cell with dashed "unlinked" avatar + flag | `OwnerCell` | join through `engine.identity_map`; `status='unlinked'` renders the dashed avatar + watch flag |
 | "1 pending change" chip + row accent stripe | `PendingChangeMarker` | open `action_request` rows of kind `record_*` whose payload `id` intersects the current page (small metadata-DB lookup keyed by the page's record ids) |
-| Status strip (migration, delta sync, backup, identity) | `SubstrateStrip` (module-level, shared across objects) | `module_state.config` (import provenance), sync watermark, backup-verification finding (C13), `identity_map` unlinked count |
-| Ask panel (scope chip, thread, composer) | `AskPanel` — **reuse** the existing work-thread machinery (`_work.css`, `_composer.css`, thread APIs) with a scope preamble | new thread context type `{module, object, viewFilters, recordId?}` injected as a context block on thread create |
+| Status strip (migration, delta sync, backup, identity) | `SubstrateStrip` (app-level, shared across objects) | `app_state.config` (import provenance), sync watermark, backup-verification finding (C13), `identity_map` unlinked count |
+| Ask panel (scope chip, thread, composer) | `AskPanel` — **reuse** the existing work-thread machinery (`_work.css`, `_composer.css`, thread APIs) with a scope preamble | new thread context type `{app, object, viewFilters, recordId?}` injected as a context block on thread create |
 | Approval card with field diff + freshness note | `RecordActCard` — **extend** the existing action approval card (`_act-card.css`, approvals flow) with a `record_update` diff body | `action_request.payload` (fields, `expected`) rendered as from→to rows |
 | Auto-fired rule line | existing action timeline row style | `action_request` resolved with mode `auto` |
 
 ## 3. Routes & API
 
 ```
-apps/web/src/app/m/[module]/
-  layout.tsx                     module gate (module_state) + ModuleNavGroup wiring
-  page.tsx                       module home (Phase 3; until then redirect → first object)
+apps/web/src/app/a/[app]/
+  layout.tsx                     app gate (app_state) + AppNavGroup wiring
+  page.tsx                       app home (Phase 3; until then redirect → first object)
   [object]/page.tsx              list view (this mockup)
   [object]/[id]/page.tsx         record detail (layout sections, related lists, change log)
   [object]/new/page.tsx          create form        (Phase 3)
   [object]/[id]/edit/page.tsx    edit form          (Phase 3)
-  admin/…                        import report, identity, permissions (Phase 3)
+  admin/…                        import report, identity, permissions, schema history (Phase 3)
 
-apps/web/src/app/api/m/
-  [module]/nav/route.ts          objects + counts for the rail group
-  [module]/[object]/list/route.ts    generated list query → GraphJin (viewer JWT)
-  [module]/[object]/[id]/route.ts    detail + related lists + change-log page
-  [module]/status/route.ts       SubstrateStrip payload
-  [module]/[object]/submit/route.ts  form submits → pre-approved action request (Phase 3)
+apps/web/src/app/api/a/
+  [app]/nav/route.ts             objects + counts for the rail group
+  [app]/[object]/list/route.ts       generated list query → GraphJin (viewer JWT)
+  [app]/[object]/[id]/route.ts       detail + related lists + change-log page
+  [app]/status/route.ts          SubstrateStrip payload
+  [app]/[object]/submit/route.ts     form submits → pre-approved action request (Phase 3)
 ```
 
 API routes mint the viewer's GraphJin token per request via the C5 helper
@@ -103,7 +105,7 @@ and (Phase 3) form inputs — three views of the same registry row:
   (`grid-template-columns: 216px minmax(0,1fr) 332px`; collapses behind a
   toggle below the `--d-dash-width` breakpoint — reuse the responsive
   patterns in `_responsive.css` / `_dock.css`).
-- On mount it registers a **scope context**: module, object, active view
+- On mount it registers a **scope context**: app, object, active view
   filters, and — on detail pages — the record id. The worker's thread-create
   path injects this as a context block so the agent's first GraphJin queries
   are already narrowed. Scope is advisory context, not a security boundary
@@ -128,7 +130,7 @@ and (Phase 3) form inputs — three views of the same registry row:
 
 ## 7. Milestones
 
-**M1 (Phase 1 — read-only):** `ModuleNavGroup`, module gate/layout, list view
+**M1 (Phase 1 — read-only):** `AppNavGroup`, app gate/layout, list view
 (`ObjectHeader`, `ViewBar` with URL-state filters, `RecordTable` + renderer
 matrix minus form column), detail page (sections, related lists, change-log
 timeline), `SubstrateStrip`, `OwnerCell` identity states.
@@ -154,7 +156,7 @@ form path; saved views survive reload and are shareable org-wide by admins.
   (columns, filters, pagination, ordering), including injection resistance on
   filter values (variables only, never string-built).
 - **e2e (`apps/web/test/` conventions):** seeded mini-registry + records;
-  nav gating (module inactive → 404, active → rail group), list filtering +
+  nav gating (app inactive → 404, active → rail group), list filtering +
   sort + pagination, detail related lists, M2 scenario above, RBAC
   visibility split, unlinked-owner rendering.
 - **Visual regression** for the pill palette and pending-row treatment
