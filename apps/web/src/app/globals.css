@@ -15,6 +15,7 @@
 @import "./styles/_run-replay.css";
 @import "./styles/_actions.css";
 @import "./styles/_act-card.css";
+@import "./styles/_records.css";
 @import "./styles/_responsive.css";
 @import "./styles/_dock.css";
 
@@ -244,7 +245,6 @@ html[data-density="compact"] .triage-pane {
   .topbar-spacer { display: none; }
   .topbar-nav { order: 3; width: 100%; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
 }
-
 
 
 

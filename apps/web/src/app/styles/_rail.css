@@ -254,6 +254,51 @@ body {
     gap: 4px;
   }
 
+  .app-rail-record-app {
+    width: 100%;
+  }
+
+  .app-rail-record-objects {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    margin-top: 3px;
+  }
+
+  .app-rail-record-object {
+    position: relative;
+    width: 58px;
+    min-height: 48px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    color: var(--text3);
+    text-decoration: none;
+  }
+
+  .app-rail-record-object svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .app-rail-record-object-label,
+  .app-rail-record-custom,
+  .app-rail-record-count {
+    display: none;
+  }
+
+  .app-rail-record-object:hover,
+  .app-rail-record-object.is-active {
+    background: var(--neutral-soft);
+    color: var(--text);
+  }
+
+  .app-rail-record-object.is-active {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
   .app-rail-link-wrap {
     width: 100%;
     display: flex;
@@ -506,6 +551,67 @@ body {
   .app-rail-group {
     align-items: stretch;
     gap: 2px;
+  }
+
+  .app-rail-records-heading {
+    margin-top: 4px;
+  }
+
+  .app-rail-record-objects {
+    align-items: stretch;
+    gap: 1px;
+    margin: 1px 0 5px 20px;
+    padding-left: 10px;
+    border-left: 1px solid var(--border);
+  }
+
+  .app-rail-record-object {
+    width: 100%;
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 8px;
+  }
+
+  .app-rail-record-object svg {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 auto;
+  }
+
+  .app-rail-record-object-label {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .app-rail-record-custom {
+    display: inline;
+    margin-left: auto;
+    color: var(--text3);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 8px;
+    font-weight: 700;
+  }
+
+  .app-rail-record-count {
+    display: inline;
+    min-width: 18px;
+    color: var(--text3);
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .app-rail-record-object.is-active .app-rail-record-count,
+  .app-rail-record-object.is-active .app-rail-record-custom {
+    color: color-mix(in srgb, var(--accent) 70%, var(--text2));
   }
 
   .app-rail-link-wrap {

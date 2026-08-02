@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { LogOut } from "lucide-react";
+import { Database, LogOut, Table2 } from "lucide-react";
 import DensityToggle from "@/components/DensityToggle";
 import {
   ALL_NAV,
@@ -20,6 +20,19 @@ const VERSION_POLL_MS = 60_000;
 type SessionUser = {
   email: string;
   name: string | null;
+};
+
+type RecordAppNav = {
+  appId: string;
+  label: string;
+  purpose: string | null;
+  objects: Array<{
+    apiName: string;
+    label: string;
+    pluralLabel: string;
+    recordCount: string | null;
+    custom: boolean;
+  }>;
 };
 
 function initials(user: SessionUser | null) {
@@ -74,6 +87,8 @@ export default function AppRail() {
     "loading" | "solo" | "admin" | "member"
   >("loading");
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  const [recordApps, setRecordApps] = useState<RecordAppNav[]>([]);
+  const [recordAppsUnavailable, setRecordAppsUnavailable] = useState(false);
 
   const grouped = useMemo(() => {
     const visible = ALL_NAV.filter(
@@ -111,6 +126,32 @@ export default function AppRail() {
     })();
     return () => {
       cancelled = true;
+    };
+  }, [hidden]);
+
+  useEffect(() => {
+    if (hidden) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await fetch("/api/a/apps", { cache: "no-store" });
+        if (cancelled) return;
+        if (!response.ok) {
+          setRecordAppsUnavailable(response.status >= 500);
+          return;
+        }
+        const data = (await response.json()) as { apps?: RecordAppNav[] };
+        setRecordApps(Array.isArray(data.apps) ? data.apps : []);
+        setRecordAppsUnavailable(false);
+      } catch {
+        if (!cancelled) setRecordAppsUnavailable(true);
+      }
+    };
+    void load();
+    const id = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
     };
   }, [hidden]);
 
@@ -190,6 +231,66 @@ export default function AppRail() {
             />
           ))}
         </div>
+
+        {(recordApps.length > 0 || recordAppsUnavailable) && (
+          <>
+            <div className="app-rail-heading app-rail-records-heading">
+              {recordAppsUnavailable ? "Apps unavailable" : "Apps"}
+            </div>
+            {recordApps.map((app) => {
+              const appHref = `/a/${app.appId}`;
+              const appActive = isActive(pathname, appHref);
+              return (
+                <div className="app-rail-record-app" key={app.appId}>
+                  <div className="app-rail-group">
+                    <div className="app-rail-link-wrap">
+                      <Link
+                        href={appHref}
+                        className={`app-rail-link app-rail-record-link${appActive ? " is-active" : ""}`}
+                        aria-current={pathname === appHref ? "page" : undefined}
+                        title={app.label}
+                      >
+                        <Database aria-hidden="true" strokeWidth={2} />
+                        <span className="app-rail-label">{app.label}</span>
+                        <span className="app-rail-short">{app.label.slice(0, 7)}</span>
+                      </Link>
+                    </div>
+                  </div>
+                  {appActive && (
+                    <div className="app-rail-record-objects" aria-label={`${app.label} objects`}>
+                      {app.objects.map((object) => {
+                        const href = `${appHref}/${object.apiName}`;
+                        const active = isActive(pathname, href);
+                        return (
+                          <Link
+                            key={object.apiName}
+                            href={href}
+                            className={`app-rail-record-object${active ? " is-active" : ""}`}
+                            aria-current={active ? "page" : undefined}
+                            title={object.pluralLabel}
+                          >
+                            <Table2 aria-hidden="true" strokeWidth={1.8} />
+                            <span className="app-rail-record-object-label">
+                              {object.pluralLabel}
+                            </span>
+                            {object.custom && (
+                              <span className="app-rail-record-custom">__c</span>
+                            )}
+                            {object.recordCount !== null && (
+                              <span className="app-rail-record-count font-mono">
+                                {object.recordCount}
+                              </span>
+                            )}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        )}
 
         <div className="app-rail-heading">Knowledge</div>
         <div className="app-rail-group">
