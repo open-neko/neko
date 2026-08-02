@@ -28,15 +28,18 @@ reach its sources.
 | `neko-db-data` volume | Findings, briefings, workflows + runs, work memory (+ embeddings), action requests / policies / decision history, hash-chained `audit_chain`, channel identities + dedup ledger, `data_source_secret` (enc:v1), pg-boss queues | **The business memory.** Unrecoverable by anything else. |
 | `openneko-config` volume | `config.json` (incl. rotated DB passwords, deployment key material), `plugins.json` (installed-plugin manifest + policy snapshots), `secrets.json` (plugin env secrets, per-operator OAuth credentials, 0600) | **Equally fatal.** Without it: enc:v1 blobs in the DB are unreadable, every plugin credential and operator OAuth grant is gone, DB passwords are lost. |
 | `openneko-graphjin-cli` volume | Durable GraphJin YAML (customer source definitions, `gjsecret://` refs, roles), managed file sources / OpenAPI assets | Sources must be manually reconfigured; managed file sources lost. |
+| `records-graphjin-config` volume (future) | Standalone records data-plane config, DDL desired state, validated policy revision | Rebuildable from registry/live catalog, but required for a fast and auditable restore; captured with the deployment manifest. |
+| `openneko-plugins` volume (packaged releases) | Installed plugin release payloads used by OpenShell/plugin launch | Re-downloadable from the pinned manifest when registries remain available; include in backup to reduce offline RTO, but do not treat it as authoritative business state. |
 | `openneko-agent-home` volume | Installed skills, agent home state | Cheap to rebuild but annoying; back up as a bonus, not a requirement. |
-| `openneko-agent-tmp`, plugin VM work roots | Scratch; delta-sync checkpoints are the one exception (see module plans) | Disposable by design. |
+| `openneko-agent-tmp`, OpenShell/plugin VM work roots | Scratch only. Durable connector/import/sync checkpoints must live in a shipped Postgres, never here. | Disposable by design; recreated after restore. |
 | `records-db` volume (future) | Business records (CRM …) | Covered by RECORDS_ENGINE.md §6; folded into the same backup unit below. |
 | Customer-owned sources (their Postgres, APIs) | Their data | **Out of scope** — OpenNeko reads it; the client owns its durability. Setup docs say so explicitly. |
 
 **Consequence:** the platform *backup unit* is defined as
-**{ all shipped Postgres databases } + { config volume } + { graphjin config
-volume }**, captured coherently. Anything less is not a backup of an OpenNeko
-deployment.
+**{ all shipped Postgres databases } + { config volume } + { all GraphJin
+config volumes }**, captured as one versioned backup set. The plugin payload
+and agent-home volumes are optional recovery accelerators recorded in the same
+manifest. Anything less is not a backup of an OpenNeko deployment.
 
 ## 2. What already holds (and stays)
 
@@ -82,9 +85,17 @@ Every OpenNeko deployment gets these; every module inherits them.
   archiving + scheduled (default nightly) base backups of **every shipped
   Postgres** (`neko-db`, plus `records-db` when present), and — with each base
   backup — a snapshot tarball of the `openneko-config` and
-  `openneko-graphjin-cli` volumes, so DB state and the key/config material that
-  makes it usable restore as one coherent unit.
-- **Targets:** local path / NAS mount by default; S3/GCS configurable at setup.
+  GraphJin config volumes, so DB state and the key/config material that makes it
+  usable restore as one declared backup set. Independent Postgres backups and
+  volume tarballs are not a distributed snapshot: the sidecar writes a global
+  manifest containing each recovery point, config/policy revision and hash,
+  action/schema/import high-water marks, optional accelerator snapshots, and
+  the quiesce boundary used. Restore validates that manifest and runs
+  application reconciliation before reopening traffic.
+- **Targets:** an encrypted backup repository by default, with repository keys
+  and access policy stored outside the protected data volumes; local path / NAS
+  mount or S3/GCS is configured at setup. Plaintext secrets/key material must
+  never land in an unencrypted tarball.
   Setup **warns loudly** when the target shares a failure domain with the data
   volumes. `--mode demo` may skip backups; `--mode prod` configures them in the
   wizard — an explicit "no backups" choice is allowed but recorded and nagged
@@ -92,13 +103,19 @@ Every OpenNeko deployment gets these; every module inherits them.
 - **Key-material caveat, stated everywhere it matters:** a DB backup without
   the config snapshot is cryptographically dead (enc:v1). The restore path
   refuses a DB-only restore unless explicitly overridden.
+- **Retention:** setup chooses and displays a concrete retention policy
+  (default daily/weekly/monthly generations plus WAL expiry). `doctor` verifies
+  the policy, repository encryption, target access, and that pruning cannot
+  remove the last verified generation.
 - **RPO/RTO:** WAL archiving gives RPO of minutes; point-in-time recovery also
   covers human error ("restore to just before the bad change"). RTO is the
   runbook: tens of minutes on a fresh host.
 - **CLI:** `openneko backup now|status`, `openneko restore --to <time>`
   (stop dependents → restore DBs → restore config snapshot → replay WAL →
-  `doctor`). The full-host-loss drill — fresh host + backup target = working
-  stack — is documented in INSTALL.md and exercised in CI.
+  reconcile schema/config/import state → `doctor`). These are the only backup
+  commands; modules add status detail, not competing CLIs. The full-host-loss
+  drill — fresh host + backup target = working stack — is documented in
+  INSTALL.md and exercised in CI.
 - **Verification:** a weekly worker job restores the latest backup into a
   throwaway container, sanity-checks it (migration level, row counts against
   high-water marks, decryptability of one enc:v1 probe value using the
@@ -109,14 +126,22 @@ Every OpenNeko deployment gets these; every module inherits them.
 ### 4.2 Disk headroom — watermarks and backpressure
 
 - Each Postgres gets a **dedicated volume** (already true for `neko-db`;
-  required for `records-db`) so usage is attributable and one runaway log can't
-  starve a database. Postgres on ENOSPC PANICs but does not corrupt; recovery
-  is free-space + restart — the goal is making that event rare and non-fatal.
-- A worker sampler watches every shipped volume. **80%** — warning finding +
-  channel alert. **90%** — deliberate degradation: pause bulk work (imports,
+  required for `records-db`) so usage and lifecycle are attributable. A named
+  volume is not physical isolation: volumes, container logs, and caches often
+  share one host filesystem and can still starve each other. Postgres on ENOSPC
+  PANICs but does not corrupt; recovery is free-space + restart — the goal is
+  making that event rare and non-fatal.
+- An ops sidecar/exporter with narrowly scoped host/volume mounts publishes
+  filesystem capacity metrics. The unprivileged worker consumes them; it does
+  not assume Docker-socket or raw-volume access. Watermarks combine percentage
+  used with absolute free-byte floors and take the more conservative result.
+  **80% or the warning byte floor** — warning finding + channel alert.
+  **90% or the critical byte floor** — deliberate degradation: pause bulk work (imports,
   delta syncs, embedding backfills, briefing regeneration), keep small
-  interactive writes and reads alive. **95%** — hard stop on writes with an
-  explicit banner. Recovery is automatic as space frees.
+  interactive writes and reads alive. **95% or the hard-stop byte floor** —
+  hard stop on writes with an explicit banner. Recovery is automatic as space
+  frees. Defaults are sized during setup from the host and workload estimate,
+  then displayed in `doctor` rather than hidden constants.
 - Bulk operations everywhere adopt **pre-flight headroom checks** (estimate
   footprint, refuse with a concrete number rather than dying mid-way).
 - Hygiene defaults shipped in config: `temp_file_limit`, WAL retention bounded
@@ -185,10 +210,11 @@ services only ever see connection strings:
 
 | Surface | Stance |
 |---|---|
-| web / worker / GraphJin containers | Stateless; restart policies + healthchecks; no additional work |
+| web / worker / GraphJin containers | Stateless; restart policies + healthchecks; dedicated records GraphJin config is backed up/reconciled |
 | `neko-db` | Backup unit member; dedicated volume (exists); watermarks; PITR |
 | `records-db` (future) | Same, plus module specifics in RECORDS_ENGINE.md §6 |
 | Config + secrets volumes | Snapshot with every base backup; restore refuses DB-only restores; Infisical option for orgs that want secrets out of the box entirely |
+| Installed plugin payloads | Optional accelerator snapshot; authoritative version/policy manifest remains in config/DB; reinstallable when registry is available |
 | Plugin sandboxes / VM work roots | Disposable; anything that must survive (sync checkpoints) is declared and either checkpointed to bind-mounted state or re-derivable |
 | pg-boss queues | Live in `neko-db`, covered by its backup; dead-letter growth watched by ops pack |
 | Agent home (skills) | Best-effort included in config snapshot; rebuildable |
@@ -196,14 +222,16 @@ services only ever see connection strings:
 
 ## 6. Implementation plan
 
-**R1 — Backup/restore core (ships with, or before, the first records-engine
-release; independently valuable now):** `neko-backup` sidecar; config-volume
-snapshotting; `openneko backup|restore` CLI; runbook in INSTALL.md; `doctor`
-checks (backup configured, target reachable, last success age, key-material
-presence); CI restore drill.
+**R1 — Backup/restore core (ships with, or before, the records Phase 0 gate;
+independently valuable now):** encrypted `neko-backup` repository; global
+backup-set manifest; config/GraphJin-volume snapshotting; retention policy;
+`openneko backup|restore` CLI; reconciliation after restore; runbook in
+INSTALL.md; `doctor` checks (backup configured, target reachable, encryption,
+retention, last success age, key-material presence); CI restore drill.
 
-**R2 — Watch & degrade:** disk sampler + watermark backpressure hooks in the
-worker; ops watcher pack + briefing/channel alerting; weekly restore
+**R2 — Watch & degrade:** least-privilege filesystem-metrics sidecar +
+percentage/absolute watermark backpressure hooks in the worker; ops watcher
+pack + briefing/channel alerting; weekly restore
 verification job; health panel + `openneko status` consolidation.
 
 **R3 — HA tiers:** Tier 1 replication + promote runbook docs; Tier 2 external
@@ -213,8 +241,11 @@ skip + doctor handoff warnings.
 Acceptance across R1–R2 (the platform bar every release then holds): CI runs a
 kill/ENOSPC/restore matrix — kill each container mid-work and verify clean
 resume; fill a test volume during bulk work and verify backpressure then
-recovery; restore latest backup on a fresh stack and verify secrets decrypt,
-sources reconnect, and the audit chain verifies.
+recovery; restore latest backup on a fresh stack and verify the global manifest,
+secrets decrypt, sources reconnect, records schema/config/import reconciliation
+completes, and the audit chain verifies. The release test renders both root
+`compose.yml` and packaged `apps/openneko/assets/compose/core.yml` and asserts
+their stateful-service/volume/backup inventory is equivalent.
 
 ---
 

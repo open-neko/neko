@@ -6,8 +6,8 @@ an app. "Create an app that will let me bring in my Salesforce data" and "create
 an app to help me replace Zendesk" are the product sentences this plan
 implements. The agent designs the schema in conversation, GraphJin applies it
 and serves the data — reads, writes, standing watches, and schema changes are
-all one GraphQL plane — the UI is generated from metadata, and access follows
-the established user/role pattern.
+one GraphJin-governed data plane — the UI is generated from metadata, and
+access follows the established user/role pattern.
 
 Every app — however it was created — can **ingest CSVs as a baseline
 capability** (D14): the schema comes from a conversation, the data usually
@@ -34,14 +34,21 @@ is the consequence of the migration — or of a conversation.
 
 ### 1.2 The agent is the app builder
 
-There is no app store and no app SDK. An app is **registry content**: objects,
-fields, relationships, layouts, permissions — created and evolved through the
-same propose → approve → execute → audit action stack every other OpenNeko
+There is no app store and no app SDK. A user-created app is **registry
+content**: objects, fields, relationships, layouts, permissions — created and
+evolved through the same propose → approve → execute → audit action stack every other OpenNeko
 mutation uses. "Add a `warranty_expires` date to equipment" is an approval card,
 not a migration PR. Starter **blueprints** (CRM, support desk, …) ship as data
 the agent adapts in conversation, never as code paths. This is what makes the
 roadmap (CRM → support → marketing → ERP) cheap: each next domain is a
 conversation plus a feeder, not an engineering project.
+
+From the user's perspective the loop is deliberately short: describe the app;
+review a high-level object/field/relationship proposal with no SQL; approve;
+GraphJin applies the projected schema while OpenNeko projects policy/config;
+the app immediately appears with generated UI and CSV import. “I want to bring
+my Zendesk data into OpenNeko” is this same loop plus a connector/import plan,
+not a separate product flow.
 
 ### 1.3 Metadata over schema
 
@@ -118,9 +125,10 @@ engine, UI, adapters, connectors. *Rejected:* the `module` plugin capability;
 
 **D2 — "App" is the unit; apps are agent-authored registry content.**
 An app = a row in `engine.record_app` + its objects/fields/layouts/permissions
-+ its prefixed table family in `records-db` (D4). Apps come into existence four
-ways, all converging on the same schema executor (C3): (a) **conversation from
-scratch** — including apps that have never been built before; blueprints are
++ its prefixed table family in `records-db` (D4). Every app receives generated
+UI + CSV import by default. Apps come into existence four ways, all converging
+on the same schema executor (C3): (a) **conversation from scratch** — including
+apps that have never been built before; blueprints are
 priors, not limits, and the agent models a genuinely novel domain by
 interviewing for entities, relationships, and workflows; (b) conversation from
 a shipped blueprint the agent adapts; (c) derived from imported metadata
@@ -155,8 +163,9 @@ business data, breaks the "take a backup, take it with you" story); per-app
 Postgres schemas (unsupported by the DDL path that creates the tables).
 
 **D5 — GraphJin is the whole data plane: reads, watches, and schema.**
-`records-db` is registered as a data source with `auth_mode: 'jwt'` (migration
-`0036_data_source_auth_mode.sql`). Chat runs already mint HS256 actor tokens
+`records-db` is served by the dedicated `records-graphjin` instance with JWT
+auth. A metadata `data_source` row may register that endpoint for catalog and
+health discovery, but does not author the standalone config. Chat runs already mint HS256 actor tokens
 (`packages/llm/src/graphjin/token.ts`: `sub` = userId, `role` ∈
 admin|member|service, 5-min TTL, per-org derived secret). The web UI's `/a/*`
 pages mint the same tokens for the signed-in user — **no second SQL read path**.
@@ -170,16 +179,19 @@ GraphJin DDL document (GraphQL-style `type` definitions,
 `schema-ddl/*.ddl`) and drives GraphJin's schema-diff machinery, which
 internally diffs against the live database, generates the SQL, and executes
 it transactionally. At the pinned version the live invocation is the shipped
-binary — `graphjin db diff` produces the SQL delta the approval card
-displays, `graphjin db sync --yes` applies it in one transaction with
+binary — `graphjin db diff` produces the technical SQL delta retained behind
+the proposal, while the approval card presents the high-level app schema and
+human-readable impact; `graphjin db sync --yes` applies it in one transaction with
 rollback-on-error ([RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §1; the
 MCP/control-plane preview-apply surface is removed at this version). The
-artifact of record is the GraphJin DDL document plus the diff output.
+artifact of record is the GraphJin DDL document, live-catalog revision, diff
+output, and their approved hash; the surrounding cross-database work is the C3
+saga, not part of GraphJin's transaction.
 
 **Records GraphJin configuration:** because `records-db` is our own built-in
 database — not a customer's — it does **not** run `read_only`. It is
-configured `analytics_mode: true` (no implicit row limits, so aggregate
-queries for reports and D15 metric blocks return complete results) **plus
+configured `analytics_mode: true` (no accidental implicit row limits; C5
+instead supplies explicit per-query/role resource budgets) **plus
 mutations- and DDL-capable** — `read_only` blocks all mutations and DDL, so
 C3 requires it off. The single-write-path guarantee (D6) is enforced at the
 **role level** instead of the source level, using GraphJin's first-class
@@ -188,15 +200,17 @@ per operation with filters, column allowlists, presets, and blocks;
 [RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §2), **machine-generated by
 C7**: explicit `block: true` on mutations `admin`/`member` don't hold, row
 filters like `{ owner_user_id: { eq: $user_id } }` on owner-visibility
-tables, full grants for `service`; role resolution via `roles_query`
+tables, org-scoped grants/presets for `service`; role resolution via `roles_query`
 against an engine-maintained actor table (`engine.actor`, synced from
 `app_user`). Exhaustiveness is a security invariant: an omitted table means
-unrestricted access for non-anon roles, so the generator emits every object
-× role × operation, always. `service` credentials exist only in the worker
+unrestricted access for non-anon roles, so the generator introspects and emits
+every live table × role × operation, always—including explicit blocks for
+orphaned/archived/substrate tables. `service` credentials exist only in the worker
 for the C3/C4 executors. One config-layout constraint applies: explicit
 `roles[].tables` cannot share a config with `sources:` (per GraphJin's own
 docs), so records runs apart from the customer-data source-mode config —
-own instance by default, following the `neko-graphjin` precedent. Customer
+the dedicated `records-graphjin` instance, following the `neko-graphjin`
+precedent. Customer
 data sources are untouched: their source-mode analytics config keeps
 `read_only: true` exactly as today. *Rejected:* direct SQL from Next.js API
 routes (second enforcement point, guaranteed drift); hand-rolled DDL
@@ -208,7 +222,7 @@ the full D8 grant shape).
 
 **D6 — All writes through core action adapters — data writes *and* schema
 writes.**
-Data: `record_create` / `record_update` / `record_delete`. Schema: `app_create`
+Data: `record_create` / `record_update` / `record_delete` / `record_restore`. Schema: `app_create`
 / `app_object_create` / `app_field_add` / `app_field_modify` /
 `app_object_archive` / `app_permission_set` / `app_layout_update` — all
 registered with `registerActionAdapter` in the worker (the `user_admin` /
@@ -298,10 +312,17 @@ importer. *Rejected:* streaming source records straight into tables (couples
 every connector to the loader; loses the resumable, inspectable staging
 artifact); keeping the connector in a sandbox plugin (D1).
 
-**D12 — Org scoping everywhere.**
-All engine and app tables carry `org_id` matching core conventions, even
-though deployments today are effectively single-org. Cheap now, painful later;
-the GraphJin JWT already carries `org_id` claims for filter generation.
+**D12 — Single-org deployment in v1; retain an explicit multi-org seam.**
+Every engine and app row still carries `org_id`, and GraphJin policies still
+filter/preset it from the JWT. That is defense in depth and keeps a future
+migration possible; it is **not** a claim that v1 safely multiplexes tenants in
+one `records-db`. Physical table names (`<app>__<object>`) and `Text @id`
+primary keys are deployment-global, so two orgs installing the same app—or
+importing the same source id—would collide. v1 therefore supports exactly one
+organization per OpenNeko deployment. A future multi-org mode must first encode
+tenant identity into physical table families and record keys (or isolate each
+tenant in its own database), then add adversarial cross-tenant tests. *Rejected:*
+calling an `org_id` column alone multi-tenant isolation.
 
 **D13 — Packaging: engine ships in core.**
 With no plugin in the picture the earlier OSS-core vs paid-module question
@@ -324,38 +345,31 @@ remains the connector-grade path; plain CSV is the floor beneath it.
 action stack carries intent, not 50k rows — one approval covers the load, the
 import report is its audit); treating import as a Salesforce-only feature.
 
-**D15 — Apps have pages; shipped screens can become built-in apps.**
+**D15 — User apps have pages; OpenNeko platform screens stay native.**
 The generated UI is not only CRUD. An app can declare **pages** —
 compositions of query-driven blocks (metric card, list, feed/timeline) stored
-as registry content (`record_layout kind='page'`; definition = blocks of
+as app-scoped registry content (`engine.app_page`; definition = blocks of
 `{label, query, renderer, span}`) and rendered by one generic page renderer,
 every block's query running under the viewer's JWT like any read (D5). That
 makes "why hardcode screens?" the right question: a CRM overview with
 pipeline metric cards is registry data the agent can create and evolve, not
-code. And since the metadata DB is already served by its own GraphJin
-instance, core read surfaces are candidates for re-expression as **seeded,
-non-archivable built-in apps** — the home dashboard (metric cards + briefing
-feed) first. Two boundaries hold this together: (1) **control-plane surfaces
-stay code** — setup, settings, approvals, and action cards must never be
-definable by data the agent can write (an agent-authored page must not be
-able to imitate or alter an approval card); (2) **sequencing discipline** —
-the page layer lands when the first real app needs an overview page, and a
-core screen is re-expressed only when doing so *deletes* the hardcoded
-version, never as a parallel implementation. *Rejected:* a widget/plugin SDK
-for pages (blocks are a fixed renderer set the engine grows deliberately);
-rewriting existing screens as apps before the page layer has proven itself on
-app-native pages.
+code. The boundary is intentionally simple: **all OpenNeko platform screens
+stay hardcoded native UI** — Home/dashboard, Briefing, Work/chat, Workflows,
+Approvals, setup, settings, health, and the navigation shell. Registry-defined
+pages exist only inside user-created apps and must be visually incapable of
+imitating native approval/settings controls. *Rejected:* built-in apps for
+OpenNeko screens; a widget/plugin SDK for pages (blocks are a fixed renderer
+set the app engine grows deliberately).
 
-**D16 — Screen taxonomy, decided now: native, built-in app, or on-demand app.**
+**D16 — Screen taxonomy: native OpenNeko or user-created app.**
 
 | Tier | Surfaces | Rationale |
 |---|---|---|
-| **Native code** | Setup wizard; Settings (users, secrets, sources, plugins, health); approval cards & the action stack UI; the Work/chat thread surface; the nav shell | The control plane and the trust surface: these mutate platform state, render approvals, or *are* the agent interface. Never definable by data the agent can write (D15 boundary). |
-| **Built-in apps** (seeded, non-archivable registry content) | Home dashboard (metric cards + briefing feed) — first candidate; findings and workflow-run browsers as later page-layer candidates | Read views over the metadata GraphJin instance. Being registry content makes them agent-tunable ("add a card for open deals to my dashboard") like any app page. Re-expressed only under the D15 rule: the hardcoded version is deleted, not duplicated. |
-| **On-demand apps** | CRM, support desk, and anything the user + agent decide to build (D2a–d) | Business domains: records + pages, per app. |
+| **Native OpenNeko** | Home/dashboard; Briefing; Work/chat; Workflows; Approvals; Setup; Settings (users, secrets, sources, plugins, health); navigation shell | Platform, control-plane, and trust surfaces stay hardcoded. They are never registry content and are not part of the app-builder roadmap. |
+| **User-created apps** | CRM, support desk, inventory, and anything the user + agent decide to build (D2a–d) | Business domains: agent-proposed registry + GraphJin data layer + generated records/pages UI + CSV import. |
 
-**Shipping apps on demand:** because an app is data, a vendor-shipped app is
-a **versioned app definition** — blueprint JSON + optional connector reference
+**Shipping user-app blueprints on demand:** because an app is data, a
+vendor-shipped starting point is a **versioned app definition** — blueprint JSON + optional connector reference
 + skill pack. v1 ships definitions in-repo (`packages/records/blueprints/`);
 follow-on adds a remotely-updatable catalog ("OpenNeko ships a field-service
 app this quarter" without a platform release). Installing or upgrading a
@@ -370,19 +384,19 @@ rules apply: additive, archive-not-drop).
 
 | # | Component | Location | Phase |
 |---|-----------|----------|-------|
-| C1 | `records-db` service & provisioning | `compose.yml`, `db/records/` | 1 |
-| C2 | Engine metadata registry | `db/records/migrations/`, `packages/records/` | 1 |
-| C3 | App builder — schema action adapters + DDL executor | `apps/worker/src/records/schema/`, `packages/records/` | 1 |
-| C4 | Record write path (`record_*` adapters) | `apps/worker/src/records/` | 1 |
-| C5 | GraphJin integration (config, roles, tokens, watches) | `packages/llm/src/graphjin/`, `packages/records/src/policy/` | 1 |
-| C6 | Auto-generated web UI (`/a/[app]`) | `apps/web/src/app/a/` | 1 (read) / 3 (forms) |
-| C7 | RBAC policy module (shared read/write source of truth) | `packages/records/src/policy/` | 1 |
+| C1 | `records-db` + `records-graphjin` services & provisioning | `compose.yml`, packaged compose, `db/records/` | 0 |
+| C2 | Engine metadata registry | `db/records/migrations/`, `packages/records/` | 0–1 |
+| C3 | App builder — durable schema saga + DDL executor | `apps/worker/src/records/schema/`, `packages/records/` | 0–1 |
+| C4 | Record write path (`record_*` adapters) | `apps/worker/src/records/` | 0–1 |
+| C5 | Dedicated GraphJin integration (config, roles, tokens, watches) | `packages/records/src/graphjin/`, `packages/records/src/policy/` | 0–1 |
+| C6 | Auto-generated web UI (`/a/[app]`) | `apps/web/src/app/a/` | 1 (read/minimal forms) / 3 (full ergonomics) |
+| C7 | RBAC policy module (shared read/write source of truth) | `packages/records/src/policy/` | 0–1 |
 | C8 | Importer — baseline CSV import (every app) + staged-artifact import | `packages/records/src/import/`, worker job | 1 (CSV) / 2 (artifacts) |
 | C9 | First-party connector framework + Salesforce connector (mirror/cutover sync) | `packages/records/src/connect/` | 2 |
 | C10 | Identity mapping (source users ↔ `app_user`) | `packages/records/src/identity/` | 2 |
 | C11 | Agent skills & blueprints (app-builder, records, domain packs) | `packages/llm/assets/builtin-skills/` | 1–2 |
 | C12 | Watcher/briefing integration (`gj_watch`) | worker + seeds + docs | 3 |
-| C13 | Backup, disk & ops resilience (see §6) | compose sidecar, worker jobs, CLI | 1 (backup) / 2 (verify + watchers) |
+| C13 | Backup, disk & ops resilience (see §6) | compose sidecar, worker jobs, CLI | 0 (backup/restore) / 2 (watchers) |
 
 Dependency spine:
 C1 → C2 → C3 → {C4, C5} → C6(read) → C6(forms);
@@ -390,19 +404,64 @@ C8 depends on C3 (imports *are* app creation) and feeds C10; C9 feeds C8's
 contract; C11 rides C3/C4; C12 rides C5. C13 depends only on C1 and lands with
 it — business-critical data is never live without a backup path.
 
+### 3.1 Implementation preconditions
+
+The vision is approved, but broad implementation does not start until the
+following invariants are proven by the Phase 0 spike (§5):
+
+1. **One records data plane, with its own GraphJin process.** Records uses a
+   dedicated `records-graphjin` service and file generator. It does not reuse
+   the customer-source `sources:` persistence helper because explicit
+   `roles[].tables` cannot coexist with `sources:` in one GraphJin config.
+2. **Single-org v1 is explicit.** `org_id` remains on rows and in policies, but
+   a deployment hosts one org until physical names and keys are tenant-safe
+   (D12).
+3. **Schema apply is a saga, not a distributed transaction.** GraphJin DDL,
+   the records registry, and the metadata-DB mirror cannot commit atomically.
+   A durable desired revision, phase journal, idempotent retry, and boot-time
+   reconciler make partial progress observable and recoverable.
+4. **Approval binds exact bytes.** Execution re-diffs the live catalog and
+   requires the resulting DDL/SQL hash and catalog revision to match the
+   approved preview. Drift invalidates the approval and produces a new card.
+5. **Authorization fails closed.** Human GraphJin roles are read-only; only the
+   worker service role mutates. Policies cover every live table—including
+   archived, orphaned, engine, and just-created tables—with no exposure window.
+6. **Command idempotency is separate from row history.** One action can change
+   many rows. A command receipt is unique by action request; the change log is
+   one-to-many and never used as the command claim.
+7. **Imports checkpoint beside their writes.** Target-side run/batch receipts
+   are authoritative; metadata `app_state` is an orchestration mirror only.
+8. **Operational recovery is part of the first slice.** An encrypted,
+   coherent, verified backup plus restore reconciliation exists before real
+   business data is accepted.
+9. **The mockup tests mechanisms, not CRM exceptions.** M1 proves generated
+   content and a second adversarial domain fixture; M2 proves the complete
+   Ask/approval/pending scenario. No parity fix may add app-specific code.
+
 ---
 
 ## 4. Component implementation plans
 
-### C1 — `records-db` service & provisioning
+### C1 — `records-db` + `records-graphjin` services & provisioning
 
-**What:** a dedicated Postgres container for business data, plus lifecycle
-plumbing.
+**What:** a dedicated Postgres container for business data, a dedicated
+GraphJin process for its data plane, and their lifecycle plumbing.
 
-- `compose.yml`: add `records-db` (postgres:16, own named volume, healthcheck,
-  password provisioned like `neko-db`'s and rotated via `/setup`). Lazily
-  provisioned: not started until the first app is created, so the default stack
-  is unchanged.
+- `compose.yml` **and** `apps/openneko/assets/compose/core.yml`: add
+  `records-db` (postgres:16, own named volume, healthcheck, password
+  provisioned like `neko-db`'s and rotated via `/setup`) and
+  `records-graphjin` (pinned GraphJin image/binary, own config volume,
+  healthcheck, private network exposure only). The development and packaged
+  compose definitions, Dockerfile targets, CLI service lists, setup/upgrade
+  code, and embedded migrations are one release checklist and must stay in
+  lockstep. They may be provisioned on first user-app creation so deployments
+  that never use the app engine keep the current platform stack unchanged.
+- `packages/records/src/graphjin/config.ts`: owns the complete records config
+  (`database`/`databases`, auth, `roles`, `roles_query`, table aliases,
+  query budgets, DDL directory). It writes under a records-specific lock,
+  validates with the pinned binary, atomically replaces the config, and
+  reloads only `records-graphjin`. The customer-source
+  `persistGraphjinSourceConfigUpdate` path is deliberately not reused.
 - `db/records/migrations/`: engine-schema migrations, numbered from `0001`,
   **separate stream** from `db/migrations/` (different database, different
   lifecycle). Applied by the worker on first app creation and on boot when any
@@ -414,8 +473,8 @@ plumbing.
   CREATE TABLE app_state (
     org_id     text NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
     app_id     text NOT NULL,               -- 'crm', 'support'
-    status     text NOT NULL DEFAULT 'provisioning',
-      -- provisioning | importing | active | archived
+    status     text NOT NULL DEFAULT 'draft',
+      -- draft | provisioning | importing | active | degraded | archived
     created_by text,                        -- app_user id of the approver
     created_at timestamptz NOT NULL DEFAULT now(),
     config     jsonb NOT NULL DEFAULT '{}'::jsonb,   -- import provenance, connector state
@@ -440,14 +499,16 @@ schema `engine`, plus a typed accessor package. Unlike the earlier draft, the
 registry is **writable at runtime** — by exactly one writer, the C3 schema
 executor.
 
-Registry DDL (abridged; all tables carry `org_id`):
+Registry DDL (abridged; top-level tables carry `org_id`, child receipt rows are
+scoped through a parent foreign key):
 
 ```sql
 CREATE TABLE engine.record_app (
   app_id text NOT NULL, org_id text NOT NULL,
   label text NOT NULL, purpose text,        -- the sentence the app was created from
-  status text NOT NULL DEFAULT 'provisioning',
+  status text NOT NULL DEFAULT 'draft',
   nav_order int NOT NULL DEFAULT 0,
+  registry_revision bigint NOT NULL DEFAULT 0,
   PRIMARY KEY (org_id, app_id)
 );
 
@@ -469,6 +530,7 @@ CREATE TABLE engine.record_object (
 
 CREATE TABLE engine.record_field (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id text NOT NULL,
   object_id uuid NOT NULL REFERENCES engine.record_object(id) ON DELETE CASCADE,
   api_name text NOT NULL, source_api_name text,
   label text NOT NULL,
@@ -479,8 +541,8 @@ CREATE TABLE engine.record_field (
   required boolean NOT NULL DEFAULT false,
   read_only boolean NOT NULL DEFAULT false,   -- formulas, legacy audit (D9)
   archived_at timestamptz,                    -- D7
-  picklist_values jsonb,                       -- [{value,label,active}]
-  reference_object text,                       -- api_name of target (kind=reference)
+  picklist_values jsonb,                       -- [{value,label,active,color?,emphasis?,semantic?}]
+  reference_targets jsonb,                     -- [target api_name]; >1 supports polymorphic ids
   length int, scale int,
   UNIQUE (object_id, api_name)
 );
@@ -502,6 +564,26 @@ CREATE TABLE engine.record_layout (        -- generated defaults; editable via a
   PRIMARY KEY (object_id, kind)
 );
 
+CREATE TABLE engine.app_page (             -- app-scoped overview/custom pages (D15)
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id text NOT NULL, app_id text NOT NULL,
+  api_name text NOT NULL, label text NOT NULL,
+  definition jsonb NOT NULL,               -- closed-set block definitions
+  nav_order int NOT NULL DEFAULT 0,
+  UNIQUE (org_id, app_id, api_name)
+);
+
+CREATE TABLE engine.saved_view (           -- distinct from the default list layout
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id text NOT NULL,
+  object_id uuid NOT NULL REFERENCES engine.record_object(id) ON DELETE CASCADE,
+  owner_user_id text,                      -- null = org-owned/shared
+  label text NOT NULL,
+  definition jsonb NOT NULL,               -- semantic filter AST, sort, columns
+  shared boolean NOT NULL DEFAULT false,
+  UNIQUE NULLS NOT DISTINCT (org_id, object_id, owner_user_id, label)
+);
+
 CREATE TABLE engine.record_permission (    -- D8
   org_id text NOT NULL, app_id text NOT NULL,
   role text NOT NULL,                      -- 'admin' | 'member' (extensible)
@@ -520,12 +602,38 @@ CREATE TABLE engine.record_change_log (    -- D6; the data audit trail
   action text NOT NULL,                    -- create|update|delete|import|sync
   actor_user_id text,                      -- null = service/import
   action_request_id text,                  -- FK-by-value into metadata DB
+  mutation_id text NOT NULL,               -- unique per changed row
+  operation_seq int NOT NULL DEFAULT 0,
   changes jsonb NOT NULL,                  -- {field: {from, to}}
   at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX ON engine.record_change_log (org_id, object_api_name, record_id, at DESC);
-CREATE UNIQUE INDEX ON engine.record_change_log (action_request_id)
-  WHERE action_request_id IS NOT NULL;     -- §6.3 idempotency
+CREATE UNIQUE INDEX ON engine.record_change_log (mutation_id);
+
+CREATE TABLE engine.action_execution (    -- command-level idempotency/lease
+  action_request_id text PRIMARY KEY,      -- FK-by-value into metadata DB
+  org_id text NOT NULL, app_id text,
+  action_kind text NOT NULL,
+  status text NOT NULL,                    -- claimed|running|succeeded|failed
+  lease_owner text, lease_expires_at timestamptz,
+  result jsonb, error jsonb,
+  started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz
+);
+
+CREATE TABLE engine.app_schema_change (   -- mutable saga state; log below is append-only
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id text NOT NULL, app_id text NOT NULL,
+  action_request_id text NOT NULL UNIQUE,
+  desired_revision bigint NOT NULL,
+  catalog_revision text NOT NULL,
+  graphjin_ddl jsonb NOT NULL,
+  preview_sql text NOT NULL,
+  preview_hash text NOT NULL,
+  phase text NOT NULL,                     -- planned|approved|applying|applied|projected|failed
+  attempts int NOT NULL DEFAULT 0,
+  last_error jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+);
 
 CREATE TABLE engine.app_schema_log (       -- D6/D7; the schema audit trail
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -542,12 +650,44 @@ CREATE TABLE engine.app_schema_log (       -- D6/D7; the schema audit trail
 
 CREATE TABLE engine.identity_map (         -- C10
   org_id text NOT NULL,
+  source_instance_id text NOT NULL,        -- connector/source configuration identity
+  app_id text NOT NULL,
   source_user_id text NOT NULL,            -- e.g. 18-char SF user id
   source_email text NOT NULL, source_name text, source_is_active boolean,
   app_user_id text,                        -- null until linked
   status text NOT NULL DEFAULT 'unlinked', -- linked|unlinked|conflict|ignored
   linked_at timestamptz,
-  PRIMARY KEY (org_id, source_user_id)
+  PRIMARY KEY (org_id, source_instance_id, app_id, source_user_id)
+);
+
+CREATE TABLE engine.import_run (           -- authoritative target-side progress
+  id uuid PRIMARY KEY,
+  org_id text NOT NULL, app_id text NOT NULL,
+  action_request_id text NOT NULL UNIQUE,
+  source_instance_id text,
+  status text NOT NULL, plan_hash text NOT NULL,
+  current_stage text, result jsonb, error jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE engine.import_batch_receipt (
+  import_run_id uuid NOT NULL REFERENCES engine.import_run(id),
+  object_api_name text NOT NULL,
+  batch_no int NOT NULL,
+  batch_hash text NOT NULL,
+  row_count int NOT NULL,
+  committed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (import_run_id, object_api_name, batch_no),
+  UNIQUE (import_run_id, batch_hash)
+);
+
+CREATE TABLE engine.sync_cursor (          -- target-side delta watermark
+  org_id text NOT NULL, app_id text NOT NULL, source_instance_id text NOT NULL,
+  object_api_name text NOT NULL,
+  watermark jsonb NOT NULL,
+  last_batch_hash text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (org_id, app_id, source_instance_id, object_api_name)
 );
 ```
 
@@ -571,26 +711,28 @@ app to replace Zendesk" into a schema. Action kinds (D6), all registered via
 
 | Kind | Default mode | Effect |
 |---|---|---|
-| `app_create` | `ask` | registry app row + `CREATE SCHEMA` + `app_state` row; body carries the full initial object/field set so **one approval card shows the whole proposed app** |
+| `app_create` | `ask` | registry app row + prefixed app tables + `app_state` row; body carries the full initial object/field set so **one approval card shows the whole proposed app** |
 | `app_object_create` | `ask` | registry rows + `CREATE TABLE` (+ indexes, `nk_*` audit columns, `owner_user_id` when owned) |
 | `app_field_add` | `ask` | registry row + `ALTER TABLE ... ADD COLUMN` |
 | `app_field_modify` | `ask` | label/picklist/required/layout tweaks (registry-only); a type change is never in-place — the adapter returns the add-new-field + backfill + archive-old counter-proposal (D7) for the agent to propose |
 | `app_object_archive` / field archive | `ask` | sets `archived_at`; hides from UI/agent/GraphJin projection; **no DDL, no data loss** |
 | `app_permission_set` | `ask` | updates `record_permission`; triggers C5 role regeneration |
-| `app_layout_update` | `auto` | layout JSON only — no schema or policy effect |
+| `app_layout_update` | `ask` | layout/page JSON only — no schema or policy effect, but still an operator-visible change to the app |
 
-Executor rules (DDL applies in GraphJin's own transaction via `db sync`;
-registry + schema-log commit together in an engine transaction; `app_state`
-mirrors in the metadata DB after apply):
+Executor rules: GraphJin's individual DDL apply is transactional, but the
+records registry, the GraphJin subprocess, config projection, and metadata-DB
+mirror are not one transaction. C3 therefore executes a **durable saga** from
+`engine.app_schema_change`; no prose or code may describe the whole operation
+as atomic.
 
 1. Everything named passes through `naming.ts`; identifiers are always quoted.
 2. The executor projects the registry delta into a **GraphJin DDL document**
    (desired-state `type` definitions — no SQL authored anywhere in OpenNeko)
-   and drives the shipped binary: `graphjin db diff` renders the SQL delta
-   for the approval card, `graphjin db sync --yes` applies it in one
+   and drives the shipped binary: `graphjin db diff` renders the technical SQL
+   delta stored with the proposal, and `graphjin db sync --yes` applies it in one
    transaction with rollback-on-error, and the schema reloads so new tables
    are queryable (role/permission projection still regenerates under
-   `acquireGraphjinConfigLock`). Destructive mode is **never enabled** —
+   the records-specific config lock). Destructive mode is **never enabled** —
    archive semantics (D7) mean the engine never asks GraphJin to drop
    anything, and the diff engine is additive-only regardless
    ([RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §1). Schema conventions in
@@ -605,19 +747,43 @@ mirrors in the metadata DB after apply):
    archive-old — every step additive, every step through GraphJin.
    Index-on-existing-column is a documented limitation (indexes are chosen
    at field creation; adding later is an upstream contribution candidate).
-   Alongside the tables, provisioning installs the **audit trigger** (the
-   `engine.*` substrate's one per-table artifact) that powers C4's
-   change-log capture.
-3. Registry write + `app_schema_log` append commit together, recording the
-   submitted GraphJin DDL and GraphJin's preview response; `app_state`
-   mirror updates after apply.
-4. Approval-card rendering: the adapter runs the preview at propose time —
-   the card shows the GraphJin DDL delta plus the generated SQL GraphJin
-   returned, so the admin approves exactly what GraphJin will execute.
-5. `hard_drop` is **not an action kind**. It exists only as
+   Alongside the tables, provisioning installs the **audit trigger** that
+   powers C4's change-log capture. This is an explicitly bounded substrate
+   DDL path, not an app-data write path: the trigger function is versioned in
+   `db/records/migrations/`, attachment is idempotent and executor-owned, and
+   boot reconciliation verifies every live app table has the current trigger.
+3. Proposal persists the desired registry revision, live-catalog revision,
+   GraphJin DDL, preview SQL, and a hash over all four. The approval card shows
+   only the high-level object/field/relationship plan, warnings, and expected
+   effects—never raw SQL. The technical artifact remains in the schema log for
+   audit/debug and is bound to the card by its hash. Immediately before apply,
+   the executor re-reads
+   the live catalog and re-runs `db diff`; any revision or hash mismatch marks
+   the proposal stale and requires a fresh approval. Only C3 possesses DDL
+   credentials; a records-schema lease serializes every engine DDL operation
+   across the final diff, `db sync`, and post-apply catalog verification.
+   `db sync` may execute only while the final diff matches the approved hash.
+4. The saga advances idempotently through `planned → approved → applying →
+   applied → projected`. `applied` means the physical DDL and trigger exist;
+   `projected` means registry rows, exhaustive GraphJin policy/config, and the
+   metadata `app_state` mirror all reflect the desired revision. Every phase
+   appends an `app_schema_log` event. On boot, and after any failure, a
+   reconciler compares desired registry state, live catalog, config revision,
+   and metadata mirror and resumes from the last proven phase.
+5. New-table rollout is fail closed. While a table is created and its trigger
+   and policies are projected, `records-graphjin` is removed from readiness
+   and accepts no requests. C5 introspects the resulting live catalog, emits
+   explicit rules for every table, validates the full config, atomically
+   reloads it, and only then restores readiness. A failed projection leaves
+   the data plane degraded, never permissive.
+6. Successful `app_create` projection marks both registry and metadata mirror
+   `active`. Navigation and `/a/[app]` discover the app from those rows, so the
+   generated UI and CSV-import affordance appear immediately without a deploy,
+   generated source file, or plugin install.
+7. `hard_drop` is **not an action kind**. It exists only as
    `openneko records drop --app X --object Y` with typed confirmation and a
    fresh-verified-backup check (D7).
-6. Gating: the records configuration runs `analytics_mode: true` +
+8. Gating: the records configuration runs `analytics_mode: true` +
    `read_only: false` (see D5) — DDL applies only through the worker's C3
    wrapper (which holds the binary + connection), and mutations only under
    worker-held `service` credentials via the generated role config.
@@ -633,13 +799,15 @@ proposes through `app_create`; it is never auto-applied.
 (`packages/llm/test/integration/action-flow.test.ts`): full app create from a
 blueprint fixture; lossless vs lossy type-change paths; archive hides but
 retains; identifier-injection attempts (hostile labels) rejected by
-`naming.ts`; schema-log/DDL correspondence; concurrent app-create races
-(second one fails cleanly on the registry unique).
+`naming.ts`; schema-log/DDL correspondence; preview/apply catalog drift forces
+re-approval; a kill at every saga phase reconciles on restart; a just-created
+table is never queryable before its exhaustive deny/grant projection; concurrent
+app-create races (second one fails cleanly on the registry unique).
 
 ### C4 — Record write path
 
 **What:** the data-side adapters — `record_create` / `record_update` /
-`record_delete` in `apps/worker/src/records/adapters.ts`, registered alongside
+`record_delete` / `record_restore` in `apps/worker/src/records/adapters.ts`, registered alongside
 the manage-adapters at worker boot.
 
 Payload shapes (declared with `example` payloads so the agent emits them
@@ -668,22 +836,34 @@ Executor steps, in order — every write is a GraphJin mutation as `service`
 3. **RBAC** (C7): acting user's role + `record_permission` CRUD grant +
    ownership rule for `visibility='owner'` objects. Actor comes from the
    action request's actor snapshot.
-4. **Idempotency pre-check:** query `engine.record_change_log` for this
-   `action_request_id` (unique-indexed, §6.3) — a replay returns the
-   original outcome without re-executing.
+4. **Atomic execution claim:** insert or lease
+   `engine.action_execution(action_request_id)` before calling GraphJin. A
+   succeeded receipt returns the stored result; a live lease prevents a second
+   executor; an expired lease may be reclaimed. The row history is never used
+   as a command lock because one action may legitimately change many rows.
 5. Execute the mutation: `insert` for create; `update` for update **and**
    soft delete (`nk_deleted_at` — recycle-bin semantics; `delete` mutations
    are blocked for every role). Stamp `nk_updated_by/at` +
-   `nk_action_request_id` in the same mutation (`nk_created_*` on create).
+   `nk_action_request_id` and a deterministic per-row `nk_mutation_id` in the
+   same mutation (`nk_created_*` on create).
    **Optimistic concurrency in the `where`:** `record_update.expected`
    values fold into the update filter — an empty result array means the
    expectation failed, a typed error the agent can re-plan on. Race-free,
    enforced in-engine.
 6. The provisioning-installed audit trigger writes
    `engine.record_change_log` (field-level OLD/NEW diff, actor,
-   `action_request_id` from the row) in the same transaction.
-7. Return the outcome; the workflow layer records `(table, pk)` into
+   `action_request_id` and `mutation_id` from the row) in the same transaction.
+   Multiple rows may share one action request; only `mutation_id` is unique.
+7. Mark the execution receipt succeeded with the serializable outcome; the
+   workflow layer records `(table, pk)` into
    `workflow_run.source_writes` for the subscription cycle-check.
+
+**Soft-delete contract:** every generated human/service read, aggregate,
+relationship lookup, reference typeahead, watcher, and count adds
+`nk_deleted_at IS NULL` unless it explicitly targets the recycle bin. Restore
+is a typed `record_restore` update through this same executor. The service role
+does not silently bypass deletion or org filters; maintenance operations opt
+into those scopes explicitly.
 
 Default `action_policy` seeding on app creation: create/update/delete → `ask`
 (operators can rule-in `auto` for safe classes, e.g. activity logging).
@@ -695,7 +875,9 @@ too, which is correct.
 
 **Testing:** extend the `action-flow` pattern for the three kinds: validation
 failures, RBAC denials, concurrency conflict, change-log diff correctness,
-`source_writes` recording, soft delete, replay idempotency.
+`source_writes` recording, soft delete hidden across lists/counts/relationships/
+watches, restore, multi-row actions sharing one request id, lease recovery, and
+replay idempotency.
 
 ### C5 — GraphJin integration
 
@@ -703,12 +885,13 @@ failures, RBAC denials, concurrency conflict, change-log diff correctness,
 roles); project policy into role config; serve reads, mutations for the
 executors, and `gj_watch` standing watches.
 
-- **Registration:** on first app creation, drive the existing
-  `register_source` machinery (`persistGraphjinSourceConfigUpdate` under
-  `acquireGraphjinConfigLock`) with a `database` source named `records`,
-  connection secret via `data_source_secret`, `auth_mode: 'jwt'`, signing
-  secret from `graphjinSigningSecretB64(orgId)`. Approval-gated like every
-  source change.
+- **Dedicated instance/config:** on first app creation, C1 provisions the
+  private `records-graphjin` service and C5 writes its complete standalone
+  file config via `packages/records/src/graphjin/config.ts`. Connection and
+  signing secrets still use the normal secret/key derivation mechanisms, and
+  a metadata `data_source` row may point at the endpoint for catalog discovery,
+  but `register_source` and `persistGraphjinSourceConfigUpdate` never author
+  this config. The records config owns no `sources:` block.
 - **Role generation (C7 output):** `packages/records/src/policy/graphjin.ts`
   projects `record_permission` + `record_object.visibility` into GraphJin's
   **Table-permissions `roles:` config** (D5,
@@ -717,15 +900,25 @@ executors, and `gj_watch` standing watches.
   lists and `block: true` on every mutation (the D6 write path is
   role-enforced); row filter `"{ owner_user_id: { eq: $user_id } }"` on
   `visibility='owner'` tables for `member` ($user_id resolves from the JWT
-  `sub`); `service` reads everything and is the one mutation-capable role,
-  its credentials held only by the worker. Role resolution via `roles_query`
-  against `engine.actor` (user → role, worker-synced from `app_user`).
-  **The projection is exhaustive by construction** — with explicit role
-  tables an omitted table grants access, so a generator test asserts every
-  registry object appears for every role on every regeneration. Archived
-  objects/fields are excluded from the projection (and blocked explicitly,
-  not omitted). Regenerated on every C3 schema action and
-  every permission change.
+  `sub`); `service` is the one mutation-capable role, with org presets/filters
+  and deleted-row defaults retained as defense in depth; its credentials are
+  held only by the worker. Role resolution uses `roles_query` against
+  `engine.actor` (user → role, worker-synced from `app_user`); missing or stale
+  actor rows resolve to no privileged role. **The projection is exhaustive by
+  construction and live-catalog driven** — with explicit role tables an
+  omitted table grants access, so generation introspects every physical table
+  and emits every role × operation, including explicit blocks for archived or
+  orphaned app tables and every `engine.*` table not intentionally exposed.
+  Registry grants may narrow that catalog; they may never define its complete
+  universe. Regenerated on every C3 schema action and every permission change,
+  with a drift audit on boot.
+- **Query/resource budgets:** disabling the allow-list does not mean unlimited
+  work. The data-plane boundary uses native GraphJin/Postgres controls where
+  available and the OpenNeko query builder/reverse proxy where they are not to
+  enforce statement timeouts, maximum query depth/complexity, row and
+  aggregate/card limits, bounded regex/`in` inputs, and per-actor rate limits.
+  Generated analytics queries are explicit exceptions with their own higher
+  ceilings. Budget rejection is typed and visible in the UI/agent.
 - **Watching (the "watch" in the rethink):** two GraphJin layers, used for
   what each is good at ([RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §3).
   **`gj_watch` is the primary records watch mechanism**: durable
@@ -746,11 +939,15 @@ executors, and `gj_watch` standing watches.
   shape the agent path uses.
 
 **Testing:** config-generation snapshot tests (permission fixtures → YAML)
-incl. the exhaustiveness assertion (every object × role × operation);
+incl. the exhaustiveness assertion against the live catalog (every table ×
+role × operation, including orphaned/archived/engine tables); stale/missing
+actor rows fail closed; service mutations cannot cross org scope;
 live-GraphJin integration test asserting member-vs-admin row visibility on an
 `owner`-visibility table; watch smoke (insert via executor → `gj_watch`
 event fires and survives a runner restart via its stored cursor; write from
-the same run → cycle-check suppresses).
+the same run → cycle-check suppresses); negative load tests reject deep joins,
+unbounded aggregates, expensive regexes, and oversized literal lists within
+the configured budgets.
 
 ### C6 — Auto-generated web UI (`/a/[app]`)
 
@@ -773,8 +970,8 @@ Routes:
 /a/[app]/[object]/[id]         → record detail: layout sections; related lists
                                  from record_relationship; change-log timeline;
                                  inline ask-box
-/a/[app]/[object]/new          → create form (generated)
-/a/[app]/[object]/[id]/edit    → edit form (generated)
+/a/[app]/[object]/new          → generated create drawer/page (minimal Phase 1)
+/a/[app]/[object]/[id]/edit    → generated edit drawer/page (minimal Phase 1)
 /a/[app]/admin                 → import report, identity mapping, permissions,
                                  schema history (app_schema_log)
 ```
@@ -788,11 +985,17 @@ Routes:
 - **Field rendering/edit widgets** keyed on `record_field.kind` — one
   component per kind. Reference lookups search the target object's
   `name_field` via the same read path.
-- **Page renderer (D15, Phase 3):** one generic component walking a
-  `record_layout kind='page'` definition — block renderers for metric card,
+- **Filter model:** list layouts and saved views store a typed semantic AST,
+  not GraphQL fragments: field/operator/value leaves plus relative-date macros
+  (`this_quarter`, `last_n_days`) and picklist semantics such as open/closed.
+  The query generator validates the AST against registry fields and emits
+  GraphJin shapes with leaf variables only.
+- **Page renderer (D15, Phase 3):** one generic component walking an
+  `app_page.definition` — block renderers for metric card,
   list, and feed/timeline to start; each block's query is registry-generated
   and runs under the viewer's JWT. Layout edits arrive via the
-  `app_layout_update` action ("add a card for open deals to my dashboard").
+  `app_layout_update` action ("add a card for open deals to this app's
+  overview").
 - **The ask-box** (the differentiator): every list and record view embeds a
   chat entry pre-scoped with app/object/record context (routes into the
   existing work-thread machinery with a context preamble). "Log yesterday's
@@ -801,18 +1004,25 @@ Routes:
   Schema-change proposals render the same way — "add a T-shirt-size field to
   deals" is an approval card in the same thread.
 - **Nav integration:** app sections injected into the app shell nav from
-  `record_app` + `app_state`, after Briefing/Work.
+  `record_app` + `app_state`, after Briefing/Work. Large imported apps use an
+  app switcher plus favorite/recent objects, object search, and collapsed
+  groups; hundreds of Salesforce objects are never rendered as one permanently
+  expanded rail.
+- **Honest degradation:** when `records-db` or `records-graphjin` is
+  unavailable, app routes show a prominent degraded banner with health/status
+  details. The quiet substrate strip is for healthy/background status, not an
+  outage indicator.
 - **Change-log timeline** on record detail reads `engine.record_change_log`;
   the admin schema-history page reads `engine.app_schema_log`.
 
 **Testing:** component tests for the field-widget matrix; e2e against a seeded
 mini-registry: nav gating, list filtering, detail related-lists, form
 round-trip through the action path, member-vs-admin visibility. Plus the
-**mockup-parity test** ([mockups/README.md](mockups/README.md) §7–8): the
-mockup re-expressed as a registry fixture must render to a
-visual-regression match through the real generated pipeline — the mockup is
-the acceptance criterion for the generated UI, and any parity failure is a
-registry/renderer gap, never grounds for a special case.
+**mockup-parity tests** ([mockups/README.md](mockups/README.md) §7–8): M1
+matches the generated-content region and proves a second non-CRM fixture; M2
+matches the complete Ask/approval/pending scenario. Both render through the
+real generated pipeline — the mockup is the acceptance criterion, and any
+parity failure is a registry/renderer gap, never grounds for a special case.
 
 ### C7 — RBAC policy module
 
@@ -865,11 +1075,16 @@ and a conversation-built app are the same kind of thing.
 **Change-log policy for bulk loads:** loads below a row threshold write
 per-record `import` entries to `engine.record_change_log`; above it, one
 aggregate import event per object (file hash, row counts, reject counts,
-provenance in `app_state.config`) with the import report as the audit — the
+provenance in `engine.import_run.result`) with the import report as the audit — the
 change log stays useful instead of drowning.
 
-Pipeline stages (each checkpointed in `app_state.config.import` so a restart
-resumes; progress via `records_import_status` and a briefing card):
+Pipeline stages are checkpointed in target-side `engine.import_run` and
+`engine.import_batch_receipt`, in the same database as the inserted records.
+Each batch has a deterministic hash and its receipt commits with that batch's
+mutation; a crash cannot commit rows without authoritative progress. The
+metadata `app_state.config.import` value is a best-effort orchestration/status
+mirror, never the resume authority. Progress remains visible via
+`records_import_status` and a briefing card.
 
 1. **Manifest.** Read `describe/*.json` when present (exact types, picklists,
    relationships, profiles); else infer per CSV: header names + typed sampling
@@ -891,6 +1106,10 @@ resumes; progress via `records_import_status` and a briefing card):
    as `service` (D6 — one atomic statement per batch; no `COPY`, no direct
    SQL); a failed batch bisects to isolate offending rows, which quarantine
    to `engine.import_reject` with reasons rather than aborting the object.
+   Before each batch, normalize source identifiers (Salesforce 15-character
+   ids become their canonical 18-character form) and apply the approved
+   duplicate policy. v1 insert-only treats an existing primary/selected
+   duplicate key as a reported duplicate, never a silent overwrite.
    Per-file row-count reconciliation against the manifest. Batch size is
    tuned by measurement — bulk-insert throughput vs `COPY` is a tracked
    risk (§7), not a design escape hatch.
@@ -907,8 +1126,9 @@ resumes; progress via `records_import_status` and a briefing card):
 **Testing:** golden-fixture test with a miniature fake export (a dozen objects
 incl. one `__c`, compound address, formula field, multipicklist, dangling
 refs, a user CSV with one email collision); property tests for the CSV parser;
-resume test (kill between stages, re-run, assert idempotence — every stage
-`ON CONFLICT`-safe / `IF NOT EXISTS`-guarded).
+resume tests kill immediately before and after every target batch commit and
+between stages, then assert no duplicates or missing rows; concurrent-run and
+cancel/restart tests verify receipts, history, and diagnostics remain intact.
 
 ### C9 — First-party connector framework (Salesforce first)
 
@@ -968,7 +1188,12 @@ kinds: `salesforce_discover` (`auto`), `salesforce_export_start` (`ask`),
 - **Delta sync:** `SystemModstamp > watermark` (+ `queryAll` for deletes)
   from the manifest watermark; changes are applied **through the C4 executor**
   as the `service` actor (logged as `sync` in the change log) so even sync
-  writes hit the one write path. In mirror mode this runs on a schedule
+  writes hit the one write path. Each target batch uses deterministic mutation
+  ids; after all receipts succeed it advances `engine.sync_cursor`, keyed by
+  connector instance + app + object and guarded by the batch hash. A crash
+  before cursor advance safely replays already-receipted mutations; a cursor
+  never advances over an unapplied change. `app_state.config` mirrors the
+  watermark for status only. In mirror mode this runs on a schedule
   indefinitely; in primary mode it's the transition window that winds down at
   cutover. One-way inbound either way — never a write-back bridge.
 - **Client discipline:** token caching/refresh, 429/`Retry-After` and
@@ -999,7 +1224,9 @@ job's watermark/resume.
 
 ### C10 — Identity mapping
 
-**What:** `engine.identity_map` population + lazy linking + admin surface.
+**What:** source-instance-scoped `engine.identity_map` population + lazy
+linking + admin surface. No external id is globally unique merely because its
+source system says so.
 
 - **At import:** for each imported user row, `lower(email)` match against
   `app_user` (active only) → `status='linked'`; no match → `'unlinked'`;
@@ -1014,9 +1241,15 @@ job's watermark/resume.
 - **Agent access:** the mapping is readable through GraphJin (admin-role only)
   so chat can answer "who owned these accounts in Salesforce?" during
   transition.
+- **Reference fidelity:** imported relationships retain their connector
+  instance and source id. Salesforce polymorphic fields such as `WhoId` and
+  `WhatId` populate `record_field.reference_targets` and resolve against the
+  permitted target set; they are never collapsed to one guessed object.
 
-**Testing:** unit tests for match/conflict states; integration test that a
-fresh SSO sign-in links a previously unlinked user and backfills ownership.
+**Testing:** unit tests for match/conflict states, two source instances with the
+same external id, Salesforce 15→18 id normalization, and polymorphic reference
+resolution; integration test that a fresh SSO sign-in links a previously
+unlinked user and backfills ownership only for the intended source/app.
 
 ### C11 — Agent skills & blueprints
 
@@ -1071,12 +1304,15 @@ both trigger modes (gj_watch-fired and scheduled).
   `neko-db` pattern.
 - Worker: `QUEUE.RECORDS_BACKUP_VERIFY` (weekly restore-verification job),
   disk-watermark sampler feeding backpressure state, ops watcher seeds.
-- CLI: `openneko records backup now|status|restore --to <time>`;
-  `openneko doctor` gains disk-headroom, backup-age, and WAL-archive checks.
+- CLI: records participates in the platform commands
+  `openneko backup now|status` and `openneko restore --to <time>`; there is no
+  competing records-only backup command. `openneko doctor` gains records
+  connectivity, absolute/percentage disk headroom, backup-age, and WAL-archive
+  checks.
 - C8/C4/C3 integration: importer pre-flight headroom check; write-path and
-  sync backpressure at watermarks; executor idempotency via the
-  `record_change_log.action_request_id` unique index; `hard_drop` CLI gated on
-  a fresh verified backup.
+  sync backpressure at watermarks; executor idempotency via
+  `engine.action_execution` and target-side batch receipts; `hard_drop` CLI
+  gated on a fresh verified backup.
 
 **Testing:** kill/restart matrix in CI (compose harness): kill `records-db`
 mid-write, fill a small test volume to ENOSPC during import, verify resume and
@@ -1086,56 +1322,66 @@ clean recovery; weekly verify job tested against the golden fixture backup.
 
 ## 5. Phases & acceptance criteria
 
-**Phase 1 — The engine and the app builder (C1–C7, C8-CSV, C11-builder,
-C13-backup).**
-"Create a simple app to track equipment loans" works end to end: the agent
-proposes the app (one approval card), the schema is applied and logged, the
-app appears in nav with generated list/detail views, records are created and
-updated through chat with approval cards, **a spreadsheet loads into it via
-the CSV mapping card** (chat attachment or admin upload), RBAC separates
-admin from member, and the change log shows everything.
-*Acceptance:* blueprint-fixture app create → CRUD → browse passes as e2e; a
-5k-row CSV imports into an existing object with unmatched-header field
-suggestions, quarantined-row report, and correct duplicate detection, from
-both chat and admin upload; member vs admin see different rows on an
-owner-visibility object in both UI and chat; hostile-label identifier
-injection rejected; archive hides but retains; WAL archiving + base backup
-running against both databases and a manual restore drill documented and
-executed once — **no real business data before the backup path works**.
+**Phase 0 — Feasibility, security, and recovery spike (C1–C5, C7,
+C13-core).**
+Prove one seeded dynamic object end to end before building the broad product:
+dedicated `records-db` + `records-graphjin`; DDL preview/hash/apply/reconcile;
+JWT read policy; worker-service mutation with action receipt and audit trigger;
+soft delete/restore; query budgets; encrypted backup/restore.
+*Acceptance:* every §3.1 precondition has an automated proof. Kill the worker
+at every schema-saga phase and recover to `projected`; mutate the catalog
+between preview and apply and require re-approval; create an unknown/orphaned
+table and prove every human operation is blocked; prove there is no
+new-table exposure window; replay a multi-row action without duplicate effects;
+hide deleted rows from every generated read; reject adversarial expensive
+queries; restore both databases and configuration from a coherent backup and
+run reconciliation. **No broader implementation proceeds until this gate is
+green.**
 
-**Phase 2 — Salesforce liberation (C8-artifacts, C9, C10, C11-crm-pack,
-C13-verify/watchers).**
-Both connector-grade feeders live: whole-system CSV-dump import and connected
-import ("create an app that will let me bring in my Salesforce data"),
-producing a CRM app with identity mapping and import report; **mirror-mode
-ongoing sync** and primary-mode cutover with a transition window.
-*Acceptance:* golden fixture import completes resumably and is idempotent;
-mocked-SF full export → import chain completes hands-free from one approval,
-reconciles counts, survives kill/resume at every stage; a mirror-mode app
-rejects local writes with the typed error while chat reads/watchers work;
-delta runs apply through the C4 executor as `service` and don't re-fire
-watchers; cutover flips the mode by approval and opens writes; API budget
-governor demonstrably throttles; weekly restore-verification job green and
-alerting through a channel; unlinked/conflict identity report visible.
+**Phase 1 — First real app vertical slice (C6-M1, C8-CSV, C11-builder).**
+"Create an app to track equipment loans" works end to end: conversation creates
+a draft proposal; the operator reviews the high-level schema with no SQL;
+approval provisions
+the app; generated list/detail plus a minimal create/edit drawer make it usable;
+scoped Ask writes use approval cards; a spreadsheet loads through the mapping
+card.
+*Acceptance:* 5k-row CSV import survives kills around every batch commit with
+no missing/duplicate rows; member/admin visibility agrees in UI and chat;
+archive and recycle-bin behavior work; hostile identifiers are rejected; the
+M1 generated-content visual contract passes; a second adversarial equipment or
+support fixture proves the renderer handles long labels, nulls, no ownership,
+unknown picklists, hidden fields, and many fields with no app-specific code.
 
-**Phase 3 — App ergonomics (C6-forms + pages + admin, C12).**
-Generated create/edit forms on every object through the same action path;
-the D15 page layer with an app overview page on the CRM blueprint;
-permissions admin; identity admin; schema-history page; saved list views;
-watcher/briefing seeds (`gj_watch`-fired, scheduled fallback).
-*Acceptance:* e2e create/edit/delete round-trips per field kind; a `deny`
-policy blocks the form path too; an `app_layout_update` adds a metric card to
-an app page and it renders under the viewer's JWT; permission edit
-regenerates GraphJin config and the drift test stays green; seed watchers
-fire from `gj_watch` events, resume across a restart, and skip self-writes.
+**Phase 2 — Salesforce mirror and cutover (C8-artifacts, C9, C10,
+C11-crm-pack, C13-verify/watchers).**
+Whole-system CSV-dump and connected import produce a CRM app with
+source-scoped identity and an import report; mirror-mode delta sync runs until
+an explicit cutover state machine freezes scheduling, applies a final delta,
+verifies its watermark, and opens local writes.
+*Acceptance:* mocked-SF export/import reconciles counts and survives kill/resume
+at every stage; 15/18-character ids, duplicate keys, polymorphic references,
+and identical ids from two connector instances resolve correctly; target-side
+receipts make delta replay harmless; mirror writes reject clearly; API budgets
+throttle; cutover cannot interleave sync and local writes; verified restore and
+unlinked/conflict identity reporting are visible.
 
-**Phase 4 — Second feeder, built-in apps & scale-out.**
-A second connector (Zendesk-shaped, mirror-first) proving the C9 interface
-generic; the first core-screen re-expression as a built-in app (home
-dashboard, under the D16 delete-not-duplicate rule); the shipped-app
-definition format versioned toward a remotely-updatable catalog; saved view
-sharing; per-app role extensions beyond admin/member if a real app demands
-them (D3 discipline); ContentVersion/file import.
+**Phase 3 — Full application ergonomics and scenario parity (C6-M2/M3,
+C12).**
+Complete generated forms, app pages, semantic saved views, permissions and
+identity admin, schema history, and watcher/briefing seeds. The native Ask and
+approval surfaces compose into generated apps without becoming registry data.
+*Acceptance:* the full CRM mockup scenario passes visual and behavioral parity;
+every field-kind form round-trips; a deny policy blocks form and agent paths;
+an approved `app_layout_update` changes an `app_page`; saved views honor
+user/org ownership; `gj_watch` resumes and skips self-writes; outage banners
+are distinct from the quiet substrate strip.
+
+**Phase 4 — Generality and scale-out.**
+A second connector (Zendesk-shaped, mirror-first) proves the C9 interface;
+shipped user-app blueprints become versioned toward a remote catalog;
+navigation scales to hundreds of objects; per-app roles extend beyond
+admin/member only when a real app demands them; ContentVersion/file import
+follows. Native OpenNeko platform screens remain outside this roadmap.
 
 ---
 
@@ -1162,9 +1408,9 @@ watcher machinery monitoring the substrate it runs on.
 | Container crash (web/worker/graphjin) | Requests fail until restart | Stateless services + `restart: unless-stopped` + healthchecks (exists); pg-boss jobs resume; no state lost |
 | Container crash (`records-db`) | Reads/writes fail; no data loss | Postgres WAL crash recovery; healthcheck-gated dependents; fast restart (C13) |
 | Worker dies mid-write | Half-applied action? | Each write is one atomic GraphJin mutation + same-transaction audit trigger (C4); action journal + retry (§6.3) |
-| Worker dies mid-schema-change | Half-created app? | Desired-state DDL makes re-sync a no-op (C3); registry + schema log commit together, `ON CONFLICT`-safe; `app_state` mirror updates after apply |
-| Worker dies mid-import / mid-export | Stuck migration | Checkpointed idempotent stages (C8); export checkpoints + resumable Bulk pagination (C9) |
-| Disk full | Postgres PANICs; stack down | Dedicated volume, watermarks + backpressure, pre-flight checks (§6.4) |
+| Worker dies mid-schema-change | Physical/registry/config state may differ | Durable schema saga + desired revision + preview hash + boot reconciliation (C3); never a cross-DB transaction |
+| Worker dies mid-import / mid-export | Stuck or replayed migration | Target-side import/batch receipts (C8); deterministic mutations + target sync cursor; resumable export checkpoints (C9) |
+| Disk full | Postgres PANICs; stack down | Attributable volume metrics, percentage + absolute-byte watermarks, backpressure, pre-flight checks (§6.4) |
 | Volume/host loss | **Data loss** | Continuous WAL archiving + base backups + verified restore (§6.5) |
 | Silent backup rot | Discovered at the worst moment | Weekly automated restore verification + backup-age watcher (§6.5) |
 | GraphJin down | App reads *and* writes fail (one data plane) | Stateless restart; degraded UI banner; journaled action requests retry (§6.3); agent reports source unavailable (§6.6) |
@@ -1192,28 +1438,32 @@ The single-write-path decision (D6) is also the durability story:
   fast with a typed error and is retried by pg-boss
   (`retryLimit`/`retryDelay`/`retryBackoff`, per-queue — the `CHANNEL_DELIVER`
   precedent uses 8 retries with exponential backoff).
-- Retries must not double-apply: `engine.record_change_log` carries a
-  **unique index on `action_request_id`** — the executor pre-checks it (a
-  replay returns the original result without re-executing), and the audit
-  trigger makes it a hard backstop: a duplicate mutation slipping through
-  fails on the unique index and rolls back with the write, in the same
-  transaction. Schema actions get the same guard via `app_schema_log`.
-- Delta sync applies through the same executor, so a crashed sync run resumes
-  from its watermark and re-applies safely.
+- Retries must not double-apply: `engine.action_execution` atomically claims a
+  command and stores its result. `engine.record_change_log` is intentionally
+  one-to-many by action request; deterministic per-row `mutation_id` is its
+  uniqueness backstop. Schema actions use the saga's unique action request and
+  desired revision.
+- Imports commit deterministic batch receipts beside their target inserts;
+  delta sync uses deterministic mutation receipts and advances a target-side
+  cursor only after all changes are proven. A crash replays harmlessly.
 
 ### 6.4 Disk exhaustion — the #1 self-hosted killer
 
 Postgres on ENOSPC PANICs but does not corrupt: freeing space and restarting
 recovers. The plan's job is to make that event rare and non-catastrophic:
 
-- **Dedicated volume** for `records-db` (C1), so a runaway container log or
-  model cache elsewhere cannot starve the database, and so disk accounting is
-  attributable.
+- **Dedicated volume** for `records-db` (C1) so accounting and lifecycle are
+  attributable. A named volume is not physical isolation: volumes commonly
+  share the host filesystem, so unrelated logs/caches can still exhaust it.
 - **Pre-flight checks:** the importer estimates footprint (~CSV bytes × 2 for
   heap + indexes + WAL; connected export adds staging bytes) and refuses to
   start below that headroom, telling the admin exactly how much is needed.
-- **Watermarks with backpressure** (C13): a worker sampler tracks volume
-  usage. At 80% — warning finding on the Briefing + channel alert. At 90% —
+- **Watermarks with backpressure** (C13): an ops sidecar/exporter with the
+  required host/volume mounts publishes filesystem metrics; the unprivileged
+  worker consumes them rather than assuming it can inspect Docker volumes.
+  Thresholds combine percentage and absolute free bytes, taking the more
+  conservative result. At 80% — warning finding on the Briefing + channel
+  alert. At 90% —
   degrade deliberately: pause delta sync, imports, and exports, refuse new
   bulk operations, keep interactive single-record writes alive until a hard
   stop at 95%. Recovery is automatic when space frees.
@@ -1221,7 +1471,7 @@ recovers. The plan's job is to make that event rare and non-catastrophic:
   (§6.5), autovacuum/bloat surfaced in `openneko doctor` and
   `records status`.
 
-### 6.5 Backups — the redundancy floor (non-negotiable, Phase 1)
+### 6.5 Backups — the redundancy floor (non-negotiable, Phase 0)
 
 A single-host deployment's real redundancy is a **verified, off-volume
 backup**:
@@ -1230,13 +1480,18 @@ backup**:
   (default nightly) base backups, covering **both** `records-db` and `neko-db`
   (the action journal and app state live in the metadata DB; a restore needs
   a consistent pair, and cross-DB references are by-value for exactly this
-  reason). RPO with WAL archiving: minutes. Point-in-time recovery also
-  covers the human-error *and agent-error* cases ("restore to just before the
-  bad bulk update").
-- **Targets:** local path / mounted NAS by default; S3/GCS configurable at
+  reason). Independent Postgres backups are not a distributed snapshot, so
+  every backup set carries a global manifest: database recovery points,
+  config revision/hash, saga/action/import high-water marks, and a short
+  quiesce boundary where required. Restore reconciles C3/C5/import state
+  before traffic opens. RPO with WAL archiving: minutes. Point-in-time recovery
+  also covers the human-error *and agent-error* cases ("restore to just before
+  the bad bulk update").
+- **Targets:** an encrypted repository (with keys/access policy separate from
+  the data volumes), local path / mounted NAS by default; S3/GCS configurable at
   setup. The backup target must be a different failure domain than the data
   volume — setup warns loudly when it isn't.
-- **Restore:** `openneko records restore --to <timestamp>` drives the runbook
+- **Restore:** platform `openneko restore --to <timestamp>` drives the runbook
   (stop dependents → restore → replay WAL → re-run doctor); documented for
   the full-host-loss case (fresh host + backup target = working stack).
 - **Verification:** an unverified backup is a hope, not a backup. A weekly
@@ -1300,11 +1555,11 @@ each with its approving action request.
   but a plausible-looking bad schema (wrong kinds, missing relationships)
   costs rework. Mitigations: blueprints as strong priors, the app-builder
   skill's interview discipline, additive evolution making fixes cheap, and
-  the counter-proposal path for lossy changes. Watch item: whether Phase 1
-  needs a "draft app" state (visible to admin only) before go-live.
+  the counter-proposal path for lossy changes. M0 makes the draft app state
+  (admin-visible, not live) explicit before schema approval.
 - **GraphJin config churn.** Table exposure reloads with `db sync`, but
   role/permission projection still regenerates config on schema and
-  permission actions. `acquireGraphjinConfigLock` serializes writers;
+  permission actions. The records-specific config lock serializes writers;
   frequent regeneration on a busy build session needs debouncing and a
   reload-cost check against a live GraphJin. Measure in Phase 1.
 - **GraphJin DDL expressiveness & version coupling.** C3 leans on GraphJin's
@@ -1323,9 +1578,10 @@ each with its approving action request.
   tuning for busy apps. Scheduled-watch remains the fallback either way.
 - **The role-config generator is security-critical.** The D8 model maps
   onto GraphJin's Table-permissions config, but exhaustiveness is
-  load-bearing: an object omitted from the projection is *accessible*, not
-  blocked, for non-anon roles. The generator test (every object × role ×
-  operation present) and the C7 drift test are the safety net. Adding roles
+  load-bearing: a table omitted from the projection is *accessible*, not
+  blocked, for non-anon roles. Live-catalog generation, the every-table × role
+  × operation test, new-table readiness gate, and the C7 drift test are the
+  safety net. Adding roles
   beyond admin/member later means new `roles_query` matches — cheap — but
   widening the actor model touches `engine.actor` sync.
 - **Bulk-insert throughput.** Imports load through batched GraphJin array
@@ -1335,9 +1591,9 @@ each with its approving action request.
   in Phase 2's golden-fixture benchmark before real migrations run.
 - **Records runs with the allow-list disabled.** Generated UI queries are
   dynamic, so the records GraphJin config opts out of saved-query
-  enforcement and leans entirely on role config + JWT. Deliberate, but it
-  must be scoped to the records configuration only and stated in the C5
-  security review.
+  enforcement. Deliberate and scoped to the standalone records instance, but
+  safe only with C5's time/depth/complexity/row/aggregate/input/rate budgets
+  and negative load tests in the security gate.
 - **Dynamic-DDL hygiene.** `naming.ts` is the only path to an identifier and
   is security-sensitive (SQL injection via labels/CSV headers). Strict
   allowlist grammar + exhaustive tests + identifiers always quoted. Now
@@ -1347,9 +1603,14 @@ each with its approving action request.
   The approval card names destinations, but a per-connector host allowlist
   enforced at the HTTP-client layer (not just documented) is the stronger
   posture — scoped for C9.
-- **Very large orgs.** Beyond load throughput, GraphJin schema discovery
-  over hundreds of tables and the UI nav both need `record_count`/usage
-  ordering to stay usable. Watch item, not a blocker.
+- **Very large source systems.** Beyond load throughput, GraphJin discovery
+  over hundreds of tables must be measured. The UI uses search, favorites,
+  recents, and collapsed groups rather than a flat rail; the Phase 4 fixture
+  proves it remains usable.
+- **Accidental multi-org enablement.** Rows carry `org_id`, which can look more
+  capable than the physical layout is. Setup and runtime enforce one org per
+  deployment in v1; any attempt to add another org fails with the D12
+  explanation until tenant-safe physical naming/keys ship.
 - **Type inference on describe-less CSV dumps.** Misjudged columns (all-empty
   fields) are corrected by the import-plan approval card — the admin sees
   inferred types before DDL; plan-edit is a Phase 2 stretch, visibility the

@@ -42,9 +42,19 @@ never routes to them, and tests assert the mutation root's removal. The
 | Go: `core.SchemaDiff` / `GenerateDiffSQL` | the same engine as a library |
 
 **C3 consequence:** the schema executor shells out to the shipped `graphjin`
-binary — `db diff` output feeds the approval card, `db sync --yes` applies.
+binary — `db diff` output becomes the hashed technical execution artifact and
+`db sync --yes` applies. The user-facing approval card renders the high-level
+objects, fields, relationships, warnings, and effects; it never exposes SQL.
 One version-pinned wrapper module; re-evaluate on every GraphJin bump (the
 invocation surface has moved repeatedly).
+
+`db sync` performs a fresh diff; it does not apply an immutable preview
+artifact. Therefore proposal stores the DDL, live-catalog revision, preview SQL,
+and their hash. Execution re-runs `db diff` and requires an exact match before
+calling `db sync --yes`; only C3 has DDL credentials, and its schema lease spans
+the final diff, sync, and post-apply verification. Any drift invalidates the approval. The apply is one
+database transaction, but registry/config/metadata projection around it is a
+durable saga, not a distributed transaction.
 
 ### DDL format cheat sheet
 
@@ -110,7 +120,10 @@ GraphJin DDL can't express is designed around (arrays → `Jsonb`; per-app
 schemas → table prefixes; defaults → write-path behavior), not worked
 around with side-channel SQL. The one engine-owned SQL surface is the
 `engine.*` substrate itself (registry migrations and the audit trigger
-installed at table provisioning, §3) — substrate, not write path.
+installed at table provisioning, §3) — substrate, not write path. Trigger
+attachment is explicitly versioned, idempotent, and reconciled after DDL; this
+bounded second DDL path is part of the trust substrate rather than an
+unacknowledged exception.
 
 Also useful from the config surface (`configure/database`): `tables:`
 mapping supports **aliases** (`name: account, table: crm__account`,
@@ -155,11 +168,13 @@ sources:"). This is a config-layout constraint, not a capability gap.
 The C7 policy module generates the **explicit role-table config** for the
 records database — the documented Table-permissions model:
 
-- **The projection must be exhaustive**: with explicit role tables, a
+- **The projection must be exhaustive and live-catalog driven**: with explicit role tables, a
   non-`anon` role with *no* entry for a table has **unrestricted CRUD on
-  it** (`default_block` shields only `anon`). Every object × every role ×
-  all five operations, explicitly, every regeneration. Correctness *and*
-  security invariant — test it.
+  it** (`default_block` shields only `anon`). Introspect every physical table,
+  then emit every table × every role × all five operations explicitly on every
+  regeneration. Archived/orphaned app tables and unexposed `engine.*` tables
+  are blocked, never omitted. Registry rows narrow the live catalog; they do
+  not define its universe. Correctness *and* security invariant — test it.
 - Row filters: `filters: ["{ owner_user_id: { eq: $user_id } }"]` on
   `visibility='owner'` tables for `member`; none for `admin`. `$user_id`
   resolves from the JWT `sub`.
@@ -167,16 +182,18 @@ records database — the documented Table-permissions model:
   table (`engine.actor`: user id → role, synced from `app_user` by the
   worker) + `match: "role = 'admin'"` etc. (`identity.role_claims` is
   source-mode-only, so the claim path doesn't apply here.)
-- Mutation gating per role = explicit per-operation config: `member` gets
-  `insert`/`update` with column allowlists and ownership filters where
-  granted, `block: true` where not; `delete` is always `block: true` for
-  user roles (deletes are soft — an update); `service` carries full grants
-  and is only ever resolved for worker-held credentials. (Never use
+- Mutation gating per role = explicit per-operation config: `admin` and
+  `member` get `block: true` on **every mutation**, regardless of registry CRUD
+  grants; those grants are interpreted by the C4 action executor. `delete` is
+  blocked for every role because deletion is a soft update. `service` is the
+  only mutation-capable role, only ever resolved for worker-held credentials,
+  and still receives org presets/filters plus deleted-row defaults as defense
+  in depth. (Never use
   `read_only: true` on a role table as the blocking mechanism — an explicit
   `insert:` block silently overrides it.)
 - Because of the no-mixing constraint, the records config lives apart from
-  the customer-data source-mode config (own instance by default, the
-  `neko-graphjin` precedent).
+  the customer-data source-mode config in the dedicated `records-graphjin`
+  instance (the `neko-graphjin` precedent).
 
 ### `read_only` and `analytics_mode` — exact semantics
 
@@ -197,9 +214,10 @@ records database — the documented Table-permissions model:
 - Config-update surface: `identity`, `auth`, global `analytics_mode`, and
   `default_limit` are **file-only** — not writable via `gj_config`. MCP
   config tools exist in dev mode only, and disk persistence of runtime
-  config changes is dev-only. → C5/C7 regenerate config **as files** under
-  `acquireGraphjinConfigLock` and reload — which is exactly OpenNeko's
-  existing `persistGraphjinSourceConfigUpdate` pattern. No new mechanism.
+  config changes is dev-only. → C5/C7 regenerate config **as files** under a
+  records-specific lock, validate, atomically replace, and reload the dedicated
+  `records-graphjin` service. This is a new complete-config writer; it must not
+  call the customer-source `persistGraphjinSourceConfigUpdate` helper.
 
 ---
 
@@ -229,13 +247,21 @@ records database — the documented Table-permissions model:
     `engine.record_change_log` from OLD/NEW **in the same transaction as
     the GraphJin mutation**. Actor and request identity travel on the row
     (`nk_updated_by`, `nk_action_request_id`, set in the same mutation), so
-    the trigger has full context and the unique-index idempotency guard
-    holds. This closes the mixed-op gap (an update + a log insert can't
+    the trigger has full context. The change log is one-to-many by action
+    request and unique only by deterministic per-row `mutation_id`; command
+    idempotency lives in `engine.action_execution`. This closes the mixed-op gap
+    (an update + a log insert can't
     share one mutation) without any engine-side write SQL — and captures
     every write path uniformly, defense in depth included.
   - **Bulk import** — batched GraphJin array inserts (one atomic statement
-    per batch), quarantine via batch bisection on failure. Throughput vs
+    per batch) with a target-side deterministic batch receipt included in the
+    same insert operation, quarantine via batch bisection on failure. Throughput vs
     `COPY` is a measured risk, not a design change.
+
+Every generated ordinary read—including service reads—adds
+`nk_deleted_at: {is_null: true}` unless the caller explicitly requests the
+recycle-bin scope. The same invariant covers counts, reference lookup,
+relationships, subscriptions, and watches.
 
 ### Query features for the generated UI
 
@@ -302,6 +328,14 @@ generated role config + JWT — which is where D5 put it anyway. Customer
 sources keep their existing posture. Flag this explicitly in the security
 review of C5.
 
+RBAC is necessary but does not bound query cost. The records data-plane
+boundary uses GraphJin/Postgres controls where native and the OpenNeko query
+builder/reverse proxy where not to enforce statement timeout,
+depth/complexity, role query limits, aggregate/card ceilings, bounded regex and
+list inputs, and per-actor rate limits. Analytics blocks that need higher
+limits declare reviewed budgets; `analytics_mode` is never interpreted as
+permission for unbounded work.
+
 ---
 
 ## 4. Surfaces the worker/web can call
@@ -330,9 +364,11 @@ review of C5.
   for the business context our apps accumulate ("expedite checks use the
   requested ship date") — the agent can write drafts and an admin approves,
   mirroring our approval culture.
-- **Source-scoped reloads:** config updates touching one source stage,
-  validate, and swap just that source — C5's regeneration path should use
-  this so records config churn never disturbs customer sources.
+- **Dedicated reloads:** validate and atomically reload the standalone records
+  config; records churn never disturbs customer sources because it is a
+  separate process. During new-table rollout the records instance is removed
+  from readiness until live-catalog policy projection validates, eliminating
+  the fail-open exposure window.
 - **Hosted MCP OAuth:** if the records MCP surface is ever exposed beyond
   localhost, GraphJin ships protected-resource metadata, PKCE/DCR, and
   audience validation (`mcp.oauth`); note for any future remote-agent
@@ -355,11 +391,13 @@ Applied to [RECORDS_ENGINE.md](RECORDS_ENGINE.md):
 3. **Type mapping** → `multipicklist: Jsonb`; `Varchar`/`Char` spellings;
    no `@default` emission; PK stays `Text @id`.
 4. **C5/C7 RBAC** → the documented Table-permissions model
-   (`roles[].tables`), machine-generated: exhaustive per
-   object×role×operation projection (omission grants access),
+   (`roles[].tables`), machine-generated from the live catalog: exhaustive per
+   table×role×operation projection (omission grants access), human mutations
+   always blocked, service mutations org-scoped,
    `roles_query` + `engine.actor` for role resolution, explicit per-op
-   `block: true`; records config kept apart from the customer sources'
-   source-mode config (the two styles can't share one config).
+   `block: true`; a dedicated `records-graphjin` instance and complete-config
+   writer keep records apart from customer source-mode config (the two styles
+   can't share one config).
 5. **C4 writes go through GraphJin** — creates as insert mutations,
    updates/soft-deletes as conditional `update` mutations (`expected`
    folded into `where` for optimistic concurrency), change-log capture via
@@ -374,3 +412,12 @@ Applied to [RECORDS_ENGINE.md](RECORDS_ENGINE.md):
    ban, identifier length budget for auto-generated index/FK names.
 9. **Skills** → consult `gj_security` before write-capable proposals;
    catalog annotations as the home for accumulated business context.
+10. **Approval/apply integrity** → persist catalog revision + DDL + preview SQL
+    hash, re-diff immediately before execution, and require re-approval on
+    drift; reconcile the surrounding cross-database saga after failure/restore.
+11. **Idempotency and deletion** → command receipts are separate from the
+    one-to-many change log; deterministic row/batch ids guard replay; every
+    ordinary query/count/reference/watch excludes soft-deleted rows.
+12. **Dynamic-query safety** → the disabled allow-list is paired with explicit
+    time, depth, complexity, row, aggregate, regex/list, and rate budgets plus
+    adversarial load tests.

@@ -69,6 +69,8 @@
   .mine{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--text2)}
   .toggle{width:28px;height:16px;border-radius:999px;background:var(--accent);position:relative;flex:none}
   .toggle i{position:absolute;top:2px;right:2px;width:12px;height:12px;border-radius:999px;background:#fff}
+  .toggle.off{background:var(--line)}
+  .toggle.off i{right:auto;left:2px}
 
   /* table */
   .list-card{margin:2px 22px 14px;background:var(--card);border:1px solid var(--border);border-radius:var(--r-card);box-shadow:var(--shadow-soft);overflow:hidden}
@@ -204,7 +206,7 @@
         <span class="chip">Stage <b>is open</b></span>
         <span class="chip">Close date <b>this quarter</b></span>
         <span class="chip add">+ Filter</span>
-        <span class="mine">My records <span class="toggle" role="switch" aria-checked="true" tabindex="0"><i></i></span></span>
+        <span class="mine">My records <span class="toggle off" role="switch" aria-checked="false" tabindex="0"><i></i></span></span>
       </div>
 
       <div class="list-card">
@@ -328,7 +330,7 @@
     <div class="note"><div class="nk">Chat-first writes</div>
       <p>The Ask panel is scoped to the current view. The agent resolves the record by query, then proposes <b>record_update</b> — the approval card shows a field-level diff with a freshness check, and the affected row is flagged <b>pending</b> in the table. The activity log auto-fires because a rule allows it.</p></div>
     <div class="note"><div class="nk">RBAC in the data, not the chrome</div>
-      <p>"My records" and row visibility come from GraphJin row policies on the viewer's JWT — the same enforcement the agent gets. The dashed avatar marks a record still owned by an <b>unlinked SF user</b>; it links automatically when j.keller first signs in via SSO.</p></div>
+      <p>"My records" is off in this view so the unlinked source owner remains visible; turning it on narrows the already-authorized rows to the viewer's ownership. GraphJin row policies on the viewer's JWT remain the security boundary. The dashed avatar marks a record still owned by an <b>unlinked SF user</b>; it links automatically when j.keller first signs in via SSO.</p></div>
     <div class="note"><div class="nk">Substrate status, quietly</div>
       <p>The footer strip carries the operational story without stealing attention: migration provenance, delta-sync age, last <b>verified</b> backup, and outstanding identity work — each one click from its admin surface.</p></div>
   </div>

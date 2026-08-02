@@ -15,11 +15,18 @@ components.
 
 **The mockup is not an illustration — it is the acceptance criterion.** It
 depicts what the *generated* UI must produce from registry content alone
-(see §1.1), and M1 ships a registry fixture that renders to match it (§7,
-§8). It shows the **target state**, not the cold start: generation plus a
-few approval-gated `app_layout_update` tweaks (column choice/order, pill
-emphasis) — the same conversational tuning any operator would do, and the
-demo of the agent improving its own app's UI.
+(see §1.1). M1 proves the generated-content region and a second non-CRM
+fixture; M2 proves the complete Ask/approval/pending scenario against this
+screen (§7, §8). It shows the **target state**, not the cold start: generation
+plus a few approval-gated `app_layout_update` tweaks (column choice/order,
+pill emphasis) — the same conversational tuning any operator would do, and
+the demo of the agent improving its own app's UI.
+
+The finished grid is only half the product claim. Before M1 implementation,
+the design set also covers the new OpenNeko journey: conversation → draft app
+→ high-level schema review (no SQL) → approval → CSV/source mapping → provisioning → mirror
+health → cutover. Those states are native trust/creation surfaces, not registry
+pages, and prevent a familiar CRM shell from underselling the reinvention.
 
 ---
 
@@ -32,8 +39,10 @@ this screen falls into one of three buckets, and nothing falls outside them.
 
 1. **Pure registry data** — the rail group (labels, counts, `__c` badges),
    every table column and cell treatment (`record_field.kind` → renderer),
-   pill values/colors (`picklist_values` + stable-hash palette), filters
-   (registry fields × the GraphJin operator set), record counts (`count_id`
+   pill values/colors (`picklist_values[].color/emphasis`, with stable-hash
+   fallback), filters (a typed semantic AST over registry fields, including
+   relative-date macros and `picklist_values[].semantic` groups such as
+   open/closed), record counts (`count_id`
    aggregate), the "My records" toggle (registry-known ownership column).
    Zero app-specific code, by construction.
 2. **Generic mechanisms with registry inputs** (built once, app-agnostic):
@@ -64,6 +73,12 @@ fixture (§8) exercises.
 - **Reads go through GraphJin with the viewer's JWT** (D5). No SQL in web.
 - **Writes go through the action stack** (D6). The Ask panel proposes;
   forms submit pre-approved action requests. One executor, one change log.
+- **CRM is a fidelity fixture, not the universal information architecture.**
+  Large imports use an app switcher, favorite/recent objects, object search,
+  and collapsed groups instead of putting hundreds of objects in one rail.
+- **Outages are loud.** `SubstrateStrip` is quiet healthy/background status;
+  an unreachable records database/data plane renders a prominent native
+  degraded banner with a path to health details.
 
 ## 2. Mockup → component map
 
@@ -73,7 +88,7 @@ fixture (§8) exercises.
 | Breadcrumb + record count + search | `ObjectHeader` | registry + list-count query |
 | "New opportunity" / "Import" buttons | `ObjectHeaderActions` | `record_permission` (hide create without grant); Import → `records_import_*` surface (admin only) |
 | Saved-view picker + filter chips | `ViewBar` (`ViewPicker`, `FilterChip`, `AddFilterPopover`) | Phase 1: URL-state filters over registry fields · Phase 3: persisted saved views |
-| "My records" toggle | `ScopeToggle` in `ViewBar` | adds `owner_user_id: {eq: $viewer}` to the list query — display-side narrowing *on top of* GraphJin row policy, never instead of it |
+| "My records" toggle | `ScopeToggle` in `ViewBar` | adds `owner_user_id: {eq: $viewer}` to the list query — display-side narrowing *on top of* GraphJin row policy, never instead of it. It is **off** in the golden screen because an unlinked source owner is intentionally visible. |
 | Record table (columns, sort, pagination) | `RecordTable` + per-kind cell renderers | generated GraphQL list query; columns from list layout (`record_layout kind='list'`) |
 | Stage pill | `PicklistPill` (cell renderer for `kind='picklist'`) | picklist values from `record_field.picklist_values`; color assignment by stable hash into the semantic pill palette, overridable in registry |
 | Amount / dates | `NumberCell` / `DateCell` with `tabular-nums` | field `kind` + `scale` |
@@ -84,6 +99,11 @@ fixture (§8) exercises.
 | Approval card with field diff + freshness note | `RecordActCard` — **extend** the existing action approval card (`_act-card.css`, approvals flow) with a `record_update` diff body | `action_request.payload` (fields, `expected`) rendered as from→to rows |
 | Auto-fired rule line | existing action timeline row style | `action_request` resolved with mode `auto` |
 
+`ViewBar` never stores raw GraphQL. Its semantic filter AST supports ordinary
+field operators plus reviewed macros such as `this_quarter`, `last_n_days`, and
+picklist groups such as `is_open`; query generation validates them against the
+registry and binds leaf values as variables.
+
 ## 3. Routes & API
 
 ```
@@ -92,8 +112,8 @@ apps/web/src/app/a/[app]/
   page.tsx                       app home (Phase 3; until then redirect → first object)
   [object]/page.tsx              list view (this mockup)
   [object]/[id]/page.tsx         record detail (layout sections, related lists, change log)
-  [object]/new/page.tsx          create form        (Phase 3)
-  [object]/[id]/edit/page.tsx    edit form          (Phase 3)
+  [object]/new/page.tsx          minimal create drawer Phase 1; full form Phase 3
+  [object]/[id]/edit/page.tsx    minimal edit drawer Phase 1; full form Phase 3
   admin/…                        import report, identity, permissions, schema history (Phase 3)
 
 apps/web/src/app/api/a/
@@ -101,7 +121,7 @@ apps/web/src/app/api/a/
   [app]/[object]/list/route.ts       generated list query → GraphJin (viewer JWT)
   [app]/[object]/[id]/route.ts       detail + related lists + change-log page
   [app]/status/route.ts          SubstrateStrip payload
-  [app]/[object]/submit/route.ts     form submits → pre-approved action request (Phase 3)
+  [app]/[object]/submit/route.ts     minimal Phase 1 + full Phase 3 forms → pre-approved action request
 ```
 
 API routes mint the viewer's GraphJin token per request via the C5 helper
@@ -118,9 +138,10 @@ render on the server with the first page inlined.
 ## 4. Cell/field renderer matrix
 
 One renderer per `record_field.kind`, used by table cells, detail sections,
-and (Phase 3) form inputs — three views of the same registry row:
+and form inputs. Phase 1 ships the common-field subset needed by the vertical
+slice; Phase 3 completes the matrix:
 
-| kind | list cell | detail | form input (Phase 3) |
+| kind | list cell | detail | form input (complete in Phase 3) |
 |---|---|---|---|
 | text / email / phone / url | truncated text (link-ified where kind implies) | full text | text input w/ kind validation |
 | textarea | first line, muted | paragraph | textarea |
@@ -164,36 +185,44 @@ and (Phase 3) form inputs — three views of the same registry row:
 
 ## 7. Milestones
 
-**M1 (Phase 1 — read-only):** `AppNavGroup`, app gate/layout, list view
-(`ObjectHeader`, `ViewBar` with URL-state filters, `RecordTable` + renderer
-matrix minus form column), detail page (sections, related lists, change-log
-timeline), `SubstrateStrip`, `OwnerCell` identity states.
-*Done when:* every imported object browses correctly with zero
-object-specific code; member vs admin row visibility verified in e2e; **the
-mockup-parity test passes** — the `mockup-crm` fixture (below) renders the
-opportunity list view to a visual-regression match of
-`crm-main-screen.html`.
+**M0 (before Phase 1 implementation — creation/trust journey):** design the
+conversation, draft app, schema preview, approval, import/source mapping,
+provisioning, mirror health, and cutover states. *Done when:* every long-running
+or destructive-looking transition exposes exact intent, current phase,
+recovery/retry behavior, and what remains under the source system's control.
 
-**The mockup-parity fixture:** the mockup re-expressed as registry content —
-the CRM blueprint (objects, fields, picklists) + the exact list layout shown
-(columns, order, pill emphasis, stored as `record_layout` rows, as if applied
-by `app_layout_update`) + seeded records including the mockup's specific
-states (an unlinked SF owner, a pending `record_update` on the Meridian row)
-+ an `app_state.config` matching the substrate strip. If any pixel of the
-mockup cannot be produced from this fixture through the generated pipeline,
-that is a registry/renderer feature gap to fix — never a hardcoded special
-case. The fixture doubles as the seeded demo app.
+**M1 (Phase 1 — generated content and minimum usability):** `AppNavGroup`, app
+gate/layout, list view (`ObjectHeader`, semantic `ViewBar`, `RecordTable` +
+renderer matrix), detail page, minimal create/edit drawer, `SubstrateStrip`,
+and `OwnerCell` identity states. The visual contract crops to the rail + main
+generated-content region; it does not claim the M2 Ask/pending scenario exists
+yet. *Done when:* every fixture object browses correctly with zero
+object-specific code; member/admin visibility is verified; the `mockup-crm`
+generated-content crop matches; and the adversarial `mockup-operations`
+fixture renders long labels, many fields, nulls, no ownership, unknown
+picklists, and permission-hidden fields without special cases. Adding a field
+or changing layout data must change the UI without a deploy.
 
-**M2 (Phase 2 — chat writes):** `AskPanel` scoping, `RecordActCard` diff
-body, `PendingChangeMarker`, auto-fired rule rows.
-*Done when:* the mockup's Meridian scenario (update needs approval, activity
-auto-logs, row flags pending, approval clears it) passes as an e2e script.
+**The parity fixtures:** `mockup-crm` re-expresses the CRM blueprint, fields,
+picklist color/emphasis, exact list layout, semantic filters, seeded owners,
+and substrate state as registry/engine data. `mockup-operations` is deliberately
+non-CRM and awkward. At M2, CRM additionally seeds the pending Meridian action
+and native scoped thread. If a region cannot be produced through the generic
+pipeline, that is a registry/renderer gap to fix—never a hardcoded special
+case. Both fixtures double as demos.
 
-**M3 (Phase 3 — forms & admin):** create/edit forms from the renderer matrix,
-submit-as-pre-approved-action route, saved views (persisted per user/org),
-admin pages (import report, identity mapping, permissions editor).
-*Done when:* per-kind form round-trip e2e green; a `deny` policy blocks the
-form path; saved views survive reload and are shareable org-wide by admins.
+**M2 (Phase 3 — complete target-screen scenario):** `AskPanel` scoping,
+`RecordActCard` diff body, `PendingChangeMarker`, and auto-fired rule rows.
+*Done when:* the full `crm-main-screen.html` visual match and Meridian behavior
+pass together: update needs approval, activity auto-logs, row flags pending,
+approval clears it, and the unlinked owner remains visible because “My records”
+is off.
+
+**M3 (Phase 3 — full forms & admin):** complete form matrix,
+submit-as-pre-approved-action route, semantic saved views persisted per
+user/org, and admin pages (import report, identity, permissions, history).
+*Done when:* per-kind form round-trip e2e is green; a deny policy blocks the
+form path; saved views survive reload and admins can share them org-wide.
 
 ## 8. Testing
 
@@ -201,15 +230,15 @@ form path; saved views survive reload and are shareable org-wide by admins.
   detail, and form snapshots.
 - **Query-generation tests:** registry fixture → expected GraphQL documents
   (columns, filters, pagination, ordering), including injection resistance on
-  filter values (variables only, never string-built).
+  filter values (variables only, never string-built), relative-date macros,
+  open/closed picklist groups, and deleted-row exclusion.
 - **e2e (`apps/web/test/` conventions):** seeded mini-registry + records;
   nav gating (app inactive → 404, active → rail group), list filtering +
   sort + pagination, detail related lists, M2 scenario above, RBAC
   visibility split, unlinked-owner rendering.
-- **Mockup-parity visual regression (the M1 acceptance test):** seed the
-  `mockup-crm` fixture (§7), render `/a/crm/opportunity` through the real
-  generated pipeline (registry → generated GraphQL → renderers), and
-  screenshot-compare against `crm-main-screen.html` — rail group, table
-  treatment, pill palette, pending-row stripe, owner identity states, and
-  substrate strip all within tolerance. A parity failure is a
-  registry/renderer gap, not a test to relax.
+- **Mockup-parity visual regressions:** M1 compares the generated-content crop
+  and runs the non-CRM fixture; M2 compares the complete CRM screen including
+  pending stripe and native Ask panel. Pin browser version, viewport, DPR,
+  fonts, timezone, clock, locale, reduced-motion, seeded ids/counts, and
+  animation completion. A parity failure is a registry/renderer gap, not a
+  reason to relax the test.
