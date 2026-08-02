@@ -68,6 +68,11 @@ describeIfLive("records app definition projection", () => {
               kind: "picklist",
               picklist_values: ["new", "closed"],
             },
+            {
+              name: "requester",
+              kind: "reference",
+              reference_targets: ["requester"],
+            },
           ],
           layouts: [
             {
@@ -75,6 +80,10 @@ describeIfLive("records app definition projection", () => {
               definition: { sections: [{ fields: ["subject", "status"] }] },
             },
           ],
+        },
+        {
+          name: "requester",
+          fields: [{ name: "name" }],
         },
       ],
       permissions: [
@@ -125,10 +134,18 @@ describeIfLive("records app definition projection", () => {
     expect(snapshot).toMatchObject({
       revision: "2",
       app: { label: "Customer Support", status: "active", registryRevision: "2" },
-      objects: [{ apiName: "ticket", visibility: "owner" }],
       pages: [{ apiName: "overview", navOrder: 1 }],
     });
+    expect(snapshot?.objects.map((object) => object.apiName).sort()).toEqual([
+      "requester",
+      "ticket",
+    ]);
+    expect(snapshot?.objects.find((object) => object.apiName === "ticket")).toMatchObject({
+      visibility: "owner",
+    });
     expect(snapshot?.fields.map((field) => field.apiName).sort()).toEqual([
+      "name",
+      "requester",
       "status",
       "subject",
     ]);
@@ -141,5 +158,15 @@ describeIfLive("records app definition projection", () => {
         "select role from engine.actor where org_id = 'org-a' and user_id = 'records-service'",
       ),
     ).resolves.toMatchObject({ rows: [{ role: "service" }] });
+    await expect(
+      testPool.query(
+        `select source.api_name as source, target.api_name as target
+         from engine.record_relationship relationship
+         join engine.record_object source on source.id = relationship.from_object
+         join engine.record_object target on target.id = relationship.to_object`,
+      ),
+    ).resolves.toMatchObject({
+      rows: [{ source: "ticket", target: "requester" }],
+    });
   });
 });

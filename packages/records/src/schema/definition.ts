@@ -335,12 +335,20 @@ export function parseRecordAppDefinition(value: unknown): RecordAppDefinition {
   }
   assertUnique(objects.map((object) => object.apiName), "payload.objects");
   const objectNames = new Set<string>(objects.map((object) => object.apiName));
+  const liveObjectNames = new Set<string>(
+    objects.filter((object) => !object.archived).map((object) => object.apiName),
+  );
   for (const object of objects) {
     for (const field of object.fields) {
       for (const target of field.referenceTargets ?? []) {
         if (!objectNames.has(target)) {
           throw new RecordSchemaDefinitionError(
             `payload.objects.${object.apiName}.${field.apiName}: unknown reference target ${target}`,
+          );
+        }
+        if (!field.archived && !liveObjectNames.has(target)) {
+          throw new RecordSchemaDefinitionError(
+            `payload.objects.${object.apiName}.${field.apiName}: live reference target required: ${target}`,
           );
         }
       }
@@ -489,6 +497,8 @@ export async function projectRecordAppDefinition(
   const client = await pool.connect();
   try {
     return await transaction(client, async () => {
+      const objectIds = new Map<string, string>();
+      const fieldIds = new Map<string, string>();
       await client.query(
         `insert into engine.record_app
            (org_id, app_id, label, purpose, status, nav_order, registry_revision)
@@ -530,8 +540,9 @@ export async function projectRecordAppDefinition(
         );
         const objectId = objectResult.rows[0]?.id;
         if (!objectId) throw new Error(`records object projection failed: ${object.apiName}`);
+        objectIds.set(object.apiName, objectId);
         for (const field of object.fields) {
-          await client.query(
+          const fieldResult = await client.query<{ id: string }>(
             `insert into engine.record_field
                (org_id, object_id, api_name, label, kind, column_name,
                 required, read_only, archived_at, picklist_values,
@@ -545,7 +556,8 @@ export async function projectRecordAppDefinition(
                  picklist_values = excluded.picklist_values,
                  reference_targets = excluded.reference_targets,
                  length = excluded.length, scale = excluded.scale,
-                 updated_at = now()`,
+                 updated_at = now()
+             returning id`,
             [
               input.orgId,
               objectId,
@@ -564,6 +576,13 @@ export async function projectRecordAppDefinition(
               field.scale,
             ],
           );
+          const fieldId = fieldResult.rows[0]?.id;
+          if (!fieldId) {
+            throw new Error(
+              `records field projection failed: ${object.apiName}.${field.apiName}`,
+            );
+          }
+          fieldIds.set(`${object.apiName}\u0000${field.apiName}`, fieldId);
         }
         for (const layout of object.layouts) {
           await client.query(
@@ -573,6 +592,41 @@ export async function projectRecordAppDefinition(
              set definition = excluded.definition, updated_at = now()`,
             [input.orgId, objectId, layout.kind, JSON.stringify(layout.definition)],
           );
+        }
+      }
+      for (const object of input.definition.objects) {
+        const fromObjectId = objectIds.get(object.apiName);
+        if (!fromObjectId) continue;
+        for (const field of object.fields) {
+          const fromFieldId = fieldIds.get(`${object.apiName}\u0000${field.apiName}`);
+          if (!fromFieldId) continue;
+          await client.query(
+            "delete from engine.record_relationship where from_field = $1::uuid",
+            [fromFieldId],
+          );
+          if (field.archived || field.kind !== "reference") continue;
+          for (const target of field.referenceTargets ?? []) {
+            const toObjectId = objectIds.get(target);
+            if (!toObjectId) {
+              throw new Error(
+                `records relationship projection target missing: ${object.apiName}.${field.apiName} -> ${target}`,
+              );
+            }
+            await client.query(
+              `insert into engine.record_relationship
+                 (org_id, from_object, from_field, to_object, relationship_label)
+               values ($1, $2::uuid, $3::uuid, $4::uuid, $5)
+               on conflict (from_field, to_object) do update
+               set relationship_label = excluded.relationship_label`,
+              [
+                input.orgId,
+                fromObjectId,
+                fromFieldId,
+                toObjectId,
+                field.label,
+              ],
+            );
+          }
         }
       }
       for (const permission of input.definition.permissions) {

@@ -53,12 +53,13 @@ describeIfRecordsDb("records migration stream", () => {
         "0001_engine_registry.sql",
         "0002_record_audit_trigger.sql",
         "0003_schema_action_names.sql",
+        "0004_polymorphic_relationships.sql",
       ],
-      current: "0003_schema_action_names.sql",
+      current: "0004_polymorphic_relationships.sql",
     });
     await expect(runRecordsMigrations({ pool: testPool })).resolves.toEqual({
       applied: [],
-      current: "0003_schema_action_names.sql",
+      current: "0004_polymorphic_relationships.sql",
     });
 
     const tables = await testPool.query<{ table_name: string }>(
