@@ -11,3 +11,4 @@ export * from "./schema/catalog";
 export * from "./schema/ddl";
 export * from "./schema/saga";
 export * from "./types";
+export * from "./write/validate";
