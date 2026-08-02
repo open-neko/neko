@@ -212,6 +212,17 @@ async function handle(
             : {}),
         }),
       );
+    case "/v1/records/blueprints":
+      return send(
+        res,
+        200,
+        await cp.listRecordBlueprints({
+          orgId: binding.orgId,
+          ...(typeof body.blueprintId === "string"
+            ? { blueprintId: body.blueprintId }
+            : {}),
+        }),
+      );
     case "/v1/workflow/save":
       return send(
         res,

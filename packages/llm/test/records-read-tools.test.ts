@@ -39,6 +39,7 @@ describe("native records read tools", () => {
     const listRecordCatalog = vi.fn(async () => ({ apps: [] }));
     const findRecords = vi.fn(async () => ({ rows: [], total: 0, cursor: null }));
     const getRecord = vi.fn(async () => ({ row: null }));
+    const listRecordBlueprints = vi.fn(async () => ({ blueprints: [] }));
     buildRecordsReadServer({
       orgId: "org-1",
       runId: "run-1",
@@ -46,10 +47,12 @@ describe("native records read tools", () => {
         listRecordCatalog,
         findRecords,
         getRecord,
+        listRecordBlueprints,
       } as unknown as AgentControlPlane,
     });
 
     await sdk.tools.get("browse_catalog")?.handler({ app: "equipment" });
+    await sdk.tools.get("browse_blueprints")?.handler({ blueprint: "crm" });
     await sdk.tools.get("find_records")?.handler({
       app: "equipment",
       object: "loan",
@@ -76,6 +79,10 @@ describe("native records read tools", () => {
         search: "Camera",
       }),
     );
+    expect(listRecordBlueprints).toHaveBeenCalledWith({
+      orgId: "org-1",
+      blueprintId: "crm",
+    });
     expect(getRecord).toHaveBeenCalledWith({
       orgId: "org-1",
       runId: "run-1",

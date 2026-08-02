@@ -1046,6 +1046,31 @@ export function buildRecordsReadServer(opts: {
     }),
   );
 
+  const browseBlueprints = tool(
+    "browse_blueprints",
+    [
+      "List shipped records-app blueprints, or load one complete",
+      "approval-ready app_create payload by id. Blueprints are starting",
+      "priors: adapt them to the user's workflow instead of applying blindly.",
+    ].join(" "),
+    {
+      blueprint: z.string().trim().min(1).max(63).optional(),
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            await controlPlane.listRecordBlueprints({
+              orgId: opts.orgId,
+              ...(args.blueprint ? { blueprintId: args.blueprint } : {}),
+            }),
+          ),
+        },
+      ],
+    }),
+  );
+
   const filterSchema = z.object({
     field: z.string().trim().min(1).max(63),
     operator: z.enum(["eq", "neq", "in", "contains", "starts_with", "is_null"]),
@@ -1136,7 +1161,7 @@ export function buildRecordsReadServer(opts: {
   return createSdkMcpServer({
     name: "neko_records",
     version: "1.0.0",
-    tools: [browseCatalog, findRecords, getRecord],
+    tools: [browseCatalog, browseBlueprints, findRecords, getRecord],
   });
 }
 

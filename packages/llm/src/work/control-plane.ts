@@ -34,6 +34,7 @@ import type {
 } from "../graphjin/agent";
 import type { OpenApiSpecAssetView } from "../graphjin/openapi-assets";
 import type {
+  JsonObject,
   RecordListFilter,
   RecordsCatalogResult,
   RecordsDetailResult,
@@ -367,6 +368,18 @@ export interface AgentControlPlane {
     recordId: string;
     allFields?: boolean;
   }): Promise<RecordsDetailResult>;
+  /** Shipped domain blueprints; exact lookup includes its app_create payload. */
+  listRecordBlueprints(input: {
+    orgId: string;
+    blueprintId?: string;
+  }): Promise<{
+    blueprints: Array<{
+      id: string;
+      version: string;
+      description: string;
+      payload?: JsonObject;
+    }>;
+  }>;
   saveWorkflowWithTrigger(
     input: SaveWorkflowInput,
   ): Promise<Wire<SaveWorkflowWithTriggerResult>>;
@@ -770,6 +783,29 @@ export class InProcessControlPlane implements AgentControlPlane {
       recordsControlPlaneRuntime(),
     ]);
     return runtime.gateway.getRecord({ ...input, viewer, activeAppIds });
+  }
+
+  async listRecordBlueprints(input: {
+    orgId: string;
+    blueprintId?: string;
+  }) {
+    // orgId deliberately remains part of the brokered call for uniform audit
+    // attribution even though shipped blueprint content is organization-neutral.
+    void input.orgId;
+    const { listRecordAppBlueprints, loadRecordAppBlueprint } = await import(
+      "@neko/records"
+    );
+    const blueprints = input.blueprintId
+      ? [await loadRecordAppBlueprint(input.blueprintId)]
+      : await listRecordAppBlueprints();
+    return {
+      blueprints: blueprints.map((blueprint) => ({
+        id: blueprint.id,
+        version: blueprint.version,
+        description: blueprint.description,
+        ...(input.blueprintId ? { payload: blueprint.payload } : {}),
+      })),
+    };
   }
 
   async saveWorkflowWithTrigger(

@@ -113,6 +113,12 @@ export class BrokerControlPlane implements AgentControlPlane {
     return this.post("/v1/records/get", input);
   }
 
+  listRecordBlueprints(
+    input: Parameters<AgentControlPlane["listRecordBlueprints"]>[0],
+  ): ReturnType<AgentControlPlane["listRecordBlueprints"]> {
+    return this.post("/v1/records/blueprints", input);
+  }
+
   saveWorkflowWithTrigger(
     input: Parameters<AgentControlPlane["saveWorkflowWithTrigger"]>[0],
   ): ReturnType<AgentControlPlane["saveWorkflowWithTrigger"]> {

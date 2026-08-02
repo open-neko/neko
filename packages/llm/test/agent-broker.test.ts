@@ -26,6 +26,7 @@ function stubControlPlane(): AgentControlPlane {
     listRecordCatalog: unused as AgentControlPlane["listRecordCatalog"],
     findRecords: unused as AgentControlPlane["findRecords"],
     getRecord: unused as AgentControlPlane["getRecord"],
+    listRecordBlueprints: unused as AgentControlPlane["listRecordBlueprints"],
     saveWorkflowWithTrigger:
       unused as AgentControlPlane["saveWorkflowWithTrigger"],
     emitWorkflowOutput: unused as AgentControlPlane["emitWorkflowOutput"],

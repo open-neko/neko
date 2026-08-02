@@ -83,6 +83,13 @@ function makeFakeControlPlane() {
         row: null,
       };
     },
+    async listRecordBlueprints(input) {
+      calls.push({
+        method: "records-blueprints",
+        input: input as Record<string, unknown>,
+      });
+      return { blueprints: [] };
+    },
     async saveWorkflowWithTrigger(input) {
       calls.push({ method: "wf-save", input: input as Record<string, unknown> });
       return { action: "created", workflow: { id: "w1", name: "W" } } as Awaited<
@@ -237,6 +244,10 @@ describe("agent broker", () => {
       runId: "SPOOF",
       appId: "equipment",
     });
+    await cp.listRecordBlueprints({
+      orgId: "SPOOF",
+      blueprintId: "crm",
+    });
 
     expect(fake.calls.find((c) => c.method === "evaluate")?.input.orgId).toBe("o1");
     const create = fake.calls.find((c) => c.method === "create")?.input;
@@ -247,6 +258,10 @@ describe("agent broker", () => {
       orgId: "o1",
       runId: "r1",
       appId: "equipment",
+    });
+    expect(fake.calls.find((c) => c.method === "records-blueprints")?.input).toEqual({
+      orgId: "o1",
+      blueprintId: "crm",
     });
   });
 

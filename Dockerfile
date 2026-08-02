@@ -166,6 +166,9 @@ COPY --from=build --chown=neko:neko /app/apps/web/.next/static ./apps/web/.next/
 COPY --from=build --chown=neko:neko /app/apps/web/public ./apps/web/public
 # Next.js standalone tracing misses static asset dirs — copy explicitly.
 COPY --from=build --chown=neko:neko /app/packages/llm/assets ./packages/llm/assets
+# Blueprint JSON is read through the trusted records control plane at runtime;
+# Next's file tracer cannot discover fs-relative assets automatically.
+COPY --from=build --chown=neko:neko /app/packages/records/blueprints ./packages/records/blueprints
 # Next.js standalone tracing also misses the onnxruntime-node native .so
 # libraries (they're loaded by @huggingface/transformers at runtime via
 # dlopen, not via require()). Without these copies, /settings and every

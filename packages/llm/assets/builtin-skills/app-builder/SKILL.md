@@ -69,6 +69,10 @@ so prefer durable values such as `closed_won` over display prose.
 
 ## Adapt a blueprint
 
+Call `mcp__neko_records__browse_blueprints` without an id to discover the
+shipped priors, then call it with the selected blueprint id to load the exact
+`app_create` payload. Never invent a blueprint payload from its name.
+
 Use the shipped CRM prior for relationship and pipeline work: accounts,
 contacts, opportunities, and activities. Use the support prior for request
 triage: organizations, requesters, tickets, and comments. Adapt entities,
