@@ -195,7 +195,12 @@ function resolveView(input: {
     byApiName.get(object.nameField),
     ...fields.filter((field) => field.apiName !== object.nameField),
   ].filter((field): field is RecordField => field !== undefined);
-  const fieldColumns = (selected.length > 0 ? selected : fallback).map(fieldColumn);
+  // An explicit layout is an allowlist. If every entry is stale or invalid,
+  // fail closed with no business columns instead of unexpectedly exposing all
+  // live fields through the fallback view.
+  const fieldColumns = (layout && !input.allFields ? selected : fallback).map(
+    fieldColumn,
+  );
   const substrateColumns: RecordViewColumn[] = [];
   if (object.visibility === "owner") {
     substrateColumns.push({

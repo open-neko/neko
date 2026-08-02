@@ -177,6 +177,29 @@ describe("generated record read queries", () => {
     expect(built.variables).toEqual({ record_id: "wo-1" });
   });
 
+  it("treats an explicit stale layout as a fail-closed field allowlist", () => {
+    const current = snapshot();
+    current.layouts = [
+      {
+        objectId: "object-work-order",
+        kind: "list",
+        definition: { columns: ["missing", "old_status", "not valid"] },
+      },
+    ];
+    const built = buildRecordListQuery({
+      snapshot: current,
+      objectApiName: "work_order",
+      role: "admin",
+      userId: "admin-1",
+    });
+
+    expect(built.view.columns.map((column) => column.apiName)).toEqual([
+      "owner_user_id",
+    ]);
+    expect(built.query).toContain("{ id owner_user_id }");
+    expect(built.query).not.toContain("old_status");
+  });
+
   it("fails closed for unreadable roles, unknown identifiers, and unsafe budgets", () => {
     expect(() =>
       buildRecordListQuery({
@@ -205,4 +228,3 @@ describe("generated record read queries", () => {
     ).toThrow(/between 1 and 100/);
   });
 });
-

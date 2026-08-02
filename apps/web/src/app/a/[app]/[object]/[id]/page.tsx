@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Pencil } from "lucide-react";
 import { getOrgId } from "@/lib/db";
 import { readRecordDetail, RecordAppRouteError } from "@/lib/records";
-import { RecordCell } from "@/components/records/RecordCell";
+import { RecordDetailCard } from "@/components/records/RecordDetailCard";
 import { RecordsUnavailable } from "@/components/records/RecordsNotice";
 import { RecordAskBox } from "@/components/records/RecordAskBox";
 
@@ -24,8 +24,6 @@ export default async function RecordDetailPage({
     });
     if (!result.row) notFound();
     const base = `/a/${result.app.appId}/${result.view.object.apiName}`;
-    const ownerId =
-      typeof result.row.owner_user_id === "string" ? result.row.owner_user_id : null;
     const name = String(result.row[result.view.object.nameField] ?? result.row.id ?? "Record");
     return (
       <main className="records-root records-detail-root">
@@ -45,27 +43,12 @@ export default async function RecordDetailPage({
             </Link>
           )}
         </header>
-        <section className="records-detail-card">
-          <div className="records-detail-grid">
-            {result.view.columns.map((column) => (
-              <div className="records-detail-field" key={column.apiName}>
-                <dt>{column.label}</dt>
-                <dd>
-                  <RecordCell
-                    appId={result.app.appId}
-                    column={column}
-                    value={result.row?.[column.columnName]}
-                    owner={column.kind === "owner" && ownerId ? result.owners[ownerId] : undefined}
-                  />
-                </dd>
-              </div>
-            ))}
-          </div>
-          <footer className="records-detail-id">
-            <span>Record ID</span>
-            <code>{String(result.row.id)}</code>
-          </footer>
-        </section>
+        <RecordDetailCard
+          appId={result.app.appId}
+          view={result.view}
+          row={result.row}
+          owners={result.owners}
+        />
         <RecordAskBox
           context={{
             surface: "detail",
