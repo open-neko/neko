@@ -45,7 +45,13 @@ STANZAS = (
     },
 )
 SNAPSHOT_SOURCES = pathlib.Path("/snapshots")
-SNAPSHOT_NAMES = ("config", "graphjin", "records-graphjin", "host-config")
+SNAPSHOT_NAMES = (
+    "config",
+    "graphjin",
+    "records-graphjin",
+    "host-config",
+    "plugins",
+)
 LOCK = threading.Lock()
 
 
@@ -532,6 +538,7 @@ def clear_restore_target(path: pathlib.Path) -> None:
         "graphjin",
         "records-graphjin",
         "host-config",
+        "plugins",
     }:
         raise RuntimeError(f"refusing to clear unexpected restore target {resolved}")
     resolved.mkdir(parents=True, exist_ok=True)
@@ -599,6 +606,7 @@ def restore_to(raw_target: str) -> dict:
             "graphjin": pathlib.Path("/restore/graphjin"),
             "records-graphjin": pathlib.Path("/restore/records-graphjin"),
             "host-config": pathlib.Path("/restore/host-config"),
+            "plugins": pathlib.Path("/restore/plugins"),
         }
         for name, destination in config_targets.items():
             clear_restore_target(destination)

@@ -117,6 +117,7 @@ services:
       - openneko-config:/snapshots/config:ro
       - openneko-graphjin-cli:/snapshots/graphjin:ro
       - openneko-records-graphjin:/snapshots/records-graphjin:ro
+      - openneko-plugins:/snapshots/plugins:ro
       - ${OPENNEKO_HOST_CONFIG_DIR:?OPENNEKO_HOST_CONFIG_DIR is required}:/snapshots/host-config:ro
       - ${OPENNEKO_BACKUP_REPOSITORY:?OPENNEKO_BACKUP_REPOSITORY is required}:/var/lib/pgbackrest
     expose:
@@ -141,6 +142,7 @@ services:
       - openneko-config:/restore/config
       - openneko-graphjin-cli:/restore/graphjin
       - openneko-records-graphjin:/restore/records-graphjin
+      - openneko-plugins:/restore/plugins
       - ${OPENNEKO_HOST_CONFIG_DIR:?OPENNEKO_HOST_CONFIG_DIR is required}:/restore/host-config
       - ${OPENNEKO_BACKUP_REPOSITORY:?OPENNEKO_BACKUP_REPOSITORY is required}:/var/lib/pgbackrest
 
@@ -257,6 +259,8 @@ services:
       # need for web's entrypoint to run migrate itself anymore.
       neko-migrate:
         condition: service_completed_successfully
+      neko-graphjin:
+        condition: service_started
     environment:
       <<: *neko-app-env
       WORKER_ADMIN_URL: http://worker:4100
