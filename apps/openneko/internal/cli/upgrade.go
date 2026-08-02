@@ -318,12 +318,13 @@ func oldOpenNekoImageRefs(imageListOutput, targetTag string) []string {
 
 func openNekoImageRepos() map[string]bool {
 	return map[string]bool{
-		"ghcr.io/open-neko/neko-cli":      true,
-		"ghcr.io/open-neko/neko-graphjin": true,
-		"ghcr.io/open-neko/neko-web":      true,
-		"ghcr.io/open-neko/neko-worker":   true,
-		"ghcr.io/open-neko/agent":         true,
-		"ghcr.io/open-neko/plugin-base":   true,
+		"ghcr.io/open-neko/neko-cli":         true,
+		"ghcr.io/open-neko/neko-graphjin":    true,
+		"ghcr.io/open-neko/records-graphjin": true,
+		"ghcr.io/open-neko/neko-web":         true,
+		"ghcr.io/open-neko/neko-worker":      true,
+		"ghcr.io/open-neko/agent":            true,
+		"ghcr.io/open-neko/plugin-base":      true,
 	}
 }
 

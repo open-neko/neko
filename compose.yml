@@ -10,8 +10,9 @@ x-neko-app-env: &neko-app-env
   NEKO_PG_USER: neko
   NEKO_PG_PASSWORD: secret
   NEKO_PG_DATABASE: neko
-  NO_PROXY: localhost,127.0.0.1,::1,neko-db,worker,web,neko-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
-  no_proxy: localhost,127.0.0.1,::1,neko-db,worker,web,neko-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
+  OPENNEKO_RECORDS_GRAPHJIN_URL: http://records-graphjin:8090
+  NO_PROXY: localhost,127.0.0.1,::1,neko-db,records-db,worker,web,neko-graphjin,records-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
+  no_proxy: localhost,127.0.0.1,::1,neko-db,records-db,worker,web,neko-graphjin,records-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
 
 services:
   neko-db:
@@ -35,6 +36,49 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # Business data lives in its own Postgres lifecycle. The records profile is
+  # enabled only after the first user app is approved, so installations that
+  # never use generated apps retain the existing core footprint.
+  records-db:
+    profiles: ["records"]
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${OPENNEKO_RECORDS_PG_USER:-records}
+      POSTGRES_PASSWORD: ${OPENNEKO_RECORDS_PG_PASSWORD:-records-secret}
+      POSTGRES_DB: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
+    ports:
+      - "${OPENNEKO_RECORDS_DB_PORT:-5434}:5432"
+    volumes:
+      - records-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Dedicated records data plane. It deliberately starts only after the
+  # worker has generated a complete, live-catalog-derived RBAC config into the
+  # shared volume; its entrypoint fails closed when that file is absent.
+  records-graphjin:
+    profiles: ["records"]
+    build:
+      context: .
+      target: records-graphjin
+    restart: unless-stopped
+    depends_on:
+      records-db:
+        condition: service_healthy
+    volumes:
+      - openneko-records-graphjin:/config:ro
+    expose:
+      - "8090"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/api/v1/graphql"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   # One-shot: applies SQL migrations to neko-db and exits. Every long-
   # running service (web, worker, neko-graphjin) depends on this completing
@@ -137,6 +181,12 @@ services:
     environment:
       <<: *neko-app-env
       OPENNEKO_GRAPHJIN_URL: http://neko-graphjin:8089
+      RECORDS_PG_HOST: records-db
+      RECORDS_PG_PORT: "5432"
+      RECORDS_PG_USER: ${OPENNEKO_RECORDS_PG_USER:-records}
+      RECORDS_PG_PASSWORD: ${OPENNEKO_RECORDS_PG_PASSWORD:-records-secret}
+      RECORDS_PG_DATABASE: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
+      OPENNEKO_RECORDS_GRAPHJIN_CONFIG_DIR: /config/records-graphjin
       # Plugin manifest + per-user secrets live on the openneko-config
       # volume, not under /app (which is read-only-ish post-build). The
       # vendored `openneko` CLI on PATH writes to these same paths, so
@@ -149,6 +199,7 @@ services:
     volumes:
       - openneko-config:/config/openneko
       - openneko-graphjin-cli:/config/graphjin
+      - openneko-records-graphjin:/config/records-graphjin
       - openneko-agent-home:/tmp/openneko-home
       - openneko-agent-tmp:/tmp/openneko-tmp
     healthcheck:
@@ -161,7 +212,9 @@ services:
 
 volumes:
   neko-db-data:
+  records-db-data:
   openneko-config:
   openneko-graphjin-cli:
+  openneko-records-graphjin:
   openneko-agent-home:
   openneko-agent-tmp:

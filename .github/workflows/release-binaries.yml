@@ -54,6 +54,14 @@ jobs:
             target: neko-graphjin
             platform: linux/arm64
             runner: ubuntu-24.04-arm
+          - image: records-graphjin
+            target: records-graphjin
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - image: records-graphjin
+            target: records-graphjin
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
           - image: neko-cli
             target: neko-cli
             platform: linux/amd64
@@ -141,7 +149,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [neko-web, neko-worker, neko-graphjin, neko-cli, agent, plugin-base]
+        image: [neko-web, neko-worker, neko-graphjin, records-graphjin, neko-cli, agent, plugin-base]
     steps:
       - name: Resolve release tag
         id: tag

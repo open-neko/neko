@@ -32,6 +32,7 @@ const M_0006 = join(REPO_ROOT, "db", "migrations", "0006_work_runtime.sql");
 const M_0007 = join(REPO_ROOT, "db", "migrations", "0007_work_memory.sql");
 const M_0019 = join(REPO_ROOT, "db", "migrations", "0019_install_policy_scope.sql");
 const M_0048 = join(REPO_ROOT, "db", "migrations", "0048_graphjin_config_scope.sql");
+const M_0051 = join(REPO_ROOT, "db", "migrations", "0051_app_state.sql");
 
 function uniqueDbName(): string {
   return `vitest_migrations_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -216,6 +217,44 @@ describeIfDb("schema migrations", () => {
           ["chk48", scope],
         );
       }
+    });
+  });
+
+  it("0051 creates the records app lifecycle mirror with safe defaults", async () => {
+    await withTempDb(async (client) => {
+      await applyFile(client, M_0001);
+      await applyFile(client, M_0051);
+
+      await client.query(`
+        insert into organization (id, name) values ('records-org', 'Records Org');
+        insert into app_user (id, org_id, email, role)
+        values ('records-admin', 'records-org', 'admin@example.com', 'admin');
+        insert into app_state (org_id, app_id, created_by)
+        values ('records-org', 'equipment', 'records-admin');
+      `);
+
+      const state = await client.query<{
+        status: string;
+        config: Record<string, unknown>;
+      }>(
+        `select status, config from app_state
+         where org_id = 'records-org' and app_id = 'equipment'`,
+      );
+      expect(state.rows).toEqual([{ status: "draft", config: {} }]);
+
+      await expect(
+        client.query(`
+          insert into app_state (org_id, app_id, status)
+          values ('records-org', 'invalid', 'unknown')
+        `),
+      ).rejects.toThrow(/check constraint|status/i);
+
+      await client.query(`delete from app_user where id = 'records-admin'`);
+      const owner = await client.query<{ created_by: string | null }>(
+        `select created_by from app_state
+         where org_id = 'records-org' and app_id = 'equipment'`,
+      );
+      expect(owner.rows[0]?.created_by).toBeNull();
     });
   });
 

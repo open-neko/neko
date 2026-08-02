@@ -93,6 +93,7 @@ COPY packages/interaction/package.json packages/interaction/package.json
 COPY packages/llm/package.json packages/llm/package.json
 COPY packages/plugin-install/package.json packages/plugin-install/package.json
 COPY packages/plugin-types/package.json packages/plugin-types/package.json
+COPY packages/records/package.json packages/records/package.json
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile
 
@@ -332,4 +333,16 @@ RUN chmod +x /usr/local/bin/neko-graphjin-entrypoint.sh
 COPY db/graphjin/neko.yml /seed/neko.yml
 EXPOSE 8089
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/neko-graphjin-entrypoint.sh"]
+CMD ["serve", "--path", "/config"]
+
+# ─── 7. records-graphjin runtime ───────────────────────────────────────
+# The generated-app data plane has a separate process and a separate complete
+# config writer. Reuse the pinned GraphJin binary layer, but never inherit the
+# metadata GraphJin templating path. The entrypoint refuses to serve until the
+# worker has projected an exhaustive live-catalog RBAC config.
+FROM neko-graphjin AS records-graphjin
+COPY scripts/records-graphjin-entrypoint.sh /usr/local/bin/records-graphjin-entrypoint.sh
+RUN chmod +x /usr/local/bin/records-graphjin-entrypoint.sh
+EXPOSE 8090
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/records-graphjin-entrypoint.sh"]
 CMD ["serve", "--path", "/config"]

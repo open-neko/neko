@@ -120,6 +120,7 @@ func TestOldOpenNekoImageRefs(t *testing.T) {
 ghcr.io/open-neko/neko-web:v1.0.0
 ghcr.io/open-neko/neko-web:v2.0.0
 ghcr.io/open-neko/neko-worker:v1.0.0
+ghcr.io/open-neko/records-graphjin:v1.0.0
 ghcr.io/open-neko/agent:<none>
 postgres:16-alpine
 ghcr.io/open-neko/plugin-base:v0.9.0
@@ -128,6 +129,7 @@ ghcr.io/open-neko/plugin-base:v0.9.0
 	want := []string{
 		"ghcr.io/open-neko/neko-web:v1.0.0",
 		"ghcr.io/open-neko/neko-worker:v1.0.0",
+		"ghcr.io/open-neko/records-graphjin:v1.0.0",
 		"ghcr.io/open-neko/plugin-base:v0.9.0",
 	}
 	if got := oldOpenNekoImageRefs(in, "v2.0.0"); !reflect.DeepEqual(got, want) {

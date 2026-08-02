@@ -72,6 +72,32 @@ export const app_user = pgTable(
   }),
 );
 
+// Availability mirror for the records-engine registry. The records database
+// remains authoritative for app definitions; metadata consumers use this
+// narrow projection for navigation, orchestration, and degraded-state checks.
+export const app_state = pgTable(
+  "app_state",
+  {
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    app_id: text("app_id").notNull(),
+    status: text("status").notNull().default("draft"),
+    created_by: text("created_by").references(() => app_user.id, {
+      onDelete: "set null",
+    }),
+    created_at: ts("created_at").notNull().defaultNow(),
+    config: jsonb("config")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.org_id, t.app_id] }),
+    org_status_idx: index("app_state_org_status_idx").on(t.org_id, t.status),
+  }),
+);
+
 export const data_source = pgTable(
   "data_source",
   {
