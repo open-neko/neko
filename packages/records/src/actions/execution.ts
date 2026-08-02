@@ -245,6 +245,41 @@ export async function renewRecordsActionExecutionLease(
   return mapExecution(result.rows[0]);
 }
 
+/**
+ * Publish worker-owned execution context for same-transaction substrate
+ * hooks, while renewing the command lease. Import batches use this to bind
+ * the app-row mutation to its target-side batch receipt.
+ */
+export async function setRecordsActionExecutionContext(
+  pool: Pool,
+  input: {
+    actionRequestId: string;
+    leaseOwner: string;
+    context: Record<string, unknown>;
+    leaseMs?: number;
+  },
+): Promise<RecordsActionExecution> {
+  const leaseMs = validateLeaseMs(input.leaseMs ?? DEFAULT_LEASE_MS);
+  const result = await pool.query<RawExecution>(
+    `update engine.action_execution
+     set result = $3::jsonb,
+         lease_expires_at = now() + ($4::bigint * interval '1 millisecond')
+     where action_request_id = $1 and lease_owner = $2 and status = 'running'
+       and lease_expires_at > now()
+     returning ${EXECUTION_COLUMNS}`,
+    [
+      input.actionRequestId,
+      input.leaseOwner,
+      JSON.stringify(input.context),
+      leaseMs,
+    ],
+  );
+  if (!result.rows[0]) {
+    throw new RecordsActionLeaseLostError(input.actionRequestId);
+  }
+  return mapExecution(result.rows[0]);
+}
+
 export async function succeedRecordsActionExecution(
   pool: Pool,
   input: {
