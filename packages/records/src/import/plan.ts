@@ -29,6 +29,8 @@ export type RecordImportColumnPlan = {
   targetKind: RecordFieldKind | null;
   inferredKind: Exclude<RecordFieldKind, "id" | "reference" | "readonly_formula">;
   emptyText: boolean;
+  /** Normalize a Salesforce id/reference value from 15 to canonical 18 chars. */
+  sourceId?: true;
   suggestedField: {
     apiName: string;
     label: string;
@@ -53,6 +55,8 @@ export type RecordImportPlan = {
   duplicateKey: string;
   batchSize: number;
   ownerUserId: string | null;
+  /** True only for connector plans that materialize source-computed values. */
+  allowReadOnly?: true;
   warnings: string[];
   planHash: string;
 };
@@ -152,12 +156,13 @@ function liveObject(snapshot: AppRegistrySnapshot, objectApiName: string): Recor
 function liveWritableFields(
   snapshot: AppRegistrySnapshot,
   object: RecordObject,
+  allowReadOnly: boolean,
 ): RecordField[] {
   return snapshot.fields.filter(
     (field) =>
       field.objectId === object.id &&
       field.archivedAt === null &&
-      !field.readOnly,
+      (allowReadOnly || !field.readOnly),
   );
 }
 
@@ -217,12 +222,14 @@ export function buildRecordImportPlan(input: {
   duplicateKey?: string;
   batchSize?: number;
   ownerUserId?: string | null;
+  allowReadOnly?: boolean;
+  normalizeIdColumns?: string[];
 }): RecordImportPlan {
   if (input.snapshot.app.status !== "active") {
     throw new RecordImportPlanError("import app must be active");
   }
   const object = liveObject(input.snapshot, input.objectApiName);
-  const fields = liveWritableFields(input.snapshot, object);
+  const fields = liveWritableFields(input.snapshot, object, input.allowReadOnly === true);
   const parsed = parseRecordsCsv(decodeUtf8(input.bytes));
   if (parsed.rows.length === 0) {
     throw new RecordImportPlanError("CSV must contain at least one data row");
@@ -238,6 +245,15 @@ export function buildRecordImportPlan(input: {
   }
   const fieldByName = new Map(fields.map((field) => [field.apiName as string, field]));
   const emptyText = new Set(input.emptyTextColumns ?? []);
+  const normalizeIds = new Set(input.normalizeIdColumns ?? []);
+  const unknownNormalizeHeaders = [...normalizeIds].filter(
+    (header) => !parsed.headers.includes(header),
+  );
+  if (unknownNormalizeHeaders.length > 0) {
+    throw new RecordImportPlanError(
+      `id normalization references unknown CSV columns: ${unknownNormalizeHeaders.sort().join(", ")}`,
+    );
+  }
   const usedTargets = new Set<string>();
   const warnings: string[] = [];
   const columns = parsed.headers.map((header, columnIndex): RecordImportColumnPlan => {
@@ -269,6 +285,7 @@ export function buildRecordImportPlan(input: {
       targetKind: targetField === "id" ? "id" : target?.kind ?? null,
       inferredKind,
       emptyText: emptyText.has(header),
+      ...(normalizeIds.has(header) ? { sourceId: true as const } : {}),
       suggestedField: targetField
         ? null
         : { apiName: suggestedApiName, label: header, kind: inferredKind },
@@ -315,6 +332,7 @@ export function buildRecordImportPlan(input: {
     duplicateKey,
     batchSize,
     ownerUserId: input.ownerUserId?.trim() || null,
+    ...(input.allowReadOnly === true ? { allowReadOnly: true as const } : {}),
     warnings,
   };
   return { ...unsigned, planHash: planHash(unsigned) };

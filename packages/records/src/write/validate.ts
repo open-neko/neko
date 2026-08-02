@@ -195,6 +195,8 @@ export function validateRecordFields(input: {
   values: Record<string, unknown>;
   registryFields: RecordField[];
   operation: "create" | "update" | "expected";
+  /** Connector imports may materialize source formula/rollup values. */
+  allowReadOnly?: boolean;
 }): ValidatedRecordFields {
   if (!input.values || Array.isArray(input.values)) {
     throw new RecordValidationError([
@@ -225,7 +227,7 @@ export function validateRecordFields(input: {
       issues.push({ field: apiName, code: "id", message: "must use the top-level id field" });
       continue;
     }
-    if (field.readOnly) {
+    if (field.readOnly && input.allowReadOnly !== true) {
       issues.push({ field: apiName, code: "read_only", message: "is read-only" });
       continue;
     }

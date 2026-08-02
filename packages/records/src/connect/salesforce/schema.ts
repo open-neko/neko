@@ -57,6 +57,146 @@ export type SalesforceSchemaPlan = {
   warnings: string[];
 };
 
+export class SalesforceDescribeError extends Error {
+  readonly code = "salesforce_describe_invalid";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "SalesforceDescribeError";
+  }
+}
+
+function describeRecord(value: unknown, path: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new SalesforceDescribeError(`${path}: object required`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function describeString(
+  value: unknown,
+  path: string,
+  maximum = 500,
+): string {
+  if (typeof value !== "string" || !value.trim() || value.trim().length > maximum) {
+    throw new SalesforceDescribeError(`${path}: non-empty string required`);
+  }
+  return value.trim();
+}
+
+function describeApiName(value: unknown, path: string): string {
+  const name = describeString(value, path, 255);
+  if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) {
+    throw new SalesforceDescribeError(`${path}: Salesforce API name required`);
+  }
+  return name;
+}
+
+function optionalDescribeBoolean(value: unknown, path: string): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "boolean") throw new SalesforceDescribeError(`${path}: boolean required`);
+  return value;
+}
+
+function optionalDescribeInteger(value: unknown, path: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    throw new SalesforceDescribeError(`${path}: non-negative integer required`);
+  }
+  return Number(value);
+}
+
+/** Sanitize the small, durable subset of Salesforce describe metadata we use. */
+export function parseSalesforceObjectDescribe(
+  value: unknown,
+): SalesforceObjectDescribe {
+  const raw = describeRecord(value, "describe");
+  if (!Array.isArray(raw.fields) || raw.fields.length === 0 || raw.fields.length > 5_000) {
+    throw new SalesforceDescribeError("describe.fields: 1 to 5000 fields required");
+  }
+  const fields = raw.fields.map((candidate, index): SalesforceFieldDescribe => {
+    const path = `describe.fields[${index}]`;
+    const field = describeRecord(candidate, path);
+    const referenceTo = field.referenceTo;
+    if (
+      referenceTo !== undefined &&
+      (!Array.isArray(referenceTo) ||
+        referenceTo.length > 100 ||
+        !referenceTo.every((entry) => typeof entry === "string"))
+    ) {
+      throw new SalesforceDescribeError(`${path}.referenceTo: API-name array required`);
+    }
+    const picklistValues = field.picklistValues;
+    if (
+      picklistValues !== undefined &&
+      (!Array.isArray(picklistValues) || picklistValues.length > 5_000)
+    ) {
+      throw new SalesforceDescribeError(`${path}.picklistValues: array required`);
+    }
+    return {
+      name: describeApiName(field.name, `${path}.name`),
+      label: describeString(field.label ?? field.name, `${path}.label`, 500),
+      type: describeString(field.type, `${path}.type`, 100),
+      length: optionalDescribeInteger(field.length, `${path}.length`),
+      precision: optionalDescribeInteger(field.precision, `${path}.precision`),
+      scale: optionalDescribeInteger(field.scale, `${path}.scale`),
+      nillable: optionalDescribeBoolean(field.nillable, `${path}.nillable`),
+      createable: optionalDescribeBoolean(field.createable, `${path}.createable`),
+      updateable: optionalDescribeBoolean(field.updateable, `${path}.updateable`),
+      calculated: optionalDescribeBoolean(field.calculated, `${path}.calculated`),
+      defaultedOnCreate: optionalDescribeBoolean(
+        field.defaultedOnCreate,
+        `${path}.defaultedOnCreate`,
+      ),
+      nameField: optionalDescribeBoolean(field.nameField, `${path}.nameField`),
+      compoundFieldName:
+        field.compoundFieldName === undefined || field.compoundFieldName === null
+          ? field.compoundFieldName === null
+            ? null
+            : undefined
+          : describeApiName(field.compoundFieldName, `${path}.compoundFieldName`),
+      referenceTo: Array.isArray(referenceTo)
+        ? referenceTo.map((entry, targetIndex) =>
+            describeApiName(entry, `${path}.referenceTo[${targetIndex}]`),
+          )
+        : undefined,
+      picklistValues: Array.isArray(picklistValues)
+        ? picklistValues.map((entry, valueIndex) => {
+            const item = describeRecord(entry, `${path}.picklistValues[${valueIndex}]`);
+            return {
+              value: describeString(
+                item.value,
+                `${path}.picklistValues[${valueIndex}].value`,
+                2_000,
+              ),
+              active: optionalDescribeBoolean(
+                item.active,
+                `${path}.picklistValues[${valueIndex}].active`,
+              ),
+            };
+          })
+        : undefined,
+    };
+  });
+  const names = fields.map((field) => field.name);
+  if (new Set(names).size !== names.length) {
+    throw new SalesforceDescribeError("describe.fields: duplicate API names");
+  }
+  return {
+    name: describeApiName(raw.name, "describe.name"),
+    label: describeString(raw.label ?? raw.name, "describe.label", 500),
+    labelPlural: describeString(
+      raw.labelPlural ?? `${String(raw.label ?? raw.name)}s`,
+      "describe.labelPlural",
+      500,
+    ),
+    custom: optionalDescribeBoolean(raw.custom, "describe.custom"),
+    queryable: optionalDescribeBoolean(raw.queryable, "describe.queryable"),
+    replicateable: optionalDescribeBoolean(raw.replicateable, "describe.replicateable"),
+    fields,
+  };
+}
+
 function activePicklistValues(field: SalesforceFieldDescribe): string[] {
   return (field.picklistValues ?? [])
     .filter((value) => value.active !== false && value.value.trim())

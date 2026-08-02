@@ -12,6 +12,7 @@ export * from "./graphjin/schema";
 export * from "./identity/map";
 export * from "./identity/backfill";
 export * from "./import/csv";
+export * from "./import/artifact";
 export * from "./import/executor";
 export * from "./import/plan";
 export * from "./import/store";

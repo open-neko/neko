@@ -133,8 +133,8 @@ export function parseRecordsArtifactManifest(value: unknown): RecordsArtifactMan
   if (Number.isNaN(Date.parse(generatedAt))) {
     throw new RecordsArtifactManifestError("manifest.generated_at: ISO timestamp required");
   }
-  if (!Array.isArray(raw.objects) || raw.objects.length === 0) {
-    throw new RecordsArtifactManifestError("manifest.objects: non-empty array required");
+  if (!Array.isArray(raw.objects) || raw.objects.length === 0 || raw.objects.length > 500) {
+    throw new RecordsArtifactManifestError("manifest.objects: 1 to 500 objects required");
   }
   const objects = raw.objects.map(parseObject).sort((left, right) =>
     left.objectApiName.localeCompare(right.objectApiName),

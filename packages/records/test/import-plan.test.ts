@@ -161,6 +161,42 @@ describe("record CSV import plans", () => {
     ).toThrow(/duplicate key/i);
   });
 
+  it("allows source-computed fields only for explicit connector plans", () => {
+    const readonlySnapshot = snapshot();
+    readonlySnapshot.fields.push({
+      ...readonlySnapshot.fields[1]!,
+      id: "00000000-0000-0000-0000-000000000904",
+      apiName: recordIdentifier("score"),
+      sourceApiName: "Score__c",
+      label: "Score",
+      kind: "readonly_formula",
+      columnName: recordIdentifier("score"),
+      readOnly: true,
+    });
+    const input = {
+      snapshot: readonlySnapshot,
+      objectApiName: "loan",
+      sourcePath: "imports/salesforce/job/data/loan.csv",
+      sourceName: "loan.csv",
+      bytes: Buffer.from("id,Asset_Name,Score__c\n001A000010khO8J,Laptop,10\n"),
+      mapping: { id: "id", Score__c: "score" },
+    };
+    expect(() => buildRecordImportPlan(input)).toThrow(/read-only/i);
+    expect(
+      buildRecordImportPlan({
+        ...input,
+        allowReadOnly: true,
+        normalizeIdColumns: ["id"],
+      }),
+    ).toMatchObject({
+      allowReadOnly: true,
+      columns: expect.arrayContaining([
+        expect.objectContaining({ sourceColumn: "id", sourceId: true }),
+        expect.objectContaining({ sourceColumn: "Score__c", targetField: "score" }),
+      ]),
+    });
+  });
+
   it("confines sources to worker-visible staging directories", () => {
     expect(normalizeRecordImportSourcePath("uploads/t/a.csv")).toBe("uploads/t/a.csv");
     expect(normalizeRecordImportSourcePath("imports/run/a.csv")).toBe("imports/run/a.csv");

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildSalesforceAppSchema } from "../src/connect/salesforce/schema";
+import {
+  buildSalesforceAppSchema,
+  parseSalesforceObjectDescribe,
+  SalesforceDescribeError,
+} from "../src/connect/salesforce/schema";
 
 const account = {
   name: "Account",
@@ -89,6 +93,21 @@ const opportunity = {
 };
 
 describe("Salesforce schema translation", () => {
+  it("sanitizes persisted describe metadata and rejects malformed API names", () => {
+    expect(parseSalesforceObjectDescribe(account)).toMatchObject({
+      name: "Account",
+      fields: expect.arrayContaining([
+        expect.objectContaining({ name: "OwnerId", referenceTo: ["User"] }),
+      ]),
+    });
+    expect(() =>
+      parseSalesforceObjectDescribe({
+        ...account,
+        fields: [...account.fields, { name: "Bad;Field", label: "Bad", type: "string" }],
+      }),
+    ).toThrow(SalesforceDescribeError);
+  });
+
   it("produces an approval-ready mirror app with source fidelity", () => {
     const plan = buildSalesforceAppSchema({
       app: "CRM Mirror",

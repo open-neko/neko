@@ -12,6 +12,7 @@ import {
   type RecordsGraphjinTransport,
 } from "../graphjin/client";
 import { RECORD_SYSTEM_COLUMNS } from "../policy/graphjin";
+import { normalizeSalesforceId } from "../connect/salesforce/id";
 import { RecordRegistry } from "../registry";
 import type { RecordField, RecordObject } from "../types";
 import {
@@ -141,6 +142,7 @@ function mappedValue(raw: string, column: RecordImportColumnPlan): unknown {
   if (raw === "") {
     return column.emptyText ? "" : null;
   }
+  if (column.sourceId === true) return normalizeSalesforceId(raw);
   switch (column.targetKind) {
     case "boolean":
       return booleanValue(raw.trim());
@@ -206,6 +208,7 @@ function prepareCandidate(input: {
       values: mapped,
       registryFields: input.fields,
       operation: "create",
+      allowReadOnly: input.plan.allowReadOnly === true,
     });
     const duplicateValue =
       input.plan.duplicateKey === "id"
