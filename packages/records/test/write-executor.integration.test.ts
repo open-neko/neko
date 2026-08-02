@@ -20,6 +20,7 @@ import {
 import { ensureRecordsAuditTrigger } from "../src/schema/audit";
 import {
   RecordConcurrencyConflictError,
+  RecordMirrorWriteBlockedError,
   RecordNotFoundOrDeniedError,
   RecordWriteExecutor,
 } from "../src/write/executor";
@@ -236,6 +237,28 @@ describeIfLive("records write executor live integration", () => {
             userId: "records-service",
             role: "service",
           });
+        const mirrorExecutor = new RecordWriteExecutor({
+          pool: testPool,
+          graphjin,
+          serviceToken,
+          leaseOwner: "mirror-test-worker",
+          recordSourceWrite: async () => {},
+          appWriteMode: async () => "mirror",
+        });
+        await expect(
+          mirrorExecutor.execute({
+            actionRequestId: "request-mirror-write",
+            orgId: "org-a",
+            appId: "equipment",
+            objectApiName: "loan",
+            operation: "create",
+            actor: { userId: "admin-1", role: "admin" },
+            fields: { name: "Blocked", status: "new", owner_id: "005-alice" },
+          }),
+        ).rejects.toMatchObject({
+          code: "records_mirror_write_blocked",
+          message: "mirrored from Salesforce — writes happen there until cutover",
+        } satisfies Partial<RecordMirrorWriteBlockedError>);
         const executor = new RecordWriteExecutor({
           pool: testPool,
           graphjin,

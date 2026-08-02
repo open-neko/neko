@@ -29,6 +29,8 @@ import {
 
 export type RecordWriteOperation = "create" | "update" | "delete" | "restore";
 
+export type RecordAppWriteMode = "mirror" | "cutting_over" | "primary";
+
 export type RecordWriteRequest = {
   actionRequestId: string;
   orgId: string;
@@ -107,6 +109,19 @@ export class RecordMutationAuditMissingError extends Error {
   }
 }
 
+export class RecordMirrorWriteBlockedError extends Error {
+  readonly code = "records_mirror_write_blocked";
+
+  constructor(readonly mode: Exclude<RecordAppWriteMode, "primary">) {
+    super(
+      mode === "mirror"
+        ? "mirrored from Salesforce — writes happen there until cutover"
+        : "Salesforce cutover is in progress — local writes will open after the final sync is verified",
+    );
+    this.name = "RecordMirrorWriteBlockedError";
+  }
+}
+
 function deterministicMutationId(request: RecordWriteRequest, id: string): string {
   return createHash("sha256")
     .update(
@@ -139,7 +154,8 @@ function terminalError(error: unknown): error is Error & { code: string } {
     error instanceof RecordPermissionDeniedError ||
     error instanceof RecordReferenceMissingError ||
     error instanceof RecordConcurrencyConflictError ||
-    error instanceof RecordNotFoundOrDeniedError
+    error instanceof RecordNotFoundOrDeniedError ||
+    error instanceof RecordMirrorWriteBlockedError
   );
 }
 
@@ -201,6 +217,11 @@ export class RecordWriteExecutor {
         tableName: string;
         recordId: string;
       }) => Promise<void>;
+      /** Metadata-plane connector mode. Omitted for unconnected/local apps. */
+      appWriteMode?: (
+        orgId: string,
+        appId: string,
+      ) => Promise<RecordAppWriteMode | null>;
       now?: () => Date;
       registry?: RecordRegistry;
     },
@@ -313,6 +334,13 @@ export class RecordWriteExecutor {
       throw new RecordWriteTargetError("record write requires an acting user");
     }
     const { snapshot, object, fields, grant } = await this.resolve(request);
+    const mode = await this.dependencies.appWriteMode?.(
+      request.orgId,
+      request.appId,
+    );
+    if (mode === "mirror" || mode === "cutting_over") {
+      throw new RecordMirrorWriteBlockedError(mode);
+    }
     const rawFields = { ...(request.fields ?? {}) };
     const nominatedOwner =
       typeof rawFields[RECORD_SYSTEM_COLUMNS.ownerUserId] === "string"

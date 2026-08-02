@@ -31,7 +31,9 @@ import {
 } from "@neko/records";
 import { createAdminHandler } from "./admin-server.js";
 import {
+  and,
   data_source,
+  app_state,
   db,
   desc,
   eq,
@@ -151,6 +153,19 @@ const recordsWriteExecutor = new RecordWriteExecutor({
   serviceToken: recordsServiceToken,
   leaseOwner: `worker:${process.pid}:${randomUUID()}`,
   recordSourceWrite: recordActionRequestSourceWrite,
+  appWriteMode: async (orgId, appId) => {
+    const rows = await db()
+      .select({ config: app_state.config })
+      .from(app_state)
+      .where(
+        and(eq(app_state.org_id, orgId), eq(app_state.app_id, appId)),
+      )
+      .limit(1);
+    const mode = rows[0]?.config?.mode;
+    return mode === "mirror" || mode === "cutting_over" || mode === "primary"
+      ? mode
+      : null;
+  },
 });
 const recordsImportExecutor = new RecordImportExecutor({
   pool: recordsPool,
