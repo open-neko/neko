@@ -7,6 +7,7 @@ import {
   sql,
 } from "@neko/db";
 import type {
+  RecordsSalesforceCutoverPayload,
   RecordsSalesforceExportPayload,
   RecordsSalesforceSyncPayload,
 } from "@neko/db/jobs";
@@ -30,6 +31,8 @@ import {
   SalesforceActionConfigError,
 } from "./salesforce-runtime.js";
 import {
+  beginSalesforceCutover,
+  bindSalesforceCutoverJob,
   enableSalesforceSync,
   type SalesforceSyncState,
 } from "./salesforce-sync-state.js";
@@ -40,6 +43,7 @@ export const RECORD_SALESFORCE_ACTION_KINDS = [
   "records_salesforce_export_status",
   "records_salesforce_export_cancel",
   "records_salesforce_sync_delta",
+  "records_salesforce_cutover",
 ] as const;
 
 export type RecordSalesforceActionKind =
@@ -103,6 +107,14 @@ export const RECORD_SALESFORCE_ACTION_DESCRIPTORS = [
     default_mode: "ask",
     example: { app: "crm", interval_minutes: 15 },
   },
+  {
+    kind: "records_salesforce_cutover",
+    scope: "external",
+    description:
+      "Freeze a Salesforce mirror, apply and verify one final inbound delta, then atomically make OpenNeko the primary writable system.",
+    default_mode: "ask",
+    example: { app: "crm" },
+  },
 ] as const;
 
 export class RecordSalesforceActionPayloadError extends Error {
@@ -141,6 +153,16 @@ export type RecordSalesforceActionDependencies = {
     state: SalesforceSyncState,
   ) => Promise<SalesforceExportJobSummary>;
   enqueueSync: (payload: RecordsSalesforceSyncPayload) => Promise<string | null>;
+  beginCutover: (
+    request: ActionRequestRecord,
+    appId: string,
+  ) => Promise<SalesforceSyncState>;
+  createCutover: (
+    request: ActionRequestRecord,
+    state: SalesforceSyncState,
+  ) => Promise<SalesforceExportJobSummary>;
+  bindCutoverJob: (state: SalesforceSyncState, processingJobId: string) => Promise<void>;
+  enqueueCutover: (payload: RecordsSalesforceCutoverPayload) => Promise<string | null>;
 };
 
 const CONNECTOR_KEYS = [
@@ -201,6 +223,15 @@ function syncPayload(request: ActionRequestRecord): {
     );
   }
   return { appId: app.trim(), intervalMinutes: Number(interval) };
+}
+
+function cutoverPayload(request: ActionRequestRecord): { appId: string } {
+  assertOnlyKeys(request.payload, ["app"]);
+  const app = request.payload.app;
+  if (typeof app !== "string" || !app.trim() || app.trim().length > 500) {
+    throw new RecordSalesforceActionPayloadError("app: a non-empty string is required");
+  }
+  return { appId: app.trim() };
 }
 
 function assertAdmin(request: ActionRequestRecord): void {
@@ -412,6 +443,47 @@ export const defaultSalesforceActionDependencies: RecordSalesforceActionDependen
   enqueueSync: async () => {
     throw new Error("Salesforce sync queue is not configured");
   },
+  beginCutover: async (request, appId) =>
+    beginSalesforceCutover(request.orgId, appId, request.id),
+  createCutover: async (request, state) =>
+    db().transaction(async (transaction) => {
+      await transaction.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${request.orgId}:${request.id}:salesforce-cutover`}, 0))`,
+      );
+      const existing = await transaction
+        .select()
+        .from(processing_job)
+        .where(
+          and(
+            eq(processing_job.org_id, request.orgId),
+            eq(processing_job.kind, "records_salesforce_cutover"),
+            sql`${processing_job.trigger_payload}->>'action_request_id' = ${request.id}`,
+          ),
+        )
+        .limit(1);
+      if (existing[0]) return mapJob(existing[0]);
+      const [row] = await transaction
+        .insert(processing_job)
+        .values({
+          org_id: request.orgId,
+          kind: "records_salesforce_cutover",
+          status: "queued",
+          trigger: "action_request",
+          trigger_payload: {
+            action_request_id: request.id,
+            app_id: state.appId,
+            source_instance_id: state.sourceInstanceId,
+          },
+          progress: { stage: "queued" },
+        })
+        .returning();
+      if (!row) throw new Error("Salesforce cutover job could not be created");
+      return mapJob(row);
+    }),
+  bindCutoverJob: bindSalesforceCutoverJob,
+  enqueueCutover: async () => {
+    throw new Error("Salesforce cutover queue is not configured");
+  },
 };
 
 export function createRecordSalesforceActionAdapter(
@@ -504,6 +576,37 @@ export function createRecordSalesforceActionAdapter(
         },
       };
     }
+    if (kind === "records_salesforce_cutover") {
+      const payload = cutoverPayload(request);
+      const state = await dependencies.beginCutover(request, payload.appId);
+      const job = await dependencies.createCutover(request, state);
+      await dependencies.bindCutoverJob(state, job.id);
+      let queueId: string | null;
+      try {
+        queueId = await dependencies.enqueueCutover({
+          processingJobId: job.id,
+          orgId: request.orgId,
+          appId: state.appId,
+          sourceInstanceId: state.sourceInstanceId,
+        });
+      } catch (error) {
+        throw new RetryableActionAdapterError(
+          `Salesforce cutover ${job.id} could not be queued and will be retried`,
+          { cause: error },
+        );
+      }
+      return {
+        commandOrOperation: kind,
+        externalRef: job.id,
+        result: {
+          ...job,
+          appId: state.appId,
+          sourceInstanceId: state.sourceInstanceId,
+          queueId,
+          ...(queueId === null ? { deduplicated: true } : {}),
+        },
+      };
+    }
 
     const id = exportJobId(request);
     const job =
@@ -522,9 +625,10 @@ export function createRecordSalesforceActionAdapter(
 export function registerRecordSalesforceActions(input: {
   enqueueExport: RecordSalesforceActionDependencies["enqueueExport"];
   enqueueSync: RecordSalesforceActionDependencies["enqueueSync"];
+  enqueueCutover: RecordSalesforceActionDependencies["enqueueCutover"];
   dependencies?: Omit<
     RecordSalesforceActionDependencies,
-    "enqueueExport" | "enqueueSync"
+    "enqueueExport" | "enqueueSync" | "enqueueCutover"
   >;
   register?: (kind: string, adapter: ActionAdapter) => void;
   registerPreflight?: (hook: ActionRequestCreatedHook) => () => void;
@@ -534,6 +638,7 @@ export function registerRecordSalesforceActions(input: {
     ...input.dependencies,
     enqueueExport: input.enqueueExport,
     enqueueSync: input.enqueueSync,
+    enqueueCutover: input.enqueueCutover,
   };
   const register = input.register ?? registerActionAdapter;
   for (const kind of RECORD_SALESFORCE_ACTION_KINDS) {

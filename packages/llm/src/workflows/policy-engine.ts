@@ -460,6 +460,24 @@ export async function seedDefaultActionPolicies(orgId: string): Promise<void> {
       enabled: true,
     });
   }
+  if (!names.has("records_salesforce_cutover_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "records_salesforce_cutover_default",
+      description:
+        "Making an imported Salesforce mirror locally writable requires admin approval.",
+      appliesToKinds: ["records_salesforce_cutover"],
+      appliesToScopes: ["internal", "external"],
+      mode: "approval_required" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: "admin",
+      priority: 90,
+      enabled: true,
+    });
+  }
   if (!names.has("records_salesforce_status_default")) {
     await createActionPolicy({
       orgId,

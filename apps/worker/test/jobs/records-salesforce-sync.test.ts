@@ -116,6 +116,7 @@ function state(overrides: Record<string, unknown> = {}) {
     lastCompletedAt: null,
     lastError: null,
     apiBudget: null,
+    cutover: null,
     ...overrides,
   };
 }
@@ -245,6 +246,46 @@ describe("Salesforce scheduled delta sync", () => {
       "org-a",
       JOB_ID,
       expect.objectContaining({ status: "cancelled" }),
+    );
+  });
+
+  it("allows only the cutover-bound final delta while scheduling is frozen", async () => {
+    const deps = dependencies({
+      getJob: vi.fn().mockResolvedValue({
+        id: JOB_ID,
+        orgId: "org-a",
+        kind: "records_salesforce_sync",
+        status: "queued",
+        triggerPayload: {
+          app_id: "crm",
+          source_instance_id: "salesforce-production",
+          final_delta: true,
+          cutover_job_id: "00000000-0000-4000-a000-000000000853",
+        },
+      }),
+      getState: vi.fn().mockResolvedValue(
+        state({
+          mode: "cutting_over",
+          enabled: false,
+          cutover: {
+            actionRequestId: "00000000-0000-4000-a000-000000000854",
+            processingJobId: "00000000-0000-4000-a000-000000000853",
+            finalSyncJobId: JOB_ID,
+            status: "final_sync",
+            startedAt: "2026-08-02T12:00:00.000Z",
+            completedAt: null,
+            lastError: null,
+          },
+        }),
+      ),
+    });
+    await runRecordsSalesforceSync(writer, pool, payload, deps);
+    expect(deps.applyDelta).toHaveBeenCalledOnce();
+    expect(deps.updateJob).toHaveBeenLastCalledWith(
+      "org-a",
+      JOB_ID,
+      expect.objectContaining({ status: "succeeded" }),
+      ["running"],
     );
   });
 

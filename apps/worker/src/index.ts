@@ -15,6 +15,7 @@ import {
   type ProcessingJobPayload,
   type RecordsIdentityLinkPayload,
   type RecordsImportPayload,
+  type RecordsSalesforceCutoverPayload,
   type RecordsSalesforceExportPayload,
   type RecordsSalesforceSyncPayload,
   type WorkflowRunFirePayload,
@@ -87,6 +88,7 @@ import { runActionExecute } from "./jobs/action-execute.js";
 import { runRecordsImport } from "./jobs/records-import.js";
 import { runRecordsIdentityLink } from "./jobs/records-identity-link.js";
 import { runRecordsSalesforceExport } from "./jobs/records-salesforce-export.js";
+import { runRecordsSalesforceCutover } from "./jobs/records-salesforce-cutover.js";
 import { runRecordsSalesforceSync } from "./jobs/records-salesforce-sync.js";
 import {
   defaultSalesforceSyncSweepDependencies,
@@ -428,6 +430,13 @@ const unregisterRecordSalesforcePreflight = registerRecordSalesforceActions({
       retryDelay: 60,
       retryBackoff: true,
       singletonKey: `records-salesforce-sync:${payload.processingJobId}`,
+    }),
+  enqueueCutover: (payload) =>
+    enqueue(QUEUE.RECORDS_SALESFORCE_CUTOVER, payload, {
+      retryLimit: 8,
+      retryDelay: 60,
+      retryBackoff: true,
+      singletonKey: `records-salesforce-cutover:${payload.processingJobId}`,
     }),
 });
 const unregisterRecordSchemaPreflight = registerRecordSchemaActions({
@@ -847,6 +856,23 @@ await b.work(
       } catch (e) {
         console.warn(
           `[records-salesforce-sync] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
+        );
+        throw e;
+      }
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_SALESFORCE_CUTOVER,
+  { batchSize: 1, pollingIntervalSeconds: 0.5 },
+  async (jobs: PgBossLib.Job<RecordsSalesforceCutoverPayload>[]) => {
+    for (const job of jobs) {
+      try {
+        await runRecordsSalesforceCutover(recordsWriteExecutor, recordsPool, job.data);
+      } catch (e) {
+        console.warn(
+          `[records-salesforce-cutover] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
         );
         throw e;
       }

@@ -7,6 +7,9 @@ import {
   uniqueOrgId,
 } from "@neko/db/test-helpers";
 import {
+  beginSalesforceCutover,
+  bindSalesforceCutoverJob,
+  completeSalesforceCutover,
   enableSalesforceSync,
   getSalesforceSyncState,
   mirrorSalesforceSyncWatermarks,
@@ -123,5 +126,44 @@ describeIfDb("Salesforce sync metadata lifecycle", () => {
     await expect(enableSalesforceSync(orgId, "crm", 15)).rejects.toBeInstanceOf(
       SalesforceSyncStateError,
     );
+  });
+
+  it("freezes scheduling before atomically opening local writes", async () => {
+    await enableSalesforceSync(orgId, "crm", 15);
+    const cuttingOver = await beginSalesforceCutover(
+      orgId,
+      "crm",
+      "00000000-0000-4000-a000-000000000872",
+    );
+    expect(cuttingOver).toMatchObject({
+      mode: "cutting_over",
+      enabled: false,
+      status: "cutover_frozen",
+      cutover: {
+        actionRequestId: "00000000-0000-4000-a000-000000000872",
+        status: "queued",
+      },
+    });
+    await bindSalesforceCutoverJob(
+      cuttingOver,
+      "00000000-0000-4000-a000-000000000873",
+    );
+    const bound = await getSalesforceSyncState(orgId, "crm");
+    expect(bound?.cutover?.processingJobId).toBe(
+      "00000000-0000-4000-a000-000000000873",
+    );
+    await completeSalesforceCutover(
+      bound!,
+      "2026-08-02T12:30:00.000Z",
+    );
+    await expect(getSalesforceSyncState(orgId, "crm")).resolves.toMatchObject({
+      mode: "primary",
+      enabled: false,
+      status: "disabled",
+      cutover: {
+        status: "succeeded",
+        completedAt: "2026-08-02T12:30:00.000Z",
+      },
+    });
   });
 });

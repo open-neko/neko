@@ -29,6 +29,7 @@ function state(overrides: Record<string, unknown> = {}) {
     lastCompletedAt: null,
     lastError: null,
     apiBudget: null,
+    cutover: null,
     ...overrides,
   };
 }

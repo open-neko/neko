@@ -11,6 +11,16 @@ export type SalesforceSyncObjectState = {
   watermark: JsonObject;
 };
 
+export type SalesforceCutoverState = {
+  actionRequestId: string;
+  processingJobId: string | null;
+  finalSyncJobId: string | null;
+  status: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  lastError: string | null;
+};
+
 export type SalesforceSyncState = {
   orgId: string;
   appId: string;
@@ -27,6 +37,7 @@ export type SalesforceSyncState = {
   lastCompletedAt: string | null;
   lastError: string | null;
   apiBudget: SalesforceApiBudgetSnapshot | null;
+  cutover: SalesforceCutoverState | null;
 };
 
 export class SalesforceSyncStateError extends Error {
@@ -63,6 +74,25 @@ function apiBudget(value: unknown): SalesforceApiBudgetSnapshot | null {
     throw new SalesforceSyncStateError("Salesforce API budget checkpoint is invalid");
   }
   return { day: budget.day, used: Number(budget.used), limit: Number(budget.limit) };
+}
+
+function cutoverState(value: unknown): SalesforceCutoverState | null {
+  if (value === undefined || value === null) return null;
+  const cutover = asRecord(value);
+  if (!cutover || typeof cutover.action_request_id !== "string") {
+    throw new SalesforceSyncStateError("Salesforce cutover checkpoint is invalid");
+  }
+  return {
+    actionRequestId: cutover.action_request_id,
+    processingJobId:
+      typeof cutover.processing_job_id === "string" ? cutover.processing_job_id : null,
+    finalSyncJobId:
+      typeof cutover.final_sync_job_id === "string" ? cutover.final_sync_job_id : null,
+    status: typeof cutover.status === "string" ? cutover.status : "unknown",
+    startedAt: optionalTimestamp(cutover.started_at),
+    completedAt: optionalTimestamp(cutover.completed_at),
+    lastError: typeof cutover.last_error === "string" ? cutover.last_error : null,
+  };
 }
 
 function parseObject(value: unknown): SalesforceSyncObjectState {
@@ -133,6 +163,7 @@ export async function getSalesforceSyncState(
     lastCompletedAt: optionalTimestamp(sync.last_completed_at),
     lastError: typeof sync.last_error === "string" ? sync.last_error : null,
     apiBudget: apiBudget(sync.api_budget),
+    cutover: cutoverState(connector.cutover),
   };
 }
 
@@ -259,5 +290,178 @@ export async function mirrorSalesforceSyncWatermarks(
     .returning({ appId: app_state.app_id });
   if (rows.length !== 1) {
     throw new SalesforceSyncStateError("Salesforce connector state disappeared or changed");
+  }
+}
+
+async function mergeCutoverState(
+  state: SalesforceSyncState,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const rows = await db()
+    .update(app_state)
+    .set({
+      config: sql`jsonb_set(
+        ${app_state.config},
+        '{connector,cutover}',
+        coalesce(${app_state.config} #> '{connector,cutover}', '{}'::jsonb)
+          || ${JSON.stringify(patch)}::jsonb,
+        true
+      )`,
+    })
+    .where(
+      and(
+        eq(app_state.org_id, state.orgId),
+        eq(app_state.app_id, state.appId),
+        sql`${app_state.config}->'connector'->>'source_instance_id' = ${state.sourceInstanceId}`,
+        sql`${app_state.config}->'connector'->'cutover'->>'action_request_id' = ${state.cutover?.actionRequestId ?? ""}`,
+      ),
+    )
+    .returning({ appId: app_state.app_id });
+  if (rows.length !== 1) {
+    throw new SalesforceSyncStateError("Salesforce cutover state disappeared or changed");
+  }
+}
+
+export async function beginSalesforceCutover(
+  orgId: string,
+  appId: string,
+  actionRequestId: string,
+): Promise<SalesforceSyncState> {
+  const state = await getSalesforceSyncState(orgId, appId);
+  if (!state || state.appStatus !== "active") {
+    throw new SalesforceSyncStateError("Salesforce cutover requires an active imported app");
+  }
+  if (state.mode === "primary") {
+    throw new SalesforceSyncStateError("Salesforce app is already primary");
+  }
+  if (
+    state.mode === "cutting_over" &&
+    state.cutover?.actionRequestId !== actionRequestId &&
+    state.cutover?.status !== "failed"
+  ) {
+    throw new SalesforceSyncStateError("Salesforce cutover is already in progress");
+  }
+  const startedAt = new Date().toISOString();
+  const cutover = {
+    action_request_id: actionRequestId,
+    processing_job_id: null,
+    final_sync_job_id: null,
+    status: "queued",
+    started_at: startedAt,
+    completed_at: null,
+    last_error: null,
+  };
+  const rows = await db()
+    .update(app_state)
+    .set({
+      config: sql`jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            ${app_state.config},
+            '{mode}',
+            '"cutting_over"'::jsonb,
+            true
+          ),
+          '{connector,sync}',
+          coalesce(${app_state.config} #> '{connector,sync}', '{}'::jsonb)
+            || ${JSON.stringify({ enabled: false, status: "cutover_frozen" })}::jsonb,
+          true
+        ),
+        '{connector,cutover}',
+        ${JSON.stringify(cutover)}::jsonb,
+        true
+      )`,
+    })
+    .where(
+      and(
+        eq(app_state.org_id, orgId),
+        eq(app_state.app_id, appId),
+        eq(app_state.status, "active"),
+        sql`${app_state.config}->>'mode' = ${state.mode}`,
+        sql`${app_state.config}->'connector'->>'source_instance_id' = ${state.sourceInstanceId}`,
+        ...(state.mode === "cutting_over"
+          ? [
+              sql`${app_state.config}->'connector'->'cutover'->>'action_request_id' = ${state.cutover?.actionRequestId ?? ""}`,
+            ]
+          : []),
+      ),
+    )
+    .returning({ appId: app_state.app_id });
+  if (rows.length !== 1) {
+    throw new SalesforceSyncStateError("Salesforce cutover state changed concurrently");
+  }
+  const next = await getSalesforceSyncState(orgId, appId);
+  if (next?.cutover?.actionRequestId !== actionRequestId) {
+    throw new SalesforceSyncStateError("Salesforce cutover state changed concurrently");
+  }
+  return next;
+}
+
+export async function bindSalesforceCutoverJob(
+  state: SalesforceSyncState,
+  processingJobId: string,
+): Promise<void> {
+  await mergeCutoverState(state, { processing_job_id: processingJobId });
+}
+
+export async function updateSalesforceCutoverState(
+  state: SalesforceSyncState,
+  patch: {
+    status: string;
+    finalSyncJobId?: string;
+    completedAt?: string;
+    lastError?: string | null;
+  },
+): Promise<void> {
+  await mergeCutoverState(state, {
+    status: patch.status,
+    ...(patch.finalSyncJobId ? { final_sync_job_id: patch.finalSyncJobId } : {}),
+    ...(patch.completedAt ? { completed_at: patch.completedAt } : {}),
+    ...(patch.lastError !== undefined ? { last_error: patch.lastError } : {}),
+  });
+}
+
+export async function completeSalesforceCutover(
+  state: SalesforceSyncState,
+  completedAt: string,
+): Promise<void> {
+  const rows = await db()
+    .update(app_state)
+    .set({
+      config: sql`jsonb_set(
+        jsonb_set(
+          jsonb_set(
+            ${app_state.config},
+            '{mode}',
+            '"primary"'::jsonb,
+            true
+          ),
+          '{connector,sync}',
+          coalesce(${app_state.config} #> '{connector,sync}', '{}'::jsonb)
+            || ${JSON.stringify({ enabled: false, status: "disabled" })}::jsonb,
+          true
+        ),
+        '{connector,cutover}',
+        coalesce(${app_state.config} #> '{connector,cutover}', '{}'::jsonb)
+          || ${JSON.stringify({
+            status: "succeeded",
+            completed_at: completedAt,
+            last_error: null,
+          })}::jsonb,
+        true
+      )`,
+    })
+    .where(
+      and(
+        eq(app_state.org_id, state.orgId),
+        eq(app_state.app_id, state.appId),
+        sql`${app_state.config}->>'mode' = 'cutting_over'`,
+        sql`${app_state.config}->'connector'->>'source_instance_id' = ${state.sourceInstanceId}`,
+        sql`${app_state.config}->'connector'->'cutover'->>'action_request_id' = ${state.cutover?.actionRequestId ?? ""}`,
+      ),
+    )
+    .returning({ appId: app_state.app_id });
+  if (rows.length !== 1) {
+    throw new SalesforceSyncStateError("Salesforce cutover state disappeared or changed");
   }
 }

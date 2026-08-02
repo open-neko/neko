@@ -173,6 +173,13 @@ function belongsToPayload(
   );
 }
 
+function finalCutoverJobId(job: SalesforceSyncJobRecord): string | null {
+  return job.triggerPayload?.final_delta === true &&
+    typeof job.triggerPayload.cutover_job_id === "string"
+    ? job.triggerPayload.cutover_job_id
+    : null;
+}
+
 function message(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 4_000);
 }
@@ -231,7 +238,20 @@ async function runRecordsSalesforceSyncLocked(
     throw new Error("Salesforce sync state was not found");
   }
   if (initialJob.status === "succeeded" || initialJob.status === "cancelled") return;
-  if (!state.enabled || state.mode === "primary" || state.appStatus !== "active") {
+  const cutoverJobId = finalCutoverJobId(initialJob);
+  if (
+    cutoverJobId &&
+    (state.mode !== "cutting_over" ||
+      state.cutover?.processingJobId !== cutoverJobId ||
+      state.cutover.status === "succeeded")
+  ) {
+    throw new Error("final Salesforce delta does not belong to the active cutover");
+  }
+  if (
+    (!state.enabled && !cutoverJobId) ||
+    state.mode === "primary" ||
+    state.appStatus !== "active"
+  ) {
     await dependencies.updateJob(payload.orgId, payload.processingJobId, {
       status: "cancelled",
       progress: { stage: "disabled" },

@@ -147,6 +147,7 @@ function syncState() {
     lastCompletedAt: null,
     lastError: null,
     apiBudget: null,
+    cutover: null,
   };
 }
 
@@ -171,6 +172,23 @@ function dependencies(
     enableSync: vi.fn().mockResolvedValue(syncState()),
     createSync: vi.fn().mockResolvedValue(job()),
     enqueueSync: vi.fn().mockResolvedValue("boss-sync-1"),
+    beginCutover: vi.fn().mockResolvedValue({
+      ...syncState(),
+      mode: "cutting_over",
+      enabled: false,
+      cutover: {
+        actionRequestId: ACTION_ID,
+        processingJobId: EXPORT_ID,
+        finalSyncJobId: null,
+        status: "queued",
+        startedAt: "2026-08-02T12:00:00.000Z",
+        completedAt: null,
+        lastError: null,
+      },
+    }),
+    createCutover: vi.fn().mockResolvedValue(job()),
+    bindCutoverJob: vi.fn().mockResolvedValue(undefined),
+    enqueueCutover: vi.fn().mockResolvedValue("boss-cutover-1"),
     ...overrides,
   };
 }
@@ -184,6 +202,7 @@ describe("Salesforce worker action adapters", () => {
       "auto",
       "ask",
       { internal: "auto" },
+      "ask",
       "ask",
       "ask",
     ]);
@@ -322,6 +341,29 @@ describe("Salesforce worker action adapters", () => {
     });
   });
 
+  it("freezes a mirror and queues an approved cutover orchestration", async () => {
+    const deps = dependencies();
+    await expect(
+      createRecordSalesforceActionAdapter("records_salesforce_cutover", deps)({
+        request: request("records_salesforce_cutover", { app: "crm" }),
+      }),
+    ).resolves.toMatchObject({
+      commandOrOperation: "records_salesforce_cutover",
+      externalRef: EXPORT_ID,
+      result: { appId: "crm", queueId: "boss-cutover-1" },
+    });
+    expect(deps.bindCutoverJob).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "cutting_over" }),
+      EXPORT_ID,
+    );
+    expect(deps.enqueueCutover).toHaveBeenCalledWith({
+      processingJobId: EXPORT_ID,
+      orgId: "org-a",
+      appId: "crm",
+      sourceInstanceId: "salesforce-production",
+    });
+  });
+
   it("preflights a complete credential-free migration plan before approval", async () => {
     const deps = dependencies();
     const updatePayload = vi.fn(async (input: {
@@ -352,6 +394,7 @@ describe("Salesforce worker action adapters", () => {
     registerRecordSalesforceActions({
       enqueueExport: vi.fn(),
       enqueueSync: vi.fn(),
+      enqueueCutover: vi.fn(),
       dependencies: dependencies(),
       register: (kind) => registered.push(kind),
       registerPreflight: (candidate) => {
