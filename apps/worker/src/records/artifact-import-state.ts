@@ -1,10 +1,13 @@
 import type { Pool } from "pg";
 import { and, app_state, db, eq, sql } from "@neko/db";
+import { enqueue, QUEUE } from "@neko/db/jobs";
 import type { ActionRequestRecord } from "@neko/llm/workflows";
 import {
   seedRecordSyncCursor,
+  type RecordsGraphjinTransport,
   type RecordArtifactImportPlan,
 } from "@neko/records";
+import { reconcileArtifactIdentities } from "./artifact-identity.js";
 
 type ArtifactImportState = {
   kind: "artifact";
@@ -19,6 +22,7 @@ type ArtifactImportState = {
   progress?: Record<string, number>;
   reports?: Record<string, unknown>;
   error?: string;
+  identity?: Record<string, unknown>;
 };
 
 function stateFor(
@@ -139,12 +143,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 /** Refresh the best-effort metadata mirror from authoritative target import runs. */
 export async function refreshArtifactImportState(
   pool: Pool,
-  input: { orgId: string; importRunId: string },
+  input: {
+    orgId: string;
+    importRunId: string;
+    graphjin?: RecordsGraphjinTransport;
+    serviceToken?: string;
+  },
 ): Promise<{ matched: boolean; status?: string }> {
   const states = await db()
     .select({ appId: app_state.app_id, config: app_state.config })
     .from(app_state)
-    .where(and(eq(app_state.org_id, input.orgId), eq(app_state.status, "importing")));
+    .where(eq(app_state.org_id, input.orgId));
   const match = states.find((row) => {
     const state = asRecord(row.config.import);
     return (
@@ -210,10 +219,12 @@ export async function refreshArtifactImportState(
     const sourceInstanceId = connector?.source_instance_id;
     const objects = connector?.objects;
     const manifestHash = state.manifest_hash;
+    const importActionRequestId = state.action_request_id;
     if (
       typeof sourceInstanceId !== "string" ||
       !Array.isArray(objects) ||
-      typeof manifestHash !== "string"
+      typeof manifestHash !== "string" ||
+      typeof importActionRequestId !== "string"
     ) {
       throw new Error("completed artifact import is missing connector cursor metadata");
     }
@@ -232,6 +243,35 @@ export async function refreshArtifactImportState(
         watermark,
         manifestHash,
       });
+    }
+    const hasSourceUsers = objects.some(
+      (value) =>
+        asRecord(value)?.source_api_name?.toString().toLocaleLowerCase("en-US") ===
+        "user",
+    );
+    if (hasSourceUsers) {
+      if (!input.graphjin || !input.serviceToken) {
+        throw new Error("completed identity import requires the records GraphJin service");
+      }
+      const identity = await reconcileArtifactIdentities(pool, {
+        orgId: input.orgId,
+        appId: match.appId,
+        sourceInstanceId,
+        manifestHash,
+        importActionRequestId,
+        graphjin: input.graphjin,
+        serviceToken: input.serviceToken,
+      });
+      next.identity = identity.report;
+      if (identity.action?.status === "approved") {
+        await enqueue(
+          QUEUE.ACTION_EXECUTE,
+          { orgId: input.orgId, actionRequestId: identity.action.id },
+          { singletonKey: `records-identity-import:${identity.action.id}` },
+        );
+      }
+    } else {
+      next.identity = { status: "not_available" };
     }
   }
   await db()

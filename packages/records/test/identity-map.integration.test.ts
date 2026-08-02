@@ -1,5 +1,5 @@
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   buildRecordsPoolConfig,
   runRecordsMigrations,
@@ -9,6 +9,7 @@ import {
   linkIdentityMappingsForUser,
   listIdentityMappings,
   listLinkedIdentityScopesForUser,
+  readImportedSourceUsers,
   reconcileImportedIdentities,
 } from "../src/identity/map";
 
@@ -48,6 +49,23 @@ describeIfLive("source-scoped records identity mapping", () => {
       values
         ('org-a', 'crm', 'CRM', 'active'),
         ('org-a', 'support', 'Support', 'active');
+      insert into engine.registry_version (org_id, revision)
+      values ('org-a', 1);
+      insert into engine.record_object
+        (id, org_id, app_id, api_name, source_api_name, label, plural_label,
+         table_schema, table_name, name_field, visibility)
+      values
+        ('00000000-0000-4000-a000-000000000891', 'org-a', 'crm', 'user',
+         'User', 'User', 'Users', 'public', 'crm__user', 'name', 'org');
+      insert into engine.record_field
+        (id, org_id, object_id, api_name, source_api_name, label, kind, column_name)
+      values
+        ('00000000-0000-4000-a000-000000000892', 'org-a',
+         '00000000-0000-4000-a000-000000000891', 'email', 'Email', 'Email', 'email', 'email'),
+        ('00000000-0000-4000-a000-000000000893', 'org-a',
+         '00000000-0000-4000-a000-000000000891', 'name', 'Name', 'Name', 'text', 'name'),
+        ('00000000-0000-4000-a000-000000000894', 'org-a',
+         '00000000-0000-4000-a000-000000000891', 'is_active', 'IsActive', 'Active', 'boolean', 'is_active');
     `);
   });
 
@@ -90,6 +108,53 @@ describeIfLive("source-scoped records identity mapping", () => {
       expect.objectContaining({ status: "conflict", appUserId: null }),
       expect.objectContaining({ status: "conflict", appUserId: null }),
     ]);
+  });
+
+  it("reads live imported Salesforce users through validated registry columns", async () => {
+    const execute = vi.fn().mockResolvedValue({
+      rows: [
+        {
+          id: "005000000000001AAA",
+          email: "Alice@example.com",
+          name: "Alice",
+          is_active: true,
+        },
+        {
+          id: "005000000000002AAA",
+          email: "not-an-email",
+          name: "Invalid",
+          is_active: true,
+        },
+      ],
+    });
+    await expect(
+      readImportedSourceUsers(testPool, {
+        orgId: "org-a",
+        appId: "crm",
+        graphjin: { execute },
+        token: "service-token",
+      }),
+    ).resolves.toEqual({
+      found: true,
+      users: [
+        {
+          sourceUserId: "005000000000001AAA",
+          email: "Alice@example.com",
+          name: "Alice",
+          active: true,
+        },
+      ],
+      invalidEmails: 1,
+      invalidEmailSourceUserIds: ["005000000000002AAA"],
+    });
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationName: "RecordsImportedSourceUsers",
+        query: expect.stringContaining("rows: crm__user"),
+        variables: { org_id: "org-a" },
+        token: "service-token",
+      }),
+    );
   });
 
   it("keeps identical external ids independent across connector instances", async () => {

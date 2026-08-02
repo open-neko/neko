@@ -78,6 +78,7 @@ describe("records identity action adapter", () => {
     expect(registered.mock.calls.map(([kind]) => kind)).toEqual([
       "records_identity_backfill",
       "records_identity_backfill_lazy",
+      "records_identity_backfill_import",
     ]);
   });
 
@@ -164,5 +165,26 @@ describe("records identity action adapter", () => {
 
     const forged = { ...trusted, actorBackend: "codex" };
     await expect(adapter({ request: forged })).rejects.toThrow(/trusted identity-link worker/);
+  });
+
+  it("accepts import backfills only from the trusted artifact worker", async () => {
+    const execute = vi.fn(async (request: RecordOwnerBackfillRequest) => report(request));
+    const adapter = createRecordIdentityActionAdapter(
+      "records_identity_backfill_import",
+      { execute },
+    );
+    const trusted = actionRequest({
+      app: "crm",
+      source_instance_id: "sf-prod",
+      import_action_request_id: "import-request-1",
+    });
+    trusted.kind = "records_identity_backfill_import";
+    trusted.actorBackend = "records-artifact-import";
+    await expect(adapter({ request: trusted })).resolves.toMatchObject({
+      result: { updated: 3 },
+    });
+    await expect(
+      adapter({ request: { ...trusted, actorBackend: "codex" } }),
+    ).rejects.toThrow(/trusted artifact-import worker/);
   });
 });

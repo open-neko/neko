@@ -1,10 +1,20 @@
 import type { Pool, PoolClient } from "pg";
+import type { RecordsGraphjinTransport } from "../graphjin/client";
+import { RECORD_SYSTEM_COLUMNS } from "../policy/graphjin";
+import { RecordRegistry } from "../registry";
 
 export type ImportedSourceUser = {
   sourceUserId: string;
   email: string;
   name?: string | null;
   active?: boolean | null;
+};
+
+export type ImportedSourceUsersResult = {
+  found: boolean;
+  users: ImportedSourceUser[];
+  invalidEmails: number;
+  invalidEmailSourceUserIds: string[];
 };
 
 export type IdentityAppUser = {
@@ -83,6 +93,119 @@ function normalizedEmail(value: string): string {
     throw new IdentityMappingError("source email: valid address required");
   }
   return email;
+}
+
+function sourceField(
+  fields: Array<{ sourceApiName: string | null; apiName: string; columnName: string }>,
+  name: string,
+): string | null {
+  const lower = name.toLocaleLowerCase("en-US");
+  return (
+    fields.find(
+      (field) =>
+        field.sourceApiName?.toLocaleLowerCase("en-US") === lower ||
+        field.apiName === lower,
+    )?.columnName ?? null
+  );
+}
+
+/** Read the imported Salesforce User object through its validated registry projection. */
+export async function readImportedSourceUsers(
+  pool: Pool,
+  input: {
+    orgId: string;
+    appId: string;
+    graphjin: RecordsGraphjinTransport;
+    token: string;
+    sourceObject?: string;
+  },
+): Promise<ImportedSourceUsersResult> {
+  const orgId = required(input.orgId, "organization id");
+  const appId = required(input.appId, "app id");
+  const sourceObject = input.sourceObject ?? "User";
+  const snapshot = await new RecordRegistry(pool).loadApp(orgId, appId);
+  if (!snapshot) throw new IdentityMappingError("imported identity app was not found");
+  const object = snapshot.objects.find(
+    (candidate) =>
+      candidate.archivedAt === null &&
+      candidate.sourceApiName?.toLocaleLowerCase("en-US") ===
+        sourceObject.toLocaleLowerCase("en-US"),
+  );
+  if (!object) {
+    return {
+      found: false,
+      users: [],
+      invalidEmails: 0,
+      invalidEmailSourceUserIds: [],
+    };
+  }
+  const fields = snapshot.fields.filter(
+    (field) => field.objectId === object.id && field.archivedAt === null,
+  );
+  const emailColumn = sourceField(fields, "Email");
+  if (!emailColumn) {
+    throw new IdentityMappingError("imported Salesforce User object has no Email field");
+  }
+  const nameColumn = sourceField(fields, "Name");
+  const activeColumn = sourceField(fields, "IsActive");
+  const rows: Array<Record<string, unknown>> = [];
+  let after: string | null = null;
+  do {
+    const operationName = "RecordsImportedSourceUsers";
+    const data: Record<string, unknown> = await input.graphjin.execute<
+      Record<string, unknown>
+    >({
+      operationName,
+      query: `query ${operationName} { rows: ${object.tableName}(where: { and: [{ ${RECORD_SYSTEM_COLUMNS.orgId}: { eq: $org_id } }, { ${RECORD_SYSTEM_COLUMNS.deletedAt}: { is_null: true } }${after ? ", { id: { gt: $after } }" : ""}] }, order_by: { id: asc }, limit: 500) { id ${emailColumn}${nameColumn ? ` ${nameColumn}` : ""}${activeColumn ? ` ${activeColumn}` : ""} } }`,
+      variables: { org_id: orgId, ...(after ? { after } : {}) },
+      token: input.token,
+    });
+    const page: Array<Record<string, unknown>> = Array.isArray(data.rows)
+      ? data.rows.filter(
+          (row: unknown): row is Record<string, unknown> =>
+            typeof row === "object" && row !== null && !Array.isArray(row),
+        )
+      : [];
+    rows.push(...page);
+    const lastId = page.at(-1)?.id;
+    after = page.length === 500 && typeof lastId === "string" ? lastId : null;
+  } while (after);
+  const users: ImportedSourceUser[] = [];
+  const invalidEmailSourceUserIds: string[] = [];
+  let invalidEmails = 0;
+  for (const row of rows) {
+    const sourceUserId = typeof row.id === "string" ? row.id : "";
+    if (!sourceUserId) {
+      throw new IdentityMappingError("imported Salesforce User row has no id");
+    }
+    const emailValue = row[emailColumn];
+    const email = typeof emailValue === "string" ? emailValue.trim() : "";
+    if (!email || !/^[^\s@]+@[^\s@]+$/.test(email) || email.length > 320) {
+      invalidEmails += 1;
+      if (invalidEmailSourceUserIds.length < 100) {
+        invalidEmailSourceUserIds.push(sourceUserId);
+      }
+      continue;
+    }
+    users.push({
+      sourceUserId,
+      email,
+      name:
+        nameColumn && typeof row[nameColumn] === "string"
+          ? String(row[nameColumn])
+          : null,
+      active:
+        activeColumn && typeof row[activeColumn] === "boolean"
+          ? Boolean(row[activeColumn])
+          : null,
+    });
+  }
+  return {
+    found: true,
+    users,
+    invalidEmails,
+    invalidEmailSourceUserIds,
+  };
 }
 
 function mapIdentity(row: RawIdentity): IdentityMapping {

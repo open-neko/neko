@@ -16,6 +16,7 @@ import {
 export const RECORD_IDENTITY_ACTION_KINDS = [
   "records_identity_backfill",
   "records_identity_backfill_lazy",
+  "records_identity_backfill_import",
 ] as const;
 
 export const RECORD_IDENTITY_ACTION_DESCRIPTORS = [
@@ -76,11 +77,24 @@ function assertPayload(
       "lazy identity backfill requires the trusted identity-link worker",
     );
   }
+  if (
+    kind === "records_identity_backfill_import" &&
+    (request.actorBackend !== "records-artifact-import" ||
+      request.actorRole !== "admin" ||
+      typeof request.payload.import_action_request_id !== "string")
+  ) {
+    throw new RecordIdentityActionPayloadError(
+      "import identity backfill requires the trusted artifact-import worker",
+    );
+  }
   const allowed = new Set([
     "app",
     "source_instance_id",
     "source_user_id",
     ...(kind === "records_identity_backfill_lazy" ? ["linked_app_user_id"] : []),
+    ...(kind === "records_identity_backfill_import"
+      ? ["import_action_request_id"]
+      : []),
   ]);
   const unknown = Object.keys(request.payload).filter((key) => !allowed.has(key));
   if (unknown.length > 0) {

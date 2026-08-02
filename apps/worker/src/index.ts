@@ -801,6 +801,8 @@ await b.work(
         await refreshArtifactImportState(recordsPool, {
           orgId: job.data.orgId,
           importRunId: job.data.importRunId,
+          graphjin: recordsGraphjin,
+          serviceToken: recordsServiceToken(job.data.orgId),
         });
       } catch (e) {
         console.warn(

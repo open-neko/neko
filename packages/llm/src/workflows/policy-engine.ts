@@ -403,6 +403,24 @@ export async function seedDefaultActionPolicies(orgId: string): Promise<void> {
       enabled: true,
     });
   }
+  if (!names.has("records_identity_backfill_import_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "records_identity_backfill_import_default",
+      description:
+        "A verified connector import may propagate only its unambiguous identity links automatically.",
+      appliesToKinds: ["records_identity_backfill_import"],
+      appliesToScopes: ["internal"],
+      mode: "auto_approve" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: null,
+      priority: 89,
+      enabled: true,
+    });
+  }
   if (!names.has("records_salesforce_discovery_default")) {
     await createActionPolicy({
       orgId,
