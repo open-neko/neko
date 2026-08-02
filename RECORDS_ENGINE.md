@@ -146,12 +146,26 @@ database (Postgres: fully supported), and a `preview_schema_changes` /
 requiring an explicit `destructive` flag and an automatic schema reload after
 apply. The C3 executor projects the registry into GraphJin DDL and drives
 preview → apply, so the SQL shown on the approval card is the SQL that runs.
-This facility stays **off for customer data sources** exactly as today — their
-analytics-mode config carries `read_only: true`, which blocks all mutations
-and DDL; only the `records` source enables schema updates. *Rejected:* direct
-SQL from Next.js API routes (second enforcement point, guaranteed drift);
-hand-rolled DDL generation in the engine (GraphJin already maintains the
-dialect + diff engine; we'd be duplicating it badly).
+
+**Records-source configuration:** because `records-db` is our own built-in
+database — not a customer's — it does **not** run `read_only`. It is
+configured `analytics_mode: true` (no implicit row limits, so aggregate
+queries for reports and D15 metric blocks return complete results) **plus
+mutations- and DDL-capable** (`read_only: false`, `allow_schema_updates` on —
+`read_only` would block `apply_schema_changes` too, so C3 requires this). The
+single-write-path guarantee (D6) is enforced at the **role level** instead of
+the source level: the generated role config (C7) grants user-facing roles
+(`admin`, `member`) queries only — their mutations are blocked in-engine —
+while the `service` role is mutation-capable, and `service` tokens are minted
+exclusively by the worker for the C3/C4 executors. Same invariant, one level
+down, still generated from the one policy module so it cannot drift. Customer
+data sources are untouched: their analytics-mode config keeps
+`read_only: true` (all mutations and DDL blocked) exactly as today.
+*Rejected:* direct SQL from Next.js API routes (second enforcement point,
+guaranteed drift); hand-rolled DDL generation in the engine (GraphJin already
+maintains the dialect + diff engine; we'd be duplicating it badly);
+`read_only` on the records source (would block the C3 apply path and force
+write enforcement somewhere GraphJin can't see).
 
 **D6 — All writes through core action adapters — data writes *and* schema
 writes.**
@@ -165,8 +179,13 @@ through the same executor. Every data write validates against the registry,
 checks RBAC as the acting user, appends to `engine.record_change_log`, and
 records into `workflow_run.source_writes` (migration `0021`) so watcher
 cycle-checks keep working. Every schema write appends to
-`engine.app_schema_log` with the exact DDL applied. *Rejected:* GraphJin
-mutations from the agent (bypasses approval cards and validation); a separate
+`engine.app_schema_log` with the exact DDL applied. The records source is
+mutations-capable (D5), so the executors themselves may write through
+GraphJin's mutation surface under the `service` role — one data plane — with
+direct SQL retained where the transactional shape demands it (record write +
+change-log append in one transaction; `COPY` bulk loads). *Rejected:*
+GraphJin mutations from agent- or user-facing roles (bypasses approval cards
+and validation — blocked in-engine by the C7 role projection); a separate
 "migration" pipeline for schema changes (two write paths again).
 
 **D7 — Schema evolution is additive-by-default; the agent can never destroy
@@ -538,10 +557,11 @@ Executor rules (one transaction against `records-db` per action, mirrored to
 5. `hard_drop` is **not an action kind**. It exists only as
    `openneko records drop --app X --object Y` with typed confirmation and a
    fresh-verified-backup check (D7).
-6. Source gating: `mcp.allow_schema_updates` is enabled **only** for the
-   `records` source; customer data sources keep their analytics-mode
-   `read_only: true` config, which blocks all mutations and DDL — unchanged
-   from today.
+6. Source gating: the `records` source runs `analytics_mode: true` +
+   `read_only: false` + `allow_schema_updates` (see D5) — DDL and mutations
+   land only through worker-held `service` credentials. Customer data
+   sources keep their analytics-mode `read_only: true` config, which blocks
+   all mutations and DDL — unchanged from today.
 
 **Blueprints:** `packages/records/blueprints/*.json` — starter app definitions
 (CRM: account/contact/opportunity/activity; support: ticket/requester/queue
@@ -622,10 +642,13 @@ config; serve reads and change subscriptions.
 - **Role generation (C7 output):** `packages/records/src/policy/graphjin.ts`
   projects `record_permission` + `record_object.visibility` into GraphJin
   config: role match on the JWT `role` claim; per-table allow/deny from CRUD
-  grants (reads only — writes stay `blocked` in GraphJin per D6); row filter
+  grants — user-facing roles (`admin`, `member`) get **queries only**, their
+  mutations blocked in-engine (the D6 write path is role-enforced, per D5:
+  the source itself is mutations-capable); row filter
   `{ owner_user_id: { eq: $sub } }` on `visibility='owner'` tables for
-  `member`; `service` reads everything (watchers). Archived objects/fields are
-  excluded from the projection. Regenerated on every C3 schema action and
+  `member`; `service` reads everything and is the one mutation-capable role,
+  its tokens minted only by the worker for the executors and watchers.
+  Archived objects/fields are excluded from the projection. Regenerated on every C3 schema action and
   every permission change.
 - **Subscriptions (the "watch" in the rethink):** GraphJin's live-query /
   subscription support runs over the same role config, so a watcher
@@ -672,7 +695,10 @@ Routes:
 
 - **Reads:** API routes under `/api/a/...` mint the user's GraphJin token (C5)
   and query GraphJin — generated GraphQL documents (columns, filter args,
-  cursor pagination); no direct SQL (D5).
+  cursor pagination); no direct SQL (D5). Generated queries always carry
+  explicit limits: the records source runs `analytics_mode`, so nothing is
+  implicitly capped — right for aggregates, and list queries must therefore
+  paginate deliberately.
 - **Field rendering/edit widgets** keyed on `record_field.kind` — one
   component per kind. Reference lookups search the target object's
   `name_field` via the same read path.
