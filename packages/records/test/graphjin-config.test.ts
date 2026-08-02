@@ -43,6 +43,7 @@ describe("records GraphJin config", () => {
       disable_production_security: true,
       analytics_mode: true,
       db_schema_poll_duration: "0s",
+      caching: { disable: true },
       mcp: { disable: true, allow_mutations: false, allow_raw_queries: false },
       auth: { type: "jwt", development: false },
     });

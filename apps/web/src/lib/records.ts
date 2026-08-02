@@ -424,6 +424,7 @@ export async function readRecordDetail(input: {
   appId: string;
   objectApiName: string;
   recordId: string;
+  allFields?: boolean;
 }): Promise<RecordDetailResult> {
   const shell = await loadRecordAppShell(input.orgId, input.appId);
   if (shell.availability !== "active") {
@@ -435,6 +436,7 @@ export async function readRecordDetail(input: {
     objectApiName: input.objectApiName,
     role: viewer.role,
     recordId: input.recordId,
+    allFields: input.allFields,
   });
   const data = await recordsRuntime().graphjin.execute<Record<string, unknown>>({
     operationName: generated.operationName,

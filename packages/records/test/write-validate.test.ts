@@ -140,4 +140,28 @@ describe("validateRecordFields", () => {
       }),
     ).toThrow(/cannot be null/);
   });
+
+  it("accepts registry-enriched picklist entries by their stable value", () => {
+    const fields = [
+      field("status", "picklist", {
+        picklistValues: [
+          { value: "open", label: "Open", color: "green" },
+          { value: "closed", label: "Closed", color: "slate" },
+        ],
+      }),
+      field("tags", "multipicklist", {
+        picklistValues: [
+          { value: "urgent", label: "Urgent" },
+          { value: "onsite", label: "On site" },
+        ],
+      }),
+    ];
+    expect(
+      validateRecordFields({
+        operation: "update",
+        registryFields: fields,
+        values: { status: "open", tags: ["urgent", "onsite"] },
+      }).fields,
+    ).toEqual({ status: "open", tags: ["urgent", "onsite"] });
+  });
 });

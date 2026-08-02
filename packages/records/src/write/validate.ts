@@ -84,9 +84,17 @@ function validateDecimal(value: unknown, field: RecordField): string | number {
   return value;
 }
 
+function picklistCandidateMatches(candidate: unknown, value: unknown): boolean {
+  if (Object.is(candidate, value)) return true;
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+    return Object.is((candidate as Record<string, unknown>).value, value);
+  }
+  return false;
+}
+
 function validatePicklist(value: unknown, field: RecordField): unknown {
   const allowed = field.picklistValues ?? [];
-  if (!allowed.some((candidate) => Object.is(candidate, value))) {
+  if (!allowed.some((candidate) => picklistCandidateMatches(candidate, value))) {
     issue(field.apiName, "picklist", "must be one of the configured values");
   }
   return value;
@@ -98,7 +106,7 @@ function validateMultipicklist(value: unknown, field: RecordField): unknown[] {
   const allowed = field.picklistValues ?? [];
   const seen = new Set<string>();
   for (const entry of value) {
-    if (!allowed.some((candidate) => Object.is(candidate, entry))) {
+    if (!allowed.some((candidate) => picklistCandidateMatches(candidate, entry))) {
       issue(field.apiName, "picklist", "contains a value outside the configured set");
     }
     const key = JSON.stringify(entry);

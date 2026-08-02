@@ -215,18 +215,20 @@ describeIfLive("records write executor live integration", () => {
         if (!healthy) throw new Error("records GraphJin did not become healthy");
 
         const sourceWrites: Array<{ actionRequestId: string; recordId: string }> = [];
+        const graphjin = new RecordsGraphjinClient({
+          baseUrl: `http://127.0.0.1:${port}`,
+        });
+        const serviceToken = () =>
+          mintRecordsGraphjinToken({
+            secret: JWT_SECRET,
+            orgId: "org-a",
+            userId: "records-service",
+            role: "service",
+          });
         const executor = new RecordWriteExecutor({
           pool: testPool,
-          graphjin: new RecordsGraphjinClient({
-            baseUrl: `http://127.0.0.1:${port}`,
-          }),
-          serviceToken: () =>
-            mintRecordsGraphjinToken({
-              secret: JWT_SECRET,
-              orgId: "org-a",
-              userId: "records-service",
-              role: "service",
-            }),
+          graphjin,
+          serviceToken,
           leaseOwner: "test-worker",
           recordSourceWrite: async (write) => {
             sourceWrites.push({
@@ -293,6 +295,18 @@ describeIfLive("records write executor live integration", () => {
           }),
         ).rejects.toBeInstanceOf(RecordNotFoundOrDeniedError);
 
+        const readLoan = () =>
+          graphjin.execute<{ rows: Array<{ id: string; status: string }> }>({
+            operationName: "RecordsWriteReadAfterMutation",
+            query:
+              "query RecordsWriteReadAfterMutation { rows: equipment__loan(where: { id: { eq: $id } }, limit: 1) { id status } }",
+            variables: { id: "loan-1" },
+            token: serviceToken(),
+          });
+        await expect(readLoan()).resolves.toMatchObject({
+          rows: [{ id: "loan-1", status: "new" }],
+        });
+
         await executor.execute({
           actionRequestId: "request-update-loan",
           orgId: "org-a",
@@ -303,6 +317,13 @@ describeIfLive("records write executor live integration", () => {
           id: "loan-1",
           fields: { status: "active" },
           expected: { status: "new" },
+        });
+        // GraphJin returns an empty mutation selection when the updated value
+        // was part of the where predicate. Its default response cache cannot
+        // infer which row to invalidate in that case, so records configs keep
+        // response caching disabled and the same named read must be fresh.
+        await expect(readLoan()).resolves.toMatchObject({
+          rows: [{ id: "loan-1", status: "active" }],
         });
         await expect(
           executor.execute({

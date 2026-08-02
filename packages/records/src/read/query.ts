@@ -163,6 +163,7 @@ function resolveView(input: {
   objectApiName: string;
   role: RecordViewerRole;
   layoutKind: "list" | "detail";
+  allFields?: boolean;
 }): RecordObjectView {
   if (input.snapshot.app.status !== "active") {
     throw new RecordReadTargetError("record app is not active");
@@ -178,7 +179,7 @@ function resolveView(input: {
   const layout = input.snapshot.layouts.find(
     (candidate) => candidate.objectId === object.id && candidate.kind === input.layoutKind,
   );
-  const requested = layout
+  const requested = layout && !input.allFields
     ? layoutFieldNames(layout.definition, input.layoutKind)
     : [];
   const selected = requested
@@ -391,6 +392,7 @@ export function buildRecordDetailQuery(input: {
   objectApiName: string;
   role: RecordViewerRole;
   recordId: string;
+  allFields?: boolean;
 }): RecordDetailQuery {
   const view = resolveView({ ...input, layoutKind: "detail" });
   const recordId = input.recordId.trim();

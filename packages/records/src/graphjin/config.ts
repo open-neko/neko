@@ -236,6 +236,12 @@ export function buildRecordsGraphjinConfig(input: BuildRecordsGraphjinConfigInpu
     db_schema_poll_duration: "0s",
     secret_key: input.secretKey,
     rate_limiter: { rate, bucket },
+    // Governed record writes may commit while GraphJin returns an empty
+    // mutation selection (the update predicate can stop matching after the
+    // change). GraphJin cannot derive row refs from that empty response, so
+    // its default response cache is not invalidated. Records reads must never
+    // serve that stale pre-write snapshot.
+    caching: { disable: true },
     mcp: {
       disable: true,
       allow_mutations: false,

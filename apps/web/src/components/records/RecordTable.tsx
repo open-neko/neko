@@ -51,22 +51,27 @@ export function RecordTable({
               {view.columns.map((column) => {
                 const active = query.sort === column.apiName;
                 const direction = active && query.direction === "desc" ? "asc" : "desc";
+                const sortable = column.kind !== "owner" && column.kind !== "system_datetime";
                 return (
                   <th
                     key={column.apiName}
                     className={["integer", "decimal", "currency", "percent"].includes(column.kind) ? "is-number" : undefined}
                   >
-                    <Link
-                      href={hrefWith(base, query, {
-                        sort: column.apiName,
-                        direction,
-                        after: null,
-                        page: null,
-                      })}
-                    >
-                      {column.label}
-                      {active && <span aria-hidden="true"> {query.direction === "desc" ? "↓" : "↑"}</span>}
-                    </Link>
+                    {sortable ? (
+                      <Link
+                        href={hrefWith(base, query, {
+                          sort: column.apiName,
+                          direction,
+                          after: null,
+                          page: null,
+                        })}
+                      >
+                        {column.label}
+                        {active && <span aria-hidden="true"> {query.direction === "desc" ? "↓" : "↑"}</span>}
+                      </Link>
+                    ) : (
+                      column.label
+                    )}
                   </th>
                 );
               })}
