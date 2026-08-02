@@ -1000,11 +1000,70 @@
   gap: 14px;
 }
 
+.records-identity-toolbar {
+  display: flex;
+  align-items: start;
+  gap: 12px;
+}
+
 .records-identity-filters {
   display: flex;
   align-items: center;
   gap: 7px;
   overflow-x: auto;
+}
+
+.records-identity-backfill {
+  margin-left: auto;
+  display: grid;
+  grid-template-columns: minmax(130px, 190px) auto;
+  gap: 6px;
+}
+
+.records-identity-backfill select,
+.records-identity-backfill button {
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  font-size: 9.5px;
+}
+
+.records-identity-backfill select {
+  min-width: 0;
+  padding: 6px 8px;
+  outline: 0;
+  background: var(--card);
+  color: var(--text2);
+}
+
+.records-identity-backfill button {
+  padding: 6px 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--card);
+  color: var(--text);
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.records-identity-backfill button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.records-identity-backfill button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.records-identity-backfill > span {
+  grid-column: 1 / -1;
+  color: var(--text3);
+  font-size: 9px;
+  text-align: right;
 }
 
 .records-identity-filters a {
@@ -1810,6 +1869,17 @@
 
   .records-identity-layout {
     margin-block: 14px;
+  }
+
+  .records-identity-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .records-identity-backfill {
+    width: 100%;
+    margin-left: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .records-degraded {

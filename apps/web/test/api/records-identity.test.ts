@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getOrgId: vi.fn(async () => "org-a"),
   decide: vi.fn(),
+  backfill: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ getOrgId: mocks.getOrgId }));
@@ -10,10 +11,20 @@ vi.mock("@/lib/db", () => ({ getOrgId: mocks.getOrgId }));
 vi.mock("@/lib/records-identity", () => {
   class RecordIdentityWebPermissionError extends Error {}
   class RecordIdentityWebInputError extends Error {}
+  class RecordIdentityWebExecutionError extends Error {
+    constructor(
+      message: string,
+      readonly actionRequestId: string,
+    ) {
+      super(message);
+    }
+  }
   return {
     decideRecordIdentityForWeb: mocks.decide,
+    runRecordIdentityBackfillFromWeb: mocks.backfill,
     RecordIdentityWebPermissionError,
     RecordIdentityWebInputError,
+    RecordIdentityWebExecutionError,
   };
 });
 
@@ -31,8 +42,10 @@ vi.mock("@neko/records", () => {
 });
 
 import { POST } from "@/app/api/a/[app]/identity/decision/route";
+import { POST as backfill } from "@/app/api/a/[app]/identity/backfill/route";
 import {
   RecordIdentityWebInputError,
+  RecordIdentityWebExecutionError,
   RecordIdentityWebPermissionError,
 } from "@/lib/records-identity";
 
@@ -117,5 +130,42 @@ describe("records identity decision route", () => {
     );
     expect(invalid.status).toBe(400);
     await expect(invalid.json()).resolves.toEqual({ error: "user unavailable" });
+  });
+
+  it("starts a source-scoped governed ownership backfill", async () => {
+    mocks.backfill.mockResolvedValue({
+      status: "executed",
+      actionRequestId: "request-backfill",
+      policy: "records_identity_backfill_default",
+      report: { updated: 3 },
+    });
+    const response = await backfill(request({ sourceInstanceId: "sf-prod" }), context);
+    expect(response.status).toBe(200);
+    expect(mocks.backfill).toHaveBeenCalledWith({
+      orgId: "org-a",
+      appId: "crm",
+      sourceInstanceId: "sf-prod",
+    });
+  });
+
+  it("returns queued and failed backfill states honestly", async () => {
+    mocks.backfill.mockResolvedValueOnce({
+      status: "queued",
+      actionRequestId: "request-queued",
+      policy: "records_identity_backfill_default",
+      report: null,
+    });
+    const queued = await backfill(request({ sourceInstanceId: "sf-prod" }), context);
+    expect(queued.status).toBe(202);
+
+    mocks.backfill.mockRejectedValueOnce(
+      new RecordIdentityWebExecutionError("worker rejected backfill", "request-failed"),
+    );
+    const failed = await backfill(request({ sourceInstanceId: "sf-prod" }), context);
+    expect(failed.status).toBe(422);
+    await expect(failed.json()).resolves.toEqual({
+      error: "worker rejected backfill",
+      actionRequestId: "request-failed",
+    });
   });
 });

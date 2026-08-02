@@ -23,6 +23,7 @@ import {
   RecordNotFoundOrDeniedError,
   RecordWriteExecutor,
 } from "../src/write/executor";
+import { RecordOwnerBackfillExecutor } from "../src/identity/backfill";
 import { RecordValidationError } from "../src/write/validate";
 import { validateRecordIdentifier } from "../src/naming";
 
@@ -86,18 +87,21 @@ describeIfLive("records write executor live integration", () => {
         ('00000000-0000-0000-0000-000000000701', 'org-a', 'equipment',
          'loan', 'Loan', 'Loans', 'equipment__loan', 'name', 'owner');
       insert into engine.record_field
-        (id, org_id, object_id, api_name, label, kind, column_name,
+        (id, org_id, object_id, api_name, source_api_name, label, kind, column_name,
          required, read_only, picklist_values)
       values
         ('00000000-0000-0000-0000-000000000702', 'org-a',
-         '00000000-0000-0000-0000-000000000701', 'name', 'Name', 'text',
+         '00000000-0000-0000-0000-000000000701', 'name', null, 'Name', 'text',
          'name', true, false, null),
         ('00000000-0000-0000-0000-000000000703', 'org-a',
-         '00000000-0000-0000-0000-000000000701', 'status', 'Status',
+         '00000000-0000-0000-0000-000000000701', 'status', null, 'Status',
          'picklist', 'status', true, false, '["new","active"]'::jsonb),
         ('00000000-0000-0000-0000-000000000704', 'org-a',
-         '00000000-0000-0000-0000-000000000701', 'legacy_code', 'Legacy code',
-         'text', 'legacy_code', false, true, null);
+         '00000000-0000-0000-0000-000000000701', 'legacy_code', null, 'Legacy code',
+         'text', 'legacy_code', false, true, null),
+        ('00000000-0000-0000-0000-000000000705', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'owner_id', 'OwnerId', 'Source owner',
+         'text', 'owner_id', true, false, null);
       insert into engine.record_permission
         (org_id, app_id, role, object_api_name,
          can_read, can_create, can_update, can_delete)
@@ -106,6 +110,12 @@ describeIfLive("records write executor live integration", () => {
         ('org-a', 'equipment', 'admin', 'loan', true, true, true, true);
       insert into engine.actor (org_id, user_id, role)
       values ('org-a', 'records-service', 'service');
+      insert into engine.identity_map
+        (org_id, source_instance_id, app_id, source_user_id, source_email,
+         source_name, source_is_active, app_user_id, status, linked_at)
+      values
+        ('org-a', 'sf-prod', 'equipment', '005-alice', 'alice@example.com',
+         'Alice', true, 'user-alice', 'linked', now());
 
       create table public.equipment__loan (
         id text primary key,
@@ -114,6 +124,7 @@ describeIfLive("records write executor live integration", () => {
         name text not null,
         status text not null,
         legacy_code text,
+        owner_id text not null,
         nk_created_at timestamptz not null,
         nk_created_by text not null,
         nk_updated_at timestamptz not null,
@@ -248,7 +259,12 @@ describeIfLive("records write executor live integration", () => {
           objectApiName: "loan",
           operation: "create",
           actor: member,
-          fields: { id: "loan-1", name: "Laptop", status: "new" },
+          fields: {
+            id: "loan-1",
+            name: "Laptop",
+            status: "new",
+            owner_id: "005-alice",
+          },
         });
         expect(created).toMatchObject({
           id: "loan-1",
@@ -264,7 +280,12 @@ describeIfLive("records write executor live integration", () => {
             objectApiName: "loan",
             operation: "create",
             actor: member,
-            fields: { id: "loan-1", name: "Laptop", status: "new" },
+            fields: {
+              id: "loan-1",
+              name: "Laptop",
+              status: "new",
+              owner_id: "005-alice",
+            },
           }),
         ).resolves.toMatchObject({ id: "loan-1", replayed: true });
 
@@ -279,6 +300,7 @@ describeIfLive("records write executor live integration", () => {
             id: "loan-2",
             name: "Other Laptop",
             status: "new",
+            owner_id: "005-alice",
             owner_user_id: "member-2",
           },
         });
@@ -417,6 +439,52 @@ describeIfLive("records write executor live integration", () => {
           "select count(*) from engine.action_execution where status = 'succeeded'",
         );
         expect(succeeded.rows).toEqual([{ count: "5" }]);
+
+        const ownerBackfill = new RecordOwnerBackfillExecutor({
+          pool: testPool,
+          graphjin,
+          serviceToken,
+          leaseOwner: "identity-worker",
+        });
+        await expect(
+          ownerBackfill.execute({
+            actionRequestId: "request-owner-backfill",
+            orgId: "org-a",
+            appId: "equipment",
+            sourceInstanceId: "sf-prod",
+            actorUserId: "admin-1",
+          }),
+        ).resolves.toMatchObject({ scanned: 2, updated: 2, unchanged: 0 });
+        await expect(
+          ownerBackfill.execute({
+            actionRequestId: "request-owner-backfill",
+            orgId: "org-a",
+            appId: "equipment",
+            sourceInstanceId: "sf-prod",
+            actorUserId: "admin-1",
+          }),
+        ).resolves.toMatchObject({ updated: 2, replayed: true });
+        const ownership = await testPool.query<{
+          id: string;
+          owner_user_id: string;
+        }>(
+          `select id, owner_user_id from public.equipment__loan order by id`,
+        );
+        expect(ownership.rows).toEqual([
+          { id: "loan-1", owner_user_id: "user-alice" },
+          { id: "loan-2", owner_user_id: "user-alice" },
+        ]);
+        const ownershipAudit = await testPool.query<{
+          record_id: string;
+          action: string;
+        }>(
+          `select record_id, action from engine.record_change_log
+           where action_request_id = 'request-owner-backfill' order by record_id`,
+        );
+        expect(ownershipAudit.rows).toEqual([
+          { record_id: "loan-1", action: "sync" },
+          { record_id: "loan-2", action: "sync" },
+        ]);
       } finally {
         await runCommand("docker", ["rm", "--force", containerId]).catch(() => undefined);
       }

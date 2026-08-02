@@ -10,6 +10,7 @@ export * from "./graphjin/client";
 export * from "./graphjin/config";
 export * from "./graphjin/schema";
 export * from "./identity/map";
+export * from "./identity/backfill";
 export * from "./import/csv";
 export * from "./import/executor";
 export * from "./import/plan";

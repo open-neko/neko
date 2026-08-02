@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, CircleAlert, Link2, LoaderCircle, UserRoundX } from "lucide-react";
+import {
+  Check,
+  CircleAlert,
+  Link2,
+  LoaderCircle,
+  RefreshCcw,
+  UserRoundX,
+} from "lucide-react";
 import { useState, type FormEvent } from "react";
 import type {
   RecordIdentityAdminMapping,
@@ -118,33 +125,108 @@ function MappingControl({
   );
 }
 
+function BackfillControl({ appId, sources }: { appId: string; sources: string[] }) {
+  const [sourceInstanceId, setSourceInstanceId] = useState(sources[0] ?? "");
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function run(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!sourceInstanceId) return;
+    setPending(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/a/${encodeURIComponent(appId)}/identity/backfill`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sourceInstanceId }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        status?: "executed" | "queued";
+        report?: { updated?: number; skippedObjects?: unknown[] } | null;
+      };
+      if (!response.ok) {
+        setMessage(payload.error ?? "Ownership backfill could not be started.");
+        return;
+      }
+      if (payload.status === "queued") {
+        setMessage("Backfill is continuing in the background.");
+      } else {
+        const updated = payload.report?.updated ?? 0;
+        const skipped = payload.report?.skippedObjects?.length ?? 0;
+        setMessage(
+          `${updated.toLocaleString("en")} record${updated === 1 ? "" : "s"} updated${skipped ? `; ${skipped} object${skipped === 1 ? "" : "s"} skipped` : ""}.`,
+        );
+      }
+    } catch {
+      setMessage("The identity service could not be reached.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <form className="records-identity-backfill" onSubmit={run}>
+      <select
+        aria-label="Source instance to backfill"
+        value={sourceInstanceId}
+        onChange={(event) => setSourceInstanceId(event.target.value)}
+        disabled={pending || sources.length === 0}
+      >
+        {sources.length === 0 ? (
+          <option value="">No imported sources</option>
+        ) : (
+          sources.map((source) => (
+            <option key={source} value={source}>
+              {source}
+            </option>
+          ))
+        )}
+      </select>
+      <button type="submit" disabled={pending || !sourceInstanceId}>
+        {pending ? <LoaderCircle className="records-spin" /> : <RefreshCcw />}
+        Re-run ownership
+      </button>
+      {message && <span role="status">{message}</span>}
+    </form>
+  );
+}
+
 export function RecordIdentityPanel({
   appId,
   mappings,
   users,
+  sourceInstances,
   counts,
   activeFilter,
-}: Pick<RecordIdentityAdminModel, "appId" | "mappings" | "users" | "counts"> & {
+}: Pick<
+  RecordIdentityAdminModel,
+  "appId" | "mappings" | "users" | "sourceInstances" | "counts"
+> & {
   activeFilter: IdentityStatus | "all";
 }) {
   return (
     <div className="records-identity-layout">
-      <nav className="records-identity-filters" aria-label="Identity status filters">
-        {FILTERS.map((filter) => (
-          <Link
-            key={filter.value}
-            className={activeFilter === filter.value ? "is-active" : undefined}
-            href={
-              filter.value === "all"
-                ? `/a/${appId}/admin/identity`
-                : `/a/${appId}/admin/identity?status=${filter.value}`
-            }
-          >
-            {filter.label}
-            <span>{counts[filter.value]}</span>
-          </Link>
-        ))}
-      </nav>
+      <div className="records-identity-toolbar">
+        <nav className="records-identity-filters" aria-label="Identity status filters">
+          {FILTERS.map((filter) => (
+            <Link
+              key={filter.value}
+              className={activeFilter === filter.value ? "is-active" : undefined}
+              href={
+                filter.value === "all"
+                  ? `/a/${appId}/admin/identity`
+                  : `/a/${appId}/admin/identity?status=${filter.value}`
+              }
+            >
+              {filter.label}
+              <span>{counts[filter.value]}</span>
+            </Link>
+          ))}
+        </nav>
+        <BackfillControl appId={appId} sources={sourceInstances} />
+      </div>
 
       <section className="records-identity-card" aria-label="Source identity mappings">
         <header>

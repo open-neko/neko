@@ -4,8 +4,11 @@ import { and, app_user, asc, db, eq, isNull } from "@neko/db";
 import {
   decideIdentityMapping,
   listIdentityMappings,
+  type RecordOwnerBackfillReport,
   type IdentityMappingStatus,
 } from "@neko/records";
+import { can, inProcessControlPlane } from "@neko/llm/work";
+import { approveActionRequest } from "@neko/llm/workflows";
 import { getCurrentActor } from "@/lib/actor";
 import { getWebRecordsPool, loadRecordAppShell } from "@/lib/records";
 
@@ -34,6 +37,7 @@ export type RecordIdentityAdminModel = {
   fallbackHref: string;
   mappings: RecordIdentityAdminMapping[];
   users: RecordIdentityAdminUser[];
+  sourceInstances: string[];
   counts: Record<IdentityMappingStatus | "all", number>;
 };
 
@@ -52,6 +56,18 @@ export class RecordIdentityWebInputError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "RecordIdentityWebInputError";
+  }
+}
+
+export class RecordIdentityWebExecutionError extends Error {
+  readonly code = "records_identity_action_failed";
+
+  constructor(
+    message: string,
+    readonly actionRequestId: string,
+  ) {
+    super(message);
+    this.name = "RecordIdentityWebExecutionError";
   }
 }
 
@@ -122,7 +138,122 @@ export async function getRecordIdentityAdminModel(input: {
       : `/a/${shell.snapshot.app.appId}`,
     mappings,
     users,
+    sourceInstances: [
+      ...new Set(allMappings.map((mapping) => mapping.sourceInstanceId)),
+    ].sort((left, right) => left.localeCompare(right)),
     counts,
+  };
+}
+
+export async function runRecordIdentityBackfillFromWeb(input: {
+  orgId: string;
+  appId: string;
+  sourceInstanceId: string;
+  sourceUserId?: string;
+}): Promise<{
+  status: "executed" | "queued";
+  actionRequestId: string;
+  policy: string;
+  report: RecordOwnerBackfillReport | null;
+}> {
+  const actor = await getCurrentActor();
+  if (actor.role !== "admin") throw new RecordIdentityWebPermissionError();
+  const sourceInstanceId = input.sourceInstanceId.trim();
+  if (!sourceInstanceId || sourceInstanceId.length > 500) {
+    throw new RecordIdentityWebInputError("Choose a source instance.");
+  }
+  const shell = await loadRecordAppShell(input.orgId, input.appId);
+  if (shell.availability !== "active") {
+    throw new RecordIdentityWebInputError("Ownership backfill requires an active app.");
+  }
+  const mappings = await listIdentityMappings(getWebRecordsPool(), {
+    orgId: input.orgId,
+    appId: shell.snapshot.app.appId,
+    sourceInstanceId,
+  });
+  if (mappings.length === 0) {
+    throw new RecordIdentityWebInputError("That source instance has no identities in this app.");
+  }
+  if (
+    input.sourceUserId &&
+    !mappings.some((mapping) => mapping.sourceUserId === input.sourceUserId)
+  ) {
+    throw new RecordIdentityWebInputError("That source user is not part of this app import.");
+  }
+  const decision = await inProcessControlPlane.evaluateActionPolicy({
+    orgId: input.orgId,
+    scope: "internal",
+    kind: "records_identity_backfill",
+    target: `record-identity:${shell.snapshot.app.appId}/${sourceInstanceId}`,
+    riskLevel: "medium",
+  });
+  if (decision.decision === "no_policy") {
+    throw new RecordIdentityWebPermissionError(
+      "No enabled policy permits ownership backfill for this organization.",
+    );
+  }
+  if (decision.decision === "deny") {
+    throw new RecordIdentityWebPermissionError(decision.reason);
+  }
+  if (
+    !can(actor, "approve", {
+      kind: "action_approval",
+      approverRole: decision.policy.approverRole,
+    })
+  ) {
+    throw new RecordIdentityWebPermissionError();
+  }
+  const summary = `Backfill ${shell.snapshot.app.label} ownership from ${sourceInstanceId}`;
+  const request = await inProcessControlPlane.createActionRequest({
+    orgId: input.orgId,
+    scope: "internal",
+    kind: "records_identity_backfill",
+    target: `record-identity:${shell.snapshot.app.appId}/${sourceInstanceId}`,
+    payload: {
+      app: shell.snapshot.app.appId,
+      source_instance_id: sourceInstanceId,
+      ...(input.sourceUserId ? { source_user_id: input.sourceUserId } : {}),
+    },
+    riskLevel: "medium",
+    status: decision.mode === "draft_only" ? "draft" : "pending_approval",
+    policyId: decision.policy.id,
+    summary,
+    intent: `${summary}. The signed-in administrator explicitly submitted this control.`,
+    actorUserId: actor.userId,
+    actorRole: "admin",
+    actorBackend: "web-identity",
+  });
+  await approveActionRequest({
+    id: request.id,
+    orgId: input.orgId,
+    approverUserId: actor.userId,
+    approver: { userId: actor.userId, role: "admin" },
+  });
+  await inProcessControlPlane.enqueueActionExecute({
+    orgId: input.orgId,
+    actionRequestId: request.id,
+  });
+  const execution = await inProcessControlPlane.waitForActionExecution({
+    orgId: input.orgId,
+    actionRequestId: request.id,
+    timeoutMs: 45_000,
+  });
+  if (execution.status === "failed") {
+    throw new RecordIdentityWebExecutionError(execution.error, request.id);
+  }
+  if (execution.status === "timeout") {
+    return {
+      status: "queued",
+      actionRequestId: request.id,
+      policy: decision.policy.name,
+      report: null,
+    };
+  }
+  return {
+    status: "executed",
+    actionRequestId: request.id,
+    policy: decision.policy.name,
+    report: execution.outcome.result as RecordOwnerBackfillReport,
   };
 }
 

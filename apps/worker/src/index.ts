@@ -23,6 +23,7 @@ import {
   mintRecordsGraphjinToken,
   normalizeRecordImportSourcePath,
   RecordImportExecutor,
+  RecordOwnerBackfillExecutor,
   recordsGraphjinSigningSecret,
   RecordsGraphjinClient,
   RecordWriteExecutor,
@@ -92,6 +93,7 @@ import {
 } from "./records/adapters.js";
 import { registerRecordSchemaActions } from "./records/schema-adapters.js";
 import { registerRecordImportActions } from "./records/import-adapters.js";
+import { registerRecordIdentityActions } from "./records/identity-adapters.js";
 import { createRecordsSchemaRuntime } from "./records/schema-runtime.js";
 
 const PORT: number = 4100;
@@ -153,6 +155,12 @@ const recordsImportExecutor = new RecordImportExecutor({
   serviceToken: recordsServiceToken,
   leaseOwner: `worker-import:${process.pid}:${randomUUID()}`,
   readSource: readRecordImportSource,
+});
+const recordsOwnerBackfillExecutor = new RecordOwnerBackfillExecutor({
+  pool: recordsPool,
+  graphjin: recordsGraphjin,
+  serviceToken: recordsServiceToken,
+  leaseOwner: `worker-identity:${process.pid}:${randomUUID()}`,
 });
 
 // SEC8: state the security posture once at boot; hardened warns when
@@ -379,6 +387,7 @@ console.log(
 await seedDefaultActionPolicies(ADMIN_ORG_ID);
 registerBuiltinAdapters();
 registerRecordActionAdapters(recordsWriteExecutor);
+registerRecordIdentityActions(recordsOwnerBackfillExecutor);
 const unregisterRecordSchemaPreflight = registerRecordSchemaActions({
   planner: recordsSchemaRuntime.planner,
   saga: recordsSchemaRuntime.saga,

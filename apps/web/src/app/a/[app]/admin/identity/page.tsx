@@ -77,6 +77,7 @@ export default async function RecordIdentityAdminPage({
         appId={model.appId}
         mappings={model.mappings}
         users={model.users}
+        sourceInstances={model.sourceInstances}
         counts={model.counts}
         activeFilter={status ?? "all"}
       />
