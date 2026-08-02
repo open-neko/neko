@@ -13,8 +13,16 @@ function appPayload(): Record<string, unknown> {
     objects: [
       {
         name: "Account",
+        source_api_name: "Account",
         label: "Account",
-        fields: [{ name: "Name", label: "Account name", required: true }],
+        fields: [
+          {
+            name: "Name",
+            source_api_name: "Name",
+            label: "Account name",
+            required: true,
+          },
+        ],
       },
       {
         name: "Ticket",
@@ -48,7 +56,12 @@ describe("records app definitions", () => {
       appId: "customer_success",
       label: "Customer Success",
       objects: [
-        { apiName: "account", tableName: "customer_success__account" },
+        {
+          apiName: "account",
+          sourceApiName: "Account",
+          tableName: "customer_success__account",
+          fields: [expect.objectContaining({ sourceApiName: "Name" })],
+        },
         {
           apiName: "ticket",
           tableName: "customer_success__ticket",

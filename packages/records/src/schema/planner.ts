@@ -144,13 +144,16 @@ function appDefinitionPayload(
     nav_order: definition.navOrder,
     objects: definition.objects.map((object) => ({
       api_name: object.apiName,
+      source_api_name: object.sourceApiName,
       label: object.label,
       plural_label: object.pluralLabel,
       name_field: object.nameField,
       visibility: object.visibility,
+      custom: object.custom,
       archived: object.archived,
       fields: object.fields.map((field) => ({
         api_name: field.apiName,
+        source_api_name: field.sourceApiName,
         label: field.label,
         kind: field.kind,
         required: field.required,

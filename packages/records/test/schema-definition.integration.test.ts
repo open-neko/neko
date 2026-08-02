@@ -58,10 +58,17 @@ describeIfLive("records app definition projection", () => {
       objects: [
         {
           name: "ticket",
+          source_api_name: "Case__c",
           label: "Ticket",
           visibility: "owner",
+          custom: true,
           fields: [
-            { name: "subject", label: "Subject", required: true },
+            {
+              name: "subject",
+              source_api_name: "Subject__c",
+              label: "Subject",
+              required: true,
+            },
             {
               name: "status",
               label: "Status",
@@ -154,6 +161,11 @@ describeIfLive("records app definition projection", () => {
     ]);
     expect(snapshot?.objects.find((object) => object.apiName === "ticket")).toMatchObject({
       visibility: "owner",
+      sourceApiName: "Case__c",
+      custom: true,
+    });
+    expect(snapshot?.fields.find((field) => field.apiName === "subject")).toMatchObject({
+      sourceApiName: "Subject__c",
     });
     expect(snapshot?.fields.map((field) => field.apiName).sort()).toEqual([
       "name",

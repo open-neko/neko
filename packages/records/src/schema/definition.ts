@@ -14,6 +14,7 @@ import type { RecordDdlObjectDefinition } from "./ddl";
 
 export type RecordAppFieldDefinition = {
   apiName: RecordIdentifier;
+  sourceApiName: string | null;
   label: string;
   kind: RecordFieldKind;
   columnName: RecordIdentifier;
@@ -28,11 +29,13 @@ export type RecordAppFieldDefinition = {
 
 export type RecordAppObjectDefinition = {
   apiName: RecordIdentifier;
+  sourceApiName: string | null;
   label: string;
   pluralLabel: string;
   tableName: RecordIdentifier;
   nameField: RecordIdentifier;
   visibility: RecordVisibility;
+  custom: boolean;
   archived: boolean;
   fields: RecordAppFieldDefinition[];
   layouts: Array<{ kind: RecordLayoutKind; definition: JsonObject }>;
@@ -182,6 +185,10 @@ function parseField(value: unknown, path: string): RecordAppFieldDefinition {
   const readOnly = booleanValue(raw.read_only, kind === "readonly_formula", `${path}.read_only`);
   return {
     apiName,
+    sourceApiName: stringValue(raw.source_api_name, `${path}.source_api_name`, {
+      optional: true,
+      max: 500,
+    }),
     columnName: apiName,
     label: stringValue(raw.label ?? raw.name ?? raw.api_name, `${path}.label`, {
       max: 200,
@@ -246,6 +253,10 @@ function parseObject(
   })!;
   return {
     apiName,
+    sourceApiName: stringValue(raw.source_api_name, `${path}.source_api_name`, {
+      optional: true,
+      max: 500,
+    }),
     label,
     pluralLabel: stringValue(raw.plural_label ?? `${label}s`, `${path}.plural_label`, {
       max: 200,
@@ -253,6 +264,7 @@ function parseObject(
     tableName: recordTableName(appId, apiName),
     nameField: requestedNameField,
     visibility,
+    custom: booleanValue(raw.custom, false, `${path}.custom`),
     archived: booleanValue(raw.archived, false, `${path}.archived`),
     fields,
     layouts:
@@ -407,16 +419,19 @@ export function recordAppDefinitionFromSnapshot(
     archived: snapshot.app.status === "archived",
     objects: snapshot.objects.map((object) => ({
       apiName: object.apiName,
+      sourceApiName: object.sourceApiName,
       label: object.label,
       pluralLabel: object.pluralLabel,
       tableName: object.tableName,
       nameField: object.nameField,
       visibility: object.visibility,
+      custom: object.custom,
       archived: object.archivedAt !== null,
       fields: snapshot.fields
         .filter((field) => field.objectId === object.id)
         .map((field) => ({
           apiName: field.apiName,
+          sourceApiName: field.sourceApiName,
           label: field.label,
           kind: field.kind,
           columnName: field.columnName,
@@ -543,24 +558,28 @@ export async function projectRecordAppDefinition(
       for (const object of input.definition.objects) {
         const objectResult = await client.query<{ id: string }>(
           `insert into engine.record_object
-             (org_id, app_id, api_name, label, plural_label, table_name,
-              name_field, visibility, archived_at)
-           values ($1, $2, $3, $4, $5, $6, $7, $8,
-                   case when $9 then now() else null end)
+             (org_id, app_id, api_name, source_api_name, label, plural_label, table_name,
+              name_field, visibility, is_custom, archived_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                   case when $11 then now() else null end)
            on conflict (org_id, app_id, api_name) do update
-           set label = excluded.label, plural_label = excluded.plural_label,
+           set source_api_name = excluded.source_api_name,
+               label = excluded.label, plural_label = excluded.plural_label,
                name_field = excluded.name_field, visibility = excluded.visibility,
+               is_custom = excluded.is_custom,
                archived_at = excluded.archived_at, updated_at = now()
            returning id`,
           [
             input.orgId,
             input.definition.appId,
             object.apiName,
+            object.sourceApiName,
             object.label,
             object.pluralLabel,
             object.tableName,
             object.nameField,
             object.visibility,
+            object.custom,
             object.archived,
           ],
         );
@@ -570,14 +589,15 @@ export async function projectRecordAppDefinition(
         for (const field of object.fields) {
           const fieldResult = await client.query<{ id: string }>(
             `insert into engine.record_field
-               (org_id, object_id, api_name, label, kind, column_name,
+               (org_id, object_id, api_name, source_api_name, label, kind, column_name,
                 required, read_only, archived_at, picklist_values,
                 reference_targets, length, scale)
-             values ($1, $2::uuid, $3, $4, $5, $6, $7, $8,
-                     case when $9 then now() else null end,
-                     $10::jsonb, $11::jsonb, $12, $13)
+             values ($1, $2::uuid, $3, $4, $5, $6, $7, $8, $9,
+                     case when $10 then now() else null end,
+                     $11::jsonb, $12::jsonb, $13, $14)
              on conflict (object_id, api_name) do update
-             set label = excluded.label, required = excluded.required,
+             set source_api_name = excluded.source_api_name,
+                 label = excluded.label, required = excluded.required,
                  read_only = excluded.read_only, archived_at = excluded.archived_at,
                  picklist_values = excluded.picklist_values,
                  reference_targets = excluded.reference_targets,
@@ -588,6 +608,7 @@ export async function projectRecordAppDefinition(
               input.orgId,
               objectId,
               field.apiName,
+              field.sourceApiName,
               field.label,
               field.kind,
               field.columnName,
