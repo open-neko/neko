@@ -90,11 +90,19 @@ describeIfLive("records GraphJin live schema integration", () => {
       const roles = projectRecordsGraphjinRoles(
         await loadRecordsGraphjinPolicyModel(testPool, "org-a"),
       );
+      const poolConfig = buildRecordsPoolConfig(process.env, { database });
+      const connection = new URL("postgres://localhost/records");
+      connection.hostname = process.env.RECORDS_GRAPHJIN_DB_HOST ?? "host.internal";
+      connection.port = String(poolConfig.port);
+      connection.username = String(poolConfig.user);
+      connection.password = String(poolConfig.password ?? "");
+      connection.pathname = `/${database}`;
+      connection.searchParams.set("sslmode", "disable");
       const config = buildRecordsGraphjinConfig({
         orgId: "org-a",
         roles,
         database: {
-          connectionString: `postgres://amit@host.internal:55436/${database}?sslmode=disable`,
+          connectionString: connection.toString(),
         },
         jwt: { secret: "schema-jwt-secret-that-is-at-least-thirty-two-bytes" },
         secretKey: "schema-cursor-secret-that-is-at-least-thirty-two-bytes",
