@@ -4,9 +4,10 @@
 a CRM is an app, a Zendesk-style support desk is an app, an inventory tracker is
 an app. "Create an app that will let me bring in my Salesforce data" and "create
 an app to help me replace Zendesk" are the product sentences this plan
-implements. The agent designs the schema in conversation, the engine applies it,
-the UI is generated from metadata, GraphJin serves reads and change
-subscriptions, and access follows the established user/role pattern.
+implements. The agent designs the schema in conversation, GraphJin applies it
+and serves the data — reads, writes, standing watches, and schema changes are
+all one GraphQL plane — the UI is generated from metadata, and access follows
+the established user/role pattern.
 
 Every app — however it was created — can **ingest CSVs as a baseline
 capability** (D14): the schema comes from a conversation, the data usually
@@ -79,12 +80,31 @@ a VM boundary. Dropped (D1). The plugin system is unaffected and remains the
 boundary for third-party code; first-party connectors run in the worker like
 every other first-party integration.
 
+### 1.7 GraphJin is the data plane; the engine authors no SQL
+
+Everything that touches business data goes through GraphJin: reads under
+per-actor JWTs, writes as mutations under the worker's service role, standing
+watches via `gj_watch`, and schema changes via GraphJin's declarative DDL and
+diff engine. The engine never writes SQL against app data — what GraphJin's
+surfaces can't express is designed around, not worked around. The one
+engine-owned SQL surface is the `engine.*` substrate itself (registry
+migrations and the per-table audit trigger installed at provisioning) —
+substrate, not data path. This is what keeps enforcement, audit, and
+observability in one place: there is no side channel for policy to miss.
+Grounding for every claim about what GraphJin provides lives in
+[RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md).
+
 ---
 
 ## 2. Decisions
 
-Each decision records what was chosen, why, and what was rejected — including
-two reversals of the previous draft of this plan.
+Each decision records what was chosen, why, and what was rejected. This set
+consolidates several revisions: the reversal of the plugin-based draft (D1,
+D11), and the corrections that followed the GraphJin source audit
+([RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md)) — schema application via the
+`graphjin db` CLI, table-prefix storage layout, Table-permissions RBAC,
+GraphJin-mutation writes with trigger-based audit capture, and `gj_watch` as
+the watch mechanism.
 
 **D1 — Native core feature, not a plugin. (Reverses the earlier D1/D2.)**
 The earlier draft shipped the engine dormant in core with a marketplace plugin
@@ -98,7 +118,7 @@ engine, UI, adapters, connectors. *Rejected:* the `module` plugin capability;
 
 **D2 — "App" is the unit; apps are agent-authored registry content.**
 An app = a row in `engine.record_app` + its objects/fields/layouts/permissions
-+ a dedicated Postgres schema in `records-db`. Apps come into existence four
++ its prefixed table family in `records-db` (D4). Apps come into existence four
 ways, all converging on the same schema executor (C3): (a) **conversation from
 scratch** — including apps that have never been built before; blueprints are
 priors, not limits, and the agent models a genuinely novel domain by
@@ -134,32 +154,27 @@ app (federation tax); tables in the metadata DB (mixes operating loop with
 business data, breaks the "take a backup, take it with you" story); per-app
 Postgres schemas (unsupported by the DDL path that creates the tables).
 
-**D5 — All reads through GraphJin with per-actor JWTs; watching via GraphJin
-subscriptions.**
+**D5 — GraphJin is the whole data plane: reads, watches, and schema.**
 `records-db` is registered as a data source with `auth_mode: 'jwt'` (migration
 `0036_data_source_auth_mode.sql`). Chat runs already mint HS256 actor tokens
 (`packages/llm/src/graphjin/token.ts`: `sub` = userId, `role` ∈
 admin|member|service, 5-min TTL, per-org derived secret). The web UI's `/a/*`
 pages mint the same tokens for the signed-in user — **no second SQL read path**.
-Watchers read as `service`, and change-watching uses GraphJin's subscription /
-live-query support over the same role config where enabled, falling back to the
-existing scheduled-watch path. **Schema creation also goes through GraphJin:**
-GraphJin ships a declarative schema facility — GraphJin DDL desired-state files
-(`db.ddl` / per-source `schema-ddl/*.ddl`), a schema-diff engine
-(`core/schema_diff.go`) that generates create/alter SQL against the live
-database (Postgres: fully supported), and a `preview_schema_changes` /
-`apply_schema_changes` surface gated by `mcp.allow_schema_updates`, with drops
-requiring an explicit `destructive` flag and an automatic schema reload after
-apply. Nobody on our side authors SQL for schema changes — not the agent, not the
-executor. The C3 executor projects the registry into a GraphJin DDL document
-(GraphQL-style `type` definitions) and drives GraphJin's schema machinery:
-**GraphJin internally diffs, generates, and transactionally executes the
-SQL.** Source audit ([RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §1): at the
-pinned version the MCP/control-plane preview-apply surface is removed, so the
-live invocation is the shipped binary — `graphjin db diff` produces the SQL
-delta the approval card displays, `graphjin db sync --yes` applies it in one
-transaction with rollback-on-error. The artifact of record is the GraphJin
-DDL document plus the diff output.
+Watching uses **`gj_watch`** — durable cursor-backed standing watches evaluated
+under the owner's identity and role — with raw live-query subscriptions for UI
+freshness only, and the existing scheduled-watch path as fallback (C12,
+[RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §3). **Schema creation also goes
+through GraphJin:** nobody on our side authors SQL for schema changes — not
+the agent, not the executor. The C3 executor projects the registry into a
+GraphJin DDL document (GraphQL-style `type` definitions,
+`schema-ddl/*.ddl`) and drives GraphJin's schema-diff machinery, which
+internally diffs against the live database, generates the SQL, and executes
+it transactionally. At the pinned version the live invocation is the shipped
+binary — `graphjin db diff` produces the SQL delta the approval card
+displays, `graphjin db sync --yes` applies it in one transaction with
+rollback-on-error ([RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §1; the
+MCP/control-plane preview-apply surface is removed at this version). The
+artifact of record is the GraphJin DDL document plus the diff output.
 
 **Records GraphJin configuration:** because `records-db` is our own built-in
 database — not a customer's — it does **not** run `read_only`. It is
@@ -212,7 +227,7 @@ generic audit trigger installed on every app table at provisioning (part of
 the `engine.*` substrate) — it writes `engine.record_change_log` from
 OLD/NEW in the same transaction as the mutation, with actor and request
 identity carried on the row (`nk_updated_by`, `nk_action_request_id`).
-GraphJin is the entire data plane: reads, writes, subscriptions, DDL.
+GraphJin is the entire data plane: reads, writes, watches, DDL.
 *Rejected:* direct SQL in the write path (a second plane GraphJin can't
 see); GraphJin mutations from agent- or user-facing roles (bypasses
 approval cards and validation — blocked in-engine by the C7 role
@@ -223,8 +238,9 @@ paths again).
 data.**
 The safety profile that makes agent-authored DDL acceptable: `api_name`s are
 immutable (labels are freely editable — "rename" is a label change); adding
-objects/fields is the normal path (`ask` mode); type changes apply only when a
-lossless cast exists, otherwise the executor proposes add-column + backfill;
+objects/fields is the normal path (`ask` mode); type changes are **always**
+add-new-field + backfill + archive-old — never in-place (GraphJin's diff
+engine generates no column alterations, by design and to our benefit);
 "delete" of a field or object is **archive** (hidden from UI/agent surface,
 column and data retained); hard drops exist only as an admin CLI command with
 typed confirmation and a fresh-verified-backup check (per RESILIENCE.md §4.6).
@@ -236,10 +252,11 @@ symmetric create/drop powers.
 `admin`/`member` from SSO groups (existing `app_user.role`), per-object CRUD
 grants in `engine.record_permission` (seeded from a blueprint's defaults or
 from Salesforce profiles at import), and a per-object visibility default
-(`org` | `owner`) enforced as GraphJin row filters
-(`owner_user_id = $sub OR role = admin`). **Explicitly deferred:** role
-hierarchy, sharing rules, territories — the complexity clients are fleeing.
-Import reports show exactly what collapsed. *Rejected for v1:* a faithful
+(`org` | `owner`) enforced as generated GraphJin row filters —
+`{ owner_user_id: { eq: $user_id } }` for `member` on owner-visibility
+objects; `admin` unfiltered (D5). **Explicitly deferred:** role hierarchy,
+sharing rules, territories — the complexity clients are fleeing. Import
+reports show exactly what collapsed. *Rejected for v1:* a faithful
 Salesforce sharing-model port.
 
 **D9 — Salesforce fidelity rules (for the SF feeder).**
@@ -357,14 +374,14 @@ rules apply: additive, archive-not-drop).
 | C2 | Engine metadata registry | `db/records/migrations/`, `packages/records/` | 1 |
 | C3 | App builder — schema action adapters + DDL executor | `apps/worker/src/records/schema/`, `packages/records/` | 1 |
 | C4 | Record write path (`record_*` adapters) | `apps/worker/src/records/` | 1 |
-| C5 | GraphJin integration (source, roles, tokens, subscriptions) | `packages/llm/src/graphjin/`, `packages/records/src/policy/` | 1 |
+| C5 | GraphJin integration (config, roles, tokens, watches) | `packages/llm/src/graphjin/`, `packages/records/src/policy/` | 1 |
 | C6 | Auto-generated web UI (`/a/[app]`) | `apps/web/src/app/a/` | 1 (read) / 3 (forms) |
 | C7 | RBAC policy module (shared read/write source of truth) | `packages/records/src/policy/` | 1 |
 | C8 | Importer — baseline CSV import (every app) + staged-artifact import | `packages/records/src/import/`, worker job | 1 (CSV) / 2 (artifacts) |
 | C9 | First-party connector framework + Salesforce connector (mirror/cutover sync) | `packages/records/src/connect/` | 2 |
 | C10 | Identity mapping (source users ↔ `app_user`) | `packages/records/src/identity/` | 2 |
 | C11 | Agent skills & blueprints (app-builder, records, domain packs) | `packages/llm/assets/builtin-skills/` | 1–2 |
-| C12 | Watcher/briefing integration & change subscriptions | worker + seeds + docs | 3 |
+| C12 | Watcher/briefing integration (`gj_watch`) | worker + seeds + docs | 3 |
 | C13 | Backup, disk & ops resilience (see §6) | compose sidecar, worker jobs, CLI | 1 (backup) / 2 (verify + watchers) |
 
 Dependency spine:
@@ -557,13 +574,14 @@ app to replace Zendesk" into a schema. Action kinds (D6), all registered via
 | `app_create` | `ask` | registry app row + `CREATE SCHEMA` + `app_state` row; body carries the full initial object/field set so **one approval card shows the whole proposed app** |
 | `app_object_create` | `ask` | registry rows + `CREATE TABLE` (+ indexes, `nk_*` audit columns, `owner_user_id` when owned) |
 | `app_field_add` | `ask` | registry row + `ALTER TABLE ... ADD COLUMN` |
-| `app_field_modify` | `ask` | label/picklist/required/layout tweaks (registry-only), or type change **only via lossless cast**; else the adapter returns a counter-proposal (add + backfill) for the agent to propose instead |
+| `app_field_modify` | `ask` | label/picklist/required/layout tweaks (registry-only); a type change is never in-place — the adapter returns the add-new-field + backfill + archive-old counter-proposal (D7) for the agent to propose |
 | `app_object_archive` / field archive | `ask` | sets `archived_at`; hides from UI/agent/GraphJin projection; **no DDL, no data loss** |
 | `app_permission_set` | `ask` | updates `record_permission`; triggers C5 role regeneration |
 | `app_layout_update` | `auto` | layout JSON only — no schema or policy effect |
 
-Executor rules (one transaction against `records-db` per action, mirrored to
-`app_state` in the metadata DB after commit):
+Executor rules (DDL applies in GraphJin's own transaction via `db sync`;
+registry + schema-log commit together in an engine transaction; `app_state`
+mirrors in the metadata DB after apply):
 
 1. Everything named passes through `naming.ts`; identifiers are always quoted.
 2. The executor projects the registry delta into a **GraphJin DDL document**
@@ -681,8 +699,9 @@ failures, RBAC denials, concurrency conflict, change-log diff correctness,
 
 ### C5 — GraphJin integration
 
-**What:** register `records-db` as a jwt-mode source; project policy into role
-config; serve reads and change subscriptions.
+**What:** stand up the records GraphJin configuration (jwt auth, generated
+roles); project policy into role config; serve reads, mutations for the
+executors, and `gj_watch` standing watches.
 
 - **Registration:** on first app creation, drive the existing
   `register_source` machinery (`persistGraphjinSourceConfigUpdate` under
@@ -726,10 +745,12 @@ config; serve reads and change subscriptions.
   `mintGraphjinToken({orgId, userId, role})` from the session — same claims
   shape the agent path uses.
 
-**Testing:** config-generation snapshot tests (permission fixtures → YAML);
+**Testing:** config-generation snapshot tests (permission fixtures → YAML)
+incl. the exhaustiveness assertion (every object × role × operation);
 live-GraphJin integration test asserting member-vs-admin row visibility on an
-`owner`-visibility table; subscription smoke (insert via executor → subscribed
-watcher fires; write from the same run → cycle-check suppresses).
+`owner`-visibility table; watch smoke (insert via executor → `gj_watch`
+event fires and survives a runner restart via its stored cursor; write from
+the same run → cycle-check suppresses).
 
 ### C6 — Auto-generated web UI (`/a/[app]`)
 
@@ -1096,12 +1117,12 @@ alerting through a channel; unlinked/conflict identity report visible.
 Generated create/edit forms on every object through the same action path;
 the D15 page layer with an app overview page on the CRM blueprint;
 permissions admin; identity admin; schema-history page; saved list views;
-watcher/briefing seeds (subscription-triggered where enabled).
+watcher/briefing seeds (`gj_watch`-fired, scheduled fallback).
 *Acceptance:* e2e create/edit/delete round-trips per field kind; a `deny`
 policy blocks the form path too; an `app_layout_update` adds a metric card to
 an app page and it renders under the viewer's JWT; permission edit
 regenerates GraphJin config and the drift test stays green; seed watchers
-fire on subscribed changes and skip self-writes.
+fire from `gj_watch` events, resume across a restart, and skip self-writes.
 
 **Phase 4 — Second feeder, built-in apps & scale-out.**
 A second connector (Zendesk-shaped, mirror-first) proving the C9 interface
@@ -1135,13 +1156,13 @@ watcher machinery monitoring the substrate it runs on.
 |---|---|---|
 | Container crash (web/worker/graphjin) | Requests fail until restart | Stateless services + `restart: unless-stopped` + healthchecks (exists); pg-boss jobs resume; no state lost |
 | Container crash (`records-db`) | Reads/writes fail; no data loss | Postgres WAL crash recovery; healthcheck-gated dependents; fast restart (C13) |
-| Worker dies mid-write | Half-applied action? | Single transactional write path (C4); action journal + retry (§6.3) |
-| Worker dies mid-schema-change | Half-created app? | C3: registry + DDL + schema log commit in one transaction; `app_state` mirror updated after commit; re-run is `IF NOT EXISTS`-safe |
+| Worker dies mid-write | Half-applied action? | Each write is one atomic GraphJin mutation + same-transaction audit trigger (C4); action journal + retry (§6.3) |
+| Worker dies mid-schema-change | Half-created app? | Desired-state DDL makes re-sync a no-op (C3); registry + schema log commit together, `ON CONFLICT`-safe; `app_state` mirror updates after apply |
 | Worker dies mid-import / mid-export | Stuck migration | Checkpointed idempotent stages (C8); export checkpoints + resumable Bulk pagination (C9) |
 | Disk full | Postgres PANICs; stack down | Dedicated volume, watermarks + backpressure, pre-flight checks (§6.4) |
 | Volume/host loss | **Data loss** | Continuous WAL archiving + base backups + verified restore (§6.5) |
 | Silent backup rot | Discovered at the worst moment | Weekly automated restore verification + backup-age watcher (§6.5) |
-| GraphJin down | App reads fail | Stateless restart; degraded UI banner; agent reports source unavailable (§6.6) |
+| GraphJin down | App reads *and* writes fail (one data plane) | Stateless restart; degraded UI banner; journaled action requests retry (§6.3); agent reports source unavailable (§6.6) |
 | Human error (bad bulk update) | Corrupted operational data | Approval cards, change log, soft delete, PITR via WAL (§6.5, C4) |
 | Agent error (bad schema proposal) | Wrong shape, not lost data | Approval cards on all schema actions; additive-by-default; archive-not-drop (D7); schema log + PITR |
 
@@ -1276,12 +1297,11 @@ each with its approving action request.
   skill's interview discipline, additive evolution making fixes cheap, and
   the counter-proposal path for lossy changes. Watch item: whether Phase 1
   needs a "draft app" state (visible to admin only) before go-live.
-- **GraphJin config churn.** Table exposure reloads automatically after
-  `apply_schema_changes`, but role/permission projection still regenerates
-  config on schema and permission actions. `acquireGraphjinConfigLock`
-  serializes writers; frequent regeneration on a busy build session needs
-  debouncing and a reload-cost check against a live GraphJin. Measure in
-  Phase 1.
+- **GraphJin config churn.** Table exposure reloads with `db sync`, but
+  role/permission projection still regenerates config on schema and
+  permission actions. `acquireGraphjinConfigLock` serializes writers;
+  frequent regeneration on a busy build session needs debouncing and a
+  reload-cost check against a live GraphJin. Measure in Phase 1.
 - **GraphJin DDL expressiveness & version coupling.** C3 leans on GraphJin's
   schema-diff engine (pinned v3.18.x); its DDL format has edges we design
   around rather than bypass (arrays → `Jsonb`, schemas → prefixes+aliases,
@@ -1291,10 +1311,11 @@ each with its approving action request.
   versions (MCP tool → control-plane root → currently the `graphjin db`
   CLI), so C3 wraps it behind one module pinned to the shipped version, and
   version bumps gate on a schema-diff regression fixture.
-- **GraphJin subscription semantics.** Live queries are polling-based under
-  the hood; latency and load characteristics at hundreds of watched queries
-  need measurement before subscription-triggered watchers become the default
-  (scheduled-watch remains the fallback either way).
+- **Watch scale.** `gj_watch` evaluation is polling-based cursor
+  subscriptions under the hood; latency and load at hundreds of standing
+  watches need measurement (batched polling helps — one round-trip per
+  ~5000 members on Postgres), and per-watch event retention/caps need
+  tuning for busy apps. Scheduled-watch remains the fallback either way.
 - **The role-config generator is security-critical.** The D8 model maps
   onto GraphJin's Table-permissions config, but exhaustiveness is
   load-bearing: an object omitted from the projection is *accessible*, not
