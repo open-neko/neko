@@ -72,7 +72,27 @@ function snapshot(): AppRegistrySnapshot {
         required: false,
         readOnly: false,
         archivedAt: null,
-        picklistValues: ["new", "closed"],
+        picklistValues: [
+          { value: "new", label: "New", semantic: "open" },
+          { value: "closed", label: "Closed", semantic: ["closed"] },
+        ],
+        referenceTargets: null,
+        length: null,
+        scale: null,
+      },
+      {
+        id: "field-due-at",
+        orgId: "org-a",
+        objectId: "object-work-order",
+        apiName: id("due_at"),
+        sourceApiName: null,
+        label: "Due at",
+        kind: "datetime",
+        columnName: id("due_at"),
+        required: false,
+        readOnly: false,
+        archivedAt: null,
+        picklistValues: null,
         referenceTargets: null,
         length: null,
         scale: null,
@@ -177,6 +197,60 @@ describe("generated record read queries", () => {
     });
     expect(built.query).toContain("id subject status owner_user_id nk_updated_at");
     expect(built.variables).toEqual({ record_id: "wo-1" });
+  });
+
+  it("compiles nested semantic filters, relative dates, and picklist groups", () => {
+    const built = buildRecordListQuery({
+      snapshot: snapshot(),
+      objectApiName: "work_order",
+      role: "admin",
+      userId: "admin-1",
+      now: new Date("2026-08-03T12:00:00.000Z"),
+      filter: {
+        op: "and",
+        clauses: [
+          { field: "due_at", operator: "relative", value: { macro: "this_quarter" } },
+          {
+            op: "or",
+            clauses: [
+              { field: "status", operator: "is_open" },
+              { field: "status", operator: "eq", value: "blocked" },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(built.query).toContain("and: [{ due_at: { gte: $filter_0_0_start }")
+    expect(built.query).toContain("or: [{ status: { in: $filter_0_1_0 } }")
+    expect(built.query).not.toContain("blocked");
+    expect(built.variables).toMatchObject({
+      filter_0_0_start: "2026-07-01T00:00:00.000Z",
+      filter_0_0_end: "2026-10-01T00:00:00.000Z",
+      filter_0_1_0: ["new"],
+      filter_0_1_1: "blocked",
+    });
+  });
+
+  it("rejects semantic filters that do not match registry field metadata", () => {
+    expect(() =>
+      buildRecordListQuery({
+        snapshot: snapshot(),
+        objectApiName: "work_order",
+        role: "admin",
+        userId: "admin-1",
+        filter: { field: "subject", operator: "relative", value: { macro: "last_n_days", days: 7 } },
+      }),
+    ).toThrow(/date field/);
+    expect(() =>
+      buildRecordListQuery({
+        snapshot: snapshot(),
+        objectApiName: "work_order",
+        role: "admin",
+        userId: "admin-1",
+        filter: { field: "status", operator: "is_open" },
+      }),
+    ).not.toThrow();
   });
 
   it("builds fixed, bound recycle-bin list and detail queries", () => {

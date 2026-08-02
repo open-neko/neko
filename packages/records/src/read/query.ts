@@ -40,13 +40,27 @@ export type RecordFilterOperator =
   | "in"
   | "contains"
   | "starts_with"
-  | "is_null";
+  | "is_null"
+  | "gt"
+  | "gte"
+  | "lt"
+  | "lte"
+  | "relative"
+  | "is_open"
+  | "is_closed";
 
 export type RecordListFilter = {
   field: string;
   operator: RecordFilterOperator;
   value?: unknown;
 };
+
+export type RecordFilterExpression =
+  | RecordListFilter
+  | {
+      op: "and" | "or";
+      clauses: RecordFilterExpression[];
+    };
 
 export type RecordListQuery = {
   operationName: "RecordsList";
@@ -186,6 +200,7 @@ function resolveView(input: {
   role: RecordViewerRole;
   layoutKind: "list" | "detail";
   allFields?: boolean;
+  columns?: string[];
 }): RecordObjectView {
   if (input.snapshot.app.status !== "active") {
     throw new RecordReadTargetError("record app is not active");
@@ -201,9 +216,12 @@ function resolveView(input: {
   const layout = input.snapshot.layouts.find(
     (candidate) => candidate.objectId === object.id && candidate.kind === input.layoutKind,
   );
-  const requested = layout && !input.allFields
-    ? layoutFieldNames(layout.definition, input.layoutKind)
-    : [];
+  const explicitColumns = input.columns !== undefined && !input.allFields;
+  const requested = explicitColumns
+    ? (input.columns ?? [])
+    : layout && !input.allFields
+      ? layoutFieldNames(layout.definition, input.layoutKind)
+      : [];
   const selected = requested
     .map((apiName) => {
       try {
@@ -220,9 +238,9 @@ function resolveView(input: {
   // An explicit layout is an allowlist. If every entry is stale or invalid,
   // fail closed with no business columns instead of unexpectedly exposing all
   // live fields through the fallback view.
-  const fieldColumns = (layout && !input.allFields ? selected : fallback).map(
-    fieldColumn,
-  );
+  const fieldColumns = (
+    (explicitColumns || (layout && !input.allFields)) ? selected : fallback
+  ).map(fieldColumn);
   const substrateColumns: RecordViewColumn[] = [];
   if (object.visibility === "owner") {
     substrateColumns.push({
@@ -286,20 +304,78 @@ function likeValue(value: string, mode: "contains" | "starts_with"): string {
   return mode === "contains" ? `%${escaped}%` : `${escaped}%`;
 }
 
+function dateBounds(
+  value: unknown,
+  now: Date,
+): { start: string; end: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new RecordReadTargetError("relative record filters require a date macro");
+  }
+  const macro = (value as Record<string, unknown>).macro;
+  if (macro === "this_quarter") {
+    const quarterMonth = Math.floor(now.getUTCMonth() / 3) * 3;
+    const start = new Date(Date.UTC(now.getUTCFullYear(), quarterMonth, 1));
+    const end = new Date(Date.UTC(now.getUTCFullYear(), quarterMonth + 3, 1));
+    return { start: start.toISOString(), end: end.toISOString() };
+  }
+  if (macro === "last_n_days") {
+    const days = (value as Record<string, unknown>).days;
+    if (!Number.isSafeInteger(days) || Number(days) < 1 || Number(days) > 3650) {
+      throw new RecordReadTargetError(
+        "last_n_days record filters require between 1 and 3650 days",
+      );
+    }
+    const end = new Date(now);
+    const start = new Date(end.getTime() - Number(days) * 86_400_000);
+    return { start: start.toISOString(), end: end.toISOString() };
+  }
+  throw new RecordReadTargetError("unknown relative record filter macro");
+}
+
+function semanticPicklistValues(
+  field: RecordField,
+  semantic: "open" | "closed",
+): string[] {
+  if (field.kind !== "picklist") {
+    throw new RecordReadTargetError(
+      `${semantic} record filters require a picklist field`,
+    );
+  }
+  const values = (field.picklistValues ?? []).flatMap((entry): string[] => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const option = entry as Record<string, unknown>;
+    const semantics = Array.isArray(option.semantic)
+      ? option.semantic
+      : [option.semantic];
+    return semantics.includes(semantic) && typeof option.value === "string"
+      ? [option.value]
+      : [];
+  });
+  if (values.length === 0) {
+    throw new RecordReadTargetError(
+      `picklist field has no ${semantic} semantic values`,
+    );
+  }
+  return values;
+}
+
 function filterClause(
   filter: RecordListFilter,
-  index: number,
+  variable: string,
   fields: Map<string, RecordField>,
-): { clause: string; variable?: [string, unknown] } {
+  now: Date,
+): { clause: string; variables: Array<[string, unknown]> } {
   const apiName = readIdentifier(filter.field, "record filter field");
   const field = fields.get(apiName);
   if (!field) throw new RecordReadTargetError(`unknown record filter field: ${apiName}`);
-  const variable = `filter_${index}`;
   if (filter.operator === "is_null") {
     if (typeof filter.value !== "boolean") {
       throw new RecordReadTargetError("is_null record filters require a boolean value");
     }
-    return { clause: `${field.columnName}: { is_null: ${filter.value ? "true" : "false"} }` };
+    return {
+      clause: `${field.columnName}: { is_null: ${filter.value ? "true" : "false"} }`,
+      variables: [],
+    };
   }
   if (filter.operator === "in") {
     if (!Array.isArray(filter.value) || filter.value.length < 1 || filter.value.length > 100) {
@@ -307,7 +383,7 @@ function filterClause(
     }
     return {
       clause: `${field.columnName}: { in: $${variable} }`,
-      variable: [variable, filter.value],
+      variables: [[variable, filter.value]],
     };
   }
   if (filter.operator === "contains" || filter.operator === "starts_with") {
@@ -316,16 +392,90 @@ function filterClause(
     }
     return {
       clause: `${field.columnName}: { ilike: $${variable} }`,
-      variable: [variable, likeValue(filter.value.trim().slice(0, MAX_SEARCH_LENGTH), filter.operator)],
+      variables: [
+        [
+          variable,
+          likeValue(filter.value.trim().slice(0, MAX_SEARCH_LENGTH), filter.operator),
+        ],
+      ],
     };
   }
-  if (filter.operator !== "eq" && filter.operator !== "neq") {
+  if (filter.operator === "relative") {
+    if (field.kind !== "date" && field.kind !== "datetime") {
+      throw new RecordReadTargetError("relative record filters require a date field");
+    }
+    const bounds = dateBounds(filter.value, now);
+    return {
+      clause:
+        `and: [{ ${field.columnName}: { gte: $${variable}_start } }, ` +
+        `{ ${field.columnName}: { lt: $${variable}_end } }]`,
+      variables: [
+        [`${variable}_start`, bounds.start],
+        [`${variable}_end`, bounds.end],
+      ],
+    };
+  }
+  if (filter.operator === "is_open" || filter.operator === "is_closed") {
+    const semantic = filter.operator === "is_open" ? "open" : "closed";
+    return {
+      clause: `${field.columnName}: { in: $${variable} }`,
+      variables: [[variable, semanticPicklistValues(field, semantic)]],
+    };
+  }
+  if (
+    filter.operator !== "eq" &&
+    filter.operator !== "neq" &&
+    filter.operator !== "gt" &&
+    filter.operator !== "gte" &&
+    filter.operator !== "lt" &&
+    filter.operator !== "lte"
+  ) {
     throw new RecordReadTargetError("unknown record filter operator");
   }
   return {
     clause: `${field.columnName}: { ${filter.operator}: $${variable} }`,
-    variable: [variable, filter.value],
+    variables: [[variable, filter.value]],
   };
+}
+
+function isFilterGroup(
+  value: RecordFilterExpression,
+): value is Extract<RecordFilterExpression, { op: "and" | "or" }> {
+  return "op" in value;
+}
+
+function expressionClause(
+  expression: RecordFilterExpression,
+  fields: Map<string, RecordField>,
+  variables: Record<string, unknown>,
+  now: Date,
+  path = "0",
+  budget = { count: 0 },
+  depth = 0,
+): string {
+  budget.count += 1;
+  if (budget.count > 50 || depth > 5) {
+    throw new RecordReadTargetError("record filter expression is too complex");
+  }
+  if (!isFilterGroup(expression)) {
+    const resolved = filterClause(expression, `filter_${path}`, fields, now);
+    for (const [name, value] of resolved.variables) variables[name] = value;
+    return resolved.clause;
+  }
+  if (
+    (expression.op !== "and" && expression.op !== "or") ||
+    !Array.isArray(expression.clauses) ||
+    expression.clauses.length < 1 ||
+    expression.clauses.length > 20
+  ) {
+    throw new RecordReadTargetError(
+      "record filter groups require 1 to 20 clauses",
+    );
+  }
+  const children = expression.clauses.map((child, index) =>
+    expressionClause(child, fields, variables, now, `${path}_${index}`, budget, depth + 1),
+  );
+  return `${expression.op}: [${children.map((child) => `{ ${child} }`).join(", ")}]`;
 }
 
 function whereDocument(clauses: string[]): string | null {
@@ -354,7 +504,10 @@ export function buildRecordListQuery(input: {
   sort?: { field: string; direction: "asc" | "desc" };
   search?: string | null;
   filters?: RecordListFilter[];
+  filter?: RecordFilterExpression | null;
   myRecords?: boolean;
+  now?: Date;
+  columns?: string[];
 }): RecordListQuery {
   const view = resolveView({ ...input, layoutKind: "list" });
   const fields = new Map(
@@ -380,10 +533,14 @@ export function buildRecordListQuery(input: {
     clauses.push(`${RECORD_SYSTEM_COLUMNS.ownerUserId}: { eq: $viewer_id }`);
     variables.viewer_id = input.userId;
   }
+  const now = input.now ?? new Date();
   for (const [index, filter] of (input.filters ?? []).entries()) {
-    const resolved = filterClause(filter, index, fields);
+    const resolved = filterClause(filter, `filter_${index}`, fields, now);
     clauses.push(resolved.clause);
-    if (resolved.variable) variables[resolved.variable[0]] = resolved.variable[1];
+    for (const [name, value] of resolved.variables) variables[name] = value;
+  }
+  if (input.filter) {
+    clauses.push(expressionClause(input.filter, fields, variables, now));
   }
 
   const rawSortField = input.sort?.field ?? view.object.nameField;

@@ -24,6 +24,7 @@ export * from "./policy/graphjin";
 export * from "./read/query";
 export * from "./read/gateway";
 export * from "./registry";
+export * from "./saved-view";
 export * from "./schema/audit";
 export * from "./schema/catalog";
 export * from "./schema/ddl";

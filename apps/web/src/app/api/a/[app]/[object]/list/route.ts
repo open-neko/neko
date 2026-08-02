@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import type { RecordListFilter } from "@neko/records";
+import {
+  normalizeRecordSavedViewDefinition,
+  type RecordFilterExpression,
+  type RecordListFilter,
+} from "@neko/records";
 import { getOrgId } from "@/lib/db";
 import { readRecordList } from "@/lib/records";
 import { recordsApiError } from "@/lib/records-api";
@@ -17,6 +21,19 @@ function filtersFrom(url: URL): RecordListFilter[] | undefined {
     throw new Error("record filters must be an array of at most 20 entries");
   }
   return parsed as RecordListFilter[];
+}
+
+function filterFrom(url: URL): RecordFilterExpression | undefined {
+  const raw = url.searchParams.get("filter");
+  if (!raw) return undefined;
+  return normalizeRecordSavedViewDefinition({
+    version: 1,
+    filter: JSON.parse(raw),
+    sort: null,
+    search: null,
+    myRecords: false,
+    columns: [],
+  }).filter ?? undefined;
 }
 
 export async function GET(request: Request, context: RouteContext) {
@@ -40,6 +57,7 @@ export async function GET(request: Request, context: RouteContext) {
         ? { field: sortField, direction: direction === "desc" ? "desc" : "asc" }
         : undefined,
       filters: filtersFrom(url),
+      filter: filterFrom(url),
       myRecords: url.searchParams.get("mine") === "true",
     });
     return NextResponse.json(result);
@@ -50,4 +68,3 @@ export async function GET(request: Request, context: RouteContext) {
     return recordsApiError(error);
   }
 }
-

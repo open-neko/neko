@@ -5,6 +5,7 @@ import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
 import {
   getRecordSubstrateStatus,
+  listRecordSavedViews,
   loadRecordAppShell,
   readRecordList,
   RecordAppRouteError,
@@ -14,6 +15,10 @@ import { RecordViewBar } from "@/components/records/RecordViewBar";
 import { RecordsUnavailable } from "@/components/records/RecordsNotice";
 import { SubstrateStrip } from "@/components/records/SubstrateStrip";
 import { RecordAskBox } from "@/components/records/RecordAskBox";
+import {
+  normalizeRecordSavedViewDefinition,
+  type RecordFilterExpression,
+} from "@neko/records";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +34,26 @@ function positivePage(raw: string | undefined): number {
   return Number.isSafeInteger(parsed) && parsed > 0 && parsed < 10_000 ? parsed : 1;
 }
 
+function has(params: SearchParams, key: string): boolean {
+  return Object.hasOwn(params, key);
+}
+
+function filterExpression(raw: string | undefined): RecordFilterExpression | null {
+  if (!raw) return null;
+  try {
+    return normalizeRecordSavedViewDefinition({
+      version: 1,
+      filter: JSON.parse(raw),
+      sort: null,
+      search: null,
+      myRecords: false,
+      columns: [],
+    }).filter;
+  } catch {
+    return null;
+  }
+}
+
 async function loadPage(input: {
   orgId: string;
   app: string;
@@ -42,35 +67,91 @@ async function loadPage(input: {
       message: shell.degradedReason ?? "The app is degraded.",
     };
   }
-  const direction = value(input.queryParams, "direction") === "desc" ? "desc" : "asc";
-  const sortField = value(input.queryParams, "sort");
-  const page = positivePage(value(input.queryParams, "page"));
-  const [result, substrate, actor] = await Promise.all([
-    readRecordList({
+  const [views, substrate, actor] = await Promise.all([
+    listRecordSavedViews({
       orgId: input.orgId,
       appId: input.app,
       objectApiName: input.object,
-      first: 50,
-      after: value(input.queryParams, "after"),
-      search: value(input.queryParams, "q"),
-      sort: sortField ? { field: sortField, direction } : undefined,
-      myRecords: value(input.queryParams, "mine") === "true",
     }),
     getRecordSubstrateStatus({ orgId: input.orgId, appId: input.app }),
     getCurrentActor(),
   ]);
+  const selectedView = views.find(
+    (candidate) => candidate.id === value(input.queryParams, "view"),
+  );
+  const selected = selectedView?.definition;
+  const direction = has(input.queryParams, "direction")
+    ? value(input.queryParams, "direction") === "desc"
+      ? "desc"
+      : "asc"
+    : selected?.sort?.direction ?? "asc";
+  const sortField = has(input.queryParams, "sort")
+    ? value(input.queryParams, "sort")
+    : selected?.sort?.field;
+  const explicitSearch = has(input.queryParams, "q");
+  const search = explicitSearch
+    ? value(input.queryParams, "q") ?? null
+    : selected?.search ?? null;
+  const explicitMine = has(input.queryParams, "mine");
+  const mine = explicitMine
+    ? value(input.queryParams, "mine") === "true"
+    : selected?.myRecords ?? false;
+  const explicitFilter = has(input.queryParams, "filter");
+  const filter = explicitFilter
+    ? filterExpression(value(input.queryParams, "filter"))
+    : selected?.filter ?? null;
+  const page = positivePage(value(input.queryParams, "page"));
+  const result = await readRecordList({
+    orgId: input.orgId,
+    appId: input.app,
+    objectApiName: input.object,
+    first: 50,
+    after: value(input.queryParams, "after"),
+    search,
+    sort: sortField ? { field: sortField, direction } : undefined,
+    filter,
+    myRecords: mine,
+    columns: selected?.columns.length ? selected.columns : undefined,
+  });
+  const object = shell.snapshot.objects.find(
+    (candidate) => candidate.apiName === result.view.object.apiName,
+  );
+  const filterFields = shell.snapshot.fields
+    .filter((field) => field.objectId === object?.id && field.archivedAt === null)
+    .map((field) => ({
+      apiName: String(field.apiName),
+      label: field.label,
+      kind: field.kind,
+      picklistValues: field.picklistValues,
+    }));
+  const serializedFilter = filter ? JSON.stringify(filter) : undefined;
   return {
     kind: "active" as const,
     result,
     substrate,
     actor,
+    views,
+    selectedView,
+    filterFields,
+    definition: {
+      version: 1 as const,
+      filter,
+      sort: sortField ? { field: sortField, direction } : null,
+      search,
+      myRecords: mine,
+      columns: result.view.columns
+        .filter((column) => column.kind !== "owner" && column.kind !== "system_datetime")
+        .map((column) => column.apiName),
+    },
     page,
     base: `/a/${result.app.appId}/${result.view.object.apiName}`,
     query: {
-      q: value(input.queryParams, "q"),
+      q: explicitSearch ? value(input.queryParams, "q") ?? "" : search ?? undefined,
       sort: sortField,
-      direction: value(input.queryParams, "direction"),
-      mine: value(input.queryParams, "mine"),
+      direction,
+      mine: explicitMine ? (mine ? "true" : "false") : mine ? "true" : undefined,
+      filter: explicitFilter ? serializedFilter ?? "null" : serializedFilter,
+      view: selectedView?.id,
       after: value(input.queryParams, "after"),
       page: value(input.queryParams, "page"),
     },
@@ -106,7 +187,18 @@ export default async function RecordObjectPage({
   if (!loaded) throw new Error("Record page did not resolve.");
   if (loaded.kind === "degraded") return <RecordsUnavailable message={loaded.message} />;
 
-  const { result, substrate, actor, page, base, query } = loaded;
+  const {
+    result,
+    substrate,
+    actor,
+    views,
+    selectedView,
+    filterFields,
+    definition,
+    page,
+    base,
+    query,
+  } = loaded;
   return (
     <main className="records-root">
       <header className="records-object-header">
@@ -128,6 +220,8 @@ export default async function RecordObjectPage({
           {query.sort && <input type="hidden" name="sort" value={query.sort} />}
           {query.direction && <input type="hidden" name="direction" value={query.direction} />}
           {query.mine && <input type="hidden" name="mine" value={query.mine} />}
+          {query.filter && <input type="hidden" name="filter" value={query.filter} />}
+          {query.view && <input type="hidden" name="view" value={query.view} />}
         </form>
         {result.view.permission.canCreate && (
           <Link className="records-primary-action" href={`${base}/new`}>
@@ -151,6 +245,13 @@ export default async function RecordObjectPage({
         objectLabel={result.view.object.pluralLabel}
         query={query}
         ownerScoped={result.view.object.visibility === "owner"}
+        appId={result.app.appId}
+        objectApiName={result.view.object.apiName}
+        views={views}
+        selectedView={selectedView ?? null}
+        definition={definition}
+        fields={filterFields}
+        canShare={actor.role === "admin"}
       />
       <RecordTable
         appId={result.app.appId}

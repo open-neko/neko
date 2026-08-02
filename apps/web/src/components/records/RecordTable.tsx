@@ -10,7 +10,7 @@ function hrefWith(
 ): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(current)) {
-    if (value) params.set(key, value);
+    if (value !== undefined) params.set(key, value);
   }
   for (const [key, value] of Object.entries(changes)) {
     if (value === null) params.delete(key);

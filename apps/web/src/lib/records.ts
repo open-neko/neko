@@ -17,6 +17,7 @@ import {
   buildRecordRecycleListQuery,
   mintRecordsGraphjinToken,
   RecordRegistry,
+  RecordSavedViewStore,
   recordsGraphjinSigningSecret,
   RecordsGraphjinClient,
   syncRecordsActor,
@@ -24,7 +25,9 @@ import {
   type AppRegistrySnapshot,
   type JsonObject,
   type RecordListFilter,
+  type RecordFilterExpression,
   type RecordObjectView,
+  type RecordSavedView,
   type RecycledRecordSummary,
   type RecordViewerRole,
 } from "@neko/records";
@@ -36,6 +39,7 @@ const RECORDS_GRAPHJIN_URL =
 type RecordsRuntime = {
   pool: pg.Pool;
   registry: RecordRegistry;
+  savedViews: RecordSavedViewStore;
   graphjin: RecordsGraphjinClient;
 };
 
@@ -48,9 +52,11 @@ function createRuntime(): RecordsRuntime {
     ...buildRecordsPoolConfig(),
     application_name: "openneko-web-records",
   });
+  const registry = new RecordRegistry(pool);
   return {
     pool,
-    registry: new RecordRegistry(pool),
+    registry,
+    savedViews: new RecordSavedViewStore(pool, registry),
     graphjin: new RecordsGraphjinClient({ baseUrl: RECORDS_GRAPHJIN_URL }),
   };
 }
@@ -323,6 +329,49 @@ export type RecordListResult = {
   owners: Record<string, RecordOwnerIdentity>;
 };
 
+export async function listRecordSavedViews(input: {
+  orgId: string;
+  appId: string;
+  objectApiName: string;
+}): Promise<RecordSavedView[]> {
+  const viewer = await recordsViewer(input.orgId);
+  return recordsRuntime().savedViews.list({
+    ...input,
+    userId: viewer.userId,
+    role: viewer.role,
+  });
+}
+
+export async function saveRecordSavedView(input: {
+  orgId: string;
+  appId: string;
+  objectApiName: string;
+  label: string;
+  shared: boolean;
+  definition: unknown;
+}): Promise<RecordSavedView> {
+  const viewer = await recordsViewer(input.orgId);
+  return recordsRuntime().savedViews.save({
+    ...input,
+    userId: viewer.userId,
+    role: viewer.role,
+  });
+}
+
+export async function deleteRecordSavedView(input: {
+  orgId: string;
+  appId: string;
+  objectApiName: string;
+  id: string;
+}): Promise<boolean> {
+  const viewer = await recordsViewer(input.orgId);
+  return recordsRuntime().savedViews.remove({
+    ...input,
+    userId: viewer.userId,
+    role: viewer.role,
+  });
+}
+
 export type RecordOwnerIdentity = {
   userId: string;
   label: string;
@@ -403,7 +452,9 @@ export async function readRecordList(input: {
   sort?: { field: string; direction: "asc" | "desc" };
   search?: string | null;
   filters?: RecordListFilter[];
+  filter?: RecordFilterExpression | null;
   myRecords?: boolean;
+  columns?: string[];
 }): Promise<RecordListResult> {
   const shell = await loadRecordAppShell(input.orgId, input.appId);
   if (shell.availability !== "active") {
@@ -420,7 +471,9 @@ export async function readRecordList(input: {
     sort: input.sort,
     search: input.search,
     filters: input.filters,
+    filter: input.filter,
     myRecords: input.myRecords,
+    columns: input.columns,
   });
   const data = await recordsRuntime().graphjin.execute<Record<string, unknown>>({
     operationName: generated.operationName,

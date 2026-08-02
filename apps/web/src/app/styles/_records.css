@@ -146,6 +146,32 @@
   font-weight: 800;
 }
 
+.records-view-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.records-view-picker select,
+.records-view-picker button,
+.records-view-save > summary {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-family: var(--font-display), "Archivo", sans-serif;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.records-view-picker button,
+.records-view-save > summary {
+  cursor: pointer;
+}
+
 .records-filter-chip,
 .records-filter-add {
   min-height: 28px;
@@ -176,6 +202,85 @@
   border-style: dashed;
   background: transparent;
   color: var(--text3);
+}
+
+.records-filter-builder,
+.records-view-save {
+  position: relative;
+}
+
+.records-filter-builder > summary,
+.records-view-save > summary {
+  list-style: none;
+}
+
+.records-filter-builder > summary::-webkit-details-marker,
+.records-view-save > summary::-webkit-details-marker {
+  display: none;
+}
+
+.records-filter-builder > form,
+.records-view-save > form {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  left: 0;
+  width: min(320px, 85vw);
+  padding: 13px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.records-filter-builder label,
+.records-view-save label {
+  display: grid;
+  gap: 5px;
+  color: var(--text2);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.records-filter-builder select,
+.records-filter-builder input,
+.records-view-save input[type="text"],
+.records-view-save input:not([type]) {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.records-filter-builder button,
+.records-view-save button,
+.records-view-delete {
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 750;
+}
+
+.records-view-share {
+  grid-template-columns: auto 1fr !important;
+  align-items: center;
+}
+
+.records-view-delete {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--danger);
 }
 
 .records-scope-toggle {
