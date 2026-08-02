@@ -95,7 +95,10 @@ import { runRecordsImport } from "./jobs/records-import.js";
 import { runRecordsIdentityLink } from "./jobs/records-identity-link.js";
 import { runRecordsBackupVerification } from "./jobs/records-backup-verify.js";
 import { seedOpenNekoOpsWorkflow } from "./jobs/records-ops-finding.js";
-import { runRecordsOpsWatch } from "./jobs/records-ops-watch.js";
+import {
+  createRecordsOpsWatchDependencies,
+  runRecordsOpsWatch,
+} from "./jobs/records-ops-watch.js";
 import { runRecordsSalesforceExport } from "./jobs/records-salesforce-export.js";
 import { runRecordsSalesforceCutover } from "./jobs/records-salesforce-cutover.js";
 import { runRecordsSalesforceSync } from "./jobs/records-salesforce-sync.js";
@@ -154,6 +157,7 @@ const recordsPool = new pg.Pool({
   ...buildRecordsPoolConfig(),
   application_name: "openneko-worker-records",
 });
+const recordsOpsWatchDependencies = createRecordsOpsWatchDependencies(recordsPool);
 const recordsGraphjin = new RecordsGraphjinClient({
   baseUrl:
     process.env.OPENNEKO_RECORDS_GRAPHJIN_URL ?? "http://127.0.0.1:8090",
@@ -941,7 +945,7 @@ await b.work(
   { batchSize: 1, pollingIntervalSeconds: 1 },
   async (jobs: PgBossLib.Job<RecordsOpsWatchPayload>[]) => {
     for (const job of jobs) {
-      await runRecordsOpsWatch(job.data.orgId);
+      await runRecordsOpsWatch(job.data.orgId, recordsOpsWatchDependencies);
     }
   },
 );
