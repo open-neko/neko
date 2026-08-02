@@ -50,7 +50,12 @@ function runCommand(command: string, args: string[]): Promise<{ stdout: string; 
       args,
       { timeout: 30_000, env: { ...process.env, GO_ENV: "development" } },
       (error, stdout, stderr) => {
-        if (error) reject(new Error(String(stderr) || error.message));
+        if (error) {
+          const output = [String(stderr).trim(), String(stdout).trim()]
+            .filter(Boolean)
+            .join("\n");
+          reject(new Error(output || error.message));
+        }
         else resolve({ stdout: String(stdout), stderr: String(stderr) });
       },
     );
@@ -99,10 +104,53 @@ describeIfLive("records write executor live integration", () => {
          'picklist', 'status', true, false, '["new","active"]'::jsonb),
         ('00000000-0000-0000-0000-000000000704', 'org-a',
          '00000000-0000-0000-0000-000000000701', 'legacy_code', null, 'Legacy code',
-         'text', 'legacy_code', false, true, null),
+         'readonly_formula', 'legacy_code', false, true, null),
         ('00000000-0000-0000-0000-000000000705', 'org-a',
          '00000000-0000-0000-0000-000000000701', 'owner_id', 'OwnerId', 'Source owner',
          'text', 'owner_id', true, false, null);
+      insert into engine.record_field
+        (id, org_id, object_id, api_name, label, kind, column_name,
+         required, read_only, picklist_values, reference_targets, length, scale)
+      values
+        ('00000000-0000-0000-0000-000000000706', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'notes', 'Notes', 'textarea',
+         'notes', false, false, null, null, 1000, null),
+        ('00000000-0000-0000-0000-000000000707', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'enabled', 'Enabled', 'boolean',
+         'enabled', false, false, null, null, null, null),
+        ('00000000-0000-0000-0000-000000000708', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'quantity', 'Quantity', 'integer',
+         'quantity', false, false, null, null, null, null),
+        ('00000000-0000-0000-0000-000000000709', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'score', 'Score', 'decimal',
+         'score', false, false, null, null, 12, 3),
+        ('00000000-0000-0000-0000-000000000710', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'cost', 'Cost', 'currency',
+         'cost', false, false, null, null, 12, 2),
+        ('00000000-0000-0000-0000-000000000711', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'utilization', 'Utilization', 'percent',
+         'utilization', false, false, null, null, 6, 2),
+        ('00000000-0000-0000-0000-000000000712', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'due_on', 'Due on', 'date',
+         'due_on', false, false, null, null, null, null),
+        ('00000000-0000-0000-0000-000000000713', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'due_at', 'Due at', 'datetime',
+         'due_at', false, false, null, null, null, null),
+        ('00000000-0000-0000-0000-000000000714', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'contact_email', 'Contact email', 'email',
+         'contact_email', false, false, null, null, 320, null),
+        ('00000000-0000-0000-0000-000000000715', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'contact_phone', 'Contact phone', 'phone',
+         'contact_phone', false, false, null, null, 50, null),
+        ('00000000-0000-0000-0000-000000000716', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'website', 'Website', 'url',
+         'website', false, false, null, null, 500, null),
+        ('00000000-0000-0000-0000-000000000717', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'tags', 'Tags', 'multipicklist',
+         'tags', false, false, '["portable","priority"]'::jsonb, null, null, null),
+        ('00000000-0000-0000-0000-000000000718', 'org-a',
+         '00000000-0000-0000-0000-000000000701', 'related_loan', 'Related loan', 'reference',
+         'related_loan_id', false, false, null, '["loan"]'::jsonb, null, null);
       insert into engine.record_permission
         (org_id, app_id, role, object_api_name,
          can_read, can_create, can_update, can_delete)
@@ -126,6 +174,19 @@ describeIfLive("records write executor live integration", () => {
         status text not null,
         legacy_code text,
         owner_id text not null,
+        notes text,
+        enabled boolean,
+        quantity bigint,
+        score numeric(12,3),
+        cost numeric(12,2),
+        utilization numeric(6,2),
+        due_on date,
+        due_at timestamptz,
+        contact_email text,
+        contact_phone text,
+        website text,
+        tags jsonb,
+        related_loan_id text,
         nk_created_at timestamptz not null,
         nk_created_by text not null,
         nk_updated_at timestamptz not null,
@@ -380,6 +441,18 @@ describeIfLive("records write executor live integration", () => {
             name: "Laptop",
             status: "new",
             owner_id: "005-alice",
+            notes: "Issued for field inspections.\nReturn with charger.",
+            enabled: true,
+            quantity: 7,
+            score: "98.125",
+            cost: "1234.50",
+            utilization: "63.5",
+            due_on: "2026-08-15",
+            due_at: "2026-08-15T16:30:00+05:30",
+            contact_email: "ops@example.com",
+            contact_phone: "+91 98765 43210",
+            website: "https://example.com/loans/loan-1",
+            tags: ["portable", "priority"],
           },
         });
         expect(created).toMatchObject({
@@ -420,6 +493,52 @@ describeIfLive("records write executor live integration", () => {
             owner_user_id: "member-2",
           },
         });
+        await executor.execute({
+          actionRequestId: "request-link-loan",
+          orgId: "org-a",
+          appId: "equipment",
+          objectApiName: "loan",
+          operation: "update",
+          actor: member,
+          id: "loan-1",
+          fields: { related_loan: "loan-2" },
+        });
+        const fieldMatrix = await testPool.query<{
+          notes: string;
+          enabled: boolean;
+          quantity: string;
+          score: string;
+          cost: string;
+          utilization: string;
+          due_on: string;
+          due_at: Date;
+          contact_email: string;
+          contact_phone: string;
+          website: string;
+          tags: string[];
+          related_loan_id: string;
+        }>(`
+          select notes, enabled, quantity, score, cost, utilization,
+                 due_on::text as due_on,
+                 due_at, contact_email, contact_phone, website, tags,
+                 related_loan_id
+          from public.equipment__loan where id = 'loan-1'
+        `);
+        expect(fieldMatrix.rows).toEqual([{
+          notes: "Issued for field inspections.\nReturn with charger.",
+          enabled: true,
+          quantity: "7",
+          score: "98.125",
+          cost: "1234.50",
+          utilization: "63.50",
+          due_on: "2026-08-15",
+          due_at: new Date("2026-08-15T11:00:00.000Z"),
+          contact_email: "ops@example.com",
+          contact_phone: "+91 98765 43210",
+          website: "https://example.com/loans/loan-1",
+          tags: ["portable", "priority"],
+          related_loan_id: "loan-2",
+        }]);
         await expect(
           executor.execute({
             actionRequestId: "request-update-other",
@@ -541,12 +660,14 @@ describeIfLive("records write executor live integration", () => {
         expect(history.rows.map((row) => row.action)).toEqual([
           "create",
           "update",
+          "update",
           "delete",
           "restore",
         ]);
         expect(sourceWrites.map((write) => write.actionRequestId)).toEqual([
           "request-create-loan",
           "request-create-other",
+          "request-link-loan",
           "request-update-loan",
           "request-delete-loan",
           "request-restore-loan",
@@ -554,7 +675,7 @@ describeIfLive("records write executor live integration", () => {
         const succeeded = await testPool.query<{ count: string }>(
           "select count(*) from engine.action_execution where status = 'succeeded'",
         );
-        expect(succeeded.rows).toEqual([{ count: "9" }]);
+        expect(succeeded.rows).toEqual([{ count: "10" }]);
 
         const ownerBackfill = new RecordOwnerBackfillExecutor({
           pool: testPool,
