@@ -248,6 +248,7 @@ describe("artifact import worker actions", () => {
       app: "crm",
       label: "CRM",
       export_job_id: "00000000-0000-4000-a000-000000000822",
+      export_action_request_id: "00000000-0000-4000-a000-000000000820",
       source_instance_id: "salesforce-production",
       approved_schema_hash: artifactPlan.sourceSchemaHash,
     };
@@ -292,6 +293,7 @@ describe("artifact import worker actions", () => {
       batch_size: 100,
       owner_user_id: null,
       export_job_id: "00000000-0000-4000-a000-000000000822",
+      export_action_request_id: "00000000-0000-4000-a000-000000000820",
       source_instance_id: "salesforce-production",
       approved_schema_hash: artifactPlan.sourceSchemaHash,
       artifact_import_plan: artifactPlan,

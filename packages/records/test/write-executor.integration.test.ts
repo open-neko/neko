@@ -259,6 +259,99 @@ describeIfLive("records write executor live integration", () => {
           code: "records_mirror_write_blocked",
           message: "mirrored from Salesforce — writes happen there until cutover",
         } satisfies Partial<RecordMirrorWriteBlockedError>);
+        const syncIdentity = {
+          actor: {
+            userId: "urn:openneko:sync:sf-prod",
+            role: "admin" as const,
+          },
+          system: { kind: "sync" as const, sourceInstanceId: "sf-prod" },
+        };
+        await expect(
+          mirrorExecutor.execute({
+            actionRequestId: "sync-upsert-create",
+            orgId: "org-a",
+            appId: "equipment",
+            objectApiName: "loan",
+            operation: "upsert",
+            id: "loan-sync",
+            fields: {
+              name: "Synced laptop",
+              status: "new",
+              legacy_code: "SF-001",
+              owner_id: "005-alice",
+              owner_user_id: "user-alice",
+            },
+            ...syncIdentity,
+          }),
+        ).resolves.toMatchObject({ operation: "create", replayed: false });
+        await expect(
+          mirrorExecutor.execute({
+            actionRequestId: "sync-upsert-update",
+            orgId: "org-a",
+            appId: "equipment",
+            objectApiName: "loan",
+            operation: "upsert",
+            id: "loan-sync",
+            fields: {
+              name: "Synced laptop",
+              status: "active",
+              legacy_code: "SF-002",
+              owner_id: "005-alice",
+              owner_user_id: "user-alice",
+            },
+            ...syncIdentity,
+          }),
+        ).resolves.toMatchObject({ operation: "update", replayed: false });
+        await expect(
+          mirrorExecutor.execute({
+            actionRequestId: "sync-delete",
+            orgId: "org-a",
+            appId: "equipment",
+            objectApiName: "loan",
+            operation: "delete",
+            id: "loan-sync",
+            ...syncIdentity,
+          }),
+        ).resolves.toMatchObject({ operation: "delete", replayed: false });
+        await expect(
+          mirrorExecutor.execute({
+            actionRequestId: "sync-delete-missing",
+            orgId: "org-a",
+            appId: "equipment",
+            objectApiName: "loan",
+            operation: "delete",
+            id: "never-imported",
+            ...syncIdentity,
+          }),
+        ).resolves.toMatchObject({ noOp: true });
+        const synced = await testPool.query<{
+          status: string;
+          legacy_code: string;
+          nk_deleted_at: Date | null;
+        }>(
+          `select status, legacy_code, nk_deleted_at
+           from public.equipment__loan where id = 'loan-sync'`,
+        );
+        expect(synced.rows).toEqual([
+          {
+            status: "active",
+            legacy_code: "SF-002",
+            nk_deleted_at: expect.any(Date),
+          },
+        ]);
+        const syncHistory = await testPool.query<{ action: string }>(
+          `select action from engine.record_change_log
+           where record_id = 'loan-sync' order by id`,
+        );
+        expect(syncHistory.rows).toEqual([
+          { action: "sync" },
+          { action: "sync" },
+          { action: "sync" },
+        ]);
+        const syncRecycle = await testPool.query(
+          `select 1 from engine.recycle_record where record_id = 'loan-sync'`,
+        );
+        expect(syncRecycle.rowCount).toBe(0);
         const executor = new RecordWriteExecutor({
           pool: testPool,
           graphjin,
@@ -423,7 +516,7 @@ describeIfLive("records write executor live integration", () => {
           nk_deleted_at: Date | null;
         }>(`
           select id, org_id, owner_user_id, status, nk_deleted_at
-          from public.equipment__loan order by id
+          from public.equipment__loan where nk_deleted_at is null order by id
         `);
         expect(rows.rows).toEqual([
           {
@@ -461,7 +554,7 @@ describeIfLive("records write executor live integration", () => {
         const succeeded = await testPool.query<{ count: string }>(
           "select count(*) from engine.action_execution where status = 'succeeded'",
         );
-        expect(succeeded.rows).toEqual([{ count: "5" }]);
+        expect(succeeded.rows).toEqual([{ count: "9" }]);
 
         const ownerBackfill = new RecordOwnerBackfillExecutor({
           pool: testPool,
@@ -491,7 +584,8 @@ describeIfLive("records write executor live integration", () => {
           id: string;
           owner_user_id: string;
         }>(
-          `select id, owner_user_id from public.equipment__loan order by id`,
+          `select id, owner_user_id from public.equipment__loan
+           where nk_deleted_at is null order by id`,
         );
         expect(ownership.rows).toEqual([
           { id: "loan-1", owner_user_id: "user-alice" },

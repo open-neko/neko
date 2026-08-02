@@ -121,6 +121,7 @@ export async function scheduleSalesforceArtifactImport(
         app: config.app,
         label: config.label,
         export_job_id: payload.exportJobId,
+        export_action_request_id: request.id,
         source_instance_id: review.sourceInstanceId,
         approved_schema_hash: review.planHash,
       },

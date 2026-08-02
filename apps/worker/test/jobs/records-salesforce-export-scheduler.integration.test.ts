@@ -162,6 +162,7 @@ describeIfDb("Salesforce export-to-import chaining", () => {
         app: "crm",
         label: "CRM",
         export_job_id: jobId,
+        export_action_request_id: request.id,
         source_instance_id: "salesforce-production",
         approved_schema_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
       },

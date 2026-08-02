@@ -37,7 +37,9 @@ function request(orgId: string): ActionRequestRecord {
     scope: "internal",
     kind: "records_artifact_import_from_export",
     target: "salesforce-export:job",
-    payload: {},
+    payload: {
+      export_action_request_id: "00000000-0000-4000-a000-000000000830",
+    },
     riskLevel: "high",
     status: "approved",
     summary: "Import CRM",
@@ -81,6 +83,7 @@ function plan(): RecordArtifactImportPlan {
       permissions: [],
       pages: [],
     },
+    sourceSchemaHash: "c".repeat(64),
     imports: [],
     warnings: [],
     planHash: "b".repeat(64),

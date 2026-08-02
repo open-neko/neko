@@ -1,7 +1,10 @@
 import type { Pool } from "pg";
 import { and, app_state, db, eq, sql } from "@neko/db";
 import type { ActionRequestRecord } from "@neko/llm/workflows";
-import type { RecordArtifactImportPlan } from "@neko/records";
+import {
+  seedRecordSyncCursor,
+  type RecordArtifactImportPlan,
+} from "@neko/records";
 
 type ArtifactImportState = {
   kind: "artifact";
@@ -36,6 +39,28 @@ function stateFor(
   };
 }
 
+function connectorFor(
+  request: ActionRequestRecord,
+  plan: RecordArtifactImportPlan,
+): Record<string, unknown> {
+  return {
+    kind: plan.manifest.source.kind,
+    source_instance_id: plan.manifest.source.instanceId,
+    manifest_watermark: plan.manifest.watermark,
+    ...(typeof request.payload.export_action_request_id === "string"
+      ? { export_action_request_id: request.payload.export_action_request_id }
+      : {}),
+    objects: plan.manifest.objects.map((object) => ({
+      source_api_name: object.sourceApiName,
+      object_api_name: object.objectApiName,
+      watermark:
+        object.watermark ??
+        plan.manifest.watermark ??
+        { system_modstamp: plan.manifest.generatedAt },
+    })),
+  };
+}
+
 async function upsertState(input: {
   orgId: string;
   appId: string;
@@ -67,11 +92,7 @@ export async function stageArtifactImportState(
     appId: plan.definition.appId,
     status: "importing",
     mode: plan.manifest.source.mode,
-    connector: {
-      kind: plan.manifest.source.kind,
-      source_instance_id: plan.manifest.source.instanceId,
-      manifest_watermark: plan.manifest.watermark,
-    },
+    connector: connectorFor(request, plan),
     importState: stateFor(request, plan, "schema"),
   });
 }
@@ -86,11 +107,7 @@ export async function trackArtifactImportRuns(
     appId: plan.definition.appId,
     status: "importing",
     mode: plan.manifest.source.mode,
-    connector: {
-      kind: plan.manifest.source.kind,
-      source_instance_id: plan.manifest.source.instanceId,
-      manifest_watermark: plan.manifest.watermark,
-    },
+    connector: connectorFor(request, plan),
     importState: stateFor(request, plan, "running", runIds),
   });
 }
@@ -108,11 +125,7 @@ export async function failArtifactImportState(
     appId: plan.definition.appId,
     status: "degraded",
     mode: plan.manifest.source.mode,
-    connector: {
-      kind: plan.manifest.source.kind,
-      source_instance_id: plan.manifest.source.instanceId,
-      manifest_watermark: plan.manifest.watermark,
-    },
+    connector: connectorFor(request, plan),
     importState: failed,
   });
 }
@@ -192,6 +205,35 @@ export async function refreshArtifactImportState(
       result.rows.map((run) => [run.id, run.report ?? run.error ?? { status: run.status }]),
     ),
   };
+  if (complete) {
+    const connector = asRecord(match.config.connector);
+    const sourceInstanceId = connector?.source_instance_id;
+    const objects = connector?.objects;
+    const manifestHash = state.manifest_hash;
+    if (
+      typeof sourceInstanceId !== "string" ||
+      !Array.isArray(objects) ||
+      typeof manifestHash !== "string"
+    ) {
+      throw new Error("completed artifact import is missing connector cursor metadata");
+    }
+    for (const value of objects) {
+      const object = asRecord(value);
+      const objectApiName = object?.object_api_name;
+      const watermark = asRecord(object?.watermark);
+      if (typeof objectApiName !== "string" || !watermark) {
+        throw new Error("completed artifact import has invalid object cursor metadata");
+      }
+      await seedRecordSyncCursor(pool, {
+        orgId: input.orgId,
+        appId: match.appId,
+        sourceInstanceId,
+        objectApiName,
+        watermark,
+        manifestHash,
+      });
+    }
+  }
   await db()
     .update(app_state)
     .set({

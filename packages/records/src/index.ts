@@ -5,6 +5,7 @@ export * from "./connect/salesforce/client";
 export * from "./connect/salesforce/export";
 export * from "./connect/salesforce/id";
 export * from "./connect/salesforce/schema";
+export * from "./connect/sync";
 export * from "./connect/types";
 export * from "./graphjin/client";
 export * from "./graphjin/config";

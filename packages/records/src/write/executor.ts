@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import {
   claimRecordsActionExecution,
   failRecordsActionExecution,
+  setRecordsActionExecutionContext,
   succeedRecordsActionExecution,
 } from "../actions/execution";
 import type { RecordsGraphjinTransport } from "../graphjin/client";
@@ -28,6 +29,7 @@ import {
 } from "./validate";
 
 export type RecordWriteOperation = "create" | "update" | "delete" | "restore";
+export type RecordWriteRequestOperation = RecordWriteOperation | "upsert";
 
 export type RecordAppWriteMode = "mirror" | "cutting_over" | "primary";
 
@@ -36,8 +38,10 @@ export type RecordWriteRequest = {
   orgId: string;
   appId: string;
   objectApiName: string;
-  operation: RecordWriteOperation;
+  operation: RecordWriteRequestOperation;
   actor: RecordPolicyActor;
+  /** Worker-only connector context. Action adapters never accept this field. */
+  system?: { kind: "sync"; sourceInstanceId: string };
   id?: string;
   fields?: Record<string, unknown>;
   expected?: Record<string, unknown>;
@@ -53,6 +57,7 @@ export type RecordWriteResult = {
   mutationId: string;
   replayed: boolean;
   recovered: boolean;
+  noOp?: boolean;
 };
 
 export class RecordWriteTargetError extends Error {
@@ -122,10 +127,27 @@ export class RecordMirrorWriteBlockedError extends Error {
   }
 }
 
-function deterministicMutationId(request: RecordWriteRequest, id: string): string {
+export class RecordSyncWriteBlockedError extends Error {
+  readonly code = "records_sync_write_blocked";
+
+  constructor(readonly mode: RecordAppWriteMode | null) {
+    super(
+      mode === "primary"
+        ? "Salesforce sync is disabled after primary cutover"
+        : "Salesforce sync requires a connector-managed mirror or cutover app",
+    );
+    this.name = "RecordSyncWriteBlockedError";
+  }
+}
+
+function deterministicMutationId(
+  request: RecordWriteRequest,
+  operation: RecordWriteRequestOperation,
+  id: string,
+): string {
   return createHash("sha256")
     .update(
-      `${request.actionRequestId}\u0000${request.operation}\u0000${request.appId}\u0000${request.objectApiName}\u0000${id}`,
+      `${request.actionRequestId}\u0000${operation}\u0000${request.appId}\u0000${request.objectApiName}\u0000${id}`,
       "utf8",
     )
     .digest("hex");
@@ -143,7 +165,8 @@ function objectFields(snapshot: AppRegistrySnapshot, object: RecordObject): Reco
   return snapshot.fields.filter((field) => field.objectId === object.id);
 }
 
-function operationGrant(operation: RecordWriteOperation): RecordCrudOperation {
+function operationGrant(operation: RecordWriteRequestOperation): RecordCrudOperation {
+  if (operation === "upsert") return "create";
   if (operation === "restore") return "update";
   return operation;
 }
@@ -155,7 +178,8 @@ function terminalError(error: unknown): error is Error & { code: string } {
     error instanceof RecordReferenceMissingError ||
     error instanceof RecordConcurrencyConflictError ||
     error instanceof RecordNotFoundOrDeniedError ||
-    error instanceof RecordMirrorWriteBlockedError
+    error instanceof RecordMirrorWriteBlockedError ||
+    error instanceof RecordSyncWriteBlockedError
   );
 }
 
@@ -175,13 +199,16 @@ function resultRows(data: Record<string, unknown>, tableName: string): Array<Rec
 function buildMutationWhere(input: {
   id: string;
   restore: boolean;
+  includeDeleted?: boolean;
   memberOwnerUserId: string | null;
   expectedFields: Record<string, unknown>;
 }): { document: string; variables: Record<string, unknown> } {
-  const clauses = [
-    "id: { eq: $record_id }",
-    `${RECORD_SYSTEM_COLUMNS.deletedAt}: { is_null: ${input.restore ? "false" : "true"} }`,
-  ];
+  const clauses = ["id: { eq: $record_id }"];
+  if (!input.includeDeleted) {
+    clauses.push(
+      `${RECORD_SYSTEM_COLUMNS.deletedAt}: { is_null: ${input.restore ? "false" : "true"} }`,
+    );
+  }
   const variables: Record<string, unknown> = { record_id: input.id };
   if (input.memberOwnerUserId !== null) {
     clauses.push(`${RECORD_SYSTEM_COLUMNS.ownerUserId}: { eq: $actor_user_id }`);
@@ -326,6 +353,78 @@ export class RecordWriteExecutor {
     return result.rowCount === 1;
   }
 
+  /**
+   * Connector writes still use the generic app trigger. Normalize its durable
+   * engine metadata before acknowledging the receipt so source deletes do not
+   * masquerade as human recycle-bin actions. A retry completes this transaction
+   * before the target cursor is allowed to advance.
+   */
+  private async normalizeSyncAudit(input: {
+    mutationId: string;
+    actionRequestId: string;
+    orgId: string;
+    appId: string;
+    objectApiName: string;
+    recordId: string;
+  }): Promise<boolean> {
+    const client = await this.dependencies.pool.connect();
+    try {
+      await client.query("begin");
+      const result = await client.query(
+        `update engine.record_change_log
+         set action = 'sync'
+         where mutation_id = $1 and action_request_id = $2 and org_id = $3
+           and app_id = $4 and object_api_name = $5 and record_id = $6`,
+        [
+          input.mutationId,
+          input.actionRequestId,
+          input.orgId,
+          input.appId,
+          input.objectApiName,
+          input.recordId,
+        ],
+      );
+      if (result.rowCount === 1) {
+        await client.query(
+          `delete from engine.recycle_record
+           where org_id = $1 and app_id = $2 and object_api_name = $3
+             and record_id = $4 and deletion_action_request_id = $5`,
+          [
+            input.orgId,
+            input.appId,
+            input.objectApiName,
+            input.recordId,
+            input.actionRequestId,
+          ],
+        );
+      }
+      await client.query("commit");
+      return result.rowCount === 1;
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async targetState(
+    object: RecordObject,
+    id: string,
+    token: string,
+  ): Promise<"missing" | "live" | "deleted"> {
+    const operationName = "RecordsSyncTargetState";
+    const data = await this.dependencies.graphjin.execute<Record<string, unknown>>({
+      operationName,
+      query: `query ${operationName} { ${object.tableName}(where: { id: { eq: $id } }, limit: 1) { id ${RECORD_SYSTEM_COLUMNS.deletedAt} } }`,
+      variables: { id },
+      token,
+    });
+    const row = resultRows(data, object.tableName)[0];
+    if (!row) return "missing";
+    return row[RECORD_SYSTEM_COLUMNS.deletedAt] === null ? "live" : "deleted";
+  }
+
   async execute(request: RecordWriteRequest): Promise<RecordWriteResult> {
     if (!request.actionRequestId.trim() || !request.orgId.trim() || !request.appId.trim()) {
       throw new RecordWriteTargetError("record write requires request, org, and app ids");
@@ -333,12 +432,22 @@ export class RecordWriteExecutor {
     if (!request.actor.userId.trim()) {
       throw new RecordWriteTargetError("record write requires an acting user");
     }
+    const sync = request.system?.kind === "sync";
+    if (request.operation === "upsert" && !sync) {
+      throw new RecordWriteTargetError("upsert is reserved for connector sync");
+    }
+    if (sync && !request.system?.sourceInstanceId.trim()) {
+      throw new RecordWriteTargetError("record sync requires a source instance");
+    }
     const { snapshot, object, fields, grant } = await this.resolve(request);
     const mode = await this.dependencies.appWriteMode?.(
       request.orgId,
       request.appId,
     );
-    if (mode === "mirror" || mode === "cutting_over") {
+    if (sync && mode !== "mirror" && mode !== "cutting_over") {
+      throw new RecordSyncWriteBlockedError(mode ?? null);
+    }
+    if (!sync && (mode === "mirror" || mode === "cutting_over")) {
       throw new RecordMirrorWriteBlockedError(mode);
     }
     const rawFields = { ...(request.fields ?? {}) };
@@ -347,7 +456,11 @@ export class RecordWriteExecutor {
         ? String(rawFields[RECORD_SYSTEM_COLUMNS.ownerUserId])
         : null;
     delete rawFields[RECORD_SYSTEM_COLUMNS.ownerUserId];
-    if (nominatedOwner !== null && request.operation !== "create") {
+    if (
+      nominatedOwner !== null &&
+      request.operation !== "create" &&
+      !(sync && request.operation === "upsert")
+    ) {
       throw new RecordValidationError([
         {
           field: RECORD_SYSTEM_COLUMNS.ownerUserId,
@@ -368,20 +481,27 @@ export class RecordWriteExecutor {
 
     const ownerUserId =
       object.visibility === "owner"
-        ? request.actor.role === "member"
+        ? sync
+          ? nominatedOwner
+          : request.actor.role === "member"
           ? nominatedOwner ?? request.actor.userId
           : nominatedOwner ?? request.actor.userId
         : null;
-    this.assertPermission(request, object, grant, ownerUserId);
+    if (!sync) this.assertPermission(request, object, grant, ownerUserId);
 
     let validatedFields: Record<string, unknown> = {};
     let expectedFields: Record<string, unknown> = {};
     let references: RecordReferenceCheck[] = [];
-    if (request.operation === "create" || request.operation === "update") {
+    if (
+      request.operation === "create" ||
+      request.operation === "update" ||
+      request.operation === "upsert"
+    ) {
       const validated = validateRecordFields({
         values: rawFields,
         registryFields: fields,
-        operation: request.operation,
+        operation: request.operation === "upsert" ? "create" : request.operation,
+        allowReadOnly: sync,
       });
       validatedFields = validated.fields;
       references = validated.references;
@@ -413,15 +533,14 @@ export class RecordWriteExecutor {
       ]);
     }
     delete validatedFields.id;
-    const mutationId = deterministicMutationId(request, id);
     const token = await this.dependencies.serviceToken(request.orgId);
-    for (const reference of references) {
+    for (const reference of sync ? [] : references) {
       if (!(await this.referenceExists(snapshot, reference, token))) {
         throw new RecordReferenceMissingError(reference.fieldApiName);
       }
     }
 
-    const actionKind = `record_${request.operation}`;
+    const actionKind = sync ? "record_sync" : `record_${request.operation}`;
     const claim = await claimRecordsActionExecution(this.dependencies.pool, {
       actionRequestId: request.actionRequestId,
       orgId: request.orgId,
@@ -433,13 +552,43 @@ export class RecordWriteExecutor {
       return { ...(claim.result as Omit<RecordWriteResult, "replayed">), replayed: true };
     }
 
+    let operation: RecordWriteOperation =
+      request.operation === "upsert" ? "update" : request.operation;
+    let targetState: "missing" | "live" | "deleted" | null = null;
+    if (sync) {
+      const existingOperation = claim.execution.result?.sync_operation;
+      if (
+        existingOperation === "create" ||
+        existingOperation === "update" ||
+        existingOperation === "delete" ||
+        existingOperation === "restore" ||
+        existingOperation === "upsert"
+      ) {
+        operation = existingOperation === "upsert" ? "update" : existingOperation;
+      } else {
+        if (request.operation === "delete") {
+          targetState = await this.targetState(object, id, token);
+        }
+        await setRecordsActionExecutionContext(this.dependencies.pool, {
+          actionRequestId: request.actionRequestId,
+          leaseOwner: this.dependencies.leaseOwner,
+          context: { sync_operation: request.operation === "upsert" ? "upsert" : operation },
+        });
+      }
+    }
+    const mutationId = deterministicMutationId(
+      request,
+      request.operation === "upsert" ? "upsert" : operation,
+      id,
+    );
+
     const baseResult: RecordWriteResult = {
       actionRequestId: request.actionRequestId,
       appId: request.appId,
       objectApiName: object.apiName,
       tableName: object.tableName,
       id,
-      operation: request.operation,
+      operation,
       mutationId,
       replayed: false,
       recovered: false,
@@ -453,14 +602,20 @@ export class RecordWriteExecutor {
       recordId: id,
     };
     try {
-      if (await this.auditExists(auditIdentity)) {
+      if (
+        await (sync
+          ? this.normalizeSyncAudit(auditIdentity)
+          : this.auditExists(auditIdentity))
+      ) {
         const recovered = { ...baseResult, recovered: true };
-        await this.dependencies.recordSourceWrite({
-          actionRequestId: request.actionRequestId,
-          orgId: request.orgId,
-          tableName: object.tableName,
-          recordId: id,
-        });
+        if (!sync) {
+          await this.dependencies.recordSourceWrite({
+            actionRequestId: request.actionRequestId,
+            orgId: request.orgId,
+            tableName: object.tableName,
+            recordId: id,
+          });
+        }
         await succeedRecordsActionExecution(this.dependencies.pool, {
           actionRequestId: request.actionRequestId,
           leaseOwner: this.dependencies.leaseOwner,
@@ -468,11 +623,25 @@ export class RecordWriteExecutor {
         });
         return recovered;
       }
+      if (
+        sync &&
+        request.operation === "delete" &&
+        (targetState ?? (await this.targetState(object, id, token))) !== "live"
+      ) {
+        const noOp = { ...baseResult, noOp: true };
+        await succeedRecordsActionExecution(this.dependencies.pool, {
+          actionRequestId: request.actionRequestId,
+          leaseOwner: this.dependencies.leaseOwner,
+          result: noOp,
+        });
+        return noOp;
+      }
 
       const now = (this.dependencies.now ?? (() => new Date()))().toISOString();
       const where = buildMutationWhere({
         id,
-        restore: request.operation === "restore",
+        restore: operation === "restore",
+        includeDeleted: sync && request.operation === "upsert",
         memberOwnerUserId:
           object.visibility === "owner" && request.actor.role === "member"
             ? request.actor.userId
@@ -483,7 +652,7 @@ export class RecordWriteExecutor {
       let operationName: string;
       let query: string;
       let variables: Record<string, unknown>;
-      if (request.operation === "create") {
+      if (operation === "create") {
         operationName = "RecordsCreate";
         query = `mutation ${operationName} { ${object.tableName}(insert: $data) { id } }`;
         variables = {
@@ -501,19 +670,22 @@ export class RecordWriteExecutor {
         };
       } else {
         operationName =
-          request.operation === "update"
+          operation === "update"
             ? "RecordsUpdate"
-            : request.operation === "delete"
+            : operation === "delete"
               ? "RecordsDelete"
               : "RecordsRestore";
         query = `mutation ${operationName} { ${object.tableName}(update: $data, where: ${where.document}) { id } }`;
         variables = {
           data: {
             ...validatedFields,
-            ...(request.operation === "delete"
+            ...(operation === "delete"
               ? { [RECORD_SYSTEM_COLUMNS.deletedAt]: now }
               : {}),
-            ...(request.operation === "restore"
+            ...(operation === "restore"
+              ? { [RECORD_SYSTEM_COLUMNS.deletedAt]: null }
+              : {}),
+            ...(sync && request.operation === "upsert"
               ? { [RECORD_SYSTEM_COLUMNS.deletedAt]: null }
               : {}),
             [RECORD_SYSTEM_COLUMNS.updatedBy]: request.actor.userId,
@@ -524,34 +696,70 @@ export class RecordWriteExecutor {
         };
       }
 
-      const data = await this.dependencies.graphjin.execute<Record<string, unknown>>({
+      let data = await this.dependencies.graphjin.execute<Record<string, unknown>>({
         operationName,
         query,
         variables,
         token,
       });
-      const rows = resultRows(data, object.tableName);
-      const audited = await this.auditExists(auditIdentity);
-      const returnedTarget = rows.length === 1 && rows[0]?.id === id;
+      let rows = resultRows(data, object.tableName);
+      let audited = await (sync
+        ? this.normalizeSyncAudit(auditIdentity)
+        : this.auditExists(auditIdentity));
+      let returnedTarget = rows.length === 1 && rows[0]?.id === id;
+
+      if (
+        sync &&
+        request.operation === "upsert" &&
+        !audited &&
+        !returnedTarget
+      ) {
+        operation = "create";
+        baseResult.operation = "create";
+        operationName = "RecordsSyncInsert";
+        data = await this.dependencies.graphjin.execute<Record<string, unknown>>({
+          operationName,
+          query: `mutation ${operationName} { ${object.tableName}(insert: $data) { id } }`,
+          variables: {
+            data: {
+              id,
+              ...validatedFields,
+              ...(object.visibility === "owner"
+                ? { [RECORD_SYSTEM_COLUMNS.ownerUserId]: ownerUserId }
+                : {}),
+              [RECORD_SYSTEM_COLUMNS.createdBy]: request.actor.userId,
+              [RECORD_SYSTEM_COLUMNS.updatedBy]: request.actor.userId,
+              [RECORD_SYSTEM_COLUMNS.actionRequestId]: request.actionRequestId,
+              [RECORD_SYSTEM_COLUMNS.mutationId]: mutationId,
+            },
+          },
+          token,
+        });
+        rows = resultRows(data, object.tableName);
+        audited = await this.normalizeSyncAudit(auditIdentity);
+        returnedTarget = rows.length === 1 && rows[0]?.id === id;
+      }
 
       // GraphJin 3.18 applies a mutation's `where` expression again while
       // selecting its result. Updates that intentionally change an expected or
       // soft-delete value can therefore commit and still return an empty list.
       // The trigger-written audit row is the same-transaction commit proof.
       if (!audited && !returnedTarget) {
-        if (request.operation === "update" && Object.keys(expectedFields).length > 0) {
+        if (operation === "update" && Object.keys(expectedFields).length > 0) {
           throw new RecordConcurrencyConflictError();
         }
         throw new RecordNotFoundOrDeniedError();
       }
       if (!audited) throw new RecordMutationAuditMissingError();
 
-      await this.dependencies.recordSourceWrite({
-        actionRequestId: request.actionRequestId,
-        orgId: request.orgId,
-        tableName: object.tableName,
-        recordId: id,
-      });
+      if (!sync) {
+        await this.dependencies.recordSourceWrite({
+          actionRequestId: request.actionRequestId,
+          orgId: request.orgId,
+          tableName: object.tableName,
+          recordId: id,
+        });
+      }
       await succeedRecordsActionExecution(this.dependencies.pool, {
         actionRequestId: request.actionRequestId,
         leaseOwner: this.dependencies.leaseOwner,
