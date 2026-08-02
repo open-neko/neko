@@ -1,4 +1,5 @@
 export * from "./actions/execution";
+export * from "./blueprints";
 export * from "./graphjin/client";
 export * from "./graphjin/config";
 export * from "./graphjin/schema";

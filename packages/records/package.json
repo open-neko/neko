@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./actions/execution": "./src/actions/execution.ts",
+    "./blueprints": "./src/blueprints.ts",
     "./graphjin/config": "./src/graphjin/config.ts",
     "./graphjin/client": "./src/graphjin/client.ts",
     "./graphjin/schema": "./src/graphjin/schema.ts",
