@@ -1,9 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  requestBackupVerification,
   runRecordsBackupVerification,
   type BackupVerificationDependencies,
   type BackupVerificationReport,
 } from "../../src/jobs/records-backup-verify.js";
+
+afterEach(() => vi.unstubAllGlobals());
 
 const report: BackupVerificationReport = {
   format: "openneko.backup-verification.v1",
@@ -56,5 +59,31 @@ describe("weekly records backup verification", () => {
         body: "records row count regressed",
       }),
     );
+  });
+
+  it("rejects duplicate database stanzas and an unverified config snapshot", async () => {
+    for (const invalid of [
+      {
+        ...report,
+        databases: [report.databases[0], report.databases[0]],
+      },
+      {
+        ...report,
+        config_snapshot: { status: "decrypted_only" },
+      },
+    ]) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(invalid), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+      await expect(requestBackupVerification()).rejects.toThrow(
+        "did not prove both database restores",
+      );
+    }
   });
 });

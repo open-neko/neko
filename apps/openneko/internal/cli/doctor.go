@@ -94,8 +94,19 @@ type storageStatus struct {
 type backupDoctorStatus struct {
 	State                  string `json:"state"`
 	LastBackupAt           string `json:"last_backup_at"`
+	LastBackupSet          string `json:"last_backup_set"`
 	LastVerificationAt     string `json:"last_verification_at"`
 	LastVerificationStatus string `json:"last_verification_status"`
+	Verification           struct {
+		Status    string `json:"status"`
+		BackupSet string `json:"backup_set"`
+		Databases []struct {
+			Stanza string `json:"stanza"`
+		} `json:"databases"`
+		ConfigSnapshot struct {
+			Status string `json:"status"`
+		} `json:"config_snapshot"`
+	} `json:"verification"`
 }
 
 func runOperationalDoctor(ctx context.Context, out io.Writer) (bool, error) {
@@ -225,6 +236,9 @@ func storageDoctorLevel(capacity storageCapacity) string {
 }
 
 func backupDoctorHealth(status backupDoctorStatus, now time.Time) (bool, string) {
+	if status.State != "ready" {
+		return false, fmt.Sprintf("FAIL — backup service state is %q", status.State)
+	}
 	backupAt, err := time.Parse(time.RFC3339, status.LastBackupAt)
 	if err != nil {
 		return false, "FAIL — no completed whole-deployment backup"
@@ -242,6 +256,29 @@ func backupDoctorHealth(status backupDoctorStatus, now time.Time) (bool, string)
 		return false, fmt.Sprintf("FAIL — restore verification is stale (%s old)", durationAge(verificationAge))
 	}
 	return true, fmt.Sprintf("healthy; backup %s old, verified restore %s old", durationAge(backupAge), durationAge(verificationAge))
+}
+
+func backupRestoreProtection(status backupDoctorStatus, now time.Time) (bool, string) {
+	if ok, detail := backupDoctorHealth(status, now); !ok {
+		return false, detail
+	}
+	if status.LastBackupSet == "" || status.Verification.BackupSet != status.LastBackupSet {
+		return false, "latest backup set has not passed restore verification"
+	}
+	if status.Verification.Status != "succeeded" {
+		return false, "latest backup restore verification did not succeed"
+	}
+	if status.Verification.ConfigSnapshot.Status != "decrypted_and_checksum_verified" {
+		return false, "latest backup config snapshot was not decrypted and checksum-verified"
+	}
+	stanzas := make(map[string]bool, len(status.Verification.Databases))
+	for _, database := range status.Verification.Databases {
+		stanzas[database.Stanza] = true
+	}
+	if len(stanzas) != 2 || !stanzas["openneko-metadata"] || !stanzas["openneko-records"] {
+		return false, "latest backup verification did not restore both database stanzas"
+	}
+	return true, "latest whole-deployment backup set is restore-verified"
 }
 
 func durationAge(value time.Duration) string {

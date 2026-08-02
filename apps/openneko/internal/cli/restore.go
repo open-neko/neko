@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -11,24 +12,38 @@ import (
 
 func newRestoreCmd() *cobra.Command {
 	var target string
+	var confirmation string
 	cmd := &cobra.Command{
-		Use:   "restore --to <timestamp>",
+		Use:   "restore --to <timestamp> --confirm RESTORE",
 		Short: "Restore metadata, records, and config to a coordinated point in time",
 		Long: `Stop every database consumer, restore the latest complete backup set at or
 before the requested UTC timestamp, replay both WAL streams, and reconcile the
-records schema before reopening web traffic.`,
+records schema before reopening web traffic. This overwrites the live database
+and configuration volumes and requires the latest backup set to have passed a
+fresh whole-deployment restore verification.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			normalized, err := normalizeRestoreTarget(target, time.Now())
 			if err != nil {
 				return err
 			}
+			if err := validateRestoreConfirmation(confirmation); err != nil {
+				return err
+			}
 			return runRestore(cmd.Context(), cmd, normalized)
 		},
 	}
 	cmd.Flags().StringVar(&target, "to", "", "UTC RFC3339 recovery target (required)")
+	cmd.Flags().StringVar(&confirmation, "confirm", "", "type RESTORE to allow destructive overwrite")
 	_ = cmd.MarkFlagRequired("to")
 	return cmd
+}
+
+func validateRestoreConfirmation(raw string) error {
+	if raw != "RESTORE" {
+		return fmt.Errorf("restore overwrites live data and configuration; pass --confirm RESTORE exactly")
+	}
+	return nil
 }
 
 func normalizeRestoreTarget(raw string, now time.Time) (string, error) {
@@ -55,6 +70,9 @@ func runRestore(ctx context.Context, cmd *cobra.Command, target string) error {
 		return err
 	}
 	configureOpenShellDBURL()
+	if err := requireFreshVerifiedBackup(ctx, project, files, time.Now()); err != nil {
+		return err
+	}
 
 	stopServices := []string{
 		"stop",
@@ -103,5 +121,27 @@ func runRestore(ctx context.Context, cmd *cobra.Command, target string) error {
 		return WithExit(code, fmt.Errorf("restore and reconciliation succeeded but stack restart failed"))
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Restore complete at %s; records reconciliation passed before traffic reopened.\n", target)
+	return nil
+}
+
+func requireFreshVerifiedBackup(
+	ctx context.Context,
+	project string,
+	files []string,
+	now time.Time,
+) error {
+	raw, err := composeCommandOutput(ctx, project, files,
+		"exec", "-T", "neko-backup", "curl", "-fsS",
+		"http://127.0.0.1:9470/v1/backups/status")
+	if err != nil {
+		return fmt.Errorf("restore refused: cannot verify backup protection: %w", err)
+	}
+	var status backupDoctorStatus
+	if err := json.Unmarshal(raw, &status); err != nil {
+		return fmt.Errorf("restore refused: invalid backup status: %w", err)
+	}
+	if ok, detail := backupRestoreProtection(status, now); !ok {
+		return fmt.Errorf("restore refused: %s; run `openneko backup now` followed by `openneko backup verify`", detail)
+	}
 	return nil
 }

@@ -26,6 +26,7 @@ func TestStorageDoctorLevelCombinesPercentAndAbsoluteThresholds(t *testing.T) {
 func TestBackupDoctorHealthRequiresFreshBackupAndVerification(t *testing.T) {
 	now := time.Date(2026, 8, 2, 20, 0, 0, 0, time.UTC)
 	status := backupDoctorStatus{
+		State:                  "ready",
 		LastBackupAt:           now.Add(-2 * time.Hour).Format(time.RFC3339),
 		LastVerificationAt:     now.Add(-6 * 24 * time.Hour).Format(time.RFC3339),
 		LastVerificationStatus: "succeeded",
@@ -36,5 +37,35 @@ func TestBackupDoctorHealthRequiresFreshBackupAndVerification(t *testing.T) {
 	status.LastVerificationAt = now.Add(-9 * 24 * time.Hour).Format(time.RFC3339)
 	if ok, detail := backupDoctorHealth(status, now); ok || !strings.Contains(detail, "stale") {
 		t.Fatalf("expected stale verification failure, got ok=%v detail=%q", ok, detail)
+	}
+}
+
+func TestBackupRestoreProtectionRequiresLatestCompleteBackupSet(t *testing.T) {
+	now := time.Date(2026, 8, 2, 20, 0, 0, 0, time.UTC)
+	status := backupDoctorStatus{
+		State:                  "ready",
+		LastBackupAt:           now.Add(-2 * time.Hour).Format(time.RFC3339),
+		LastBackupSet:          "set-current",
+		LastVerificationAt:     now.Add(-time.Hour).Format(time.RFC3339),
+		LastVerificationStatus: "succeeded",
+	}
+	status.Verification.Status = "succeeded"
+	status.Verification.BackupSet = "set-current"
+	status.Verification.ConfigSnapshot.Status = "decrypted_and_checksum_verified"
+	status.Verification.Databases = append(status.Verification.Databases,
+		struct {
+			Stanza string `json:"stanza"`
+		}{Stanza: "openneko-metadata"},
+		struct {
+			Stanza string `json:"stanza"`
+		}{Stanza: "openneko-records"},
+	)
+
+	if ok, detail := backupRestoreProtection(status, now); !ok {
+		t.Fatalf("expected complete current backup set to pass: %s", detail)
+	}
+	status.Verification.BackupSet = "set-older"
+	if ok, detail := backupRestoreProtection(status, now); ok || !strings.Contains(detail, "latest") {
+		t.Fatalf("expected stale set failure, got ok=%v detail=%q", ok, detail)
 	}
 }

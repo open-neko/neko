@@ -36,7 +36,23 @@ function asVerificationReport(value: unknown): BackupVerificationReport {
     typeof report.backup_set !== "string" ||
     typeof report.completed_at !== "string" ||
     !Array.isArray(report.databases) ||
-    report.databases.length !== 2
+    report.databases.length !== 2 ||
+    !report.config_snapshot ||
+    report.config_snapshot.status !== "decrypted_and_checksum_verified"
+  ) {
+    throw new Error("backup verification did not prove both database restores");
+  }
+  const stanzas = new Set(
+    report.databases.map((database) =>
+      database && typeof database === "object" && "stanza" in database
+        ? String(database.stanza)
+        : "",
+    ),
+  );
+  if (
+    stanzas.size !== 2 ||
+    !stanzas.has("openneko-metadata") ||
+    !stanzas.has("openneko-records")
   ) {
     throw new Error("backup verification did not prove both database restores");
   }

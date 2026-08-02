@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -13,6 +14,17 @@ func TestNormalizeRestoreTarget(t *testing.T) {
 	}
 	if got != "2026-08-02T19:15:30Z" {
 		t.Fatalf("normalized target = %q", got)
+	}
+}
+
+func TestValidateRestoreConfirmation(t *testing.T) {
+	for _, raw := range []string{"", "restore", " RESTORE", "RESTORE "} {
+		if err := validateRestoreConfirmation(raw); err == nil || !strings.Contains(err.Error(), "--confirm RESTORE") {
+			t.Fatalf("expected %q to be rejected with typed-confirmation guidance", raw)
+		}
+	}
+	if err := validateRestoreConfirmation("RESTORE"); err != nil {
+		t.Fatalf("exact typed confirmation rejected: %v", err)
 	}
 }
 
