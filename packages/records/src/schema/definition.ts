@@ -229,7 +229,12 @@ function parseObject(
     raw.name_field === undefined
       ? fields.find((field) => !field.archived)?.apiName
       : recordIdentifier(stringValue(raw.name_field, `${path}.name_field`)!);
-  if (!requestedNameField || !fields.some((field) => field.apiName === requestedNameField)) {
+  if (
+    !requestedNameField ||
+    !fields.some(
+      (field) => field.apiName === requestedNameField && !field.archived,
+    )
+  ) {
     throw new RecordSchemaDefinitionError(`${path}.name_field: live field required`);
   }
   const visibility = raw.visibility ?? "org";

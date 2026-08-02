@@ -19,6 +19,7 @@
     "./schema/catalog": "./src/schema/catalog.ts",
     "./schema/ddl": "./src/schema/ddl.ts",
     "./schema/definition": "./src/schema/definition.ts",
+    "./schema/planner": "./src/schema/planner.ts",
     "./schema/saga": "./src/schema/saga.ts",
     "./types": "./src/types.ts",
     "./write/executor": "./src/write/executor.ts",

@@ -49,12 +49,16 @@ describeIfRecordsDb("records migration stream", () => {
 
   it("installs the engine registry once and records its checksum", async () => {
     expect(initialResult).toEqual({
-      applied: ["0001_engine_registry.sql", "0002_record_audit_trigger.sql"],
-      current: "0002_record_audit_trigger.sql",
+      applied: [
+        "0001_engine_registry.sql",
+        "0002_record_audit_trigger.sql",
+        "0003_schema_action_names.sql",
+      ],
+      current: "0003_schema_action_names.sql",
     });
     await expect(runRecordsMigrations({ pool: testPool })).resolves.toEqual({
       applied: [],
-      current: "0002_record_audit_trigger.sql",
+      current: "0003_schema_action_names.sql",
     });
 
     const tables = await testPool.query<{ table_name: string }>(

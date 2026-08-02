@@ -167,7 +167,8 @@ export class RecordRegistry {
       `select org_id, app_id, label, purpose, status, nav_order,
               registry_revision::text as registry_revision
        from engine.record_app
-       where org_id = $1 and status <> 'archived'
+       where org_id = $1
+         and status in ('importing', 'active', 'degraded')
        order by nav_order, label, app_id`,
       [orgId],
     );

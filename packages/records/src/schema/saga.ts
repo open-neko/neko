@@ -22,14 +22,13 @@ const ARTIFACT_FORMAT = "openneko.records.schema-change.v1";
 
 export const RECORD_SCHEMA_ACTIONS = [
   "app_create",
-  "object_create",
-  "field_add",
-  "field_modify",
-  "object_archive",
-  "field_archive",
-  "permission_set",
-  "layout_update",
-  "page_update",
+  "app_object_create",
+  "app_field_add",
+  "app_field_modify",
+  "app_object_archive",
+  "app_field_archive",
+  "app_permission_set",
+  "app_layout_update",
 ] as const;
 
 export const RECORD_SCHEMA_PHASES = [
