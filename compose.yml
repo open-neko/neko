@@ -37,11 +37,10 @@ services:
       timeout: 5s
       retries: 20
 
-  # Business data lives in its own Postgres lifecycle. The records profile is
-  # enabled only after the first user app is approved, so installations that
-  # never use generated apps retain the existing core footprint.
+  # Business data lives in its own Postgres lifecycle. It starts with the
+  # worker so an approved app_create can execute without host-level Docker
+  # access or a second, out-of-band operator step.
   records-db:
-    profiles: ["records"]
     image: postgres:16
     restart: unless-stopped
     environment:
@@ -58,11 +57,10 @@ services:
       timeout: 5s
       retries: 20
 
-  # Dedicated records data plane. It deliberately starts only after the
+  # Dedicated records data plane. Its supervisor stays stopped until the
   # worker has generated a complete, live-catalog-derived RBAC config into the
-  # shared volume; its entrypoint fails closed when that file is absent.
+  # shared volume, and stops again around every schema projection.
   records-graphjin:
-    profiles: ["records"]
     build:
       context: .
       target: records-graphjin
