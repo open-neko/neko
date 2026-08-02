@@ -40,6 +40,12 @@ describeIfRecordsDb("records schema substrate integration", () => {
     await testPool.query(`
       insert into engine.record_app (org_id, app_id, label, status)
       values ('org-a', 'equipment', 'Equipment', 'provisioning');
+      insert into engine.record_object
+        (id, org_id, app_id, api_name, label, plural_label, table_name,
+         name_field, visibility)
+      values
+        ('00000000-0000-0000-0000-000000000101', 'org-a', 'equipment',
+         'loan', 'Loan', 'Loans', 'equipment__loan', 'name', 'owner');
 
       create table public.equipment__loan (
         id text primary key,
@@ -111,7 +117,8 @@ describeIfRecordsDb("records schema substrate integration", () => {
       values
         ('request-create', 'org-a', 'equipment', 'record_create', 'running'),
         ('request-update', 'org-a', 'equipment', 'record_update', 'running'),
-        ('request-delete', 'org-a', 'equipment', 'record_delete', 'running');
+        ('request-delete', 'org-a', 'equipment', 'record_delete', 'running'),
+        ('request-restore', 'org-a', 'equipment', 'record_restore', 'running');
 
       insert into public.equipment__loan (
         id, org_id, owner_user_id, name,
@@ -163,5 +170,48 @@ describeIfRecordsDb("records schema substrate integration", () => {
       name: { old: "Laptop", new: "Laptop Pro" },
     });
     expect(history.rows[2]?.changes).toEqual({});
+
+    const recycled = await testPool.query<{
+      app_id: string;
+      object_api_name: string;
+      visibility: string;
+      record_id: string;
+      record_name: string;
+      owner_user_id: string;
+      deleted_by: string;
+      deletion_action_request_id: string;
+    }>(`
+      select app_id, object_api_name, visibility, record_id, record_name, owner_user_id,
+             deleted_by, deletion_action_request_id
+      from engine.recycle_record
+      where org_id = 'org-a' and record_id = 'loan-1'
+    `);
+    expect(recycled.rows).toEqual([
+      {
+        app_id: "equipment",
+        object_api_name: "loan",
+        visibility: "owner",
+        record_id: "loan-1",
+        record_name: "Laptop Pro",
+        owner_user_id: "member-1",
+        deleted_by: "member-1",
+        deletion_action_request_id: "request-delete",
+      },
+    ]);
+
+    await testPool.query(`
+      update public.equipment__loan
+      set nk_deleted_at = null,
+          nk_updated_at = now(),
+          nk_updated_by = 'member-1',
+          nk_action_request_id = 'request-restore',
+          nk_mutation_id = 'mutation-restore'
+      where id = 'loan-1';
+    `);
+    await expect(
+      testPool.query(
+        "select record_id from engine.recycle_record where org_id = 'org-a' and record_id = 'loan-1'",
+      ),
+    ).resolves.toMatchObject({ rows: [] });
   });
 });

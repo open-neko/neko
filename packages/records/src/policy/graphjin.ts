@@ -45,6 +45,21 @@ const SERVICE_IMMUTABLE_UPDATE_COLUMNS = new Set<string>([
 const HUMAN_QUERY_LIMIT = 100;
 const SERVICE_QUERY_LIMIT = 500;
 
+export const RECORD_RECYCLE_RELATION = {
+  schema: "engine",
+  table: "recycle_record",
+} as const;
+
+export const RECORD_RECYCLE_READ_COLUMNS = [
+  "app_id",
+  "object_api_name",
+  "record_id",
+  "record_name",
+  "owner_user_id",
+  "deleted_at",
+  "deleted_by",
+] as const;
+
 export type RecordCatalogTable = {
   schema: RecordIdentifier;
   name: RecordIdentifier;
@@ -299,6 +314,69 @@ function humanTable(input: {
   };
 }
 
+function humanRecycleTable(input: {
+  role: "member" | "admin";
+  table: RecordCatalogTable;
+  model: RecordsGraphjinPolicyModel;
+}): GraphjinRoleTable {
+  const { role, table, model } = input;
+  if (
+    !hasColumns(table, [
+      RECORD_SYSTEM_COLUMNS.orgId,
+      "scope_key",
+      "visibility",
+      ...RECORD_RECYCLE_READ_COLUMNS,
+    ])
+  ) {
+    return blockedTable(table);
+  }
+
+  const activeApps = new Set(
+    model.apps
+      .filter((app) => app.orgId === model.orgId && app.status === "active")
+      .map((app) => app.appId),
+  );
+  const readableObjects = model.objects
+    .filter((object) => {
+      if (object.archived || !activeApps.has(object.appId)) return false;
+      return model.permissions.some(
+        (permission) =>
+          permission.role === role &&
+          permission.appId === object.appId &&
+          permission.objectApiName === object.apiName &&
+          permission.canRead,
+      );
+    })
+    .sort((left, right) =>
+      `${left.appId}\u0000${left.apiName}`.localeCompare(
+        `${right.appId}\u0000${right.apiName}`,
+      ),
+    );
+  if (readableObjects.length === 0) return blockedTable(table);
+
+  const scopeKeys = readableObjects.map((object) => `${object.appId}.${object.apiName}`);
+  const filters = [
+    orgFilter(model.orgId),
+    `{ scope_key: { in: [${scopeKeys.map(gqlString).join(", ")}] } }`,
+  ];
+  if (role === "member") {
+    filters.push(
+      `{ or: { visibility: { eq: "org" }, owner_user_id: { eq: $user_id } } }`,
+    );
+  }
+
+  return {
+    ...blockedTable(table),
+    query: {
+      block: false,
+      filters,
+      columns: [...RECORD_RECYCLE_READ_COLUMNS],
+      limit: HUMAN_QUERY_LIMIT,
+      disable_functions: false,
+    },
+  };
+}
+
 function serviceTable(input: {
   table: RecordCatalogTable;
   object: RecordPolicyRegistryObject;
@@ -418,9 +496,17 @@ export function projectRecordsGraphjinRoles(model: RecordsGraphjinPolicyModel): 
 
   return RECORD_GRAPHJIN_ROLES.map((role): GraphjinRole => {
     const tables = catalog.map((table): GraphjinRoleTable => {
+      if (
+        table.schema === RECORD_RECYCLE_RELATION.schema &&
+        table.name === RECORD_RECYCLE_RELATION.table
+      ) {
+        return role === "admin" || role === "member"
+          ? humanRecycleTable({ role, table, model })
+          : blockedTable(table);
+      }
       const object = objectByRelation.get(relationKey(table.schema, table.name));
-      // Engine, unknown/orphaned, and just-created relations have no registry
-      // object and are blocked for all roles without special cases.
+      // Other engine, unknown/orphaned, and just-created relations have no
+      // registry object and are blocked for all roles.
       if (!object) return blockedTable(table);
 
       const app = appById.get(object.appId);

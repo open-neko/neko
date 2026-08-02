@@ -15,6 +15,7 @@ import { getCurrentActor } from "@/lib/actor";
 import {
   loadRecordAppShell,
   readRecordDetail,
+  readRecordRecycleDetail,
   RecordAppRouteError,
   type RecordAppShell,
 } from "@/lib/records";
@@ -294,6 +295,101 @@ export async function submitRecordFormAction(input: {
     actionRequestId: request.id,
     recordId:
       result && typeof result.id === "string" ? result.id : recordId ?? null,
+    policy: decision.policy.name,
+  };
+}
+
+export async function submitRecordRestoreAction(input: {
+  orgId: string;
+  appId: string;
+  objectApiName: string;
+  recordId: string;
+}): Promise<RecordFormSubmitResult> {
+  const [recycled, actor] = await Promise.all([
+    readRecordRecycleDetail(input),
+    getCurrentActor(),
+  ]);
+  if (!recycled.row) throw new RecordReadPermissionError();
+  if (!recycled.view.permission.canUpdate) throw new RecordReadPermissionError();
+
+  const role = roleForActor(actor.role);
+  const target = `record:${recycled.app.appId}/${recycled.view.object.apiName}`;
+  const decision = await inProcessControlPlane.evaluateActionPolicy({
+    orgId: input.orgId,
+    scope: "internal",
+    kind: "record_restore",
+    target,
+    riskLevel: "low",
+  });
+  if (decision.decision === "no_policy") {
+    throw new RecordFormPolicyError(
+      "No action policy covers this restore. Define one in Rules before submitting.",
+    );
+  }
+  if (decision.decision === "deny") {
+    throw new RecordFormPolicyError(decision.reason);
+  }
+  if (
+    !can(actor, "approve", {
+      kind: "action_approval",
+      approverRole: decision.policy.approverRole,
+    })
+  ) {
+    throw new RecordFormPolicyError(
+      `This restore requires approval from ${decision.policy.approverRole ?? "an authorized operator"}.`,
+    );
+  }
+
+  const summary = `Restore ${recycled.view.object.label} ${recycled.row.recordId}`;
+  const request = await inProcessControlPlane.createActionRequest({
+    orgId: input.orgId,
+    scope: "internal",
+    kind: "record_restore",
+    target,
+    payload: {
+      app: recycled.app.appId,
+      object: recycled.view.object.apiName,
+      id: recycled.row.recordId,
+    },
+    riskLevel: "low",
+    status: decision.mode === "draft_only" ? "draft" : "pending_approval",
+    policyId: decision.policy.id,
+    summary,
+    intent: `${summary}. The signed-in operator submitted this restore from the recycle bin.`,
+    actorUserId: actor.userId,
+    actorRole: role,
+    actorBackend: "web-form",
+  });
+  await approveActionRequest({
+    id: request.id,
+    orgId: input.orgId,
+    approverUserId: actor.userId,
+    approver: { userId: actor.userId, role },
+  });
+  await inProcessControlPlane.enqueueActionExecute({
+    orgId: input.orgId,
+    actionRequestId: request.id,
+  });
+  const execution = await inProcessControlPlane.waitForActionExecution({
+    orgId: input.orgId,
+    actionRequestId: request.id,
+    timeoutMs: 45_000,
+  });
+  if (execution.status === "failed") {
+    throw new RecordFormExecutionError(execution.error, request.id);
+  }
+  if (execution.status === "timeout") {
+    return {
+      status: "queued",
+      actionRequestId: request.id,
+      recordId: recycled.row.recordId,
+      policy: decision.policy.name,
+    };
+  }
+  return {
+    status: "executed",
+    actionRequestId: request.id,
+    recordId: recycled.row.recordId,
     policy: decision.policy.name,
   };
 }

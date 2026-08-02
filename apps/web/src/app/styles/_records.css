@@ -551,6 +551,59 @@
   margin-left: 0;
 }
 
+.records-recycle-note {
+  min-height: 52px;
+  padding: 10px 1px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text3);
+  font-size: 10.5px;
+}
+
+.records-recycle-note strong {
+  color: var(--text);
+  font: 800 12px/1.2 var(--font-display), "Archivo", sans-serif;
+}
+
+.records-recycle-table td:first-child {
+  white-space: normal;
+}
+
+.records-recycle-id {
+  margin-top: 2px;
+  display: block;
+  overflow: hidden;
+  color: var(--text3);
+  font-size: 8.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.records-restore-control {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.records-restore-control > span {
+  max-width: 240px;
+  color: var(--text3);
+  font-size: 9.5px;
+}
+
+.records-recycle-warning {
+  width: min(980px, 100%);
+  margin: -8px auto 20px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--watch) 34%, var(--border));
+  border-radius: var(--radius-control);
+  background: var(--watch-soft);
+  color: var(--text2);
+  font-size: 10.5px;
+}
+
 .records-detail-card {
   width: min(980px, 100%);
   margin: 22px auto;
@@ -1395,6 +1448,17 @@
 
   .records-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .records-recycle-note {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .records-restore-control {
+    align-items: flex-end;
+    flex-direction: column;
   }
 
   .records-detail-field:nth-child(odd) {

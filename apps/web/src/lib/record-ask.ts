@@ -3,7 +3,7 @@ export type RecordAskContext = {
   appLabel: string;
   objectApiName: string;
   objectLabel: string;
-  surface: "list" | "detail";
+  surface: "list" | "detail" | "recycle_list" | "recycle_detail";
   recordId?: string;
   recordLabel?: string;
   search?: string;

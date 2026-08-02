@@ -9,6 +9,8 @@ import { syncRecordsActor } from "../policy/actor";
 import {
   buildRecordDetailQuery,
   buildRecordListQuery,
+  buildRecordRecycleDetailQuery,
+  buildRecordRecycleListQuery,
   type RecordListFilter,
   type RecordObjectView,
   type RecordViewerRole,
@@ -85,6 +87,31 @@ export type RecordsDetailResult = Omit<RecordsQueryResult, "rows" | "total" | "c
   row: Record<string, unknown> | null;
 };
 
+export type RecycledRecordSummary = {
+  appId: string;
+  objectApiName: string;
+  recordId: string;
+  recordName: string;
+  ownerUserId: string | null;
+  deletedAt: string;
+  deletedBy: string | null;
+};
+
+export type RecordsRecycleQueryResult = {
+  app: { appId: string; label: string };
+  object: { apiName: string; label: string; pluralLabel: string };
+  rows: RecycledRecordSummary[];
+  total: number;
+  cursor: string | null;
+};
+
+export type RecordsRecycleDetailResult = Omit<
+  RecordsRecycleQueryResult,
+  "rows" | "total" | "cursor"
+> & {
+  row: RecycledRecordSummary | null;
+};
+
 function rowsFrom(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value)
     ? value.filter(
@@ -95,9 +122,35 @@ function rowsFrom(value: unknown): Array<Record<string, unknown>> {
 }
 
 function totalFrom(value: unknown): number {
-  const raw = rowsFrom(value)[0]?.count_id;
+  const summary = rowsFrom(value)[0];
+  const raw = summary?.count_id ?? summary?.count;
   const total = typeof raw === "number" ? raw : Number.parseInt(String(raw ?? "0"), 10);
   return Number.isSafeInteger(total) && total >= 0 ? total : 0;
+}
+
+function recycledRowsFrom(value: unknown): RecycledRecordSummary[] {
+  return rowsFrom(value).flatMap((row): RecycledRecordSummary[] => {
+    if (
+      typeof row.app_id !== "string" ||
+      typeof row.object_api_name !== "string" ||
+      typeof row.record_id !== "string" ||
+      typeof row.record_name !== "string" ||
+      typeof row.deleted_at !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        appId: row.app_id,
+        objectApiName: row.object_api_name,
+        recordId: row.record_id,
+        recordName: row.record_name,
+        ownerUserId: typeof row.owner_user_id === "string" ? row.owner_user_id : null,
+        deletedAt: row.deleted_at,
+        deletedBy: typeof row.deleted_by === "string" ? row.deleted_by : null,
+      },
+    ];
+  });
 }
 
 function allowedApp(
@@ -317,6 +370,77 @@ export class RecordsReadGateway {
       },
       columns: generated.view.columns,
       row: rowsFrom(data[generated.resultField])[0] ?? null,
+    };
+  }
+
+  async findRecycledRecords(input: {
+    viewer: RecordsViewer;
+    activeAppIds?: ReadonlySet<string>;
+    appId: string;
+    objectApiName: string;
+    first?: number;
+    after?: string | null;
+    search?: string | null;
+  }): Promise<RecordsRecycleQueryResult> {
+    const snapshot = await this.activeSnapshot(input);
+    const generated = buildRecordRecycleListQuery({
+      snapshot,
+      objectApiName: input.objectApiName,
+      role: input.viewer.role,
+      first: input.first,
+      after: input.after,
+      search: input.search,
+    });
+    const data = await this.graphjin.execute<Record<string, unknown>>({
+      operationName: generated.operationName,
+      query: generated.query,
+      variables: generated.variables,
+      token: await this.token(input.viewer),
+    });
+    return {
+      app: { appId: snapshot.app.appId, label: snapshot.app.label },
+      object: {
+        apiName: generated.view.object.apiName,
+        label: generated.view.object.label,
+        pluralLabel: generated.view.object.pluralLabel,
+      },
+      rows: recycledRowsFrom(data[generated.resultField]),
+      total: totalFrom(data[generated.totalField]),
+      cursor:
+        typeof data[generated.cursorField] === "string"
+          ? String(data[generated.cursorField])
+          : null,
+    };
+  }
+
+  async getRecycledRecord(input: {
+    viewer: RecordsViewer;
+    activeAppIds?: ReadonlySet<string>;
+    appId: string;
+    objectApiName: string;
+    recordId: string;
+  }): Promise<RecordsRecycleDetailResult> {
+    const snapshot = await this.activeSnapshot(input);
+    const generated = buildRecordRecycleDetailQuery({
+      snapshot,
+      objectApiName: input.objectApiName,
+      role: input.viewer.role,
+      recordId: input.recordId,
+    });
+    const data = await this.graphjin.execute<Record<string, unknown>>({
+      operationName: generated.operationName,
+      query: generated.query,
+      variables: generated.variables,
+      token: await this.token(input.viewer),
+    });
+    return {
+      app: { appId: snapshot.app.appId, label: snapshot.app.label },
+      object: {
+        apiName: generated.view.object.apiName,
+        label: generated.view.object.label,
+        pluralLabel: generated.view.object.pluralLabel,
+      },
+      row: recycledRowsFrom(data[generated.resultField])[0] ?? null,
     };
   }
 }

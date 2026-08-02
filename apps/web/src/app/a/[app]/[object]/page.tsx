@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Plus, Search, Upload } from "lucide-react";
+import { Plus, Search, Trash2, Upload } from "lucide-react";
 import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
 import {
@@ -142,6 +142,9 @@ export default async function RecordObjectPage({
             <Upload aria-hidden="true" /> Import
           </Link>
         )}
+        <Link className="records-secondary-action" href={`${base}/recycle`}>
+          <Trash2 aria-hidden="true" /> Recycle bin
+        </Link>
       </header>
       <RecordViewBar
         base={base}

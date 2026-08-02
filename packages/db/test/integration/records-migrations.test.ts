@@ -54,12 +54,14 @@ describeIfRecordsDb("records migration stream", () => {
         "0002_record_audit_trigger.sql",
         "0003_schema_action_names.sql",
         "0004_polymorphic_relationships.sql",
+        "0005_import_batch_durability.sql",
+        "0006_recycle_index.sql",
       ],
-      current: "0004_polymorphic_relationships.sql",
+      current: "0006_recycle_index.sql",
     });
     await expect(runRecordsMigrations({ pool: testPool })).resolves.toEqual({
       applied: [],
-      current: "0004_polymorphic_relationships.sql",
+      current: "0006_recycle_index.sql",
     });
 
     const tables = await testPool.query<{ table_name: string }>(
@@ -78,6 +80,7 @@ describeIfRecordsDb("records migration stream", () => {
         "record_field",
         "record_object",
         "record_permission",
+        "recycle_record",
         "registry_version",
         "schema_migrations",
         "substrate_version",
@@ -86,7 +89,7 @@ describeIfRecordsDb("records migration stream", () => {
     const auditVersion = await testPool.query<{ version: number }>(
       "select version from engine.substrate_version where name = 'record_audit_trigger'",
     );
-    expect(auditVersion.rows).toEqual([{ version: 1 }]);
+    expect(auditVersion.rows).toEqual([{ version: 3 }]);
     const migration = await testPool.query<{ checksum_sha256: string }>(
       "select checksum_sha256 from engine.schema_migrations where name = '0001_engine_registry.sql'",
     );

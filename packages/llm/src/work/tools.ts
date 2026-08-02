@@ -1158,10 +1158,82 @@ export function buildRecordsReadServer(opts: {
     }),
   );
 
+  const findRecycledRecords = tool(
+    "find_recycled_records",
+    [
+      "Search or list soft-deleted record summaries through the current",
+      "actor's permissions. Use this—not find_records—to resolve the exact",
+      "id before proposing record_restore. The recycle bin exposes identity",
+      "and deletion metadata only, never the deleted business payload.",
+    ].join(" "),
+    {
+      app: z.string().trim().min(1).max(63),
+      object: z.string().trim().min(1).max(63),
+      first: z.number().int().min(1).max(50).optional(),
+      after: z.string().trim().min(1).max(4_096).optional(),
+      search: z.string().trim().min(1).max(200).optional(),
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            await controlPlane.findRecycledRecords({
+              orgId: opts.orgId,
+              runId: opts.runId,
+              appId: args.app,
+              objectApiName: args.object,
+              ...(args.first !== undefined ? { first: args.first } : {}),
+              ...(args.after ? { after: args.after } : {}),
+              ...(args.search ? { search: args.search } : {}),
+            }),
+          ),
+        },
+      ],
+    }),
+  );
+
+  const getRecycledRecord = tool(
+    "get_recycled_record",
+    [
+      "Read one soft-deleted record summary by an exact id already obtained",
+      "from find_recycled_records. Returns null when it is absent or invisible",
+      "to the current actor; use the returned id for record_restore.",
+    ].join(" "),
+    {
+      app: z.string().trim().min(1).max(63),
+      object: z.string().trim().min(1).max(63),
+      id: z.string().trim().min(1).max(512),
+    },
+    async (args) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: JSON.stringify(
+            await controlPlane.getRecycledRecord({
+              orgId: opts.orgId,
+              runId: opts.runId,
+              appId: args.app,
+              objectApiName: args.object,
+              recordId: args.id,
+            }),
+          ),
+        },
+      ],
+    }),
+  );
+
   return createSdkMcpServer({
     name: "neko_records",
     version: "1.0.0",
-    tools: [browseCatalog, browseBlueprints, findRecords, getRecord],
+    tools: [
+      browseCatalog,
+      browseBlueprints,
+      findRecords,
+      getRecord,
+      findRecycledRecords,
+      getRecycledRecord,
+    ],
   });
 }
 

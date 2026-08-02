@@ -39,6 +39,8 @@ import type {
   RecordsCatalogResult,
   RecordsDetailResult,
   RecordsQueryResult,
+  RecordsRecycleDetailResult,
+  RecordsRecycleQueryResult,
   RecordsReadGateway,
   RecordsViewer,
 } from "@neko/records";
@@ -368,6 +370,24 @@ export interface AgentControlPlane {
     recordId: string;
     allFields?: boolean;
   }): Promise<RecordsDetailResult>;
+  /** Actor-scoped deleted-record summaries for safe restore id resolution. */
+  findRecycledRecords(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    first?: number;
+    after?: string | null;
+    search?: string | null;
+  }): Promise<RecordsRecycleQueryResult>;
+  /** Exact actor-scoped lookup in the recycle index. */
+  getRecycledRecord(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    recordId: string;
+  }): Promise<RecordsRecycleDetailResult>;
   /** Shipped domain blueprints; exact lookup includes its app_create payload. */
   listRecordBlueprints(input: {
     orgId: string;
@@ -783,6 +803,38 @@ export class InProcessControlPlane implements AgentControlPlane {
       recordsControlPlaneRuntime(),
     ]);
     return runtime.gateway.getRecord({ ...input, viewer, activeAppIds });
+  }
+
+  async findRecycledRecords(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    first?: number;
+    after?: string | null;
+    search?: string | null;
+  }): Promise<RecordsRecycleQueryResult> {
+    const [viewer, activeAppIds, runtime] = await Promise.all([
+      recordsViewerForRun(input),
+      activeRecordAppIds(input.orgId),
+      recordsControlPlaneRuntime(),
+    ]);
+    return runtime.gateway.findRecycledRecords({ ...input, viewer, activeAppIds });
+  }
+
+  async getRecycledRecord(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    recordId: string;
+  }): Promise<RecordsRecycleDetailResult> {
+    const [viewer, activeAppIds, runtime] = await Promise.all([
+      recordsViewerForRun(input),
+      activeRecordAppIds(input.orgId),
+      recordsControlPlaneRuntime(),
+    ]);
+    return runtime.gateway.getRecycledRecord({ ...input, viewer, activeAppIds });
   }
 
   async listRecordBlueprints(input: {

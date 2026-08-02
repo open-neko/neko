@@ -83,6 +83,38 @@ function makeFakeControlPlane() {
         row: null,
       };
     },
+    async findRecycledRecords(input) {
+      calls.push({
+        method: "records-recycle-find",
+        input: input as Record<string, unknown>,
+      });
+      return {
+        app: { appId: input.appId, label: "Equipment" },
+        object: {
+          apiName: input.objectApiName,
+          label: "Loan",
+          pluralLabel: "Loans",
+        },
+        rows: [],
+        total: 0,
+        cursor: null,
+      };
+    },
+    async getRecycledRecord(input) {
+      calls.push({
+        method: "records-recycle-get",
+        input: input as Record<string, unknown>,
+      });
+      return {
+        app: { appId: input.appId, label: "Equipment" },
+        object: {
+          apiName: input.objectApiName,
+          label: "Loan",
+          pluralLabel: "Loans",
+        },
+        row: null,
+      };
+    },
     async listRecordBlueprints(input) {
       calls.push({
         method: "records-blueprints",
@@ -244,6 +276,21 @@ describe("agent broker", () => {
       runId: "SPOOF",
       appId: "equipment",
     });
+    await cp.findRecycledRecords({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      appId: "equipment",
+      objectApiName: "loan",
+      first: 5,
+      search: "Camera",
+    });
+    await cp.getRecycledRecord({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      appId: "equipment",
+      objectApiName: "loan",
+      recordId: "loan-deleted",
+    });
     await cp.listRecordBlueprints({
       orgId: "SPOOF",
       blueprintId: "crm",
@@ -258,6 +305,21 @@ describe("agent broker", () => {
       orgId: "o1",
       runId: "r1",
       appId: "equipment",
+    });
+    expect(fake.calls.find((c) => c.method === "records-recycle-find")?.input).toEqual({
+      orgId: "o1",
+      runId: "r1",
+      appId: "equipment",
+      objectApiName: "loan",
+      first: 5,
+      search: "Camera",
+    });
+    expect(fake.calls.find((c) => c.method === "records-recycle-get")?.input).toEqual({
+      orgId: "o1",
+      runId: "r1",
+      appId: "equipment",
+      objectApiName: "loan",
+      recordId: "loan-deleted",
     });
     expect(fake.calls.find((c) => c.method === "records-blueprints")?.input).toEqual({
       orgId: "o1",

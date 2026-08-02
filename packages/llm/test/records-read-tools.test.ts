@@ -39,6 +39,12 @@ describe("native records read tools", () => {
     const listRecordCatalog = vi.fn(async () => ({ apps: [] }));
     const findRecords = vi.fn(async () => ({ rows: [], total: 0, cursor: null }));
     const getRecord = vi.fn(async () => ({ row: null }));
+    const findRecycledRecords = vi.fn(async () => ({
+      rows: [],
+      total: 0,
+      cursor: null,
+    }));
+    const getRecycledRecord = vi.fn(async () => ({ row: null }));
     const listRecordBlueprints = vi.fn(async () => ({ blueprints: [] }));
     buildRecordsReadServer({
       orgId: "org-1",
@@ -47,6 +53,8 @@ describe("native records read tools", () => {
         listRecordCatalog,
         findRecords,
         getRecord,
+        findRecycledRecords,
+        getRecycledRecord,
         listRecordBlueprints,
       } as unknown as AgentControlPlane,
     });
@@ -63,6 +71,16 @@ describe("native records read tools", () => {
       app: "equipment",
       object: "loan",
       id: "loan-1",
+    });
+    await sdk.tools.get("find_recycled_records")?.handler({
+      app: "equipment",
+      object: "loan",
+      search: "Camera",
+    });
+    await sdk.tools.get("get_recycled_record")?.handler({
+      app: "equipment",
+      object: "loan",
+      id: "loan-deleted",
     });
 
     expect(listRecordCatalog).toHaveBeenCalledWith({
@@ -89,6 +107,20 @@ describe("native records read tools", () => {
       appId: "equipment",
       objectApiName: "loan",
       recordId: "loan-1",
+    });
+    expect(findRecycledRecords).toHaveBeenCalledWith({
+      orgId: "org-1",
+      runId: "run-1",
+      appId: "equipment",
+      objectApiName: "loan",
+      search: "Camera",
+    });
+    expect(getRecycledRecord).toHaveBeenCalledWith({
+      orgId: "org-1",
+      runId: "run-1",
+      appId: "equipment",
+      objectApiName: "loan",
+      recordId: "loan-deleted",
     });
   });
 

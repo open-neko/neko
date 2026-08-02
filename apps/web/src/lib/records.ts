@@ -13,6 +13,8 @@ import {
 import {
   buildRecordDetailQuery,
   buildRecordListQuery,
+  buildRecordRecycleDetailQuery,
+  buildRecordRecycleListQuery,
   mintRecordsGraphjinToken,
   RecordRegistry,
   recordsGraphjinSigningSecret,
@@ -23,6 +25,7 @@ import {
   type JsonObject,
   type RecordListFilter,
   type RecordObjectView,
+  type RecycledRecordSummary,
   type RecordViewerRole,
 } from "@neko/records";
 import { getCurrentActor } from "@/lib/actor";
@@ -280,9 +283,35 @@ function rowsFrom(value: unknown): Array<Record<string, unknown>> {
 }
 
 function totalFrom(value: unknown): number {
-  const raw = rowsFrom(value)[0]?.count_id;
+  const summary = rowsFrom(value)[0];
+  const raw = summary?.count_id ?? summary?.count;
   const total = typeof raw === "number" ? raw : Number.parseInt(String(raw ?? "0"), 10);
   return Number.isSafeInteger(total) && total >= 0 ? total : 0;
+}
+
+function recycledRowsFrom(value: unknown): RecycledRecordSummary[] {
+  return rowsFrom(value).flatMap((row): RecycledRecordSummary[] => {
+    if (
+      typeof row.app_id !== "string" ||
+      typeof row.object_api_name !== "string" ||
+      typeof row.record_id !== "string" ||
+      typeof row.record_name !== "string" ||
+      typeof row.deleted_at !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        appId: row.app_id,
+        objectApiName: row.object_api_name,
+        recordId: row.record_id,
+        recordName: row.record_name,
+        ownerUserId: typeof row.owner_user_id === "string" ? row.owner_user_id : null,
+        deletedAt: row.deleted_at,
+        deletedBy: typeof row.deleted_by === "string" ? row.deleted_by : null,
+      },
+    ];
+  });
 }
 
 export type RecordListResult = {
@@ -458,6 +487,109 @@ export async function readRecordDetail(input: {
       orgId: input.orgId,
       appId: shell.snapshot.app.appId,
       rows: row ? [row] : [],
+    }),
+  };
+}
+
+export type RecordRecycleListResult = {
+  rows: RecycledRecordSummary[];
+  cursor: string | null;
+  total: number;
+  view: RecordObjectView;
+  app: AppRegistrySnapshot["app"];
+  owners: Record<string, RecordOwnerIdentity>;
+};
+
+export async function readRecordRecycleList(input: {
+  orgId: string;
+  appId: string;
+  objectApiName: string;
+  first?: number;
+  after?: string | null;
+  search?: string | null;
+}): Promise<RecordRecycleListResult> {
+  const shell = await loadRecordAppShell(input.orgId, input.appId);
+  if (shell.availability !== "active") {
+    throw new RecordAppRouteError(
+      shell.degradedReason ?? "record app is degraded",
+      503,
+    );
+  }
+  const viewer = await recordsViewer(input.orgId);
+  const generated = buildRecordRecycleListQuery({
+    snapshot: shell.snapshot,
+    objectApiName: input.objectApiName,
+    role: viewer.role,
+    first: input.first,
+    after: input.after,
+    search: input.search,
+  });
+  const data = await recordsRuntime().graphjin.execute<Record<string, unknown>>({
+    operationName: generated.operationName,
+    query: generated.query,
+    variables: generated.variables,
+    token: viewer.token,
+  });
+  const rows = recycledRowsFrom(data[generated.resultField]);
+  return {
+    rows,
+    cursor:
+      typeof data[generated.cursorField] === "string"
+        ? String(data[generated.cursorField])
+        : null,
+    total: totalFrom(data[generated.totalField]),
+    view: generated.view,
+    app: shell.snapshot.app,
+    owners: await resolveOwnerIdentities({
+      orgId: input.orgId,
+      appId: shell.snapshot.app.appId,
+      rows: rows.map((row) => ({ owner_user_id: row.ownerUserId })),
+    }),
+  };
+}
+
+export type RecordRecycleDetailResult = {
+  row: RecycledRecordSummary | null;
+  view: RecordObjectView;
+  app: AppRegistrySnapshot["app"];
+  owners: Record<string, RecordOwnerIdentity>;
+};
+
+export async function readRecordRecycleDetail(input: {
+  orgId: string;
+  appId: string;
+  objectApiName: string;
+  recordId: string;
+}): Promise<RecordRecycleDetailResult> {
+  const shell = await loadRecordAppShell(input.orgId, input.appId);
+  if (shell.availability !== "active") {
+    throw new RecordAppRouteError(
+      shell.degradedReason ?? "record app is degraded",
+      503,
+    );
+  }
+  const viewer = await recordsViewer(input.orgId);
+  const generated = buildRecordRecycleDetailQuery({
+    snapshot: shell.snapshot,
+    objectApiName: input.objectApiName,
+    role: viewer.role,
+    recordId: input.recordId,
+  });
+  const data = await recordsRuntime().graphjin.execute<Record<string, unknown>>({
+    operationName: generated.operationName,
+    query: generated.query,
+    variables: generated.variables,
+    token: viewer.token,
+  });
+  const row = recycledRowsFrom(data[generated.resultField])[0] ?? null;
+  return {
+    row,
+    view: generated.view,
+    app: shell.snapshot.app,
+    owners: await resolveOwnerIdentities({
+      orgId: input.orgId,
+      appId: shell.snapshot.app.appId,
+      rows: row ? [{ owner_user_id: row.ownerUserId }] : [],
     }),
   };
 }

@@ -66,6 +66,28 @@ export type RecordDetailQuery = {
   resultField: string;
 };
 
+export type RecordRecycleListQuery = {
+  operationName: "RecordsRecycleList";
+  query: string;
+  variables: Record<string, unknown>;
+  view: RecordObjectView;
+  cursorField: string;
+  resultField: string;
+  totalField: string;
+};
+
+export type RecordRecycleDetailQuery = {
+  operationName: "RecordsRecycleDetail";
+  query: string;
+  variables: {
+    app_id: string;
+    object_api_name: string;
+    record_id: string;
+  };
+  view: RecordObjectView;
+  resultField: string;
+};
+
 export class RecordReadTargetError extends Error {
   readonly code = "records_read_target_invalid";
 
@@ -251,6 +273,14 @@ function cursorValue(value: string | null | undefined): string | null {
   return value;
 }
 
+function recordIdValue(value: string): string {
+  const recordId = value.trim();
+  if (!recordId || recordId.length > 512) {
+    throw new RecordReadTargetError("record id must be a non-empty string");
+  }
+  return recordId;
+}
+
 function likeValue(value: string, mode: "contains" | "starts_with"): string {
   const escaped = value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
   return mode === "contains" ? `%${escaped}%` : `${escaped}%`;
@@ -400,15 +430,95 @@ export function buildRecordDetailQuery(input: {
   allFields?: boolean;
 }): RecordDetailQuery {
   const view = resolveView({ ...input, layoutKind: "detail" });
-  const recordId = input.recordId.trim();
-  if (!recordId || recordId.length > 512) {
-    throw new RecordReadTargetError("record id must be a non-empty string");
-  }
+  const recordId = recordIdValue(input.recordId);
   const query = `query RecordsDetail { rows: ${view.object.tableName}(where: { id: { eq: $record_id } }, limit: 1) { ${querySelection(view)} } }`;
   return {
     operationName: "RecordsDetail",
     query,
     variables: { record_id: recordId },
+    view,
+    resultField: "rows",
+  };
+}
+
+const RECYCLE_SELECTION = [
+  "app_id",
+  "object_api_name",
+  "record_id",
+  "record_name",
+  "owner_user_id",
+  "deleted_at",
+  "deleted_by",
+].join(" ");
+
+function recycleTargetWhere(search: boolean): string {
+  const clauses = [
+    "{ app_id: { eq: $app_id } }",
+    "{ object_api_name: { eq: $object_api_name } }",
+    ...(search ? ["{ record_name: { ilike: $search } }"] : []),
+  ];
+  return `{ and: [${clauses.join(", ")}] }`;
+}
+
+export function buildRecordRecycleListQuery(input: {
+  snapshot: AppRegistrySnapshot;
+  objectApiName: string;
+  role: RecordViewerRole;
+  first?: number;
+  after?: string | null;
+  search?: string | null;
+}): RecordRecycleListQuery {
+  const view = resolveView({ ...input, layoutKind: "list" });
+  const variables: Record<string, unknown> = {
+    app_id: input.snapshot.app.appId,
+    object_api_name: view.object.apiName,
+    first: boundedPageSize(input.first),
+  };
+  const after = cursorValue(input.after);
+  if (after !== null) variables.after = after;
+  const search = input.search?.trim() ?? "";
+  if (search.length > MAX_SEARCH_LENGTH) {
+    throw new RecordReadTargetError(
+      `record search cannot exceed ${MAX_SEARCH_LENGTH} characters`,
+    );
+  }
+  if (search) variables.search = likeValue(search, "contains");
+  const where = recycleTargetWhere(Boolean(search));
+  const argumentsList = [
+    "first: $first",
+    ...(after === null ? [] : ["after: $after"]),
+    "order_by: { deleted_at: desc, record_id: asc }",
+    `where: ${where}`,
+  ];
+  const query = `query RecordsRecycleList { rows: recycle_record${selectorArguments(argumentsList)} { ${RECYCLE_SELECTION} } recycle_record_cursor totals: recycle_record(where: ${where}) { count: count_record_id } }`;
+  return {
+    operationName: "RecordsRecycleList",
+    query,
+    variables,
+    view,
+    cursorField: "rows_cursor",
+    resultField: "rows",
+    totalField: "totals",
+  };
+}
+
+export function buildRecordRecycleDetailQuery(input: {
+  snapshot: AppRegistrySnapshot;
+  objectApiName: string;
+  role: RecordViewerRole;
+  recordId: string;
+}): RecordRecycleDetailQuery {
+  const view = resolveView({ ...input, layoutKind: "detail" });
+  const variables = {
+    app_id: input.snapshot.app.appId,
+    object_api_name: view.object.apiName,
+    record_id: recordIdValue(input.recordId),
+  };
+  const where = `{ and: [{ app_id: { eq: $app_id } }, { object_api_name: { eq: $object_api_name } }, { record_id: { eq: $record_id } }] }`;
+  return {
+    operationName: "RecordsRecycleDetail",
+    query: `query RecordsRecycleDetail { rows: recycle_record(where: ${where}, limit: 1) { ${RECYCLE_SELECTION} } }`,
+    variables,
     view,
     resultField: "rows",
   };

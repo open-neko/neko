@@ -113,6 +113,18 @@ export class BrokerControlPlane implements AgentControlPlane {
     return this.post("/v1/records/get", input);
   }
 
+  findRecycledRecords(
+    input: Parameters<AgentControlPlane["findRecycledRecords"]>[0],
+  ): ReturnType<AgentControlPlane["findRecycledRecords"]> {
+    return this.post("/v1/records/recycle/find", input);
+  }
+
+  getRecycledRecord(
+    input: Parameters<AgentControlPlane["getRecycledRecord"]>[0],
+  ): ReturnType<AgentControlPlane["getRecycledRecord"]> {
+    return this.post("/v1/records/recycle/get", input);
+  }
+
   listRecordBlueprints(
     input: Parameters<AgentControlPlane["listRecordBlueprints"]>[0],
   ): ReturnType<AgentControlPlane["listRecordBlueprints"]> {

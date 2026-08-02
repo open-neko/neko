@@ -26,6 +26,9 @@ function stubControlPlane(): AgentControlPlane {
     listRecordCatalog: unused as AgentControlPlane["listRecordCatalog"],
     findRecords: unused as AgentControlPlane["findRecords"],
     getRecord: unused as AgentControlPlane["getRecord"],
+    findRecycledRecords:
+      unused as AgentControlPlane["findRecycledRecords"],
+    getRecycledRecord: unused as AgentControlPlane["getRecycledRecord"],
     listRecordBlueprints: unused as AgentControlPlane["listRecordBlueprints"],
     saveWorkflowWithTrigger:
       unused as AgentControlPlane["saveWorkflowWithTrigger"],

@@ -51,4 +51,22 @@ describe("record Ask context", () => {
       ),
     ).toThrow(/requires a request/);
   });
+
+  it("marks recycle context explicitly so restore ids are resolved safely", () => {
+    const seed = buildRecordAskSeed(
+      {
+        surface: "recycle_detail",
+        appId: "equipment",
+        appLabel: "Equipment",
+        objectApiName: "loan",
+        objectLabel: "Loan",
+        recordId: "loan-deleted",
+        recordLabel: "Camera",
+      },
+      "Restore this record.",
+    );
+    expect(seed).toContain('"surface":"recycle_detail"');
+    expect(seed).toContain('"recordId":"loan-deleted"');
+    expect(seed).toContain("native records tools");
+  });
 });

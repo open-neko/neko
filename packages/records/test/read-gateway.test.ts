@@ -198,6 +198,56 @@ describe("RecordsReadGateway", () => {
     });
   });
 
+  it("returns normalized recycle summaries through the same actor JWT", async () => {
+    const { gateway, execute } = harness({
+      rows: [
+        {
+          app_id: "equipment",
+          object_api_name: "loan",
+          record_id: "loan-deleted",
+          record_name: "Camera",
+          owner_user_id: "member-1",
+          deleted_at: "2026-08-02T12:00:00Z",
+          deleted_by: "member-1",
+        },
+      ],
+      rows_cursor: "recycle-cursor",
+      totals: [{ count: 1 }],
+    });
+    const result = await gateway.findRecycledRecords({
+      viewer,
+      appId: "equipment",
+      objectApiName: "loan",
+      first: 10,
+      search: "Camera",
+    });
+
+    const call = execute.mock.calls[0]?.[0];
+    expect(call?.operationName).toBe("RecordsRecycleList");
+    expect(call?.query).toContain("recycle_record");
+    expect(call?.query).not.toContain("Camera");
+    expect(call?.variables).toMatchObject({
+      app_id: "equipment",
+      object_api_name: "loan",
+      search: "%Camera%",
+    });
+    expect(result).toMatchObject({
+      rows: [
+        {
+          appId: "equipment",
+          objectApiName: "loan",
+          recordId: "loan-deleted",
+          recordName: "Camera",
+          ownerUserId: "member-1",
+          deletedAt: "2026-08-02T12:00:00Z",
+          deletedBy: "member-1",
+        },
+      ],
+      total: 1,
+      cursor: "recycle-cursor",
+    });
+  });
+
   it("refuses records apps that the metadata plane has not marked active", async () => {
     const { gateway, execute } = harness({ rows: [] });
     await expect(

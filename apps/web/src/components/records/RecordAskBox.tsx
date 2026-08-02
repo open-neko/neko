@@ -14,7 +14,8 @@ export function RecordAskBox({ context }: { context: RecordAskContext }) {
   const [request, setRequest] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const subject = context.surface === "detail" ? "this record" : "these records";
+  const detail = context.surface === "detail" || context.surface === "recycle_detail";
+  const subject = detail ? "this record" : "these records";
 
   async function openAsk(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -60,7 +61,7 @@ export function RecordAskBox({ context }: { context: RecordAskContext }) {
             if (error) setError(null);
           }}
           placeholder={
-            context.surface === "detail"
+            detail
               ? "Summarize, update, or investigate this record…"
               : "Find, compare, or change a record…"
           }

@@ -13,6 +13,23 @@ export function recordsPolicyFixture(): RecordsGraphjinPolicyModel {
         columns: [id("org_id"), id("user_id"), id("role")],
       },
       {
+        schema: id("engine"),
+        name: id("recycle_record"),
+        columns: [
+          id("org_id"),
+          id("app_id"),
+          id("object_api_name"),
+          id("scope_key"),
+          id("visibility"),
+          id("record_id"),
+          id("record_name"),
+          id("owner_user_id"),
+          id("deleted_at"),
+          id("deleted_by"),
+          id("deletion_action_request_id"),
+        ],
+      },
+      {
         schema: id("public"),
         name: id("crm__account"),
         columns: [

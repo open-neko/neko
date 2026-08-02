@@ -17,7 +17,10 @@ import {
   loadRecordsGraphjinPolicyModel,
   projectRecordsGraphjinRoles,
 } from "../src/policy/graphjin";
-import { buildRecordListQuery } from "../src/read/query";
+import {
+  buildRecordListQuery,
+  buildRecordRecycleListQuery,
+} from "../src/read/query";
 import { RecordRegistry } from "../src/registry";
 
 async function recordsDbReachable(): Promise<boolean> {
@@ -47,7 +50,15 @@ function runTestCommand(command: string, args: string[]): Promise<{ stdout: stri
       args,
       { timeout: 30_000, env: { ...process.env, GO_ENV: "development" } },
       (error, stdout, stderr) => {
-        if (error) reject(new Error(String(stderr) || error.message));
+        if (error) {
+          reject(
+            new Error(
+              [String(stderr).trim(), String(stdout).trim(), error.message]
+                .filter(Boolean)
+                .join("\n"),
+            ),
+          );
+        }
         else resolve({ stdout: String(stdout), stderr: String(stderr) });
       },
     );
@@ -125,6 +136,14 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
         nk_updated_at timestamptz not null default now(),
         nk_deleted_at timestamptz
       );
+      create table public.equipment__asset (
+        id text primary key,
+        org_id text not null,
+        name text not null,
+        nk_created_at timestamptz not null default now(),
+        nk_updated_at timestamptz not null default now(),
+        nk_deleted_at timestamptz
+      );
       create table public.unregistered_secret (id text primary key, secret text);
       insert into engine.record_app (org_id, app_id, label, status)
       values ('org-a', 'equipment', 'Equipment', 'active');
@@ -133,17 +152,23 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
          name_field, visibility)
       values
         ('00000000-0000-0000-0000-000000000201', 'org-a', 'equipment',
-         'loan', 'Loan', 'Loans', 'equipment__loan', 'name', 'owner');
+         'loan', 'Loan', 'Loans', 'equipment__loan', 'name', 'owner'),
+        ('00000000-0000-0000-0000-000000000202', 'org-a', 'equipment',
+         'asset', 'Asset', 'Assets', 'equipment__asset', 'name', 'org');
       insert into engine.record_field
         (org_id, object_id, api_name, label, kind, column_name, required)
       values
         ('org-a', '00000000-0000-0000-0000-000000000201',
+         'name', 'Name', 'text', 'name', true),
+        ('org-a', '00000000-0000-0000-0000-000000000202',
          'name', 'Name', 'text', 'name', true);
       insert into engine.record_permission
         (org_id, app_id, role, object_api_name, can_read)
       values
         ('org-a', 'equipment', 'member', 'loan', true),
-        ('org-a', 'equipment', 'admin', 'loan', true);
+        ('org-a', 'equipment', 'admin', 'loan', true),
+        ('org-a', 'equipment', 'member', 'asset', true),
+        ('org-a', 'equipment', 'admin', 'asset', true);
       insert into engine.actor (org_id, user_id, role) values
         ('org-a', 'member-1', 'member'),
         ('org-a', 'member-2', 'member'),
@@ -151,7 +176,27 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
         ('org-a', 'service-1', 'service');
       insert into public.equipment__loan (id, org_id, name, owner_user_id) values
         ('loan-1', 'org-a', 'Member One Loan', 'member-1'),
-        ('loan-2', 'org-a', 'Member Two Loan', 'member-2');
+        ('loan-2', 'org-a', 'Member Two Loan', 'member-2'),
+        ('loan-deleted-1', 'org-a', 'Deleted Member One Loan', 'member-1'),
+        ('loan-deleted-2', 'org-a', 'Deleted Member Two Loan', 'member-2');
+      update public.equipment__loan
+      set nk_deleted_at = '2026-08-01T10:00:00Z'
+      where id like 'loan-deleted-%';
+      insert into public.equipment__asset (id, org_id, name, nk_deleted_at)
+      values ('asset-deleted', 'org-a', 'Deleted Shared Asset', '2026-08-01T11:00:00Z');
+      insert into engine.recycle_record
+        (org_id, app_id, object_api_name, visibility, record_id, record_name,
+         owner_user_id, deleted_at, deleted_by, deletion_action_request_id)
+      values
+        ('org-a', 'equipment', 'loan', 'owner', 'loan-deleted-1',
+         'Deleted Member One Loan', 'member-1', '2026-08-01T10:00:00Z',
+         'member-1', 'delete-request-1'),
+        ('org-a', 'equipment', 'loan', 'owner', 'loan-deleted-2',
+         'Deleted Member Two Loan', 'member-2', '2026-08-01T10:30:00Z',
+         'member-2', 'delete-request-2'),
+        ('org-a', 'equipment', 'asset', 'org', 'asset-deleted',
+         'Deleted Shared Asset', null, '2026-08-01T11:00:00Z',
+         'admin-1', 'delete-request-3');
     `);
   });
 
@@ -327,6 +372,72 @@ describeIfRecordsDb("records GraphJin live-catalog policy integration", () => {
           { id: "loan-1", name: "Member One Loan" },
           { id: "loan-2", name: "Member Two Loan" },
         ]);
+
+        const memberRecycle = await request(
+          "member-1",
+          "query MemberRecycle { recycle_record(order_by: { deleted_at: asc }) { app_id object_api_name record_id record_name owner_user_id } }",
+        );
+        expect(memberRecycle.errors).toBeUndefined();
+        expect(memberRecycle.data?.recycle_record).toEqual([
+          {
+            app_id: "equipment",
+            object_api_name: "loan",
+            record_id: "loan-deleted-1",
+            record_name: "Deleted Member One Loan",
+            owner_user_id: "member-1",
+          },
+          {
+            app_id: "equipment",
+            object_api_name: "asset",
+            record_id: "asset-deleted",
+            record_name: "Deleted Shared Asset",
+            owner_user_id: null,
+          },
+        ]);
+        expect(JSON.stringify(memberRecycle)).not.toContain("loan-deleted-2");
+
+        const recycleRegistry = await new RecordRegistry(testPool).loadApp(
+          "org-a",
+          "equipment",
+        );
+        expect(recycleRegistry).not.toBeNull();
+        const generatedRecycle = buildRecordRecycleListQuery({
+          snapshot: recycleRegistry!,
+          objectApiName: "loan",
+          role: "member",
+          first: 1,
+        });
+        const generatedRecyclePage = await request(
+          "member-1",
+          generatedRecycle.query,
+          generatedRecycle.variables,
+        );
+        expect(generatedRecyclePage.errors).toBeUndefined();
+        expect(generatedRecyclePage.data?.rows).toEqual([
+          expect.objectContaining({ record_id: "loan-deleted-1" }),
+        ]);
+        expect(generatedRecyclePage.data?.[generatedRecycle.cursorField]).toEqual(
+          expect.any(String),
+        );
+        expect(generatedRecyclePage.data?.totals).toEqual([{ count: 1 }]);
+
+        const adminRecycle = await request(
+          "admin-1",
+          "query AdminRecycle { recycle_record(order_by: { deleted_at: asc }) { record_id } }",
+        );
+        expect(adminRecycle.errors).toBeUndefined();
+        expect(adminRecycle.data?.recycle_record).toEqual([
+          { record_id: "loan-deleted-1" },
+          { record_id: "loan-deleted-2" },
+          { record_id: "asset-deleted" },
+        ]);
+
+        const serviceRecycle = await request(
+          "service-1",
+          "query ServiceRecycle { recycle_record { record_id } }",
+        );
+        expect(serviceRecycle.data?.recycle_record ?? []).toEqual([]);
+        expect(JSON.stringify(serviceRecycle)).not.toContain("loan-deleted-1");
 
         const registry = await new RecordRegistry(testPool).loadApp("org-a", "equipment");
         expect(registry).not.toBeNull();

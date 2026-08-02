@@ -212,6 +212,32 @@ async function handle(
             : {}),
         }),
       );
+    case "/v1/records/recycle/find":
+      return send(
+        res,
+        200,
+        await cp.findRecycledRecords({
+          orgId: binding.orgId,
+          runId: binding.runId,
+          appId: String(body.appId ?? ""),
+          objectApiName: String(body.objectApiName ?? ""),
+          ...(typeof body.first === "number" ? { first: body.first } : {}),
+          ...(typeof body.after === "string" ? { after: body.after } : {}),
+          ...(typeof body.search === "string" ? { search: body.search } : {}),
+        }),
+      );
+    case "/v1/records/recycle/get":
+      return send(
+        res,
+        200,
+        await cp.getRecycledRecord({
+          orgId: binding.orgId,
+          runId: binding.runId,
+          appId: String(body.appId ?? ""),
+          objectApiName: String(body.objectApiName ?? ""),
+          recordId: String(body.recordId ?? ""),
+        }),
+      );
     case "/v1/records/blueprints":
       return send(
         res,

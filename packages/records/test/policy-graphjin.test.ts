@@ -63,6 +63,59 @@ describe("projectRecordsGraphjinRoles", () => {
     }
   });
 
+  it("exposes only the narrow recycle index to readable human scopes", () => {
+    const roles = projectRecordsGraphjinRoles(recordsPolicyFixture());
+    const member = tableFor(
+      roles.find((role) => role.name === "member")!,
+      "recycle_record",
+    );
+    const admin = tableFor(
+      roles.find((role) => role.name === "admin")!,
+      "recycle_record",
+    );
+
+    expect(member.query).toMatchObject({
+      block: false,
+      columns: [
+        "app_id",
+        "object_api_name",
+        "record_id",
+        "record_name",
+        "owner_user_id",
+        "deleted_at",
+        "deleted_by",
+      ],
+      filters: [
+        '{ org_id: { eq: "org-a" } }',
+        '{ scope_key: { in: ["crm.account", "crm.contact"] } }',
+        '{ or: { visibility: { eq: "org" }, owner_user_id: { eq: $user_id } } }',
+      ],
+    });
+    expect(admin.query.block).toBe(false);
+    expect(admin.query.filters).toEqual([
+      '{ org_id: { eq: "org-a" } }',
+      '{ scope_key: { in: ["crm.account", "crm.contact"] } }',
+    ]);
+    expect(member.query.columns).not.toContain("org_id");
+    expect(member.query.columns).not.toContain("deletion_action_request_id");
+
+    for (const roleName of ["anon", "user", "service"] as const) {
+      expect(
+        tableFor(
+          roles.find((role) => role.name === roleName)!,
+          "recycle_record",
+        ).query.block,
+      ).toBe(true);
+    }
+    for (const role of roles) {
+      const recycle = tableFor(role, "recycle_record");
+      expect(recycle.insert.block).toBe(true);
+      expect(recycle.update.block).toBe(true);
+      expect(recycle.upsert.block).toBe(true);
+      expect(recycle.delete.block).toBe(true);
+    }
+  });
+
   it("gives humans column-limited reads and blocks every mutation", () => {
     const roles = projectRecordsGraphjinRoles(recordsPolicyFixture());
     const member = roles.find((role) => role.name === "member")!;

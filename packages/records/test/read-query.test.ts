@@ -3,6 +3,8 @@ import { validateRecordIdentifier } from "../src/naming";
 import {
   buildRecordDetailQuery,
   buildRecordListQuery,
+  buildRecordRecycleDetailQuery,
+  buildRecordRecycleListQuery,
   RecordReadPermissionError,
   RecordReadTargetError,
 } from "../src/read/query";
@@ -175,6 +177,45 @@ describe("generated record read queries", () => {
     });
     expect(built.query).toContain("id subject status owner_user_id nk_updated_at");
     expect(built.variables).toEqual({ record_id: "wo-1" });
+  });
+
+  it("builds fixed, bound recycle-bin list and detail queries", () => {
+    const list = buildRecordRecycleListQuery({
+      snapshot: snapshot(),
+      objectApiName: "work_order",
+      role: "admin",
+      first: 20,
+      after: "recycle-cursor",
+      search: "camera%_",
+    });
+    expect(list.query).toContain("query RecordsRecycleList");
+    expect(list.query).toContain("rows: recycle_record(first: $first, after: $after");
+    expect(list.query).toContain("order_by: { deleted_at: desc, record_id: asc }");
+    expect(list.query).toContain("count: count_record_id");
+    expect(list.query).not.toContain("camera%_");
+    expect(list.query).not.toContain("subject");
+    expect(list.variables).toEqual({
+      app_id: "operations",
+      object_api_name: "work_order",
+      first: 20,
+      after: "recycle-cursor",
+      search: "%camera\\%\\_%",
+    });
+
+    const detail = buildRecordRecycleDetailQuery({
+      snapshot: snapshot(),
+      objectApiName: "work_order",
+      role: "admin",
+      recordId: "wo-deleted",
+    });
+    expect(detail.query).toContain("query RecordsRecycleDetail");
+    expect(detail.query).toContain("record_id: { eq: $record_id }");
+    expect(detail.query).not.toContain("wo-deleted");
+    expect(detail.variables).toEqual({
+      app_id: "operations",
+      object_api_name: "work_order",
+      record_id: "wo-deleted",
+    });
   });
 
   it("treats an explicit stale layout as a fail-closed field allowlist", () => {
