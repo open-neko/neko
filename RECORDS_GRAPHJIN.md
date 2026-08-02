@@ -61,11 +61,18 @@ Type directives: `@schema(name:)`, `@database(name:)`, `@function`,
 
 ### Hard limits the engine must design around
 
-1. **Diff is strictly additive**: `create_table`, `add_column`, and
-   index/FK **on newly added columns only**. It never generates type changes,
-   `SET/DROP NOT NULL`, default changes, index-on-existing-column, or
-   constraint drops — those diffs are *silently ignored*, not errored
-   (`core/schema_diff.go:245-455`). `destructive: true` gates exactly
+1. **Diff is strictly additive — and that is an integrity feature.**
+   `create_table`, `add_column`, and index/FK **on newly added columns
+   only**. It never generates type changes, `SET/DROP NOT NULL`, default
+   changes, index-on-existing-column, or constraint drops — those diffs are
+   silently ignored (`core/schema_diff.go:245-455`). This mechanically
+   enforces the plan's own D7 rule (agent-authored schema evolution is
+   additive; data is never destroyed or reshaped in place): type changes
+   become add-new-field + backfill + archive-old — every step additive,
+   every step through GraphJin. Adding an index to an *existing* column is
+   the one genuinely missing operation: declare indexes at field-creation
+   time; later addition is a documented limitation and an upstream
+   contribution candidate. `destructive: true` gates exactly
    `drop_column`/`drop_table` — and a partial DDL doc + destructive would
    propose dropping every table not listed. **We never pass destructive.**
 2. **Postgres arrays don't work**: `[Text]` parses but the Postgres dialect
@@ -98,68 +105,78 @@ Type directives: `@schema(name:)`, `@database(name:)`, `@function`,
    failing SQL; our no-FK-constraints convention sidesteps this for data
    relationships).
 
-Anything on this list that an app schema needs anyway (arrays,
-index-on-existing-column, type migration add+backfill) is the **engine
-residue path**: our own SQL, applied in our own transaction, logged in
-`app_schema_log` the same way.
+Policy consequence: **the engine authors no SQL against app tables.** What
+GraphJin DDL can't express is designed around (arrays → `Jsonb`; per-app
+schemas → table prefixes; defaults → write-path behavior), not worked
+around with side-channel SQL. The one engine-owned SQL surface is the
+`engine.*` substrate itself (registry migrations and the audit trigger
+installed at table provisioning, §3) — substrate, not write path.
+
+Also useful from the config surface (`configure/database`): `tables:`
+mapping supports **aliases** (`name: account, table: crm__account`,
+per-source `schema:` overrides, column metadata/blocklists) — so the D4
+table-name prefix never has to appear in GraphQL — and explicit
+`relationships:` config covers relations introspection can't infer,
+including cross-source joins.
 
 ---
 
-## 2. Auth & RBAC — the two-mode reality
+## 2. Auth & RBAC — two role-configuration styles
 
-### Two mutually exclusive config modes
+**Roles are first-class in GraphJin.** The documented Table-permissions
+model (`website/content/configure/auth-rbac.md`, graphjin.com/configure/
+auth-rbac) is exactly our D8 shape: per-role · per-table ·
+per-operation config — `query/insert/update/upsert/delete`, each with
+`filters` (AND-ed GraphQL-shaped strings, e.g.
+`"{ owner_user_id: { eq: $user_id } }"`), `columns` allowlists, `presets`
+(server-injected fields, **YAML map form**, not the list form some docs
+show), and `block`. There are two ways role rules come to exist:
 
-- **Source mode** (`sources:` present): role tables are **generated** from
-  `sources[].access`; hand-written `roles[].tables` is **rejected at
-  startup** (`core/config.go:2312-2318`). JWT claim→role mapping
-  (`identity.role_claims`) works **only** here (`serv/identity.go:46-49`).
-- **Legacy mode** (no `sources:`): full hand-written per-role · per-table ·
-  per-operation config — `query/insert/update/upsert/delete`, each with
-  `filters` (AND-ed GraphQL-shaped strings, e.g.
-  `"{ owner_user_id: { eq: $user_id } }"`), `columns` allowlists, `presets`
-  (server-injected fields, **YAML map form**, not the list form some docs
-  show), and `block`. Role resolution comes from `roles_query` + per-role
-  `match` expressions (needs >2 declared roles to activate) — **not** from
-  JWT claims, which only carry `sub` here.
+- **Explicit role-table config** (`roles[].tables`, hand- or
+  machine-written): the full model above. Role resolution via `roles_query`
+  + per-role `match` expressions (SQL or GraphQL dialect; needs >2 declared
+  roles to activate).
+- **Generated source-access rules** (`sources:` present): role tables are
+  *derived* from `sources[].access` (read/write/delete ∈
+  blocked|public|authenticated|account|owner|admin + `owner_column` /
+  `namespace_column` + public/admin/blocked table lists). Coarser by
+  design — role differentiation is anon vs authenticated vs `admin_roles`.
+  JWT claim→role mapping (`identity.role_claims`) runs only in this mode
+  (`serv/identity.go:46-49`).
 
-### What source-mode access can and cannot express
+**The one hard constraint:** the two styles cannot mix in a single config —
+user-written `roles[].tables` alongside `sources:` is rejected at startup
+(`core/config.go:280-285`, same at the pinned tag), and the auth-rbac docs
+say the same ("do not mix user-written roles[].tables rules with
+sources:"). This is a config-layout constraint, not a capability gap.
 
-Per-source `access: { read, write, delete }` ∈
-blocked|public|authenticated|account|owner|admin, plus `owner_column`,
-`namespace_column`, and three per-table lists (`public_tables`,
-`admin_tables`, `blocked_tables`). Role differentiation is **only** anon vs
-authenticated vs `admin_roles` membership. **It cannot express our D8 model**
-(per-object CRUD grants per role; per-object `org` vs `owner` visibility
-within one source).
+### The records RBAC architecture (what the plan uses)
 
-### Consequence — the records RBAC architecture (plan updated)
+The C7 policy module generates the **explicit role-table config** for the
+records database — the documented Table-permissions model:
 
-The records engine needs the **legacy-mode role model**, generated:
-
-- `records-db` is served by a GraphJin instance whose records configuration
-  is legacy-mode; the C7 policy module generates the full `roles:` block.
-- **The projection must be exhaustive**: in legacy mode, a non-`anon` role
-  with *no* entry for a table has **unrestricted CRUD on it**
-  (`default_block` shields only `anon`). Every object × every role × all
-  five operations, explicitly, every regeneration. This is a correctness
-  *and* security invariant — test it.
+- **The projection must be exhaustive**: with explicit role tables, a
+  non-`anon` role with *no* entry for a table has **unrestricted CRUD on
+  it** (`default_block` shields only `anon`). Every object × every role ×
+  all five operations, explicitly, every regeneration. Correctness *and*
+  security invariant — test it.
 - Row filters: `filters: ["{ owner_user_id: { eq: $user_id } }"]` on
   `visibility='owner'` tables for `member`; none for `admin`. `$user_id`
-  resolves from the JWT `sub` (the generic JWT provider maps only `sub` →
-  user id; OpenNeko's minted tokens already carry it).
+  resolves from the JWT `sub`.
 - Role resolution: `roles_query` against a small engine-maintained actor
   table (`engine.actor`: user id → role, synced from `app_user` by the
-  worker) + `match: "role = 'admin'"` etc. This replaces the source-mode
-  role-claim path, which is unavailable in legacy mode.
-- Mutation blocking for user roles = explicit `block: true` per operation
-  (not `read_only: true` on the role table — an explicit `insert:` block
-  **silently overrides** `read_only`). The `service` role's tables carry
-  full mutation grants; `service` is only ever resolved for worker-held
-  credentials.
-- Do not mix modes: the customer-data GraphJin instance keeps its
-  source-mode config untouched. Whether records rides a separate instance
-  (the `neko-graphjin` precedent) or a legacy-mode config alongside is a C5
-  implementation choice; separate instance is the safe default.
+  worker) + `match: "role = 'admin'"` etc. (`identity.role_claims` is
+  source-mode-only, so the claim path doesn't apply here.)
+- Mutation gating per role = explicit per-operation config: `member` gets
+  `insert`/`update` with column allowlists and ownership filters where
+  granted, `block: true` where not; `delete` is always `block: true` for
+  user roles (deletes are soft — an update); `service` carries full grants
+  and is only ever resolved for worker-held credentials. (Never use
+  `read_only: true` on a role table as the blocking mechanism — an explicit
+  `insert:` block silently overrides it.)
+- Because of the no-mixing constraint, the records config lives apart from
+  the customer-data source-mode config (own instance by default, the
+  `neko-graphjin` precedent).
 
 ### `read_only` and `analytics_mode` — exact semantics
 
@@ -188,22 +205,37 @@ The records engine needs the **legacy-mode role model**, generated:
 
 ## 3. Reads, writes, subscriptions
 
-### Mutations — why C4 stays direct SQL
+### Mutations — all record writes go through GraphJin
 
 - Syntax: `table(insert: {...})`, bulk via arrays, nested/connected inserts,
   `update`/`upsert`/`delete` with **required** `where` (or `id:`),
   `on_conflict: get` for idempotent single inserts, `@constraint` validation
   directives, presets for server-injected fields.
 - On Postgres a mutation compiles to **one CTE-chain statement** — atomic.
-  Multiple roots in one mutation are allowed **only when every root is the
-  same operation type** (`qcode.go:1583-1591`).
-- Our executor's shape is `update record` + `insert change-log row` (mixed
-  types) + registry/app_state touches, atomically. The Go-only `GraphQLTx`
-  is unreachable from the TS worker. → **C4 keeps its own Postgres
-  transaction with direct SQL.** GraphJin is the read/subscription/DDL
-  plane; the one-write-path guarantee lives in the action stack + role
-  config (user roles get `block: true` on all mutations), not in routing
-  writes through GraphJin.
+  Multiple roots in one mutation are allowed when every root is the **same
+  operation type** (`qcode.go:1583-1591`).
+- How the executor's shapes map onto that, with no engine SQL in the write
+  path:
+  - **Create** — one insert mutation (atomic CTE chain).
+  - **Update / soft-delete** — one `update` mutation; soft delete *is* an
+    update of `nk_deleted_at`, so `delete` mutations are never used and
+    stay `block: true` for every role. **Optimistic concurrency rides the
+    `where` clause**: the executor folds `expected` values into the update
+    filter (`where: { id: {eq: $id}, stagename: {eq: "Proposal"} }`) — an
+    empty result array means the expectation failed. Race-free, in-engine.
+  - **Change-log capture** — a generic audit trigger on every app table
+    (installed once at table provisioning; part of the `engine.*`
+    substrate, like the registry migrations) writes
+    `engine.record_change_log` from OLD/NEW **in the same transaction as
+    the GraphJin mutation**. Actor and request identity travel on the row
+    (`nk_updated_by`, `nk_action_request_id`, set in the same mutation), so
+    the trigger has full context and the unique-index idempotency guard
+    holds. This closes the mixed-op gap (an update + a log insert can't
+    share one mutation) without any engine-side write SQL — and captures
+    every write path uniformly, defense in depth included.
+  - **Bulk import** — batched GraphJin array inserts (one atomic statement
+    per batch), quarantine via batch bisection on failure. Throughput vs
+    `COPY` is a measured risk, not a design change.
 
 ### Query features for the generated UI
 
@@ -229,24 +261,35 @@ The records engine needs the **legacy-mode role model**, generated:
   "load more" signal; no total counts are provided (the UI's `total` comes
   from a separate `count_id` aggregate query).
 
-### Subscriptions — at-most-once, plan accordingly
+### Watching changes — raw subscriptions vs `gj_watch`
 
-- Polling controller (no LISTEN/NOTIFY). `subs_poll_duration` **must be set
-  explicitly** — unset means a 200ms floor, not the 5s the schema
-  annotation implies. Batched on Postgres: one round-trip per ≤5000
-  subscribers per poll, adaptively chunked.
-- Delivery is **at-most-once**: identical-result dedup by hash; the cursor
-  and hash advance *before* delivery, and a consumer slower than 250ms with
-  a full 10-slot buffer **permanently loses that update**. Intermediate
-  states between polls are never observed.
-- → Subscription-triggered watchers are a **freshness optimization only**.
-  The authoritative mechanisms are the scheduled-watch path and
-  cursor-based catch-up reads; `workflow_run.source_writes` cycle-checks
-  apply in both modes. GraphJin's `gj_watch` layer (durable events,
-  deterministic IDs, webhook retries) is a C12 evaluation candidate for
-  trigger delivery.
-- Transport: SSE (`Accept: text/event-stream` on `/api/v1/graphql`) or
-  WebSocket; plain POST subscriptions are rejected.
+Two layers with very different guarantees:
+
+- **Raw subscriptions** (in-process channel / SSE / WS): polling controller
+  (no LISTEN/NOTIFY); `subs_poll_duration` **must be set explicitly** —
+  unset means a 200ms floor, not the 5s the schema annotation implies.
+  Batched on Postgres (one round-trip per ≤5000 subscribers per poll).
+  Delivery is **at-most-once**: the cursor/hash advance *before* delivery,
+  and a consumer slower than 250ms with a full buffer permanently loses
+  that update. Fine for live UI refresh; not for triggering work.
+- **`gj_watch` — the durable layer, and the right one for records watchers
+  (C12):** standing cursor-backed subscriptions stored as artifacts,
+  evaluated **with the owner's stored identity and role** (never elevates
+  access), with **persisted cursor checkpoints** — restart/failover-safe,
+  resuming from the stored cursor so nothing is missed — deterministic
+  event IDs (`watch_id + data_hash`, replica-safe dedup), a durable
+  `gj_watch_event` inbox with seen/snooze semantics, **absence watches**
+  ("tell me if no scan arrives for four hours" — silence as a first-class
+  event), digest coalescing, rollup watches for cross-watch correlation,
+  and webhook/workflow delivery gated by **exact-hash approval** (create ≠
+  approve, by design — the same propose/approve philosophy as our action
+  stack). Webhook targets must match `watches.webhook_allow`; deliveries
+  carry HMAC signatures and idempotency keys; failures back off and
+  dead-end into an inspectable error state, never silent deletion.
+- Transport for raw subscriptions: SSE (`Accept: text/event-stream` on
+  `/api/v1/graphql`) or WebSocket; plain POST subscriptions are rejected.
+  Watch management: GraphQL roots `gj_watch` / `gj_watch_event`, REST
+  wrappers under `/api/v1/watches`, MCP wake resources per watch.
 
 ### Allow-list / production mode
 
@@ -273,6 +316,28 @@ review of C5.
   `graphjin cli query subscribe` (SSE).
 - Go embedding (`core.NewGraphJin`) exists but is not our path (TS stack).
 
+### Agentic surfaces worth wiring in
+
+- **`gj_security` (security graph):** queryable effective policy — mode,
+  capabilities, read-only state, high/critical findings with
+  recommendations — meant to be consulted *before* mutations, config
+  changes, or schema actions. The records/app-builder skills adopt this as
+  a hard rule: check `gj_security` before proposing write-capable actions.
+- **Catalog annotations (`gj_artifacts` kind `annotation`):** durable,
+  reviewable org notes addressed to catalog entities (`table:`, `column:`,
+  `saved_query:`…), tiered observed (owner-only) → approved
+  (account-visible). Treated as data, never instructions. A natural home
+  for the business context our apps accumulate ("expedite checks use the
+  requested ship date") — the agent can write drafts and an admin approves,
+  mirroring our approval culture.
+- **Source-scoped reloads:** config updates touching one source stage,
+  validate, and swap just that source — C5's regeneration path should use
+  this so records config churn never disturbs customer sources.
+- **Hosted MCP OAuth:** if the records MCP surface is ever exposed beyond
+  localhost, GraphJin ships protected-resource metadata, PKCE/DCR, and
+  audience validation (`mcp.oauth`); note for any future remote-agent
+  story, not needed for the in-stack worker.
+
 ## 5. Plan deltas this audit produced
 
 Applied to [RECORDS_ENGINE.md](RECORDS_ENGINE.md):
@@ -280,22 +345,32 @@ Applied to [RECORDS_ENGINE.md](RECORDS_ENGINE.md):
 1. **C3 apply mechanism** → `graphjin db diff` (approval-card SQL) +
    `db sync --yes` (transactional apply) via the shipped binary; the MCP /
    control-plane preview-apply surface is removed at the pinned version.
+   Additive-only diff embraced as the mechanical enforcement of D7; the
+   engine authors **no SQL against app tables** (the `engine.*` substrate —
+   registry migrations + audit trigger — is the only engine-owned SQL).
 2. **D4 storage layout** → per-app **table-name prefixes** in the records
-   source's default schema (GraphJin DDL can't schema-qualify on Postgres);
-   `engine.*` keeps its own schema via engine migrations.
+   source's default schema (GraphJin DDL can't schema-qualify on Postgres),
+   hidden from GraphQL via `tables:` aliases; `engine.*` keeps its own
+   schema via engine migrations.
 3. **Type mapping** → `multipicklist: Jsonb`; `Varchar`/`Char` spellings;
    no `@default` emission; PK stays `Text @id`.
-4. **C5/C7 RBAC** → legacy-mode generated roles (exhaustive per
-   object×role×operation projection — omission grants access),
+4. **C5/C7 RBAC** → the documented Table-permissions model
+   (`roles[].tables`), machine-generated: exhaustive per
+   object×role×operation projection (omission grants access),
    `roles_query` + `engine.actor` for role resolution, explicit per-op
-   `block: true`, records config file-generated under the existing lock;
-   records kept apart from the customer sources' source-mode config.
-5. **C4** → direct SQL transaction reaffirmed; GraphJin-mutation write path
-   dropped (mixed-op atomicity unreachable over HTTP).
-6. **C5 subscriptions** → at-most-once semantics; scheduled path stays
-   authoritative; explicit `subs_poll_duration`; `gj_watch` as C12
-   candidate.
+   `block: true`; records config kept apart from the customer sources'
+   source-mode config (the two styles can't share one config).
+5. **C4 writes go through GraphJin** — creates as insert mutations,
+   updates/soft-deletes as conditional `update` mutations (`expected`
+   folded into `where` for optimistic concurrency), change-log capture via
+   the provisioning-installed audit trigger, imports as batched array
+   inserts. `delete` mutations blocked for all roles (deletes are soft).
+6. **C12 watchers** → `gj_watch` is the primary records watch mechanism
+   (durable cursors, owner-scoped identity, absence watches, exact-hash
+   action approval); raw subscriptions serve live-UI freshness only.
 7. **C6** → literal limits in generated queries; truncation signals for
    load-more; `count_` aggregate for totals.
 8. **naming.ts** → lowercase snake_case, digit-start ban, `on/true/false`
    ban, identifier length budget for auto-generated index/FK names.
+9. **Skills** → consult `gj_security` before write-capable proposals;
+   catalog annotations as the home for accumulated business context.
