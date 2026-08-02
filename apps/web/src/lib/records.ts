@@ -60,6 +60,11 @@ function recordsRuntime(): RecordsRuntime {
   return created;
 }
 
+/** Server-only access to records operational state (never app-table data). */
+export function getWebRecordsPool(): pg.Pool {
+  return recordsRuntime().pool;
+}
+
 export async function resetWebRecordsRuntimeForTesting(): Promise<void> {
   const current = runtimeGlobal.__opennekoWebRecordsRuntime;
   runtimeGlobal.__opennekoWebRecordsRuntime = undefined;

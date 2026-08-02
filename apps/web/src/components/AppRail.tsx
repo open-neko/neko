@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Database, LogOut, Table2 } from "lucide-react";
+import { Database, LogOut, Settings2, Table2 } from "lucide-react";
 import DensityToggle from "@/components/DensityToggle";
 import {
   ALL_NAV,
@@ -284,6 +284,17 @@ export default function AppRail() {
                           </Link>
                         );
                       })}
+                      {sessionMode !== "member" && sessionMode !== "loading" && (
+                        <Link
+                          href={`${appHref}/admin`}
+                          className={`app-rail-record-object${isActive(pathname, `${appHref}/admin`) ? " is-active" : ""}`}
+                          aria-current={isActive(pathname, `${appHref}/admin`) ? "page" : undefined}
+                          title={`${app.label} admin`}
+                        >
+                          <Settings2 aria-hidden="true" strokeWidth={1.8} />
+                          <span className="app-rail-record-object-label">Admin</span>
+                        </Link>
+                      )}
                     </div>
                   )}
                 </div>

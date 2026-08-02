@@ -547,6 +547,10 @@
   color: var(--text);
 }
 
+.records-object-header .records-secondary-action {
+  margin-left: 0;
+}
+
 .records-detail-card {
   width: min(980px, 100%);
   margin: 22px auto;
@@ -793,6 +797,408 @@
   opacity: 0.65;
 }
 
+.records-import-layout {
+  width: min(1180px, 100%);
+  margin: 22px auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 18px;
+  align-items: start;
+}
+
+.records-import-main,
+.records-import-side {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.records-import-upload,
+.records-import-review,
+.records-import-status,
+.records-import-principles,
+.records-import-recent {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.records-import-upload {
+  padding: 18px;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(260px, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.records-import-upload > div {
+  grid-column: 1 / -1;
+}
+
+.records-import-upload h2,
+.records-import-review h2,
+.records-import-status h2,
+.records-import-principles h2 {
+  margin: 4px 0 3px;
+  color: var(--text);
+  font: 800 16px/1.25 var(--font-display), "Archivo", sans-serif;
+  letter-spacing: -0.015em;
+}
+
+.records-import-upload p,
+.records-import-review header p,
+.records-import-principles p {
+  margin: 0;
+  color: var(--text3);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.records-import-upload label,
+.records-import-review-footer label {
+  display: grid;
+  gap: 6px;
+  color: var(--text2);
+  font-family: var(--font-display), "Archivo", sans-serif;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.records-import-upload select,
+.records-import-upload input[type="file"],
+.records-import-mapping select,
+.records-import-review-footer select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  outline: 0;
+  background: var(--neutral-soft);
+  color: var(--text);
+  font: 500 11px/1.2 var(--font-body), sans-serif;
+  text-transform: none;
+}
+
+.records-import-upload input[type="file"] {
+  padding: 7px;
+}
+
+.records-import-upload input[type="file"]::file-selector-button {
+  margin-right: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 750;
+}
+
+.records-import-upload select:focus,
+.records-import-upload input:focus,
+.records-import-mapping select:focus,
+.records-import-review-footer select:focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-soft) 80%, transparent);
+}
+
+.records-import-review {
+  overflow: hidden;
+}
+
+.records-import-review > header {
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.records-import-review > header > svg {
+  width: 28px;
+  height: 28px;
+  color: var(--success-mid);
+}
+
+.records-import-mapping-scroll {
+  overflow-x: auto;
+}
+
+.records-import-mapping {
+  width: 100%;
+  min-width: 700px;
+  border-collapse: collapse;
+}
+
+.records-import-mapping th {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--neutral-soft);
+  color: var(--text3);
+  font-family: var(--font-display), "Archivo", sans-serif;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.records-import-mapping td {
+  max-width: 230px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 11px;
+  line-height: 1.4;
+  vertical-align: top;
+}
+
+.records-import-mapping td:first-child {
+  color: var(--text);
+  font-weight: 750;
+}
+
+.records-import-mapping tr:last-child td {
+  border-bottom: 0;
+}
+
+.records-import-mapping select {
+  min-width: 180px;
+}
+
+.records-import-mapping small {
+  margin-top: 5px;
+  display: block;
+  color: var(--text3);
+  font-size: 9px;
+}
+
+.records-import-kind {
+  padding: 3px 7px;
+  display: inline-flex;
+  border-radius: 999px;
+  background: var(--neutral);
+  color: var(--text2);
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.records-import-review-footer {
+  padding: 12px 16px;
+  display: flex;
+  align-items: end;
+  gap: 14px;
+  border-top: 1px solid var(--border);
+  background: var(--neutral-soft);
+}
+
+.records-import-review-footer label {
+  width: 180px;
+  flex: none;
+}
+
+.records-import-review-footer p {
+  margin: 0 auto 5px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text3);
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.records-import-review-footer p svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--success-mid);
+}
+
+.records-import-status,
+.records-import-principles,
+.records-import-recent {
+  padding: 16px;
+}
+
+.records-import-status {
+  display: grid;
+  gap: 9px;
+}
+
+.records-import-status > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.records-import-status > strong {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.records-import-status > span:not(.records-import-status-dot) {
+  color: var(--text3);
+  font-size: 9.5px;
+}
+
+.records-import-status-dot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--watch);
+  box-shadow: 0 0 0 4px var(--watch-soft);
+}
+
+.records-import-status-dot.is-succeeded { background: var(--success-mid); box-shadow: 0 0 0 4px var(--success-soft); }
+.records-import-status-dot.is-failed { background: var(--danger); box-shadow: 0 0 0 4px var(--danger-soft); }
+.records-import-status-dot.is-cancelled { background: var(--text3); box-shadow: 0 0 0 4px var(--neutral); }
+
+.records-import-progress {
+  margin-top: 6px;
+  display: grid;
+  gap: 6px;
+}
+
+.records-import-progress > div {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--neutral);
+}
+
+.records-import-progress > div span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.2s ease-out;
+}
+
+.records-import-progress small {
+  color: var(--text3);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.records-import-report {
+  margin: 7px 0 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-inner);
+}
+
+.records-import-report > div {
+  padding: 9px;
+  display: grid;
+  gap: 3px;
+  border-right: 1px solid var(--border);
+}
+
+.records-import-report > div:last-child {
+  border-right: 0;
+}
+
+.records-import-report dt {
+  color: var(--text3);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.records-import-report dd {
+  color: var(--text);
+  font: 800 14px/1 var(--font-display), "Archivo", sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.records-import-error {
+  margin: 3px 0;
+  padding: 8px;
+  border-radius: var(--radius-inner);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 9.5px;
+  line-height: 1.4;
+}
+
+.records-import-cancel {
+  min-height: 34px;
+  margin-top: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--card);
+  color: var(--text2);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.records-import-cancel svg {
+  width: 13px;
+  height: 13px;
+}
+
+.records-import-principles > svg {
+  width: 22px;
+  height: 22px;
+  color: var(--success-mid);
+}
+
+.records-import-principles p {
+  line-height: 1.65;
+}
+
+.records-import-recent {
+  display: grid;
+  gap: 6px;
+}
+
+.records-import-recent > button {
+  padding: 8px 0;
+  display: grid;
+  gap: 2px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.records-import-recent > button:last-child {
+  border-bottom: 0;
+}
+
+.records-import-recent > button:hover span {
+  color: var(--accent);
+}
+
+.records-import-recent span {
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.records-import-recent small {
+  color: var(--text3);
+  font-size: 8.5px;
+}
+
 .records-spin {
   animation: records-spin 0.8s linear infinite;
 }
@@ -833,6 +1239,22 @@
     align-items: flex-start;
     flex-direction: column;
     gap: 12px;
+  }
+
+  .records-import-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .records-import-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .records-import-upload {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .records-import-upload > div {
+    grid-column: 1 / -1;
   }
 }
 
@@ -892,6 +1314,28 @@
 
   .records-form-footer .records-primary-action {
     margin-left: auto;
+  }
+
+  .records-import-layout {
+    margin-block: 14px;
+  }
+
+  .records-import-upload,
+  .records-import-side {
+    grid-template-columns: 1fr;
+  }
+
+  .records-import-review-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .records-import-review-footer label {
+    width: 100%;
+  }
+
+  .records-import-review-footer .records-primary-action {
+    width: 100%;
   }
 
   .records-degraded {
