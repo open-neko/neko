@@ -32,6 +32,7 @@ import {
   updateSalesforceSyncState,
   type SalesforceSyncState,
 } from "../records/salesforce-sync-state.js";
+import { createRecordsStorageMonitor } from "../records/storage-health.js";
 
 const JOB_KIND = "records_salesforce_sync";
 const EXPORT_ACTION_KIND = "records_salesforce_export_start";
@@ -78,6 +79,7 @@ export type RecordsSalesforceSyncDependencies = {
   getCursor: typeof getRecordSyncCursor;
   applyDelta: typeof applyRecordConnectorDelta;
   mirrorWatermarks: typeof mirrorSalesforceSyncWatermarks;
+  assertStorage: () => Promise<void>;
   now: () => Date;
 };
 
@@ -131,6 +133,9 @@ export const defaultRecordsSalesforceSyncDependencies: RecordsSalesforceSyncDepe
   getCursor: getRecordSyncCursor,
   applyDelta: applyRecordConnectorDelta,
   mirrorWatermarks: mirrorSalesforceSyncWatermarks,
+  assertStorage: async () => {
+    await createRecordsStorageMonitor().assertBulkAllowed();
+  },
   now: () => new Date(),
 };
 
@@ -186,6 +191,14 @@ function message(error: unknown): string {
 
 function retryable(error: unknown): boolean {
   if (error instanceof SalesforceApiError) return error.retryable;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "retryable" in error &&
+    (error as { retryable?: unknown }).retryable === true
+  ) {
+    return true;
+  }
   if (
     error instanceof RecordSyncCursorConflictError ||
     error instanceof RecordsActionLeaseBusyError ||
@@ -285,6 +298,7 @@ async function runRecordsSalesforceSyncLocked(
     "delta" | "budgetSnapshot" | "restoreBudget"
   > | null = null;
   try {
+    await dependencies.assertStorage();
     const request = await dependencies.getRequest(
       payload.orgId,
       state.exportActionRequestId,

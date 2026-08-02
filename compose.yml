@@ -11,8 +11,8 @@ x-neko-app-env: &neko-app-env
   NEKO_PG_PASSWORD: secret
   NEKO_PG_DATABASE: neko
   OPENNEKO_RECORDS_GRAPHJIN_URL: http://records-graphjin:8090
-  NO_PROXY: localhost,127.0.0.1,::1,neko-db,records-db,worker,web,neko-graphjin,records-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
-  no_proxy: localhost,127.0.0.1,::1,neko-db,records-db,worker,web,neko-graphjin,records-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
+  NO_PROXY: localhost,127.0.0.1,::1,neko-db,records-db,records-storage-ops,worker,web,neko-graphjin,records-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
+  no_proxy: localhost,127.0.0.1,::1,neko-db,records-db,records-storage-ops,worker,web,neko-graphjin,records-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
 
 services:
   neko-db:
@@ -56,6 +56,26 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # Capacity observer for the metadata, records, and staging filesystems. Its
+  # mounts are read-only and it intentionally has neither database credentials
+  # nor the Docker socket, keeping worker backpressure separate from host ops.
+  records-storage-ops:
+    build:
+      context: .
+      target: records-storage-ops
+    restart: unless-stopped
+    volumes:
+      - neko-db-data:/volumes/metadata:ro
+      - records-db-data:/volumes/records:ro
+      - openneko-agent-home:/volumes/staging:ro
+    expose:
+      - "9465"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9465/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   # Dedicated records data plane. Its supervisor stays stopped until the
   # worker has generated a complete, live-catalog-derived RBAC config into the
@@ -176,6 +196,8 @@ services:
       # Schema is guaranteed ready by neko-migrate before worker boots.
       neko-migrate:
         condition: service_completed_successfully
+      records-storage-ops:
+        condition: service_healthy
     environment:
       <<: *neko-app-env
       OPENNEKO_GRAPHJIN_URL: http://neko-graphjin:8089
@@ -185,6 +207,7 @@ services:
       RECORDS_PG_PASSWORD: ${OPENNEKO_RECORDS_PG_PASSWORD:-records-secret}
       RECORDS_PG_DATABASE: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
       OPENNEKO_RECORDS_GRAPHJIN_CONFIG_DIR: /config/records-graphjin
+      OPENNEKO_RECORDS_OPS_URL: http://records-storage-ops:9465
       # Plugin manifest + per-user secrets live on the openneko-config
       # volume, not under /app (which is read-only-ish post-build). The
       # vendored `openneko` CLI on PATH writes to these same paths, so

@@ -8,6 +8,7 @@ import {
   type RecordArtifactImportPlan,
 } from "@neko/records";
 import { reconcileArtifactIdentities } from "./artifact-identity.js";
+import { cleanupSalesforceArtifactStaging } from "./staging-hygiene.js";
 
 type ArtifactImportState = {
   kind: "artifact";
@@ -23,6 +24,7 @@ type ArtifactImportState = {
   reports?: Record<string, unknown>;
   error?: string;
   identity?: Record<string, unknown>;
+  cleanup?: Record<string, unknown>;
 };
 
 function stateFor(
@@ -272,6 +274,18 @@ export async function refreshArtifactImportState(
       }
     } else {
       next.identity = { status: "not_available" };
+    }
+    try {
+      next.cleanup = await cleanupSalesforceArtifactStaging({
+        orgId: input.orgId,
+        artifactPath: String(state.artifact_path),
+      });
+    } catch (error) {
+      next.cleanup = {
+        status: "failed",
+        completed_at: new Date().toISOString(),
+        error: (error instanceof Error ? error.message : String(error)).slice(0, 2_000),
+      };
     }
   }
   await db()

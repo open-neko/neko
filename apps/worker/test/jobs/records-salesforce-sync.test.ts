@@ -176,6 +176,7 @@ function dependencies(
       cursor,
     }),
     mirrorWatermarks: vi.fn().mockResolvedValue(undefined),
+    assertStorage: vi.fn().mockResolvedValue(undefined),
     now: vi.fn().mockReturnValue(new Date("2026-08-02T12:15:00.000Z")),
     ...overrides,
   };
@@ -189,6 +190,7 @@ describe("Salesforce scheduled delta sync", () => {
     const deps = dependencies();
     await runRecordsSalesforceSync(writer, pool, payload, deps);
 
+    expect(deps.assertStorage).toHaveBeenCalledOnce();
     expect(deps.getCursor).toHaveBeenCalledWith(pool, {
       orgId: "org-a",
       appId: "crm",

@@ -30,6 +30,10 @@ import {
   parseApprovedSalesforceSchemaReview,
   parseSalesforceActionConfig,
 } from "../records/salesforce-runtime.js";
+import {
+  createRecordsStorageMonitor,
+  estimateSalesforceFootprint,
+} from "../records/storage-health.js";
 
 const EXPORT_KIND = "records_salesforce_export";
 const ACTION_KIND = "records_salesforce_export_start";
@@ -66,6 +70,10 @@ export type RecordsSalesforceExportDependencies = {
     request: ActionRequestRecord,
   ) => Promise<Pick<SalesforceConnector, "export" | "schemaPlan">>;
   workspaceForOrg: (orgId: string) => Promise<{ orgRoot: string }>;
+  assertStorage: (
+    actionPayload: Record<string, unknown>,
+    fallbackPath: string,
+  ) => Promise<void>;
   cancellationPollMs: number;
   scheduleImport: (
     request: ActionRequestRecord,
@@ -194,6 +202,11 @@ export const defaultRecordsSalesforceExportDependencies: RecordsSalesforceExport
   },
   connectorForAction: createSalesforceConnectorForAction,
   workspaceForOrg: ensureOrgWorkspace,
+  assertStorage: async (actionPayload, fallbackPath) => {
+    await createRecordsStorageMonitor(fallbackPath).assertBulkAllowed(
+      estimateSalesforceFootprint(actionPayload),
+    );
+  },
   cancellationPollMs: 750,
   scheduleImport: scheduleSalesforceArtifactImport,
 };
@@ -222,6 +235,14 @@ function message(error: unknown): string {
 
 function retryable(error: unknown): boolean {
   if (error instanceof SalesforceApiError) return error.retryable;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "retryable" in error &&
+    (error as { retryable?: unknown }).retryable === true
+  ) {
+    return true;
+  }
   const code =
     typeof error === "object" && error !== null && "code" in error
       ? String((error as { code?: unknown }).code)
@@ -328,6 +349,7 @@ export async function runRecordsSalesforceExport(
   timer.unref?.();
 
   try {
+    await dependencies.assertStorage(request.payload, workspace.orgRoot);
     const connector = await dependencies.connectorForAction(request);
     const review = parseApprovedSalesforceSchemaReview(request.payload);
     assertSalesforceSchemaMatchesReview(

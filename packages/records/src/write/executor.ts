@@ -249,6 +249,8 @@ export class RecordWriteExecutor {
         orgId: string,
         appId: string,
       ) => Promise<RecordAppWriteMode | null>;
+      /** Fail closed when the records filesystem has reached hard-stop. */
+      assertWritesAllowed?: () => Promise<void>;
       now?: () => Date;
       registry?: RecordRegistry;
     },
@@ -439,6 +441,7 @@ export class RecordWriteExecutor {
     if (sync && !request.system?.sourceInstanceId.trim()) {
       throw new RecordWriteTargetError("record sync requires a source instance");
     }
+    await this.dependencies.assertWritesAllowed?.();
     const { snapshot, object, fields, grant } = await this.resolve(request);
     const mode = await this.dependencies.appWriteMode?.(
       request.orgId,

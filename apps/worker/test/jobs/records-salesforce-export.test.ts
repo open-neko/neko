@@ -154,6 +154,7 @@ function dependencies(
       export: vi.fn().mockResolvedValue(exportResult()),
     }),
     workspaceForOrg: vi.fn().mockResolvedValue({ orgRoot: "/safe/org" }),
+    assertStorage: vi.fn().mockResolvedValue(undefined),
     cancellationPollMs: 5,
     scheduleImport: vi
       .fn()
@@ -174,6 +175,10 @@ describe("Salesforce export job", () => {
     });
     await runRecordsSalesforceExport(payload, deps);
 
+    expect(deps.assertStorage).toHaveBeenCalledWith(
+      expect.objectContaining({ salesforce_inventory: expect.any(Object) }),
+      "/safe/org",
+    );
     expect(deps.scheduleImport).toHaveBeenCalledWith(
       expect.objectContaining({ id: ACTION_ID }),
       payload,

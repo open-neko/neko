@@ -21,6 +21,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl tini \
     && rm -rf /var/lib/apt/lists/*
 
+# Narrow, read-only operational boundary for filesystem capacity. It receives
+# the Postgres and staging volumes without a Docker socket or database
+# credentials and exposes only aggregate statfs samples to the worker.
+FROM base AS records-storage-ops
+WORKDIR /app
+COPY apps/worker/scripts/records-storage-ops.mjs ./records-storage-ops.mjs
+USER root
+EXPOSE 9465
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "records-storage-ops.mjs"]
+
 # ─── 2. runtime-base: node + agent-orchestration toolchain ─────────────
 # web, worker AND agent all run agent turns in-process (runChatTurn /
 # runWorkflowTurn / profiler / metric-agent in @neko/llm), which shell out to

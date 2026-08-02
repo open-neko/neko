@@ -2,16 +2,47 @@ import type { RecordsImportPayload } from "@neko/db/jobs";
 import type { Pool } from "pg";
 import {
   failRecordImportRun,
+  getRecordImportRun,
   RecordImportExecutor,
   RecordImportTerminalError,
+  type RecordImportRun,
 } from "@neko/records";
+import { createRecordsStorageMonitor } from "../records/storage-health.js";
+
+export type RecordsImportJobOptions = {
+  leaseOwner?: string;
+  getRun?: (
+    pool: Pool,
+    input: { orgId: string; id: string },
+  ) => Promise<RecordImportRun | null>;
+  assertStorage?: (recordsBytes: number) => Promise<void>;
+};
 
 export async function runRecordsImport(
   executor: RecordImportExecutor,
   pool: Pool,
   payload: RecordsImportPayload,
-  options: { leaseOwner?: string } = {},
+  options: RecordsImportJobOptions = {},
 ): Promise<void> {
+  const run = await (options.getRun ?? getRecordImportRun)(pool, {
+    orgId: payload.orgId,
+    id: payload.importRunId,
+  });
+  if (!run) throw new Error(`records import run ${payload.importRunId} was not found`);
+  if (run.status !== "succeeded" && run.status !== "cancelled") {
+    const recordsBytes = run.plan.source.bytes * 3;
+    if (!Number.isSafeInteger(recordsBytes)) {
+      throw new Error("records import footprint exceeds the supported range");
+    }
+    await (
+      options.assertStorage ??
+      (async (requiredBytes: number) => {
+        await createRecordsStorageMonitor().assertBulkAllowed({
+          recordsBytes: requiredBytes,
+        });
+      })
+    )(recordsBytes);
+  }
   try {
     const report = await executor.execute({
       ...payload,

@@ -110,6 +110,7 @@ import { registerRecordSalesforceActions } from "./records/salesforce-adapters.j
 import { registerRecordArtifactImportActions } from "./records/artifact-import-adapters.js";
 import { refreshArtifactImportState } from "./records/artifact-import-state.js";
 import { createRecordsSchemaRuntime } from "./records/schema-runtime.js";
+import { createRecordsStorageMonitor } from "./records/storage-health.js";
 
 const PORT: number = 4100;
 const MAX_JOB_RETRIES: number = 2;
@@ -140,6 +141,7 @@ const recordsServiceToken = (orgId: string) =>
     userId: "records-service",
     role: "service",
   });
+const recordsStorageMonitor = createRecordsStorageMonitor();
 
 async function readRecordImportSource(orgId: string, sourcePath: string): Promise<Uint8Array> {
   const relativePath = normalizeRecordImportSourcePath(sourcePath);
@@ -163,6 +165,9 @@ const recordsWriteExecutor = new RecordWriteExecutor({
   serviceToken: recordsServiceToken,
   leaseOwner: `worker:${process.pid}:${randomUUID()}`,
   recordSourceWrite: recordActionRequestSourceWrite,
+  assertWritesAllowed: async () => {
+    await recordsStorageMonitor.assertInteractiveWritesAllowed();
+  },
   appWriteMode: async (orgId, appId) => {
     const rows = await db()
       .select({ config: app_state.config })

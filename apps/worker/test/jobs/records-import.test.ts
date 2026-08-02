@@ -19,6 +19,7 @@ describe("records import job", () => {
       reconciled: true,
     };
     const execute = vi.fn(async () => report);
+    const assertStorage = vi.fn().mockResolvedValue(undefined);
 
     await runRecordsImport(
       { execute } as unknown as RecordImportExecutor,
@@ -28,7 +29,14 @@ describe("records import job", () => {
         importRunId: "import-1",
         actorUserId: "admin-1",
       },
-      { leaseOwner: "records-import-job:boss-job-1" },
+      {
+        leaseOwner: "records-import-job:boss-job-1",
+        getRun: vi.fn().mockResolvedValue({
+          status: "planned",
+          plan: { source: { bytes: 128 } },
+        }),
+        assertStorage,
+      },
     );
 
     expect(execute).toHaveBeenCalledWith({
@@ -37,5 +45,6 @@ describe("records import job", () => {
       actorUserId: "admin-1",
       leaseOwner: "records-import-job:boss-job-1",
     });
+    expect(assertStorage).toHaveBeenCalledWith(384);
   });
 });
