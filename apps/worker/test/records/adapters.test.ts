@@ -14,6 +14,7 @@ import {
   includeRecordActionDescriptors,
   registerRecordActionAdapters,
 } from "../../src/records/adapters.js";
+import { RECORD_SCHEMA_ACTION_KINDS } from "../../src/records/schema-adapters.js";
 
 function actionRequest(
   kind: string,
@@ -87,7 +88,11 @@ describe("records worker action adapters", () => {
         },
         { kind: "send_message", description: "Send a message" },
       ]).map((descriptor) => descriptor.kind),
-    ).toEqual([...RECORD_ACTION_KINDS, "send_message"]);
+    ).toEqual([
+      ...RECORD_ACTION_KINDS,
+      ...RECORD_SCHEMA_ACTION_KINDS,
+      "send_message",
+    ]);
   });
 
   it("maps create and update payloads through the snapshotted actor", async () => {

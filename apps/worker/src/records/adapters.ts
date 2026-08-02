@@ -18,6 +18,10 @@ import {
   type ActionAdapter,
   type ActionRequestRecord,
 } from "@neko/llm/workflows";
+import {
+  RECORD_SCHEMA_ACTION_DESCRIPTORS,
+  RECORD_SCHEMA_ACTION_KINDS,
+} from "./schema-adapters.js";
 
 export const RECORD_ACTION_KINDS = [
   "record_create",
@@ -96,9 +100,13 @@ export type WorkerActionDescriptor = {
 export function includeRecordActionDescriptors(
   descriptors: readonly WorkerActionDescriptor[],
 ): WorkerActionDescriptor[] {
-  const builtins = new Set<string>(RECORD_ACTION_KINDS);
+  const builtins = new Set<string>([
+    ...RECORD_ACTION_KINDS,
+    ...RECORD_SCHEMA_ACTION_KINDS,
+  ]);
   return [
     ...RECORD_ACTION_DESCRIPTORS,
+    ...RECORD_SCHEMA_ACTION_DESCRIPTORS,
     ...descriptors.filter((descriptor) => !builtins.has(descriptor.kind)),
   ];
 }
