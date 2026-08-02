@@ -60,6 +60,24 @@ export const RECORD_RECYCLE_READ_COLUMNS = [
   "deleted_by",
 ] as const;
 
+export const RECORD_IDENTITY_RELATION = {
+  schema: "engine",
+  table: "identity_map",
+} as const;
+
+export const RECORD_IDENTITY_READ_COLUMNS = [
+  "source_instance_id",
+  "app_id",
+  "source_user_id",
+  "source_email",
+  "source_name",
+  "source_is_active",
+  "app_user_id",
+  "status",
+  "linked_at",
+  "updated_at",
+] as const;
+
 export type RecordCatalogTable = {
   schema: RecordIdentifier;
   name: RecordIdentifier;
@@ -377,6 +395,31 @@ function humanRecycleTable(input: {
   };
 }
 
+function adminIdentityTable(
+  table: RecordCatalogTable,
+  orgId: string,
+): GraphjinRoleTable {
+  if (
+    !hasColumns(table, [
+      RECORD_SYSTEM_COLUMNS.orgId,
+      ...RECORD_IDENTITY_READ_COLUMNS,
+    ])
+  ) {
+    return blockedTable(table);
+  }
+
+  return {
+    ...blockedTable(table),
+    query: {
+      block: false,
+      filters: [orgFilter(orgId)],
+      columns: [...RECORD_IDENTITY_READ_COLUMNS],
+      limit: HUMAN_QUERY_LIMIT,
+      disable_functions: false,
+    },
+  };
+}
+
 function serviceTable(input: {
   table: RecordCatalogTable;
   object: RecordPolicyRegistryObject;
@@ -502,6 +545,14 @@ export function projectRecordsGraphjinRoles(model: RecordsGraphjinPolicyModel): 
       ) {
         return role === "admin" || role === "member"
           ? humanRecycleTable({ role, table, model })
+          : blockedTable(table);
+      }
+      if (
+        table.schema === RECORD_IDENTITY_RELATION.schema &&
+        table.name === RECORD_IDENTITY_RELATION.table
+      ) {
+        return role === "admin"
+          ? adminIdentityTable(table, model.orgId)
           : blockedTable(table);
       }
       const object = objectByRelation.get(relationKey(table.schema, table.name));

@@ -116,6 +116,49 @@ describe("projectRecordsGraphjinRoles", () => {
     }
   });
 
+  it("exposes identity mappings to admins only and keeps every mutation closed", () => {
+    const roles = projectRecordsGraphjinRoles(recordsPolicyFixture());
+    const adminIdentity = tableFor(
+      roles.find((role) => role.name === "admin")!,
+      "identity_map",
+    );
+
+    expect(adminIdentity.query).toMatchObject({
+      block: false,
+      filters: ['{ org_id: { eq: "org-a" } }'],
+      columns: [
+        "source_instance_id",
+        "app_id",
+        "source_user_id",
+        "source_email",
+        "source_name",
+        "source_is_active",
+        "app_user_id",
+        "status",
+        "linked_at",
+        "updated_at",
+      ],
+    });
+    expect(adminIdentity.query.columns).not.toContain("org_id");
+    expect(adminIdentity.query.columns).not.toContain("source_email_normalized");
+
+    for (const roleName of ["anon", "user", "member", "service"] as const) {
+      expect(
+        tableFor(
+          roles.find((role) => role.name === roleName)!,
+          "identity_map",
+        ).query.block,
+      ).toBe(true);
+    }
+    for (const role of roles) {
+      const identity = tableFor(role, "identity_map");
+      expect(identity.insert.block).toBe(true);
+      expect(identity.update.block).toBe(true);
+      expect(identity.upsert.block).toBe(true);
+      expect(identity.delete.block).toBe(true);
+    }
+  });
+
   it("gives humans column-limited reads and blocks every mutation", () => {
     const roles = projectRecordsGraphjinRoles(recordsPolicyFixture());
     const member = roles.find((role) => role.name === "member")!;
