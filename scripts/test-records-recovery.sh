@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+recovery_repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+recovery_workspace="$(mktemp -d -t openneko-records-recovery.XXXXXX)"
+recovery_project="${OPENNEKO_RECOVERY_PROJECT:-openneko-records-recovery-${GITHUB_RUN_ID:-local}-$$}"
+recovery_metadata_port="${OPENNEKO_RECOVERY_METADATA_PORT:-55432}"
+recovery_records_port="${OPENNEKO_RECOVERY_RECORDS_PORT:-55434}"
+
+export OPENNEKO_BACKUP_CIPHER_PASS="recovery-test-key-with-more-than-thirty-two-characters"
+export OPENNEKO_BACKUP_REPOSITORY="$recovery_workspace/backups"
+export OPENNEKO_HOST_CONFIG_DIR="$recovery_workspace/host-config"
+export OPENNEKO_DB_PORT="$recovery_metadata_port"
+export OPENNEKO_RECORDS_DB_PORT="$recovery_records_port"
+mkdir -p "$OPENNEKO_BACKUP_REPOSITORY" "$OPENNEKO_HOST_CONFIG_DIR"
+
+recovery_compose=(
+  docker compose
+  -p "$recovery_project"
+  -f "$recovery_repo_root/compose.yml"
+)
+
+cleanup() {
+  "${recovery_compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+  if [[ -d "$recovery_workspace" && "$(basename "$recovery_workspace")" == openneko-records-recovery.* ]]; then
+    rm -r -- "$recovery_workspace"
+  fi
+}
+trap cleanup EXIT
+
+backup_status() {
+  "${recovery_compose[@]}" exec -T neko-backup \
+    curl -fsS http://127.0.0.1:9470/v1/backups/status
+}
+
+echo "Starting isolated records recovery stack ($recovery_project)..."
+"${recovery_compose[@]}" up -d --build --wait --wait-timeout 180 \
+  neko-backup records-storage-ops
+
+backup_ready=0
+for _ in $(seq 1 90); do
+  recovery_backup_json="$(backup_status)"
+  case "$recovery_backup_json" in
+    *'"state": "ready"'*)
+      backup_ready=1
+      break
+      ;;
+    *'"state": "failed"'*)
+      echo "$recovery_backup_json" >&2
+      echo "Initial whole-deployment backup failed" >&2
+      exit 1
+      ;;
+  esac
+  sleep 2
+done
+if [[ "$backup_ready" != "1" ]]; then
+  echo "Initial whole-deployment backup did not become ready" >&2
+  exit 1
+fi
+
+echo "Creating and verifying a backup set with every recovery volume..."
+recovery_manifest="$("${recovery_compose[@]}" exec -T neko-backup \
+  curl -fsS -X POST http://127.0.0.1:9470/v1/backups/now)"
+for required in \
+  '"openneko-metadata"' \
+  '"openneko-records"' \
+  '"config"' \
+  '"records-graphjin"' \
+  '"host-config"' \
+  '"plugins"'; do
+  if [[ "$recovery_manifest" != *"$required"* ]]; then
+    echo "Backup manifest omitted $required" >&2
+    exit 1
+  fi
+done
+recovery_verification="$("${recovery_compose[@]}" exec -T neko-backup \
+  curl -fsS -X POST http://127.0.0.1:9470/v1/backups/verify)"
+if [[ "$recovery_verification" != *'"status": "succeeded"'* ]] || \
+   [[ "$recovery_verification" != *'"decrypted_and_checksum_verified"'* ]]; then
+  echo "$recovery_verification" >&2
+  echo "Throwaway restore verification did not prove the backup set" >&2
+  exit 1
+fi
+
+echo "Killing records-db inside an open transaction..."
+"${recovery_compose[@]}" exec -T records-db psql \
+  -U records -d records -v ON_ERROR_STOP=1 \
+  -c 'drop table if exists public.openneko_crash_probe; create table public.openneko_crash_probe (id text primary key)'
+"${recovery_compose[@]}" exec -T -e PGAPPNAME=openneko-recovery-crash-probe \
+  records-db psql -U records -d records -v ON_ERROR_STOP=1 \
+  -c "begin; insert into public.openneko_crash_probe values ('uncommitted'); select pg_sleep(60); commit" \
+  >"$recovery_workspace/crash-client.log" 2>&1 &
+recovery_client_pid=$!
+
+transaction_seen=0
+for _ in $(seq 1 40); do
+  recovery_active="$("${recovery_compose[@]}" exec -T records-db psql \
+    -U records -d records -Atq \
+    -c "select count(*) from pg_stat_activity where application_name = 'openneko-recovery-crash-probe' and state = 'active'")"
+  if [[ "$recovery_active" == "1" ]]; then
+    transaction_seen=1
+    break
+  fi
+  sleep 0.25
+done
+if [[ "$transaction_seen" != "1" ]]; then
+  echo "Crash probe never entered its open transaction" >&2
+  exit 1
+fi
+
+"${recovery_compose[@]}" kill -s SIGKILL records-db
+wait "$recovery_client_pid" || true
+"${recovery_compose[@]}" up -d --wait --wait-timeout 90 records-db
+
+recovery_rolled_back="$("${recovery_compose[@]}" exec -T records-db psql \
+  -U records -d records -Atq \
+  -c 'select count(*) from public.openneko_crash_probe')"
+if [[ "$recovery_rolled_back" != "0" ]]; then
+  echo "Uncommitted record survived database crash" >&2
+  exit 1
+fi
+"${recovery_compose[@]}" exec -T records-db psql \
+  -U records -d records -v ON_ERROR_STOP=1 \
+  -c "insert into public.openneko_crash_probe values ('committed')"
+recovery_committed="$("${recovery_compose[@]}" exec -T records-db psql \
+  -U records -d records -Atq \
+  -c 'select count(*) from public.openneko_crash_probe')"
+if [[ "$recovery_committed" != "1" ]]; then
+  echo "Post-recovery records write did not commit" >&2
+  exit 1
+fi
+"${recovery_compose[@]}" exec -T records-db psql \
+  -U records -d records -v ON_ERROR_STOP=1 \
+  -c 'drop table public.openneko_crash_probe'
+"${recovery_compose[@]}" exec -T neko-backup gosu postgres pgbackrest \
+  --log-level-console=warn --stanza=openneko-records check
+
+echo "Records backup verification and database crash recovery passed."
