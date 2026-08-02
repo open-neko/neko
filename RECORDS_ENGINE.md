@@ -120,13 +120,19 @@ Tables/adapters/routes say `record`/`app`, never `crm`: `record_object`,
 `record_create` adapter, `/a/[app]` routes. "CRM" is the label of the first
 app's registry rows, not an identifier in code.
 
-**D4 — One dedicated business-data Postgres, one schema per app.**
+**D4 — One dedicated business-data Postgres; apps as table-name prefixes.**
 A new `records-db` compose service, fully separate from the neko metadata DB.
-Inside it: schema `engine` (registry, change logs) and one schema per app
-(`crm`, `support`, …). Cross-app joins (ticket → account) stay ordinary SQL and
-GraphJin sees one database. *Rejected:* one Postgres per app (federation tax);
-tables in the metadata DB (mixes operating loop with business data, breaks the
-"take a backup, take it with you" story for business records).
+Inside it: schema `engine` (registry, change logs — created by our own
+migrations) and app tables in the source's default schema named
+`<app>__<object>` (`crm__account`, `support__ticket`). Per-app *Postgres
+schemas* were the original design, but GraphJin's Postgres DDL generation
+cannot schema-qualify (see [RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §1) —
+and the prefix is invisible anyway: every surface resolves names through the
+registry (`record_object.table_name`), never by convention. Cross-app joins
+stay ordinary SQL and GraphJin sees one database. *Rejected:* one Postgres per
+app (federation tax); tables in the metadata DB (mixes operating loop with
+business data, breaks the "take a backup, take it with you" story); per-app
+Postgres schemas (unsupported by the DDL path that creates the tables).
 
 **D5 — All reads through GraphJin with per-actor JWTs; watching via GraphJin
 subscriptions.**
@@ -146,32 +152,42 @@ database (Postgres: fully supported), and a `preview_schema_changes` /
 requiring an explicit `destructive` flag and an automatic schema reload after
 apply. Nobody on our side authors SQL for schema changes — not the agent, not the
 executor. The C3 executor projects the registry into a GraphJin DDL document
-(GraphQL-style `type` definitions) and submits it over GraphJin's own GraphQL
-execution surface — the same surface `execute_graphql` rides — as
-preview-then-apply; **GraphJin internally generates, executes, and manages
-the SQL** and reloads its schema. The preview response includes the generated
-SQL, which the approval card displays for transparency, but the artifact of
-record is the GraphJin DDL document.
+(GraphQL-style `type` definitions) and drives GraphJin's schema machinery:
+**GraphJin internally diffs, generates, and transactionally executes the
+SQL.** Source audit ([RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §1): at the
+pinned version the MCP/control-plane preview-apply surface is removed, so the
+live invocation is the shipped binary — `graphjin db diff` produces the SQL
+delta the approval card displays, `graphjin db sync --yes` applies it in one
+transaction with rollback-on-error. The artifact of record is the GraphJin
+DDL document plus the diff output.
 
-**Records-source configuration:** because `records-db` is our own built-in
+**Records GraphJin configuration:** because `records-db` is our own built-in
 database — not a customer's — it does **not** run `read_only`. It is
 configured `analytics_mode: true` (no implicit row limits, so aggregate
 queries for reports and D15 metric blocks return complete results) **plus
-mutations- and DDL-capable** (`read_only: false`, `allow_schema_updates` on —
-`read_only` would block `apply_schema_changes` too, so C3 requires this). The
-single-write-path guarantee (D6) is enforced at the **role level** instead of
-the source level: the generated role config (C7) grants user-facing roles
-(`admin`, `member`) queries only — their mutations are blocked in-engine —
-while the `service` role is mutation-capable, and `service` tokens are minted
-exclusively by the worker for the C3/C4 executors. Same invariant, one level
-down, still generated from the one policy module so it cannot drift. Customer
-data sources are untouched: their analytics-mode config keeps
-`read_only: true` (all mutations and DDL blocked) exactly as today.
-*Rejected:* direct SQL from Next.js API routes (second enforcement point,
-guaranteed drift); hand-rolled DDL generation in the engine (GraphJin already
-maintains the dialect + diff engine; we'd be duplicating it badly);
-`read_only` on the records source (would block the C3 apply path and force
-write enforcement somewhere GraphJin can't see).
+mutations- and DDL-capable** — `read_only` blocks all mutations and DDL, so
+C3 requires it off. The single-write-path guarantee (D6) is enforced at the
+**role level** instead of the source level, and the source audit
+([RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §2) pins how: GraphJin's
+source-mode generated access rules cannot express per-object per-role CRUD
+grants, so the records configuration uses GraphJin's **legacy role model,
+generated by C7** — an exhaustive per-object × per-role × per-operation
+`roles:` block (explicit `block: true` on every mutation for `admin` and
+`member`, row filters like `{ owner_user_id: { eq: $user_id } }` on
+owner-visibility tables, full grants for `service`), with role resolution
+via `roles_query` against an engine-maintained actor table
+(`engine.actor`, synced from `app_user`). Exhaustiveness is a security
+invariant: in legacy mode an omitted table means unrestricted access for
+non-anon roles. `service` credentials exist only in the worker for the
+C3/C4 executors. Because the legacy and source models cannot mix in one
+config, records runs apart from the customer-data source-mode config (own
+instance by default, following the `neko-graphjin` precedent). Customer
+data sources are untouched: their source-mode analytics config keeps
+`read_only: true` exactly as today. *Rejected:* direct SQL from Next.js API
+routes (second enforcement point, guaranteed drift); hand-rolled DDL
+generation in the engine (GraphJin already maintains the dialect + diff
+engine); `read_only` on the records source (blocks the C3 apply path);
+source-mode access rules for records (cannot express the D8 grant model).
 
 **D6 — All writes through core action adapters — data writes *and* schema
 writes.**
@@ -185,11 +201,12 @@ through the same executor. Every data write validates against the registry,
 checks RBAC as the acting user, appends to `engine.record_change_log`, and
 records into `workflow_run.source_writes` (migration `0021`) so watcher
 cycle-checks keep working. Every schema write appends to
-`engine.app_schema_log` with the submitted GraphJin DDL and preview response. The records source is
-mutations-capable (D5), so the executors themselves may write through
-GraphJin's mutation surface under the `service` role — one data plane — with
-direct SQL retained where the transactional shape demands it (record write +
-change-log append in one transaction; `COPY` bulk loads). *Rejected:*
+`engine.app_schema_log` with the submitted GraphJin DDL and preview response. The executors write with
+**direct SQL in their own transaction** — the record write and its change-log
+append are mixed operation types, which one GraphJin mutation cannot combine
+atomically over HTTP ([RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §3) — so
+GraphJin is the read/subscription/DDL plane while the write path's atomicity
+lives in the executor (plus `COPY` for bulk loads). *Rejected:*
 GraphJin mutations from agent- or user-facing roles (bypasses approval cards
 and validation — blocked in-engine by the C7 role projection); a separate
 "migration" pipeline for schema changes (two write paths again).
@@ -415,8 +432,8 @@ CREATE TABLE engine.record_object (
   api_name text NOT NULL,          -- 'account', 'my_object__c' (sanitized, immutable)
   source_api_name text,            -- 'Account', 'My_Object__c' (verbatim, when imported)
   label text NOT NULL, plural_label text NOT NULL,
-  table_schema text NOT NULL,      -- = app_id
-  table_name text NOT NULL,
+  table_schema text NOT NULL,      -- records source default schema (D4)
+  table_name text NOT NULL,        -- '<app>__<object>' prefix convention (D4)
   name_field text NOT NULL DEFAULT 'name',
   visibility text NOT NULL DEFAULT 'org',   -- 'org' | 'owner'  (D8)
   is_custom boolean NOT NULL DEFAULT false,
@@ -543,20 +560,23 @@ Executor rules (one transaction against `records-db` per action, mirrored to
 1. Everything named passes through `naming.ts`; identifiers are always quoted.
 2. The executor projects the registry delta into a **GraphJin DDL document**
    (desired-state `type` definitions — no SQL authored anywhere in OpenNeko)
-   and submits it through GraphJin's GraphQL execution surface against the
-   `records` source (D5), preview then apply — GraphJin's schema-diff engine
-   internally generates and transactionally applies the SQL and reloads its
-   own schema, so new tables are queryable immediately with no separate
-   config-regen step for table exposure (role/permission projection still
-   regenerates under `acquireGraphjinConfigLock`). The `destructive` flag is
-   **never passed** — archive semantics (D7) mean the engine never asks
-   GraphJin to drop anything. Schema conventions expressed in the DDL doc:
-   PK `id` (`text`; imported apps keep source IDs, from-scratch apps default
-   to UUID-as-text), indexes on reference columns and the name field, **no FK
-   constraints** (integrity reported, not enforced — legacy data has
-   dangles). Anything the GraphJin DDL format can't express (e.g.
-   specialized index types) is applied by the engine directly as a
-   documented residue — small by design, ideally empty.
+   and drives the shipped binary: `graphjin db diff` renders the SQL delta
+   for the approval card, `graphjin db sync --yes` applies it in one
+   transaction with rollback-on-error, and the schema reloads so new tables
+   are queryable (role/permission projection still regenerates under
+   `acquireGraphjinConfigLock`). Destructive mode is **never enabled** —
+   archive semantics (D7) mean the engine never asks GraphJin to drop
+   anything, and the diff engine is additive-only regardless
+   ([RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §1). Schema conventions in
+   the DDL doc: PK `id: Text! @id` (imported apps keep source IDs,
+   from-scratch apps default to UUID-as-text), `@index` on reference columns
+   and the name field, `multipicklist → Jsonb` (Postgres arrays are
+   inexpressible in GraphJin DDL), **no `@default`** (unsanitized
+   passthrough — defaults are write-path behavior), **no FK constraints**
+   (integrity reported, not enforced — legacy data has dangles). The
+   **engine residue path** (our SQL, our transaction, same `app_schema_log`)
+   covers what the DDL/diff cannot: type migrations (add + backfill),
+   index-on-existing-column, array/`text[]` needs, not-null changes.
 3. Registry write + `app_schema_log` append commit together, recording the
    submitted GraphJin DDL and GraphJin's preview response; `app_state`
    mirror updates after apply.
@@ -566,11 +586,12 @@ Executor rules (one transaction against `records-db` per action, mirrored to
 5. `hard_drop` is **not an action kind**. It exists only as
    `openneko records drop --app X --object Y` with typed confirmation and a
    fresh-verified-backup check (D7).
-6. Source gating: the `records` source runs `analytics_mode: true` +
-   `read_only: false` + `allow_schema_updates` (see D5) — DDL and mutations
-   land only through worker-held `service` credentials. Customer data
-   sources keep their analytics-mode `read_only: true` config, which blocks
-   all mutations and DDL — unchanged from today.
+6. Gating: the records configuration runs `analytics_mode: true` +
+   `read_only: false` (see D5) — DDL applies only through the worker's C3
+   wrapper (which holds the binary + connection), and mutations only under
+   worker-held `service` credentials via the generated role config.
+   Customer data sources keep their source-mode `read_only: true` config,
+   which blocks all mutations and DDL — unchanged from today.
 
 **Blueprints:** `packages/records/blueprints/*.json` — starter app definitions
 (CRM: account/contact/opportunity/activity; support: ticket/requester/queue
@@ -649,23 +670,33 @@ config; serve reads and change subscriptions.
   secret from `graphjinSigningSecretB64(orgId)`. Approval-gated like every
   source change.
 - **Role generation (C7 output):** `packages/records/src/policy/graphjin.ts`
-  projects `record_permission` + `record_object.visibility` into GraphJin
-  config: role match on the JWT `role` claim; per-table allow/deny from CRUD
-  grants — user-facing roles (`admin`, `member`) get **queries only**, their
-  mutations blocked in-engine (the D6 write path is role-enforced, per D5:
-  the source itself is mutations-capable); row filter
-  `{ owner_user_id: { eq: $sub } }` on `visibility='owner'` tables for
-  `member`; `service` reads everything and is the one mutation-capable role,
-  its tokens minted only by the worker for the executors and watchers.
-  Archived objects/fields are excluded from the projection. Regenerated on every C3 schema action and
+  projects `record_permission` + `record_object.visibility` into GraphJin's
+  **legacy-mode `roles:` config** (D5,
+  [RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §2): per role × per table, all
+  five operations explicit — `admin`/`member` get query grants with column
+  lists and `block: true` on every mutation (the D6 write path is
+  role-enforced); row filter `"{ owner_user_id: { eq: $user_id } }"` on
+  `visibility='owner'` tables for `member` ($user_id resolves from the JWT
+  `sub`); `service` reads everything and is the one mutation-capable role,
+  its credentials held only by the worker. Role resolution via `roles_query`
+  against `engine.actor` (user → role, worker-synced from `app_user`).
+  **The projection is exhaustive by construction** — in legacy mode an
+  omitted table grants access, so a generator test asserts every registry
+  object appears for every role on every regeneration. Archived
+  objects/fields are excluded from the projection (and blocked explicitly,
+  not omitted). Regenerated on every C3 schema action and
   every permission change.
 - **Subscriptions (the "watch" in the rethink):** GraphJin's live-query /
   subscription support runs over the same role config, so a watcher
   subscribing to `opportunities where stagename = 'Negotiation'` is enforced
-  identically to a one-shot query. The existing watcher machinery gains a
-  subscription-backed trigger option for records sources; the scheduled-watch
-  path remains the fallback, and `workflow_run.source_writes` keeps
-  self-triggering loops broken in both modes.
+  identically to a one-shot query. Semantics are **polling-based and
+  at-most-once** — a slow consumer can permanently lose an update after the
+  cursor advances ([RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §3) — so the
+  subscription trigger is a *freshness optimization*: the scheduled-watch
+  path remains authoritative, `subs_poll_duration` is set explicitly (the
+  unset default is a 200ms floor, not 5s), and `workflow_run.source_writes`
+  keeps self-triggering loops broken in both modes. GraphJin's durable
+  `gj_watch` event layer is a C12 evaluation candidate.
 - **Web tokens:** helper for `/a/*` API routes minting
   `mintGraphjinToken({orgId, userId, role})` from the session — same claims
   shape the agent path uses.
@@ -797,7 +828,8 @@ resumes; progress via `records_import_status` and a briefing card):
 2. **Schema.** Apply the plan through the C3 executor (one logged
    `app_create`). Source → PG mapping (Salesforce flavor):
    `id/reference → char(18)`, `string/textarea/email/phone/url/picklist → text`,
-   `multipicklist → text[]`, `boolean → boolean`, `int → integer`,
+   `multipicklist → jsonb` (Postgres arrays are inexpressible in GraphJin
+   DDL), `boolean → boolean`, `int → integer`,
    `double/currency/percent → numeric`, `date → date`, `datetime → timestamptz`,
    `address/location → flattened columns`, `base64 → skipped (D9)`.
    Formula/rollup → materialized column of result type, `read_only`.
@@ -1219,20 +1251,31 @@ each with its approving action request.
   debouncing and a reload-cost check against a live GraphJin. Measure in
   Phase 1.
 - **GraphJin DDL expressiveness & version coupling.** C3 leans on GraphJin's
-  schema-diff engine (pinned v3.18.x). Constructs it can't express fall to
-  the engine-applied residue path — keep that list short and tested, and gate
-  GraphJin version bumps on a schema-diff regression fixture. The invocation
-  shape of the preview/apply surface has shifted across GraphJin versions
-  (MCP tool ↔ control-plane GraphQL root), so C3 wraps it behind one client
-  function pinned to the shipped version.
+  schema-diff engine (pinned v3.18.x), whose diff is additive-only and whose
+  DDL format has real gaps (no arrays, no schema qualification, no defaults
+  we'd trust — [RECORDS_GRAPHJIN.md](RECORDS_GRAPHJIN.md) §1). The
+  engine-applied residue path covers type migrations and
+  index-on-existing-column — keep it short and tested. The invocation
+  surface has churned across versions (MCP tool → control-plane root →
+  currently the `graphjin db` CLI), so C3 wraps it behind one module pinned
+  to the shipped version, and version bumps gate on a schema-diff regression
+  fixture.
 - **GraphJin subscription semantics.** Live queries are polling-based under
   the hood; latency and load characteristics at hundreds of watched queries
   need measurement before subscription-triggered watchers become the default
   (scheduled-watch remains the fallback either way).
-- **GraphJin role expressiveness.** Row filters + per-role table grants cover
-  the D8 model; per-app *roles* (beyond admin/member) would widen the JWT
-  `role` claim enum — touches `token.ts` and every match expression. Decide
-  when a real need appears.
+- **Legacy-mode role config is a security-critical generator.** The D8 model
+  fits GraphJin's legacy role model, but exhaustiveness is load-bearing: an
+  object omitted from the projection is *accessible*, not blocked, for
+  non-anon roles. The generator test (every object × role × operation
+  present) and the C7 drift test are the safety net. Adding roles beyond
+  admin/member later means new `roles_query` matches — cheap — but widening
+  the actor model touches `engine.actor` sync.
+- **Records runs with the allow-list disabled.** Generated UI queries are
+  dynamic, so the records GraphJin config opts out of saved-query
+  enforcement and leans entirely on role config + JWT. Deliberate, but it
+  must be scoped to the records configuration only and stated in the C5
+  security review.
 - **Dynamic-DDL hygiene.** `naming.ts` is the only path to an identifier and
   is security-sensitive (SQL injection via labels/CSV headers). Strict
   allowlist grammar + exhaustive tests + identifiers always quoted. Now
