@@ -8,10 +8,14 @@
   "exports": {
     ".": "./src/index.ts",
     "./graphjin/config": "./src/graphjin/config.ts",
+    "./graphjin/schema": "./src/graphjin/schema.ts",
     "./naming": "./src/naming.ts",
     "./policy/evaluate": "./src/policy/evaluate.ts",
     "./policy/graphjin": "./src/policy/graphjin.ts",
     "./registry": "./src/registry.ts",
+    "./schema/audit": "./src/schema/audit.ts",
+    "./schema/catalog": "./src/schema/catalog.ts",
+    "./schema/ddl": "./src/schema/ddl.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {
