@@ -18,6 +18,7 @@
     "./graphjin/config": "./src/graphjin/config.ts",
     "./graphjin/client": "./src/graphjin/client.ts",
     "./graphjin/schema": "./src/graphjin/schema.ts",
+    "./identity/map": "./src/identity/map.ts",
     "./import/csv": "./src/import/csv.ts",
     "./import/executor": "./src/import/executor.ts",
     "./import/plan": "./src/import/plan.ts",

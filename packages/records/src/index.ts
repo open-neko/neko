@@ -9,6 +9,7 @@ export * from "./connect/types";
 export * from "./graphjin/client";
 export * from "./graphjin/config";
 export * from "./graphjin/schema";
+export * from "./identity/map";
 export * from "./import/csv";
 export * from "./import/executor";
 export * from "./import/plan";

@@ -56,12 +56,13 @@ describeIfRecordsDb("records migration stream", () => {
         "0004_polymorphic_relationships.sql",
         "0005_import_batch_durability.sql",
         "0006_recycle_index.sql",
+        "0007_identity_mapping.sql",
       ],
-      current: "0006_recycle_index.sql",
+      current: "0007_identity_mapping.sql",
     });
     await expect(runRecordsMigrations({ pool: testPool })).resolves.toEqual({
       applied: [],
-      current: "0006_recycle_index.sql",
+      current: "0007_identity_mapping.sql",
     });
 
     const tables = await testPool.query<{ table_name: string }>(
