@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { Pill, type PillVariant } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
 import { formatSavedShort } from "@/lib/hours-saved";
+import { RecordActionDiff } from "@/components/records/RecordActionDiff";
 
 export type ActRowTone = "good" | "watch" | "action";
 
@@ -17,6 +18,8 @@ export type ActRowData = {
   rejectionReason?: string | null;
   approverPhrase?: string | null;
   status: string;
+  kind?: string;
+  payload?: unknown;
   /** Realized minutes saved — shown on fired receipts that carry an estimate. */
   minutesSaved?: number | null;
 };
@@ -162,6 +165,7 @@ export default function ActCard({
                     {row.detail}
                   </p>
                 )}
+                <RecordActionDiff kind={row.kind} payload={row.payload} compact />
                 {row.rejectionReason && (
                   <p className="m-0 text-[13px] leading-[1.55] text-text2 italic">
                     {row.rejectionReason}

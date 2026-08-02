@@ -71,6 +71,7 @@ type ReceiptRow = {
   workflowRunId: string | null;
   workflow: { id: string; name: string } | null;
   trigger: string | null;
+  payload: unknown;
 };
 
 type RecentActionsPayload = {
@@ -89,6 +90,7 @@ type AwaitingRow = {
   summary: string;
   status: string;
   runAt: string;
+  payload: unknown;
 };
 
 type AwaitingPayload = {
@@ -128,6 +130,8 @@ function groupAwaiting(
       headline: r.summary || r.kind,
       detail: null,
       target: r.target,
+      kind: r.kind,
+      payload: r.payload,
       status: r.status,
     };
     const existing = groups.get(r.workflowRunId);
@@ -176,6 +180,8 @@ function groupReceipts(
       headline,
       detail: null,
       target: r.summary ? r.target : null, // headline already includes target when summary is absent
+      kind: r.kind,
+      payload: r.payload,
       approverPhrase: approverPhrase(r.approverKind, r.approverLabel),
       status: r.status,
       minutesSaved: r.minutesSaved,

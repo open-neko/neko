@@ -258,6 +258,7 @@ export default async function RecordObjectPage({
         view={result.view}
         rows={result.rows}
         owners={result.owners}
+        pendingActions={result.pendingActions}
         total={result.total}
         cursor={result.cursor}
         page={page}

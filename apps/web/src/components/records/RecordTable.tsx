@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { RecordObjectView } from "@neko/records";
 import type { RecordOwnerIdentity } from "@/lib/records";
+import type { PendingRecordAction } from "@/lib/records-pending";
 import { RecordCell } from "./RecordCell";
+import { PendingChangeMarker } from "./PendingChangeMarker";
 
 function hrefWith(
   base: string,
@@ -25,6 +27,7 @@ export function RecordTable({
   view,
   rows,
   owners,
+  pendingActions = {},
   total,
   cursor,
   page,
@@ -34,6 +37,7 @@ export function RecordTable({
   view: RecordObjectView;
   rows: Array<Record<string, unknown>>;
   owners: Record<string, RecordOwnerIdentity>;
+  pendingActions?: Record<string, PendingRecordAction[]>;
   total: number;
   cursor: string | null;
   page: number;
@@ -80,8 +84,12 @@ export function RecordTable({
           <tbody>
             {rows.map((row, rowIndex) => {
               const recordId = String(row.id ?? "");
+              const recordPendingActions = pendingActions[recordId] ?? [];
               return (
-                <tr key={recordId || `row-${rowIndex}`}>
+                <tr
+                  key={recordId || `row-${rowIndex}`}
+                  className={recordPendingActions.length > 0 ? "is-pending" : undefined}
+                >
                   {view.columns.map((column) => {
                     const value = row[column.columnName];
                     const ownerId = column.kind === "owner" && typeof value === "string" ? value : null;
@@ -101,9 +109,12 @@ export function RecordTable({
                         className={["integer", "decimal", "currency", "percent"].includes(column.kind) ? "is-number" : undefined}
                       >
                         {nameColumn && recordId ? (
-                          <Link className="records-name-link" href={`${base}/${encodeURIComponent(recordId)}`}>
-                            {content}
-                          </Link>
+                          <span className="records-name-cell">
+                            <Link className="records-name-link" href={`${base}/${encodeURIComponent(recordId)}`}>
+                              {content}
+                            </Link>
+                            <PendingChangeMarker actions={recordPendingActions} />
+                          </span>
                         ) : (
                           content
                         )}

@@ -10,6 +10,7 @@ import {
   RecordChangeTimeline,
   RecordRelatedLists,
 } from "@/components/records/RecordDetailActivity";
+import { PendingChangeMarker } from "@/components/records/PendingChangeMarker";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,7 @@ export default async function RecordDetailPage({
             {result.app.label} / {result.view.object.pluralLabel}
           </span>
           <h1>{name}</h1>
+          <PendingChangeMarker actions={result.pendingActions} />
         </div>
         {result.view.permission.canUpdate && (
           <Link className="records-secondary-action" href={`${base}/${encodeURIComponent(String(result.row.id))}/edit`}>

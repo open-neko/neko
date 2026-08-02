@@ -2,11 +2,13 @@ import "server-only";
 
 import pg from "pg";
 import {
+  action_request,
   and,
   app_user,
   app_state,
   buildRecordsPoolConfig,
   db,
+  desc,
   eq,
   inArray,
 } from "@neko/db";
@@ -37,6 +39,11 @@ import {
   type RecordViewerRole,
 } from "@neko/records";
 import { getCurrentActor } from "@/lib/actor";
+import {
+  groupPendingRecordActions,
+  PENDING_RECORD_ACTION_STATUSES,
+  type PendingRecordAction,
+} from "@/lib/records-pending";
 
 const RECORDS_GRAPHJIN_URL =
   process.env.OPENNEKO_RECORDS_GRAPHJIN_URL ?? "http://127.0.0.1:8090";
@@ -407,6 +414,7 @@ export type RecordListResult = {
   view: RecordObjectView;
   app: AppRegistrySnapshot["app"];
   owners: Record<string, RecordOwnerIdentity>;
+  pendingActions: Record<string, PendingRecordAction[]>;
 };
 
 export async function listRecordSavedViews(input: {
@@ -625,6 +633,40 @@ async function resolveOwnerIdentities(input: {
   );
 }
 
+async function resolvePendingRecordActions(input: {
+  orgId: string;
+  appId: string;
+  objectApiName: string;
+  recordIds: string[];
+}): Promise<Record<string, PendingRecordAction[]>> {
+  if (input.recordIds.length === 0) return {};
+  const rows = await db()
+    .select({
+      id: action_request.id,
+      kind: action_request.kind,
+      status: action_request.status,
+      summary: action_request.summary,
+      payload: action_request.payload,
+      createdAt: action_request.created_at,
+    })
+    .from(action_request)
+    .where(
+      and(
+        eq(action_request.org_id, input.orgId),
+        eq(action_request.target, `record:${input.appId}/${input.objectApiName}`),
+        inArray(action_request.status, [...PENDING_RECORD_ACTION_STATUSES]),
+        inArray(action_request.kind, [
+          "record_update",
+          "record_delete",
+          "record_restore",
+        ]),
+      ),
+    )
+    .orderBy(desc(action_request.created_at))
+    .limit(500);
+  return groupPendingRecordActions({ ...input, rows });
+}
+
 export async function readRecordList(input: {
   orgId: string;
   appId: string;
@@ -637,6 +679,7 @@ export async function readRecordList(input: {
   filter?: RecordFilterExpression | null;
   myRecords?: boolean;
   columns?: string[];
+  includePendingActions?: boolean;
 }): Promise<RecordListResult> {
   const shell = await loadRecordAppShell(input.orgId, input.appId);
   if (shell.availability !== "active") {
@@ -664,6 +707,23 @@ export async function readRecordList(input: {
     token: viewer.token,
   });
   const rows = rowsFrom(data[generated.resultField]);
+  const [owners, pendingActions] = await Promise.all([
+    resolveOwnerIdentities({
+      orgId: input.orgId,
+      appId: shell.snapshot.app.appId,
+      rows,
+    }),
+    input.includePendingActions === false
+      ? Promise.resolve({} as Record<string, PendingRecordAction[]>)
+      : resolvePendingRecordActions({
+          orgId: input.orgId,
+          appId: shell.snapshot.app.appId,
+          objectApiName: generated.view.object.apiName,
+          recordIds: rows.flatMap((row) =>
+            row.id === null || row.id === undefined ? [] : [String(row.id)],
+          ),
+        }),
+  ]);
   return {
     rows,
     cursor:
@@ -673,11 +733,8 @@ export async function readRecordList(input: {
     total: totalFrom(data[generated.totalField]),
     view: generated.view,
     app: shell.snapshot.app,
-    owners: await resolveOwnerIdentities({
-      orgId: input.orgId,
-      appId: shell.snapshot.app.appId,
-      rows,
-    }),
+    owners,
+    pendingActions,
   };
 }
 
@@ -701,6 +758,7 @@ export async function readRecordReferenceOptions(input: {
     first: 10,
     search: query,
     columns: [target.nameField],
+    includePendingActions: false,
   });
   return result.rows.flatMap((row) => {
     if (row.id === null || row.id === undefined) return [];
@@ -719,6 +777,7 @@ export type RecordDetailResult = {
   layout: JsonObject | null;
   relatedLists: RecordRelatedList[];
   history: RecordChangeLogEntry[];
+  pendingActions: PendingRecordAction[];
 };
 
 export type RecordRelatedList = {
@@ -783,7 +842,7 @@ export async function readRecordDetail(input: {
       ? [{ relationship, source, field }]
       : [];
   });
-  const [relatedLists, historyData] = row
+  const [relatedLists, historyData, pendingByRecord] = row
     ? await Promise.all([
         Promise.all(
           relatedTargets.map(async ({ relationship, source, field }): Promise<RecordRelatedList> => {
@@ -830,8 +889,14 @@ export async function readRecordDetail(input: {
             token: viewer.token,
           }).then((history) => rowsFrom(history[historyQuery.resultField]));
         })(),
+        resolvePendingRecordActions({
+          orgId: input.orgId,
+          appId: shell.snapshot.app.appId,
+          objectApiName: generated.view.object.apiName,
+          recordIds: [String(row.id)],
+        }),
       ])
-    : [[], []];
+    : [[], [], {} as Record<string, PendingRecordAction[]>];
   return {
     row,
     view: generated.view,
@@ -846,6 +911,7 @@ export async function readRecordDetail(input: {
         (layout) => layout.objectId === generated.view.object.id && layout.kind === "detail",
       )?.definition ?? null,
     relatedLists,
+    pendingActions: row ? pendingByRecord[String(row.id)] ?? [] : [],
     history: historyData.flatMap((entry): RecordChangeLogEntry[] => {
       if (
         (typeof entry.id !== "string" && typeof entry.id !== "number") ||

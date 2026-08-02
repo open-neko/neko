@@ -13,6 +13,10 @@ import ActCard, {
 } from "@/components/ActCard";
 import { cn } from "@/lib/cn";
 import { formatSavedShort } from "@/lib/hours-saved";
+import {
+  parseRecordUpdatePayload,
+  RecordActionDiff,
+} from "@/components/records/RecordActionDiff";
 
 type Filter = "awaiting" | "fired" | "rejected" | "all";
 
@@ -284,6 +288,8 @@ function ActionsPageInner() {
                   headline: r.summary || r.kind,
                   detail: null,
                   target: r.target,
+                  kind: r.kind,
+                  payload: r.payload,
                   rejectionReason:
                     r.status === "rejected" ? r.rejectionReason : null,
                   approverPhrase: approverPhrase(r.approverKind, r.approverLabel),
@@ -360,9 +366,12 @@ function ActionReadingPane({
       </aside>
     );
   }
+  const recordUpdate = parseRecordUpdatePayload(action.kind, action.payload);
   const payloadEntries =
     action.payload && typeof action.payload === "object" && !Array.isArray(action.payload)
-      ? Object.entries(action.payload as Record<string, unknown>).slice(0, 8)
+      ? Object.entries(action.payload as Record<string, unknown>)
+          .filter(([key]) => !recordUpdate || (key !== "fields" && key !== "expected"))
+          .slice(0, 8)
       : [];
   const risk = action.riskLevel ?? "low";
   return (
@@ -388,6 +397,8 @@ function ActionReadingPane({
             <code className="font-mono text-[12px] text-text2 break-all">{action.target}</code>
           </div>
         )}
+
+        <RecordActionDiff kind={action.kind} payload={action.payload} />
 
         {payloadEntries.length > 0 && (
           <div className="mt-4">

@@ -571,6 +571,156 @@
   background: var(--neutral-soft);
 }
 
+.records-table tbody tr.is-pending td:first-child {
+  box-shadow: inset 3px 0 0 var(--watch);
+}
+
+.records-name-cell {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.records-name-cell .records-name-link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.records-pending-marker {
+  width: max-content;
+  max-width: 180px;
+  padding: 3px 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid color-mix(in srgb, var(--watch) 42%, var(--border));
+  border-radius: 999px;
+  background: var(--watch-soft);
+  color: var(--warn-ink) !important;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-decoration: none !important;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.records-pending-marker > span {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--watch);
+}
+
+.records-pending-marker:hover {
+  border-color: var(--watch);
+}
+
+.record-action-diff {
+  margin-top: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.record-action-diff-target {
+  margin-bottom: 10px;
+  display: grid;
+  gap: 3px;
+}
+
+.record-action-diff-target > span,
+.record-action-diff dt {
+  color: var(--text3);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.record-action-diff-target code {
+  overflow-wrap: anywhere;
+  color: var(--text2);
+  font-size: 10.5px;
+}
+
+.record-action-diff dl {
+  margin: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.record-action-diff dl > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.5fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.record-action-diff dt,
+.record-action-diff dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.record-action-diff dd {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow-wrap: anywhere;
+  color: var(--text2);
+  font-family: var(--font-mono), monospace;
+  font-size: 11.5px;
+}
+
+.record-action-diff-old {
+  color: var(--text3);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--danger) 55%, transparent);
+}
+
+.record-action-diff-arrow {
+  flex: none;
+  color: var(--text3);
+}
+
+.record-action-diff dd strong {
+  color: var(--text);
+  font-weight: 750;
+}
+
+.record-action-diff.is-compact {
+  margin-top: 7px;
+  padding: 7px 0 1px 9px;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 2px solid color-mix(in srgb, var(--watch) 75%, var(--border));
+}
+
+.record-action-diff.is-compact dl {
+  gap: 6px;
+}
+
+.record-action-diff.is-compact dl > div {
+  grid-template-columns: minmax(72px, 0.6fr) minmax(0, 1.4fr);
+  gap: 8px;
+}
+
+.record-action-diff.is-compact dt {
+  font-size: 8.5px;
+}
+
+.record-action-diff.is-compact dd {
+  gap: 6px;
+  font-size: 10.5px;
+}
+
 .records-table .is-number {
   text-align: right;
 }
