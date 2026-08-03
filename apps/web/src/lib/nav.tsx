@@ -113,10 +113,13 @@ export function hideAppChrome(pathname: string) {
 }
 
 export function useApprovalsCount(enabled = true) {
-  const [pending, setPending] = useState(0);
+  const visualTest =
+    process.env.NODE_ENV !== "production" &&
+    process.env.NEXT_PUBLIC_RECORDS_VISUAL_TEST === "true";
+  const [pending, setPending] = useState(visualTest ? 3 : 0);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || visualTest) return;
     let cancelled = false;
     const tick = async () => {
       try {
@@ -137,7 +140,7 @@ export function useApprovalsCount(enabled = true) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [enabled]);
+  }, [enabled, visualTest]);
 
   return pending;
 }

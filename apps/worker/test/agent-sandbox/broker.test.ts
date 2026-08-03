@@ -47,6 +47,81 @@ function makeFakeControlPlane() {
         ReturnType<AgentControlPlane["searchWorkMemoryByContext"]>
       >;
     },
+    async queryGraphjinRead(input) {
+      calls.push({ method: "graphjin-read", input: input as Record<string, unknown> });
+      return { data: {} };
+    },
+    async listRecordCatalog(input) {
+      calls.push({ method: "records-catalog", input: input as Record<string, unknown> });
+      return { apps: [] };
+    },
+    async findRecords(input) {
+      calls.push({ method: "records-find", input: input as Record<string, unknown> });
+      return {
+        app: { appId: input.appId, label: "Equipment" },
+        object: {
+          apiName: input.objectApiName,
+          label: "Loan",
+          pluralLabel: "Loans",
+        },
+        columns: [],
+        rows: [],
+        total: 0,
+        cursor: null,
+      };
+    },
+    async getRecord(input) {
+      calls.push({ method: "records-get", input: input as Record<string, unknown> });
+      return {
+        app: { appId: input.appId, label: "Equipment" },
+        object: {
+          apiName: input.objectApiName,
+          label: "Loan",
+          pluralLabel: "Loans",
+        },
+        columns: [],
+        row: null,
+      };
+    },
+    async findRecycledRecords(input) {
+      calls.push({
+        method: "records-recycle-find",
+        input: input as Record<string, unknown>,
+      });
+      return {
+        app: { appId: input.appId, label: "Equipment" },
+        object: {
+          apiName: input.objectApiName,
+          label: "Loan",
+          pluralLabel: "Loans",
+        },
+        rows: [],
+        total: 0,
+        cursor: null,
+      };
+    },
+    async getRecycledRecord(input) {
+      calls.push({
+        method: "records-recycle-get",
+        input: input as Record<string, unknown>,
+      });
+      return {
+        app: { appId: input.appId, label: "Equipment" },
+        object: {
+          apiName: input.objectApiName,
+          label: "Loan",
+          pluralLabel: "Loans",
+        },
+        row: null,
+      };
+    },
+    async listRecordBlueprints(input) {
+      calls.push({
+        method: "records-blueprints",
+        input: input as Record<string, unknown>,
+      });
+      return { blueprints: [] };
+    },
     async saveWorkflowWithTrigger(input) {
       calls.push({ method: "wf-save", input: input as Record<string, unknown> });
       return { action: "created", workflow: { id: "w1", name: "W" } } as Awaited<
@@ -196,12 +271,60 @@ describe("agent broker", () => {
     await cp.searchWorkMemoryByContext({ orgId: "SPOOF", query: "q" } as Parameters<
       AgentControlPlane["searchWorkMemoryByContext"]
     >[0]);
+    await cp.listRecordCatalog({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      appId: "equipment",
+    });
+    await cp.findRecycledRecords({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      appId: "equipment",
+      objectApiName: "loan",
+      first: 5,
+      search: "Camera",
+    });
+    await cp.getRecycledRecord({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      appId: "equipment",
+      objectApiName: "loan",
+      recordId: "loan-deleted",
+    });
+    await cp.listRecordBlueprints({
+      orgId: "SPOOF",
+      blueprintId: "crm",
+    });
 
     expect(fake.calls.find((c) => c.method === "evaluate")?.input.orgId).toBe("o1");
     const create = fake.calls.find((c) => c.method === "create")?.input;
     expect(create?.orgId).toBe("o1");
     expect(create?.workRunId).toBe("r1");
     expect(fake.calls.find((c) => c.method === "search")?.input.orgId).toBe("o1");
+    expect(fake.calls.find((c) => c.method === "records-catalog")?.input).toEqual({
+      orgId: "o1",
+      runId: "r1",
+      appId: "equipment",
+    });
+    expect(fake.calls.find((c) => c.method === "records-recycle-find")?.input).toEqual({
+      orgId: "o1",
+      runId: "r1",
+      appId: "equipment",
+      objectApiName: "loan",
+      first: 5,
+      search: "Camera",
+    });
+    expect(fake.calls.find((c) => c.method === "records-recycle-get")?.input).toEqual({
+      orgId: "o1",
+      runId: "r1",
+      appId: "equipment",
+      objectApiName: "loan",
+      recordId: "loan-deleted",
+    });
+    expect(fake.calls.find((c) => c.method === "records-blueprints")?.input).toEqual({
+      orgId: "o1",
+      blueprintId: "crm",
+    });
   });
 
   it("round-trips return values and forces enqueue orgId", async () => {

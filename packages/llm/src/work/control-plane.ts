@@ -33,6 +33,17 @@ import type {
   GraphjinAgentStatus,
 } from "../graphjin/agent";
 import type { OpenApiSpecAssetView } from "../graphjin/openapi-assets";
+import type {
+  JsonObject,
+  RecordListFilter,
+  RecordsCatalogResult,
+  RecordsDetailResult,
+  RecordsQueryResult,
+  RecordsRecycleDetailResult,
+  RecordsRecycleQueryResult,
+  RecordsReadGateway,
+  RecordsViewer,
+} from "@neko/records";
 
 type PolicyRequestSubject = Parameters<typeof evaluateActionPolicy>[0];
 type PolicyDecision = ReturnType<typeof evaluateActionPolicy>;
@@ -58,6 +69,34 @@ export type Wire<T> = T extends Date
 
 function toWire<T>(value: T): Wire<T> {
   return JSON.parse(JSON.stringify(value ?? null)) as Wire<T>;
+}
+
+export async function createActionRequestViaWorker(
+  baseUrl: string,
+  input: CreateActionRequestInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ id: string }> {
+  const url = `${baseUrl.replace(/\/$/, "")}/admin/action-requests/create`;
+  const response = await fetchImpl(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+    signal: AbortSignal.timeout(65_000),
+  });
+  const body = (await response.json().catch(() => null)) as
+    | { id?: unknown; error?: unknown }
+    | null;
+  if (!response.ok) {
+    const message =
+      body && typeof body.error === "string"
+        ? body.error
+        : `worker action preflight failed with status ${response.status}`;
+    throw new Error(message);
+  }
+  if (!body || typeof body.id !== "string" || !body.id) {
+    throw new Error("worker action preflight returned an invalid response");
+  }
+  return { id: body.id };
 }
 
 export function assertReadOnlyGraphql(query: string): void {
@@ -193,6 +232,137 @@ export type WaitForActionExecutionResult =
       status: "timeout";
     };
 
+type RecordsControlPlaneRuntime = {
+  gateway: RecordsReadGateway;
+};
+
+const recordsRuntimeGlobal = globalThis as typeof globalThis & {
+  __opennekoLlmRecordsRuntime?: Promise<RecordsControlPlaneRuntime>;
+};
+
+async function recordsControlPlaneRuntime(): Promise<RecordsControlPlaneRuntime> {
+  const existing = recordsRuntimeGlobal.__opennekoLlmRecordsRuntime;
+  if (existing) return existing;
+  const created = Promise.all([
+    import("pg"),
+    import("@neko/db"),
+    import("@neko/records"),
+  ]).then(([pgModule, dbModule, records]) => {
+    const pool = new pgModule.default.Pool({
+      ...dbModule.buildRecordsPoolConfig(),
+      application_name: "openneko-agent-records",
+    });
+    return {
+      gateway: new records.RecordsReadGateway(
+        pool,
+        new records.RecordRegistry(pool),
+        new records.RecordsGraphjinClient({
+          baseUrl:
+            process.env.OPENNEKO_RECORDS_GRAPHJIN_URL ??
+            "http://127.0.0.1:8090",
+        }),
+      ),
+    };
+  });
+  recordsRuntimeGlobal.__opennekoLlmRecordsRuntime = created;
+  return created;
+}
+
+async function recordsViewerForRun(input: {
+  orgId: string;
+  runId: string;
+}): Promise<RecordsViewer> {
+  const {
+    and,
+    app_user,
+    db,
+    eq,
+    sso_group,
+    sso_group_membership,
+    work_run,
+  } = await import("@neko/db");
+  const [run] = await db()
+    .select({
+      orgId: work_run.org_id,
+      userId: work_run.actor_user_id,
+      snapshotRole: work_run.actor_role,
+    })
+    .from(work_run)
+    .where(eq(work_run.id, input.runId))
+    .limit(1);
+  if (!run || run.orgId !== input.orgId) {
+    throw new Error("records tools are not available to this run");
+  }
+
+  if (run.userId) {
+    const [user] = await db()
+      .select({ role: app_user.role, disabledAt: app_user.disabled_at })
+      .from(app_user)
+      .where(
+        and(eq(app_user.id, run.userId), eq(app_user.org_id, input.orgId)),
+      )
+      .limit(1);
+    if (
+      !user ||
+      user.disabledAt ||
+      (user.role !== "admin" && user.role !== "member")
+    ) {
+      throw new Error("records tools are not available to this actor");
+    }
+    const memberships = await db()
+      .select({ groupId: sso_group.id })
+      .from(sso_group_membership)
+      .innerJoin(
+        sso_group,
+        and(
+          eq(sso_group.id, sso_group_membership.group_id),
+          eq(sso_group.org_id, sso_group_membership.org_id),
+        ),
+      )
+      .where(
+        and(
+          eq(sso_group_membership.org_id, input.orgId),
+          eq(sso_group_membership.user_id, run.userId),
+          eq(sso_group.active, true),
+        ),
+      );
+    return {
+      orgId: input.orgId,
+      userId: run.userId,
+      role: user.role,
+      groupIds: memberships.map((row) => row.groupId),
+      solo: false,
+    };
+  }
+
+  // A userless admin exists only in the solo profile. Once the org has any
+  // user, a detached/deleted run must not inherit this synthetic authority.
+  const [anyUser] = await db()
+    .select({ id: app_user.id })
+    .from(app_user)
+    .where(eq(app_user.org_id, input.orgId))
+    .limit(1);
+  if (anyUser || run.snapshotRole !== "admin") {
+    throw new Error("records tools are not available to this actor");
+  }
+  return {
+    orgId: input.orgId,
+    userId: `urn:openneko:solo-admin:${input.orgId}`,
+    role: "admin",
+    groupIds: [],
+    solo: true,
+  };
+}
+
+async function activeRecordAppIds(orgId: string): Promise<ReadonlySet<string>> {
+  const { and, app_state, db, eq } = await import("@neko/db");
+  const rows = await db()
+    .select({ appId: app_state.app_id })
+    .from(app_state)
+    .where(and(eq(app_state.org_id, orgId), eq(app_state.status, "active")));
+  return new Set(rows.map((row) => row.appId));
+}
+
 /**
  * The narrow control-plane surface an agent turn touches: policy eval,
  * action-request create + enqueue, the two memory ops, and the builder
@@ -233,6 +403,64 @@ export interface AgentControlPlane {
     data: unknown;
     errors?: Array<{ message: string; path?: (string | number)[] }>;
   }>;
+  /** Actor-scoped registry catalog for native generated records apps. */
+  listRecordCatalog(input: {
+    orgId: string;
+    runId: string;
+    appId?: string;
+  }): Promise<RecordsCatalogResult>;
+  /** Generated, bounded GraphJin list/search query under the run's actor. */
+  findRecords(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    first?: number;
+    after?: string | null;
+    sort?: { field: string; direction: "asc" | "desc" };
+    search?: string | null;
+    filters?: RecordListFilter[];
+    myRecords?: boolean;
+  }): Promise<RecordsQueryResult>;
+  /** Exact actor-scoped record lookup after an id has been resolved. */
+  getRecord(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    recordId: string;
+    allFields?: boolean;
+  }): Promise<RecordsDetailResult>;
+  /** Actor-scoped deleted-record summaries for safe restore id resolution. */
+  findRecycledRecords(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    first?: number;
+    after?: string | null;
+    search?: string | null;
+  }): Promise<RecordsRecycleQueryResult>;
+  /** Exact actor-scoped lookup in the recycle index. */
+  getRecycledRecord(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    recordId: string;
+  }): Promise<RecordsRecycleDetailResult>;
+  /** Shipped domain blueprints; exact lookup includes its app_create payload. */
+  listRecordBlueprints(input: {
+    orgId: string;
+    blueprintId?: string;
+  }): Promise<{
+    blueprints: Array<{
+      id: string;
+      version: string;
+      description: string;
+      payload?: JsonObject;
+    }>;
+  }>;
   saveWorkflowWithTrigger(
     input: SaveWorkflowInput,
   ): Promise<Wire<SaveWorkflowWithTriggerResult>>;
@@ -270,6 +498,15 @@ export interface AgentControlPlane {
       role: string;
       disabledAt: string | null;
       lastLoginAt: string | null;
+      groupIds?: string[];
+    }>;
+    groups?: Array<{
+      id: string;
+      provider: string;
+      tenantId: string;
+      externalId: string;
+      displayName: string | null;
+      active: boolean;
     }>;
   }>;
   /**
@@ -466,6 +703,10 @@ export class InProcessControlPlane implements AgentControlPlane {
         throw new Error(`source_config_admin: ${gate.error}`);
       }
     }
+    const workerAdminUrl = process.env.WORKER_ADMIN_URL?.trim();
+    if (workerAdminUrl) {
+      return createActionRequestViaWorker(workerAdminUrl, input);
+    }
     const request = await createActionRequest(input);
     return { id: request.id };
   }
@@ -585,6 +826,114 @@ export class InProcessControlPlane implements AgentControlPlane {
     });
   }
 
+  async listRecordCatalog(input: {
+    orgId: string;
+    runId: string;
+    appId?: string;
+  }): Promise<RecordsCatalogResult> {
+    const [viewer, activeAppIds, runtime] = await Promise.all([
+      recordsViewerForRun(input),
+      activeRecordAppIds(input.orgId),
+      recordsControlPlaneRuntime(),
+    ]);
+    return runtime.gateway.listCatalog({
+      viewer,
+      activeAppIds,
+      ...(input.appId ? { appId: input.appId } : {}),
+    });
+  }
+
+  async findRecords(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    first?: number;
+    after?: string | null;
+    sort?: { field: string; direction: "asc" | "desc" };
+    search?: string | null;
+    filters?: RecordListFilter[];
+    myRecords?: boolean;
+  }): Promise<RecordsQueryResult> {
+    const [viewer, activeAppIds, runtime] = await Promise.all([
+      recordsViewerForRun(input),
+      activeRecordAppIds(input.orgId),
+      recordsControlPlaneRuntime(),
+    ]);
+    return runtime.gateway.findRecords({ ...input, viewer, activeAppIds });
+  }
+
+  async getRecord(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    recordId: string;
+    allFields?: boolean;
+  }): Promise<RecordsDetailResult> {
+    const [viewer, activeAppIds, runtime] = await Promise.all([
+      recordsViewerForRun(input),
+      activeRecordAppIds(input.orgId),
+      recordsControlPlaneRuntime(),
+    ]);
+    return runtime.gateway.getRecord({ ...input, viewer, activeAppIds });
+  }
+
+  async findRecycledRecords(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    first?: number;
+    after?: string | null;
+    search?: string | null;
+  }): Promise<RecordsRecycleQueryResult> {
+    const [viewer, activeAppIds, runtime] = await Promise.all([
+      recordsViewerForRun(input),
+      activeRecordAppIds(input.orgId),
+      recordsControlPlaneRuntime(),
+    ]);
+    return runtime.gateway.findRecycledRecords({ ...input, viewer, activeAppIds });
+  }
+
+  async getRecycledRecord(input: {
+    orgId: string;
+    runId: string;
+    appId: string;
+    objectApiName: string;
+    recordId: string;
+  }): Promise<RecordsRecycleDetailResult> {
+    const [viewer, activeAppIds, runtime] = await Promise.all([
+      recordsViewerForRun(input),
+      activeRecordAppIds(input.orgId),
+      recordsControlPlaneRuntime(),
+    ]);
+    return runtime.gateway.getRecycledRecord({ ...input, viewer, activeAppIds });
+  }
+
+  async listRecordBlueprints(input: {
+    orgId: string;
+    blueprintId?: string;
+  }) {
+    // orgId deliberately remains part of the brokered call for uniform audit
+    // attribution even though shipped blueprint content is organization-neutral.
+    void input.orgId;
+    const { listRecordAppBlueprints, loadRecordAppBlueprint } = await import(
+      "@neko/records"
+    );
+    const blueprints = input.blueprintId
+      ? [await loadRecordAppBlueprint(input.blueprintId)]
+      : await listRecordAppBlueprints();
+    return {
+      blueprints: blueprints.map((blueprint) => ({
+        id: blueprint.id,
+        version: blueprint.version,
+        description: blueprint.description,
+        ...(input.blueprintId ? { payload: blueprint.payload } : {}),
+      })),
+    };
+  }
+
   async saveWorkflowWithTrigger(
     input: SaveWorkflowInput,
   ): Promise<Wire<SaveWorkflowWithTriggerResult>> {
@@ -684,7 +1033,13 @@ export class InProcessControlPlane implements AgentControlPlane {
   }
 
   async listUsers(input: { orgId: string }) {
-    const { app_user, db, eq } = await import("@neko/db");
+    const {
+      app_user,
+      db,
+      eq,
+      sso_group,
+      sso_group_membership,
+    } = await import("@neko/db");
     const rows = await db()
       .select({
         id: app_user.id,
@@ -696,12 +1051,36 @@ export class InProcessControlPlane implements AgentControlPlane {
       })
       .from(app_user)
       .where(eq(app_user.org_id, input.orgId));
+    const [groups, memberships] = await Promise.all([
+      db()
+        .select({
+          id: sso_group.id,
+          provider: sso_group.provider,
+          tenantId: sso_group.tenant_id,
+          externalId: sso_group.external_id,
+          displayName: sso_group.display_name,
+          active: sso_group.active,
+        })
+        .from(sso_group)
+        .where(eq(sso_group.org_id, input.orgId)),
+      db()
+        .select({
+          userId: sso_group_membership.user_id,
+          groupId: sso_group_membership.group_id,
+        })
+        .from(sso_group_membership)
+        .where(eq(sso_group_membership.org_id, input.orgId)),
+    ]);
     return {
       users: rows.map((r) => ({
         ...r,
         disabledAt: r.disabledAt?.toISOString() ?? null,
         lastLoginAt: r.lastLoginAt?.toISOString() ?? null,
+        groupIds: memberships
+          .filter((membership) => membership.userId === r.id)
+          .map((membership) => membership.groupId),
       })),
+      groups,
     };
   }
 

@@ -104,6 +104,25 @@ describe("buildWorkflowRunnerPrompt", () => {
     },
   );
 
+  it("uses an internal record action's scope in the workflow fence example", () => {
+    const prompt = buildWorkflowRunnerPrompt({
+      ...base,
+      mcpTools: false,
+      pluginActions: [
+        {
+          kind: "record_create",
+          scope: "internal",
+          description: "Create a generated-app record.",
+          default_mode: "ask",
+        },
+      ],
+    });
+
+    expect(prompt).toContain('"scope": "internal"');
+    expect(prompt).toContain("`record_create` (scope: internal)");
+    expect(prompt).toContain("Always use the exact scope listed");
+  });
+
   it("includes the workflow's overlay and steps in both branches", () => {
     for (const mcpTools of [true, false]) {
       const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools });

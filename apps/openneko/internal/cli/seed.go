@@ -18,6 +18,9 @@ func newSeedCmd() *cobra.Command {
 		Short: "Load demo data (currently only adventureworks)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := configureBackupEnvironment(); err != nil {
+				return err
+			}
 			target := "adventureworks"
 			if len(args) == 1 {
 				target = args[0]

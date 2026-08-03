@@ -14,6 +14,7 @@ import {
   getPluginRegistryInstance,
 } from "../plugins/registry-instance.js";
 import { deliverChatReply } from "../channels/delivery.js";
+import { includeRecordActionDescriptors } from "../records/adapters.js";
 
 export async function runWorkRun(
   _jobId: string,
@@ -62,8 +63,9 @@ export async function runWorkRun(
     await appendWorkRunEvent({ orgId, threadId, runId, event: scrubbed });
   };
 
-  const pluginActions =
-    getPluginRegistryInstance()?.getRegisteredActionDescriptors() ?? [];
+  const pluginActions = includeRecordActionDescriptors(
+    getPluginRegistryInstance()?.getRegisteredActionDescriptors() ?? [],
+  );
 
   const broker = await ensureAgentBroker();
   const unregisterBrokerEvents = registerAgentBrokerEventSink(runId, emit);

@@ -17,6 +17,9 @@ func newStopCmd() *cobra.Command {
 		Short: "Bring down the OpenNeko stack",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := configureBackupEnvironment(); err != nil {
+				return err
+			}
 			sup := compose.New(assets.ComposeFS)
 			// Materialize against the broadest mode (demo) so we tear down any
 			// overlay services the operator may have started.

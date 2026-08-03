@@ -73,6 +73,20 @@ export class ActionRequestNotApprovedError extends Error {
 }
 
 /**
+ * Adapter-side signal that execution may be retried without terminally
+ * failing the action request. The current execution attempt is still logged
+ * as failed; the approved request remains eligible for the queue retry.
+ */
+export class RetryableActionAdapterError extends Error {
+  readonly code = "action_adapter_retryable";
+
+  constructor(message: string, options: { cause?: unknown } = {}) {
+    super(message, options);
+    this.name = "RetryableActionAdapterError";
+  }
+}
+
+/**
  * Execute an approved action_request. Writes an action_execution row,
  * runs the registered adapter (or the default mock adapter), updates
  * the execution + request status, and returns the final execution
@@ -130,6 +144,7 @@ export async function executeApprovedActionRequest(
       status: "failed",
       error: msg,
     });
+    if (err instanceof RetryableActionAdapterError) throw err;
     await markActionRequestFailed(request.id, msg);
     return { ok: false, error: msg };
   }

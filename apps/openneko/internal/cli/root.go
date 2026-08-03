@@ -69,7 +69,7 @@ func NewRoot() *cobra.Command {
 
 Getting started: setup (guided install — preflight, bring-up, configure).
 Plugin ops: init, install, list, remove, marketplace, secrets, doctor.
-Stack ops:  start, upgrade, stop, logs, status, migrate, seed, reset.`,
+Stack ops:  start, upgrade, stop, logs, status, backup, restore, migrate, seed, reset.`,
 		Version:       version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -96,6 +96,9 @@ Stack ops:  start, upgrade, stop, logs, status, migrate, seed, reset.`,
 		newUpgradeCmd(),
 		newStopCmd(),
 		newStatusCmd(),
+		newBackupCmd(),
+		newRestoreCmd(),
+		newRecordsCmd(),
 		newLogsCmd(),
 		newMigrateCmd(),
 		newSeedCmd(),

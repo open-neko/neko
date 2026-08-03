@@ -61,6 +61,7 @@ observation and end. Let the work stop where the steps say it should.
 export type PluginActionPromptDescriptor = {
   kind: string;
   description: string;
+  scope?: "external" | "internal";
   default_mode?:
     | "auto"
     | "ask"
@@ -93,7 +94,7 @@ function installedKindsBlock(
   if (active.length === 0) return "";
   const rows = active
     .map((d) => {
-      const head = `  - \`${d.kind}\` — ${d.description.split("\n")[0]}`;
+      const head = `  - \`${d.kind}\` (scope: ${d.scope ?? "external"}) — ${d.description.split("\n")[0]}`;
       return d.example
         ? `${head}\n    example payload: ${JSON.stringify(d.example)}`
         : head;
@@ -103,7 +104,8 @@ function installedKindsBlock(
 Installed action kinds — when a step calls for one of these, use the
 EXACT \`kind\` value below; do NOT substitute a generic kind like
 \`send_message\` (the policy rules and the executing adapter both match
-on the exact kind, so a generic name silently fails to route):
+on the exact kind, so a generic name silently fails to route). Use the
+listed scope exactly too:
 ${rows}
 `;
 }
@@ -164,7 +166,9 @@ Emit each fence exactly once. The fence body must be valid JSON.
 function buildFenceActionsBlock(
   pluginActions: readonly PluginActionPromptDescriptor[],
 ): string {
-  const exampleKind = activeKinds(pluginActions)[0]?.kind ?? "send_message";
+  const example = activeKinds(pluginActions)[0];
+  const exampleKind = example?.kind ?? "send_message";
+  const exampleScope = example?.scope ?? "external";
   return `<actions>
 Workflows decide; actions mutate. When a step needs to change real-world
 or internal state, propose it as a fenced JSON block that the runtime
@@ -172,7 +176,7 @@ will route through policy. Use exactly this format:
 
 \`\`\`neko_action_request
 {
-  "scope": "external",
+  "scope": "${exampleScope}",
   "kind": "${exampleKind}",
   "payload": { /* kind-specific fields */ },
   "risk_level": "low",
@@ -181,8 +185,9 @@ will route through policy. Use exactly this format:
 \`\`\`
 ${installedKindsBlock(pluginActions)}
 Allowed \`scope\`: \`internal\` (memory_write, briefing_create,
-schedule_workflow) or \`external\` (installed kinds above, plus generic
-mutate_record, open_pr, run_command, …).
+schedule_workflow, and installed kinds marked internal) or \`external\`
+(installed kinds marked external, plus generic mutate_record, open_pr,
+run_command, …). Always use the exact scope listed for an installed kind.
 \`risk_level\` is an internal tag (\`low\`, \`medium\`, \`high\`,
 \`critical\`) policy uses to route — fill it in honestly, but never
 repeat the value back to the operator in prose. \`summary\` is what the

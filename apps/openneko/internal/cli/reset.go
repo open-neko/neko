@@ -23,6 +23,9 @@ func newResetCmd() *cobra.Command {
 		Short: "Tear down the stack and clear local state",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := configureBackupEnvironment(); err != nil {
+				return err
+			}
 			sup := compose.New(assets.ComposeFS)
 			files, err := sup.Materialize(compose.ModeDemo)
 			if err != nil {

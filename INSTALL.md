@@ -84,7 +84,9 @@ openneko version
 
 Modes:
 
-- **`prod`** (default) — core services: `neko-db`, `neko-graphjin`, `web`, `worker`.
+- **`prod`** (default) — the production control, records, customer-data,
+  backup/storage, and OpenShell services. Ten containers remain running after
+  the four startup jobs complete.
 - **`dev`** — source-checkout workflow: use `pnpm dev:setup` for Docker-only dependencies plus AdventureWorks demo data, then `pnpm dev` for hot-reloaded web/worker from source.
 - **`demo`** — core + AdventureWorks: `adventureworks-db`, `adventureworks-init`, `neko-adventureworks-seed`. The full live-trial flow (continuous order trickle + scenario injector) lives in `compose.adventureworks.yml` and needs the [Build from source](#build-from-source-advanced) path.
 

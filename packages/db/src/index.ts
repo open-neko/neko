@@ -12,6 +12,14 @@ import * as schema from "./schema";
 export { schema };
 export * from "./schema";
 export { buildPoolConfig } from "./connection";
+export {
+  buildRecordsPoolConfig,
+  defaultRecordsMigrationsDir,
+  discoverRecordsMigrations,
+  runRecordsMigrations,
+  type RecordsMigration,
+  type RecordsMigrationResult,
+} from "./records-migrate";
 export { createNotifyClient, type NotifyClient } from "./notify";
 export { getOrgId, _resetOrgIdCacheForTesting } from "./org";
 export {

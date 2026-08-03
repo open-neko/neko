@@ -71,6 +71,7 @@ type ReceiptRow = {
   workflowRunId: string | null;
   workflow: { id: string; name: string } | null;
   trigger: string | null;
+  payload: unknown;
 };
 
 type RecentActionsPayload = {
@@ -89,6 +90,7 @@ type AwaitingRow = {
   summary: string;
   status: string;
   runAt: string;
+  payload: unknown;
 };
 
 type AwaitingPayload = {
@@ -128,6 +130,8 @@ function groupAwaiting(
       headline: r.summary || r.kind,
       detail: null,
       target: r.target,
+      kind: r.kind,
+      payload: r.payload,
       status: r.status,
     };
     const existing = groups.get(r.workflowRunId);
@@ -176,6 +180,8 @@ function groupReceipts(
       headline,
       detail: null,
       target: r.summary ? r.target : null, // headline already includes target when summary is absent
+      kind: r.kind,
+      payload: r.payload,
       approverPhrase: approverPhrase(r.approverKind, r.approverLabel),
       status: r.status,
       minutesSaved: r.minutesSaved,
@@ -320,17 +326,18 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!gateChecked) return;
-    void fetchFindings();
-    void fetchRecentActions();
-    void fetchAwaiting();
-    void fetchHoursSaved();
-    const id = setInterval(() => {
+    const refresh = () => {
       void fetchFindings();
       void fetchRecentActions();
       void fetchAwaiting();
       void fetchHoursSaved();
-    }, 30_000);
-    return () => clearInterval(id);
+    };
+    const initialRefreshId = window.setTimeout(refresh, 0);
+    const refreshId = window.setInterval(refresh, 30_000);
+    return () => {
+      window.clearTimeout(initialRefreshId);
+      window.clearInterval(refreshId);
+    };
   }, [gateChecked, fetchFindings, fetchRecentActions, fetchAwaiting, fetchHoursSaved]);
 
   const surfaceId =
@@ -362,10 +369,13 @@ export default function Dashboard() {
   useEffect(() => {
     if (!gateChecked) return;
     if (!role) {
-      setLoading(false);
-      return;
+      const clearLoadingId = window.setTimeout(() => setLoading(false), 0);
+      return () => window.clearTimeout(clearLoadingId);
     }
-    fetchBriefing(role);
+    const briefingId = window.setTimeout(() => {
+      void fetchBriefing(role);
+    }, 0);
+    return () => window.clearTimeout(briefingId);
   }, [role, fetchBriefing, gateChecked]);
 
   // Track whether the current role's surface has any cards still pending
@@ -510,13 +520,16 @@ export default function Dashboard() {
   // in agreement, and useEffect populates the real string after hydration.
   const [ds, setDs] = useState("");
   useEffect(() => {
-    setDs(
-      new Date().toLocaleDateString("en-IN", {
-        weekday: "short",
-        month: "long",
-        day: "numeric",
-      }),
-    );
+    const dateId = window.setTimeout(() => {
+      setDs(
+        new Date().toLocaleDateString("en-IN", {
+          weekday: "short",
+          month: "long",
+          day: "numeric",
+        }),
+      );
+    }, 0);
+    return () => window.clearTimeout(dateId);
   }, []);
 
   return (
@@ -659,9 +672,9 @@ export default function Dashboard() {
                   <span className="font-mono dash-call-count">
                     {awaiting.count}
                   </span>
-                  <a className="dash-call-skim" href="/actions?filter=awaiting">
+                  <Link className="dash-call-skim" href="/actions?filter=awaiting">
                     open all →
-                  </a>
+                  </Link>
                 </div>
                 <div className="act-list">
                   {groupAwaiting(awaiting.actions).map((group, i) => (

@@ -54,19 +54,31 @@ describe("local-config (~/.config/openneko/config.json)", () => {
   });
 
   it("writeLocalConfig deep-merges into existing pg config", () => {
-    writeLocalConfig({ pg: { password: "first", host: "h1" } });
-    writeLocalConfig({ pg: { password: "second" } });
+    writeLocalConfig({
+      pg: { password: "first", host: "h1" },
+      recordsPg: { password: "records-first", host: "r1" },
+    });
+    writeLocalConfig({
+      pg: { password: "second" },
+      recordsPg: { password: "records-second" },
+    });
     const cfg = readLocalConfig();
     // host preserved from first write; password updated by second.
     expect(cfg.pg).toEqual({ password: "second", host: "h1" });
+    expect(cfg.recordsPg).toEqual({ password: "records-second", host: "r1" });
   });
 
   it("writeLocalConfig produces a JSON file with the password encrypted at rest", async () => {
-    writeLocalConfig({ pg: { password: "p" } });
+    writeLocalConfig({
+      pg: { password: "p" },
+      recordsPg: { password: "records-p" },
+    });
     const raw = await readFile(localConfigPath(), "utf8");
     const parsed = JSON.parse(raw);
     expect(parsed.pg.password).toMatch(/^enc:v1:/);
+    expect(parsed.recordsPg.password).toMatch(/^enc:v1:/);
     expect(readLocalConfig().pg?.password).toBe("p");
+    expect(readLocalConfig().recordsPg?.password).toBe("records-p");
   });
 
   it("readLocalConfig tolerates malformed JSON (returns empty)", async () => {
@@ -78,9 +90,14 @@ describe("local-config (~/.config/openneko/config.json)", () => {
 
   it("hasCustomPassword ignores the bootstrap password", () => {
     expect(hasCustomPassword()).toBe(false);
-    writeLocalConfig({ pg: { password: "secret" } });
+    writeLocalConfig({
+      pg: { password: "secret" },
+      recordsPg: { password: "records-secret" },
+    });
     expect(hasCustomPassword()).toBe(false);
     writeLocalConfig({ pg: { password: "p" } });
+    expect(hasCustomPassword()).toBe(false);
+    writeLocalConfig({ recordsPg: { password: "records-p" } });
     expect(hasCustomPassword()).toBe(true);
   });
 });

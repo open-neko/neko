@@ -29,7 +29,15 @@ export const AuthIdentity = z.object({
    * mapping. Empty list means the IdP returned no groups — the core
    * falls back to a default role.
    */
-  groups: z.array(z.string()).default([]),
+  groups: z.array(z.union([
+    z.string(),
+    z.object({
+      /** Immutable provider group identifier used for authorization. */
+      id: z.string().min(1),
+      /** Mutable display label; never used as an authorization key. */
+      name: z.string().nullable().optional(),
+    }),
+  ])).default([]),
 });
 
 export type AuthIdentity = z.infer<typeof AuthIdentity>;

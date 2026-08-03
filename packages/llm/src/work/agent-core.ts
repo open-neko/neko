@@ -7,6 +7,11 @@ import type {
 import { buildRuleBuilderServer, buildWorkflowBuilderServer } from "../workflows";
 import type { AgentControlPlane } from "./control-plane";
 import {
+  parseAppWorkContext,
+  parseRecordWorkContext,
+  type WorkDataSurface,
+} from "./data-surface";
+import {
   buildPluginActionServer,
   buildPluginManagerServer,
   buildAuditViewerServer,
@@ -15,6 +20,7 @@ import {
   buildSourceConfigManagerServer,
   buildUserManagerServer,
   buildRenderCardsServer,
+  buildRecordsReadServer,
   buildSkillBuilderServer,
   buildWorkMemoryServer,
   type PluginActionDescriptor,
@@ -33,6 +39,8 @@ export interface RunAgentBackendInput {
   pluginActions: readonly PluginActionDescriptor[];
   /** Mount the GraphJin source-config MCP server for this admin run. */
   sourceConfigEnabled?: boolean;
+  /** Selects the isolated data plane for this turn. */
+  dataSurface?: WorkDataSurface;
   /** In-process on the host; broker-backed inside the agent sandbox. */
   controlPlane?: AgentControlPlane;
   /** Whether this channel renders a2ui cards (web). Default true. Gates the
@@ -67,6 +75,7 @@ export async function runAgentBackend(
     backendState,
     pluginActions,
     sourceConfigEnabled = false,
+    dataSurface = "customer",
     controlPlane,
     wantsCards = true,
     emit,
@@ -74,7 +83,22 @@ export async function runAgentBackend(
   } = input;
 
   const mcp = backend.capabilities.mcpTools;
-  const pluginActionServer = mcp
+  const recordsOnly = dataSurface === "records";
+  const appContext = recordsOnly
+    ? parseAppWorkContext(backendState?.appContext)
+    : null;
+  const recordContext = recordsOnly
+    ? parseRecordWorkContext(backendState?.recordContext)
+    : null;
+  // Legacy record-context threads retain their original exact-object scope.
+  // App-owned chat uses the actor's normal records grants across apps.
+  const recordScope = !appContext && recordContext
+    ? {
+        appId: recordContext.appId,
+        objectApiName: recordContext.objectApiName,
+      }
+    : undefined;
+  const pluginActionServer = mcp && !recordsOnly
     ? buildPluginActionServer({
         orgId,
         threadId,
@@ -86,11 +110,21 @@ export async function runAgentBackend(
     : null;
 
   const mcpServers = mcp
-    ? {
+    ? recordsOnly
+      ? {
+          neko_records: buildRecordsReadServer({
+            orgId,
+            runId,
+            controlPlane,
+            ...(recordScope ? { scope: recordScope } : {}),
+          }),
+        }
+      : {
         // Rendering is per-channel: the card server only ships to web turns.
         ...(wantsCards ? { neko_ui: buildRenderCardsServer(emit) } : {}),
         neko_skills: buildSkillBuilderServer(workspace.skillsRoot),
         neko_memory: buildWorkMemoryServer({ orgId, threadId, runId }, { controlPlane }),
+        neko_records: buildRecordsReadServer({ orgId, runId, controlPlane }),
         neko_workflow_builder: buildWorkflowBuilderServer({
           orgId,
           createdByThreadId: threadId,
@@ -161,9 +195,26 @@ export async function runAgentBackend(
           OPENNEKO_MCP_THREAD_ID: threadId,
           OPENNEKO_MCP_RUN_ID: runId,
           OPENNEKO_MCP_SKILLS_ROOT: workspace.skillsRoot,
-          OPENNEKO_MCP_PLUGIN_ACTIONS: JSON.stringify(pluginActions ?? []),
+          OPENNEKO_MCP_PLUGIN_ACTIONS: JSON.stringify(
+            recordsOnly ? [] : (pluginActions ?? []),
+          ),
+          ...(recordScope
+            ? { OPENNEKO_MCP_RECORD_SCOPE: JSON.stringify(recordScope) }
+            : {}),
         }
       : undefined,
+    allowedTools:
+      recordsOnly && backend.capabilities.canUseToolGate
+        ? [
+            "Skill",
+            "AskUserQuestion",
+            "mcp__neko_records__browse_catalog",
+            "mcp__neko_records__find_records",
+            "mcp__neko_records__get_record",
+            "mcp__neko_records__find_recycled_records",
+            "mcp__neko_records__get_recycled_record",
+          ]
+        : undefined,
     wantsCards,
     tag: `work ${runId}`,
     signal,

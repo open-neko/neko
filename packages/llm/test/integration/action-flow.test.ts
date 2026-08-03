@@ -7,11 +7,16 @@ import {
   createActionPolicy,
   createActionRequest,
   executeApprovedActionRequest,
+  getActionRequest,
   InvalidActionStatusTransitionError,
+  listActionExecutions,
   rejectActionRequest,
   registerActionAdapter,
+  registerActionRequestCreatedHook,
+  RetryableActionAdapterError,
   saveWorkflow,
   createWorkflowRun,
+  updateActionRequestPayload,
 } from "../../src/workflows";
 import { createWorkRun, createWorkThread } from "../../src/work/store";
 
@@ -95,6 +100,69 @@ describeIfDb("action stack — approve → execute → executed", () => {
     });
   });
 
+  it("finishes request preflight before returning an approvable request", async () => {
+    await withTestOrg(async (orgId) => {
+      const unregister = registerActionRequestCreatedHook(async (request) => {
+        if (request.kind !== "test_preflight") return;
+        return updateActionRequestPayload({
+          id: request.id,
+          orgId: request.orgId,
+          payload: { ...request.payload, preview_hash: "sha256:test" },
+        });
+      });
+      try {
+        const request = await createActionRequest({
+          orgId,
+          scope: "internal",
+          kind: "test_preflight",
+          payload: { app: "support" },
+          status: "pending_approval",
+        });
+        expect(request).toMatchObject({
+          status: "pending_approval",
+          payload: { app: "support", preview_hash: "sha256:test" },
+        });
+      } finally {
+        unregister();
+      }
+    });
+  });
+
+  it("fails a request when its preflight cannot produce an approval artifact", async () => {
+    await withTestOrg(async (orgId) => {
+      const unregister = registerActionRequestCreatedHook(async (request) => {
+        if (request.kind === "test_preflight_failure") {
+          throw new Error("catalog unavailable");
+        }
+      });
+      try {
+        await expect(
+          createActionRequest({
+            orgId,
+            scope: "internal",
+            kind: "test_preflight_failure",
+            status: "pending_approval",
+          }),
+        ).rejects.toThrow("catalog unavailable");
+        const [failed] = await db()
+          .select()
+          .from(action_request)
+          .where(
+            and(
+              eq(action_request.org_id, orgId),
+              eq(action_request.kind, "test_preflight_failure"),
+            ),
+          );
+        expect(failed).toMatchObject({
+          status: "failed",
+          rejection_reason: "action preflight failed: catalog unavailable",
+        });
+      } finally {
+        unregister();
+      }
+    });
+  });
+
   it("reject leaves status=rejected and execute throws", async () => {
     await withTestOrg(async (orgId) => {
       const { workflowRunId } = await setupWorkflowRun(orgId);
@@ -172,6 +240,53 @@ describeIfDb("action stack — approve → execute → executed", () => {
       } finally {
         // Clean up the test adapter so other tests aren't affected.
         registerActionAdapter("test_send_message", async () => ({
+          result: { mocked: true },
+        }));
+      }
+    });
+  });
+
+  it("keeps approved requests retryable after an uncertain adapter attempt", async () => {
+    await withTestOrg(async (orgId) => {
+      let attempts = 0;
+      registerActionAdapter("test_retryable_action", async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new RetryableActionAdapterError("temporary upstream outage");
+        }
+        return { result: { recovered: true } };
+      });
+      try {
+        const { workflowRunId } = await setupWorkflowRun(orgId);
+        const request = await createActionRequest({
+          orgId,
+          workflowRunId,
+          scope: "internal",
+          kind: "test_retryable_action",
+          payload: {},
+          status: "approved",
+          summary: "retry me",
+        });
+
+        await expect(
+          executeApprovedActionRequest(orgId, request.id),
+        ).rejects.toBeInstanceOf(RetryableActionAdapterError);
+        await expect(getActionRequest(orgId, request.id)).resolves.toMatchObject({
+          status: "approved",
+        });
+        await expect(executeApprovedActionRequest(orgId, request.id)).resolves.toMatchObject({
+          ok: true,
+          outcome: { result: { recovered: true } },
+        });
+        await expect(listActionExecutions(request.id)).resolves.toEqual([
+          expect.objectContaining({ status: "succeeded" }),
+          expect.objectContaining({
+            status: "failed",
+            error: "temporary upstream outage",
+          }),
+        ]);
+      } finally {
+        registerActionAdapter("test_retryable_action", async () => ({
           result: { mocked: true },
         }));
       }

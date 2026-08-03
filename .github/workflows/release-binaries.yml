@@ -54,12 +54,44 @@ jobs:
             target: neko-graphjin
             platform: linux/arm64
             runner: ubuntu-24.04-arm
+          - image: records-graphjin
+            target: records-graphjin
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - image: records-graphjin
+            target: records-graphjin
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
           - image: neko-cli
             target: neko-cli
             platform: linux/amd64
             runner: ubuntu-22.04
           - image: neko-cli
             target: neko-cli
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - image: neko-db
+            target: neko-db
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - image: neko-db
+            target: neko-db
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - image: records-db
+            target: records-db
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - image: records-db
+            target: records-db
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - image: neko-backup
+            target: neko-backup
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - image: neko-backup
+            target: neko-backup
             platform: linux/arm64
             runner: ubuntu-24.04-arm
           # agent-in-sandbox image (Dockerfile `agent` stage): worker + hermes
@@ -141,7 +173,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [neko-web, neko-worker, neko-graphjin, neko-cli, agent, plugin-base]
+        image: [neko-web, neko-worker, neko-graphjin, records-graphjin, neko-cli, neko-db, records-db, neko-backup, agent, plugin-base]
     steps:
       - name: Resolve release tag
         id: tag

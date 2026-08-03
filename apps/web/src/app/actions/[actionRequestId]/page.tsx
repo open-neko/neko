@@ -7,6 +7,10 @@ import CreatorCredit from "@/components/CreatorCredit";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import { cn } from "@/lib/cn";
+import {
+  parseRecordUpdatePayload,
+  RecordActionDiff,
+} from "@/components/records/RecordActionDiff";
 
 function actionStatusClasses(status: string): string {
   switch (status) {
@@ -140,7 +144,10 @@ export default function ActionPage() {
   }, [actionRequestId]);
 
   useEffect(() => {
-    void load();
+    const initialLoadId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(initialLoadId);
   }, [load]);
 
   // Poll while pending so an auto-approval or executor result lands without
@@ -223,6 +230,7 @@ export default function ActionPage() {
   const { actionRequest: ar, executions, workflow, policy, upstreamOutput, approverKind } = data;
   const isPending = ar.status === "pending_approval";
   const latestExecution = executions[0] ?? null;
+  const recordUpdate = parseRecordUpdatePayload(ar.kind, ar.payload);
 
   return (
     <>
@@ -259,6 +267,16 @@ export default function ActionPage() {
             </button>
           }
         />
+
+        {recordUpdate && (
+          <Section title="Proposed change">
+            <RecordActionDiff
+              kind={ar.kind}
+              payload={ar.payload}
+              policyContext={isPending && policy ? `rule "${policy.name}"` : null}
+            />
+          </Section>
+        )}
 
         <Section title="Receipt">
           <dl className="grid gap-3.5 m-0">

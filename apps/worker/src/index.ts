@@ -1,6 +1,10 @@
 import "dotenv/config";
 
+import { randomUUID } from "node:crypto";
+import { readFile, realpath, stat } from "node:fs/promises";
 import { createServer } from "node:http";
+import { resolve, sep } from "node:path";
+import pg from "pg";
 import type PgBoss from "pg-boss";
 import {
   boss,
@@ -9,12 +13,41 @@ import {
   type ActionExecutePayload,
   type ChannelDeliverPayload,
   type ProcessingJobPayload,
+  type RecordsIdentityLinkPayload,
+  type RecordsImportPayload,
+  type RecordsBackupVerifyPayload,
+  type RecordsOpsWatchPayload,
+  type RecordsWatchEvaluatePayload,
+  type RecordsWatchSweepPayload,
+  type RecordsSalesforceCutoverPayload,
+  type RecordsSalesforceExportPayload,
+  type RecordsSalesforceSyncPayload,
   type WorkflowRunFirePayload,
   type WorkRunPayload,
 } from "@neko/db/jobs";
-import { createAdminHandler } from "./admin-server.js";
+import { buildRecordsPoolConfig } from "@neko/db/records-migrate";
 import {
+  RecordBackfillExecutor,
+  RecordsAccessAdmin,
+  mintRecordsGraphjinToken,
+  normalizeRecordImportSourcePath,
+  RecordRegistry,
+  RecordImportExecutor,
+  RecordOwnerBackfillExecutor,
+  recordsGraphjinSigningSecret,
+  recordsWatchGraphjinSigningSecret,
+  recordsWatchWebhookSecret,
+  RecordsGraphjinClient,
+  RecordWriteExecutor,
+} from "@neko/records";
+import {
+  createAdminHandler,
+  type RecordsImportHandlerSurface,
+} from "./admin-server.js";
+import {
+  and,
   data_source,
+  app_state,
   db,
   desc,
   eq,
@@ -34,7 +67,10 @@ import {
 import {
   getDataSourceForOrg,
   getWorkflowRunChainDepth,
+  approveActionRequest,
+  createActionRequest,
   dispatchExternalEvent,
+  getActionRequest,
   handleSourceChangeMatch,
   handleSubscriptionMatch,
   registerBuiltinAdapters,
@@ -64,10 +100,57 @@ import { runWorkflowCronSweep } from "./jobs/workflow-cron-sweep.js";
 import { runWorkflowRunFire } from "./jobs/workflow-run-fire.js";
 import { runWorkflowOutputTtlSweep } from "./jobs/workflow-output-ttl-sweep.js";
 import { runActionExecute } from "./jobs/action-execute.js";
+import { runRecordsImport } from "./jobs/records-import.js";
+import { runRecordsIdentityLink } from "./jobs/records-identity-link.js";
+import { runRecordsBackupVerification } from "./jobs/records-backup-verify.js";
+import { seedOpenNekoOpsWorkflow } from "./jobs/records-ops-finding.js";
+import {
+  createRecordsOpsWatchDependencies,
+  runRecordsOpsWatch,
+} from "./jobs/records-ops-watch.js";
+import { runRecordsSalesforceExport } from "./jobs/records-salesforce-export.js";
+import { runRecordsSalesforceCutover } from "./jobs/records-salesforce-cutover.js";
+import { runRecordsSalesforceSync } from "./jobs/records-salesforce-sync.js";
+import {
+  defaultSalesforceSyncSweepDependencies,
+  runRecordsSalesforceSyncSweep,
+} from "./jobs/records-salesforce-sync-sweep.js";
 import {
   reconcileStaleProcessingJobs,
   reconcileStaleRuns,
 } from "./reconciler.js";
+import {
+  includeRecordActionDescriptors,
+  recordActionRequestSourceWrite,
+  registerRecordActionAdapters,
+} from "./records/adapters.js";
+import { registerRecordSchemaActions } from "./records/schema-adapters.js";
+import { registerRecordImportActions } from "./records/import-adapters.js";
+import { registerRecordIdentityActions } from "./records/identity-adapters.js";
+import { registerRecordSalesforceActions } from "./records/salesforce-adapters.js";
+import { registerRecordArtifactImportActions } from "./records/artifact-import-adapters.js";
+import { registerRecordBackfillAction } from "./records/backfill-adapters.js";
+import { registerRecordAccessActions } from "./records/access-adapters.js";
+import { refreshArtifactImportState } from "./records/artifact-import-state.js";
+import {
+  createRecordsSchemaRuntime,
+  resolveRecordsWatchWebhookUrl,
+} from "./records/schema-runtime.js";
+import { createRecordsStorageMonitor } from "./records/storage-health.js";
+import { createRecordsCliImportBridge } from "./records/cli-import.js";
+import { cleanupRecordsManagedStaging } from "./records/staging-hygiene.js";
+import {
+  createRecordsStarterWatchSeeder,
+  enqueueRecordsWatchFallbackSweep,
+  reconcileRecordsNativeWatchDeliveries,
+  receiveRecordsNativeWatchEvent,
+} from "./records/starter-watches.js";
+import { createRecordsWatchEvaluator } from "./jobs/records-watch-evaluate.js";
+import {
+  buildRecordsSingleImportReport,
+  publishRecordsAppCreationSummary,
+  publishRecordsImportReport,
+} from "./jobs/records-lifecycle-finding.js";
 
 const PORT: number = 4100;
 const MAX_JOB_RETRIES: number = 2;
@@ -83,6 +166,110 @@ const RECONCILE_SWEEP_MIN_AGE_MS: number = Math.max(
 const SCHEDULED_REFRESH_HOURS: number = 24;
 
 const ADMIN_ORG_ID = await getOrgId();
+const recordsPool = new pg.Pool({
+  ...buildRecordsPoolConfig(),
+  application_name: "openneko-worker-records",
+});
+const recordsRegistry = new RecordRegistry(recordsPool);
+const recordsOpsWatchDependencies = createRecordsOpsWatchDependencies(recordsPool);
+const recordsGraphjin = new RecordsGraphjinClient({
+  baseUrl:
+    process.env.OPENNEKO_RECORDS_GRAPHJIN_URL ?? "http://127.0.0.1:8090",
+});
+const recordsServiceToken = (orgId: string) =>
+  mintRecordsGraphjinToken({
+    secret: recordsGraphjinSigningSecret(orgId),
+    orgId,
+    userId: "records-service",
+    role: "service",
+  });
+const recordsWatchGraphjin = new RecordsGraphjinClient({
+  baseUrl:
+    process.env.OPENNEKO_RECORDS_WATCH_GRAPHJIN_URL ??
+    "http://127.0.0.1:8091",
+});
+const recordsWatchServiceToken = (orgId: string) =>
+  mintRecordsGraphjinToken({
+    secret: recordsWatchGraphjinSigningSecret(orgId),
+    orgId,
+    userId: "records-watch-service",
+    role: "service",
+  });
+const recordsWatchWebhookUrl = resolveRecordsWatchWebhookUrl();
+const seedRecordsStarterWatches = createRecordsStarterWatchSeeder({
+  graphjin: recordsWatchGraphjin,
+  token: recordsWatchServiceToken,
+  webhookUrl: recordsWatchWebhookUrl,
+});
+const evaluateRecordsStarterWatch = createRecordsWatchEvaluator({
+  graphjin: recordsWatchGraphjin,
+  token: recordsWatchServiceToken,
+  registry: recordsRegistry,
+});
+const recordsStorageMonitor = createRecordsStorageMonitor();
+
+async function readRecordImportSource(orgId: string, sourcePath: string): Promise<Uint8Array> {
+  const relativePath = normalizeRecordImportSourcePath(sourcePath);
+  const workspace = await ensureOrgWorkspace(orgId);
+  const root = await realpath(workspace.orgRoot);
+  const file = await realpath(resolve(root, relativePath));
+  if (file !== root && !file.startsWith(`${root}${sep}`)) {
+    throw new Error("records import source escapes its organization workspace");
+  }
+  const metadata = await stat(file);
+  if (!metadata.isFile()) throw new Error("records import source is not a regular file");
+  if (metadata.size > 256 * 1024 * 1024) {
+    throw new Error("records import source exceeds 256 MiB");
+  }
+  return readFile(file);
+}
+
+const recordsWriteExecutor = new RecordWriteExecutor({
+  pool: recordsPool,
+  graphjin: recordsGraphjin,
+  serviceToken: recordsServiceToken,
+  leaseOwner: `worker:${process.pid}:${randomUUID()}`,
+  recordSourceWrite: recordActionRequestSourceWrite,
+  assertWritesAllowed: async () => {
+    await recordsStorageMonitor.assertInteractiveWritesAllowed();
+  },
+  appWriteMode: async (orgId, appId) => {
+    const rows = await db()
+      .select({ config: app_state.config })
+      .from(app_state)
+      .where(
+        and(eq(app_state.org_id, orgId), eq(app_state.app_id, appId)),
+      )
+      .limit(1);
+    const mode = rows[0]?.config?.mode;
+    return mode === "mirror" || mode === "cutting_over" || mode === "primary"
+      ? mode
+      : null;
+  },
+});
+const recordsBackfillExecutor = new RecordBackfillExecutor({
+  pool: recordsPool,
+  graphjin: recordsGraphjin,
+  serviceToken: recordsServiceToken,
+  leaseOwner: `worker-backfill:${process.pid}:${randomUUID()}`,
+  recordSourceWrite: recordActionRequestSourceWrite,
+  assertWritesAllowed: async () => {
+    await recordsStorageMonitor.assertInteractiveWritesAllowed();
+  },
+});
+const recordsImportExecutor = new RecordImportExecutor({
+  pool: recordsPool,
+  graphjin: recordsGraphjin,
+  serviceToken: recordsServiceToken,
+  leaseOwner: `worker-import:${process.pid}:${randomUUID()}`,
+  readSource: readRecordImportSource,
+});
+const recordsOwnerBackfillExecutor = new RecordOwnerBackfillExecutor({
+  pool: recordsPool,
+  graphjin: recordsGraphjin,
+  serviceToken: recordsServiceToken,
+  leaseOwner: `worker-identity:${process.pid}:${randomUUID()}`,
+});
 
 // SEC8: state the security posture once at boot; hardened warns when
 // the model host is a public cloud API (on-prem LLM is client-provided).
@@ -196,6 +383,14 @@ async function runMetricRefreshSweep() {
 // admin handler can lazily reach a freshly-installed auth plugin
 // without a server restart.
 let pluginRegistry: PluginRegistry | null = null;
+let recordsImportAdminSurface: RecordsImportHandlerSurface | null = null;
+let actionRequestPreflightReady = false;
+function recordsImportSurface(): RecordsImportHandlerSurface {
+  if (!recordsImportAdminSurface) {
+    throw new Error("records import CLI bridge is not ready");
+  }
+  return recordsImportAdminSurface;
+}
 const server = createServer(
   createAdminHandler({
     auth: {
@@ -225,7 +420,20 @@ const server = createServer(
           channels: [],
         },
       getRegisteredActionDescriptors: () =>
-        pluginRegistry?.getRegisteredActionDescriptors() ?? [],
+        includeRecordActionDescriptors(
+          pluginRegistry?.getRegisteredActionDescriptors() ?? [],
+        ),
+    },
+    actionRequests: {
+      create: async (input) => {
+        if (!actionRequestPreflightReady) {
+          throw new Error("action request preflight is not ready");
+        }
+        const request = await createActionRequest(
+          input as Parameters<typeof createActionRequest>[0],
+        );
+        return { id: request.id };
+      },
     },
     events: {
       dispatchExternal: async (input) => {
@@ -240,6 +448,15 @@ const server = createServer(
         });
         return { matched: result.matched, enqueued: result.enqueued };
       },
+    },
+    recordsWatches: {
+      secret: recordsWatchWebhookSecret(ADMIN_ORG_ID),
+      dispatch: receiveRecordsNativeWatchEvent,
+    },
+    recordsImports: {
+      staging: () => recordsImportSurface().staging(),
+      prepare: (input) => recordsImportSurface().prepare(input),
+      start: (requestId) => recordsImportSurface().start(requestId),
     },
     installPolicy: {
       getInstallPolicy: async () => {
@@ -295,8 +512,101 @@ console.log(
   `[worker] host config provisioned from DB (data_source + llm_provider_config)`,
 );
 
+const recordsSchemaRuntime = await createRecordsSchemaRuntime({
+  pool: recordsPool,
+  orgId: ADMIN_ORG_ID,
+  enableWatchPlane: true,
+  watchWebhookAllow: recordsWatchWebhookUrl
+    ? [recordsWatchWebhookUrl]
+    : [],
+});
+if (!recordsWatchWebhookUrl) {
+  console.warn(
+    "[worker] records native-watch webhook unavailable; scheduled fallback remains active",
+  );
+}
+console.log(
+  `[worker] records schema runtime ready (reconciled=${recordsSchemaRuntime.reconciliation.projected.length}, failed=${recordsSchemaRuntime.reconciliation.failed.length})`,
+);
+const reboundRecordsWatches = await reconcileRecordsNativeWatchDeliveries({
+  graphjin: recordsWatchGraphjin,
+  token: recordsWatchServiceToken,
+  webhookUrl: recordsWatchWebhookUrl,
+});
+if (reboundRecordsWatches > 0) {
+  console.log(
+    `[worker] rebound ${reboundRecordsWatches} durable records watch delivery target(s)`,
+  );
+}
+
 await seedDefaultActionPolicies(ADMIN_ORG_ID);
 registerBuiltinAdapters();
+registerRecordActionAdapters(recordsWriteExecutor);
+registerRecordAccessActions(new RecordsAccessAdmin(recordsPool));
+registerRecordBackfillAction(recordsBackfillExecutor);
+registerRecordIdentityActions(recordsOwnerBackfillExecutor);
+const unregisterRecordSalesforcePreflight = registerRecordSalesforceActions({
+  enqueueExport: (payload) =>
+    enqueue(QUEUE.RECORDS_SALESFORCE_EXPORT, payload, {
+      retryLimit: 8,
+      retryDelay: 60,
+      retryBackoff: true,
+      singletonKey: `records-salesforce-export:${payload.exportJobId}`,
+    }),
+  enqueueSync: (payload) =>
+    enqueue(QUEUE.RECORDS_SALESFORCE_SYNC, payload, {
+      retryLimit: 8,
+      retryDelay: 60,
+      retryBackoff: true,
+      singletonKey: `records-salesforce-sync:${payload.processingJobId}`,
+    }),
+  enqueueCutover: (payload) =>
+    enqueue(QUEUE.RECORDS_SALESFORCE_CUTOVER, payload, {
+      retryLimit: 8,
+      retryDelay: 60,
+      retryBackoff: true,
+      singletonKey: `records-salesforce-cutover:${payload.processingJobId}`,
+    }),
+});
+const unregisterRecordSchemaPreflight = registerRecordSchemaActions({
+  planner: recordsSchemaRuntime.planner,
+  saga: recordsSchemaRuntime.saga,
+});
+const unregisterRecordImportPreflight = registerRecordImportActions({
+  pool: recordsPool,
+  readSource: readRecordImportSource,
+  enqueueImport: (payload) =>
+    enqueue(QUEUE.RECORDS_IMPORT, payload, {
+      retryLimit: 5,
+      retryDelay: 15,
+      singletonKey: `records-import:${payload.importRunId}`,
+    }),
+});
+const unregisterRecordArtifactImportPreflight = registerRecordArtifactImportActions({
+  pool: recordsPool,
+  planner: recordsSchemaRuntime.planner,
+  saga: recordsSchemaRuntime.saga,
+  readSource: readRecordImportSource,
+  enqueueImport: (payload) =>
+    enqueue(QUEUE.RECORDS_IMPORT, payload, {
+      retryLimit: 5,
+      retryDelay: 15,
+      singletonKey: `records-import:${payload.importRunId}`,
+    }),
+});
+// Only now may the web process create action requests through this worker:
+// every worker-owned preflight hook is registered and will finish before the
+// request id is returned for an approval card.
+actionRequestPreflightReady = true;
+recordsImportAdminSurface = createRecordsCliImportBridge({
+  orgId: ADMIN_ORG_ID,
+  workspaceForOrg: ensureOrgWorkspace,
+  registry: recordsRegistry,
+  createRequest: createActionRequest,
+  getRequest: getActionRequest,
+  approveRequest: approveActionRequest,
+  enqueueAction: (payload) => enqueue(QUEUE.ACTION_EXECUTE, payload),
+});
 // ADM3: execute approved chat-proposed plugin installs/uninstalls.
 {
   const {
@@ -372,6 +682,7 @@ pluginRegistry = new PluginRegistry({
 await pluginRegistry.start();
 setPluginRegistryInstance(pluginRegistry);
 registerChannelOutputDelivery();
+await seedOpenNekoOpsWorkflow(ADMIN_ORG_ID);
 {
   const s = pluginRegistry.status();
   if (s.loaded.length > 0) {
@@ -610,7 +921,15 @@ await b.work(
   async (jobs: PgBossLib.Job<ActionExecutePayload>[]) => {
     for (const job of jobs) {
       try {
-        await runActionExecute(job.data);
+        await runActionExecute(job.data, {
+          onAppCreated: async (created) => {
+            const starterWatches = await seedRecordsStarterWatches(created);
+            await publishRecordsAppCreationSummary({
+              ...created,
+              seededWatchKeys: starterWatches.seeded,
+            });
+          },
+        });
       } catch (e) {
         console.warn(
           `[action-execute] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
@@ -620,6 +939,186 @@ await b.work(
     }
   },
 );
+
+await b.work(
+  QUEUE.RECORDS_IMPORT,
+  { batchSize: 1, pollingIntervalSeconds: 0.5 },
+  async (jobs: PgBossLib.Job<RecordsImportPayload>[]) => {
+    for (const job of jobs) {
+      try {
+        const outcome = await runRecordsImport(recordsImportExecutor, recordsPool, job.data, {
+          leaseOwner: `records-import-job:${job.id}`,
+        });
+        const artifact = await refreshArtifactImportState(recordsPool, {
+          orgId: job.data.orgId,
+          importRunId: job.data.importRunId,
+          graphjin: recordsGraphjin,
+          serviceToken: recordsServiceToken(job.data.orgId),
+          onReportReady: publishRecordsImportReport,
+        });
+        if (!artifact.matched) {
+          let cleanup: Record<string, unknown> | undefined;
+          if (outcome.report?.status === "succeeded") {
+            try {
+              cleanup = await cleanupRecordsManagedStaging({
+                orgId: job.data.orgId,
+                sourcePath: outcome.sourcePath,
+              });
+            } catch (error) {
+              cleanup = {
+                status: "failed",
+                completed_at: new Date().toISOString(),
+                error: (error instanceof Error ? error.message : String(error)).slice(
+                  0,
+                  2_000,
+                ),
+              };
+            }
+          }
+          await publishRecordsImportReport({
+            orgId: job.data.orgId,
+            report: buildRecordsSingleImportReport({
+              appId: outcome.appId,
+              importRunId: job.data.importRunId,
+              report: outcome.report,
+              terminalError: outcome.terminalError,
+              ...(cleanup ? { cleanup } : {}),
+            }),
+          });
+        }
+      } catch (e) {
+        console.warn(
+          `[records-import] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
+        );
+        throw e;
+      }
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_IDENTITY_LINK,
+  { batchSize: 1, pollingIntervalSeconds: 0.5 },
+  async (jobs: PgBossLib.Job<RecordsIdentityLinkPayload>[]) => {
+    for (const job of jobs) {
+      try {
+        await runRecordsIdentityLink(recordsPool, job.data);
+      } catch (e) {
+        console.warn(
+          `[records-identity-link] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
+        );
+        throw e;
+      }
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_BACKUP_VERIFY,
+  { batchSize: 1, pollingIntervalSeconds: 1 },
+  async (jobs: PgBossLib.Job<RecordsBackupVerifyPayload>[]) => {
+    for (const job of jobs) {
+      await runRecordsBackupVerification(job.data.orgId);
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_OPS_WATCH,
+  { batchSize: 1, pollingIntervalSeconds: 1 },
+  async (jobs: PgBossLib.Job<RecordsOpsWatchPayload>[]) => {
+    for (const job of jobs) {
+      await runRecordsOpsWatch(job.data.orgId, recordsOpsWatchDependencies);
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_WATCH_EVALUATE,
+  { batchSize: 1, pollingIntervalSeconds: 0.5 },
+  async (jobs: PgBossLib.Job<RecordsWatchEvaluatePayload>[]) => {
+    for (const job of jobs) {
+      await evaluateRecordsStarterWatch(job.data);
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_WATCH_SWEEP,
+  { batchSize: 1, pollingIntervalSeconds: 1 },
+  async (jobs: PgBossLib.Job<RecordsWatchSweepPayload>[]) => {
+    for (const job of jobs) {
+      await enqueueRecordsWatchFallbackSweep(job.data.orgId);
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_SALESFORCE_EXPORT,
+  { batchSize: 1, pollingIntervalSeconds: 0.5 },
+  async (jobs: PgBossLib.Job<RecordsSalesforceExportPayload>[]) => {
+    for (const job of jobs) {
+      try {
+        await runRecordsSalesforceExport(job.data);
+      } catch (e) {
+        console.warn(
+          `[records-salesforce-export] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
+        );
+        throw e;
+      }
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_SALESFORCE_SYNC,
+  { batchSize: 1, pollingIntervalSeconds: 0.5 },
+  async (jobs: PgBossLib.Job<RecordsSalesforceSyncPayload>[]) => {
+    for (const job of jobs) {
+      try {
+        await runRecordsSalesforceSync(recordsWriteExecutor, recordsPool, job.data);
+      } catch (e) {
+        console.warn(
+          `[records-salesforce-sync] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
+        );
+        throw e;
+      }
+    }
+  },
+);
+
+await b.work(
+  QUEUE.RECORDS_SALESFORCE_CUTOVER,
+  { batchSize: 1, pollingIntervalSeconds: 0.5 },
+  async (jobs: PgBossLib.Job<RecordsSalesforceCutoverPayload>[]) => {
+    for (const job of jobs) {
+      try {
+        await runRecordsSalesforceCutover(recordsWriteExecutor, recordsPool, job.data);
+      } catch (e) {
+        console.warn(
+          `[records-salesforce-cutover] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
+        );
+        throw e;
+      }
+    }
+  },
+);
+
+await b.work(QUEUE.RECORDS_SALESFORCE_SYNC_SWEEP, async () => {
+  const summary = await runRecordsSalesforceSyncSweep({
+    ...defaultSalesforceSyncSweepDependencies,
+    enqueue: (payload) =>
+      enqueue(QUEUE.RECORDS_SALESFORCE_SYNC, payload, {
+        retryLimit: 8,
+        retryDelay: 60,
+        retryBackoff: true,
+        singletonKey: `records-salesforce-sync:${payload.processingJobId}`,
+      }),
+  });
+  if (summary.queued > 0) {
+    console.log(`[records-salesforce-sync] scheduled ${summary.queued} delta run(s)`);
+  }
+});
 
 await b.work(
   QUEUE.CHANNEL_DELIVER,
@@ -644,6 +1143,50 @@ await b.schedule(QUEUE.WORKFLOW_CRON_SWEEP, "* * * * *", {}, {
   retryDelay: 15,
 });
 console.log("[worker] scheduled workflow cron sweep every minute");
+
+await b.schedule(QUEUE.RECORDS_SALESFORCE_SYNC_SWEEP, "* * * * *", {}, {
+  tz: "UTC",
+  retryLimit: 1,
+  retryDelay: 15,
+});
+console.log("[worker] scheduled Salesforce delta sync sweep every minute");
+
+await b.schedule(
+  QUEUE.RECORDS_BACKUP_VERIFY,
+  "0 3 * * 0",
+  { orgId: ADMIN_ORG_ID },
+  {
+    tz: "UTC",
+    retryLimit: 2,
+    retryDelay: 300,
+    retryBackoff: true,
+  },
+);
+console.log("[worker] scheduled whole-deployment restore verification weekly");
+
+await b.schedule(
+  QUEUE.RECORDS_OPS_WATCH,
+  "*/5 * * * *",
+  { orgId: ADMIN_ORG_ID },
+  {
+    tz: "UTC",
+    retryLimit: 2,
+    retryDelay: 30,
+  },
+);
+console.log("[worker] scheduled records substrate watcher every five minutes");
+
+await b.schedule(
+  QUEUE.RECORDS_WATCH_SWEEP,
+  "*/15 * * * *",
+  { orgId: ADMIN_ORG_ID },
+  {
+    tz: "UTC",
+    retryLimit: 2,
+    retryDelay: 30,
+  },
+);
+console.log("[worker] scheduled records starter-watch fallback every fifteen minutes");
 
 await b.work(QUEUE.WORKFLOW_OUTPUT_TTL_SWEEP, async () => {
   await runWorkflowOutputTtlSweep();
@@ -801,6 +1344,10 @@ const shutdown = async (signal: string) => {
   console.log(`[worker] received ${signal}; shutting down`);
   clearInterval(reconcileTimer);
   channelInbound.stop();
+  unregisterRecordSchemaPreflight();
+  unregisterRecordImportPreflight();
+  unregisterRecordArtifactImportPreflight();
+  unregisterRecordSalesforcePreflight();
   server.close();
   const cancelled = cancelAllAgents();
   if (cancelled > 0) {
@@ -823,6 +1370,11 @@ const shutdown = async (signal: string) => {
     await b.stop({ graceful: true });
   } catch (e) {
     console.error("[worker] pg-boss stop error:", e);
+  }
+  try {
+    await recordsPool.end();
+  } catch (e) {
+    console.error("[worker] records pool shutdown error:", e);
   }
   process.exit(0);
 };

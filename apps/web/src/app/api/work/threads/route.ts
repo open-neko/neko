@@ -19,6 +19,7 @@ import { getCurrentActor } from "@/lib/actor";
 import {
   createWorkMessage,
   createWorkThread,
+  parseRecordWorkContext,
   listWorkThreads,
 } from "@/lib/work-store";
 
@@ -28,6 +29,7 @@ export async function GET() {
     orgId,
     "web",
     actor.userId,
+    { surface: "main" },
   );
   return NextResponse.json({ threads });
 }
@@ -49,6 +51,13 @@ export async function POST(request: NextRequest) {
     body.seedActionRequestId.length > 0
       ? body.seedActionRequestId
       : null;
+  const requestedRecordContext =
+    body.recordContext === undefined
+      ? null
+      : parseRecordWorkContext(body.recordContext);
+  if (body.recordContext !== undefined && !requestedRecordContext) {
+    return NextResponse.json({ error: "Invalid records context" }, { status: 400 });
+  }
 
   const [orgId, actor] = await Promise.all([getOrgId(), getCurrentActor()]);
 
@@ -87,6 +96,9 @@ export async function POST(request: NextRequest) {
     resolvedTitle,
     "web",
     actor.userId,
+    requestedRecordContext
+      ? { recordContext: requestedRecordContext }
+      : {},
   );
 
   // When the dashboard's "Deep dive" action opens a new thread, the briefing

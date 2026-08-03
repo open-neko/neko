@@ -87,10 +87,12 @@ type PortSpec struct {
 }
 
 // DefaultPorts are the host ports a fresh bring-up needs free. The demo's
-// AdventureWorks Postgres is internal-only, so it adds no host port.
+// AdventureWorks Postgres is internal-only, so it adds no additional host
+// port beyond the customer-data GraphJin shipped by every mode.
 var DefaultPorts = []PortSpec{
 	{"web", "OPENNEKO_PORT", 3000},
 	{"metadata Postgres", "OPENNEKO_DB_PORT", 5432},
+	{"customer GraphJin", "GRAPHJIN_PORT", 8080},
 	{"metadata GraphJin", "OPENNEKO_GRAPHJIN_PORT", 8089},
 }
 

@@ -374,6 +374,12 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
         PATH: `${workspace.binRoot}:${process.env.PATH || ""}`,
       }
     : { ...process.env };
+  // The model-facing Hermes process never needs the broker bearer token.
+  // MCP bridge children receive it explicitly in their clean per-server env
+  // below; removing it here prevents terminal tools from bypassing the
+  // declared MCP capability surface with a hand-written HTTP request.
+  delete env.OPENNEKO_BROKER_URL;
+  delete env.OPENNEKO_BROKER_TOKEN;
   if (orgId) {
     env.HERMES_HOME = hermesHomeForOrg(orgId);
   }

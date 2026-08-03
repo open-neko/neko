@@ -21,6 +21,39 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl tini \
     && rm -rf /var/lib/apt/lists/*
 
+# Postgres data-plane images with pgBackRest available inside archive_command.
+# The coordinator below uses the exact same Debian package version so WAL and
+# repository protocol versions cannot drift between containers.
+FROM pgvector/pgvector:pg16 AS neko-db
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends pgbackrest \
+    && rm -rf /var/lib/apt/lists/*
+COPY apps/worker/scripts/postgres-pgbackrest-entrypoint.sh /usr/local/bin/openneko-postgres-entrypoint
+RUN chmod 0755 /usr/local/bin/openneko-postgres-entrypoint
+ENTRYPOINT ["/usr/local/bin/openneko-postgres-entrypoint"]
+CMD ["postgres"]
+
+FROM postgres:16-bookworm AS records-db
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends pgbackrest \
+    && rm -rf /var/lib/apt/lists/*
+COPY apps/worker/scripts/postgres-pgbackrest-entrypoint.sh /usr/local/bin/openneko-postgres-entrypoint
+RUN chmod 0755 /usr/local/bin/openneko-postgres-entrypoint
+ENTRYPOINT ["/usr/local/bin/openneko-postgres-entrypoint"]
+CMD ["postgres"]
+
+FROM postgres:16-bookworm AS neko-backup
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl openssl pgbackrest python3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY apps/worker/scripts/openneko-backup.py /usr/local/bin/openneko-backup.py
+COPY apps/worker/scripts/openneko-backup-entrypoint.sh /usr/local/bin/openneko-backup-entrypoint
+RUN chmod 0755 /usr/local/bin/openneko-backup.py /usr/local/bin/openneko-backup-entrypoint
+EXPOSE 9470
+ENTRYPOINT ["/usr/local/bin/openneko-backup-entrypoint"]
+CMD ["serve"]
+
 # ─── 2. runtime-base: node + agent-orchestration toolchain ─────────────
 # web, worker AND agent all run agent turns in-process (runChatTurn /
 # runWorkflowTurn / profiler / metric-agent in @neko/llm), which shell out to
@@ -47,6 +80,9 @@ RUN curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/graphjin.tgz
     && rm /tmp/graphjin.tgz \
     && graphjin version
 # hermes: default agent backend (any provider). claude: claude-agent backend.
+# Hermes' pinned MCP adapter still reads the JSON alias (`isError`) as a
+# Python attribute. Current mcp releases expose the field as `is_error`, so
+# patch that single adapter access until the upstream pin contains the fix.
 RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv/install.sh \
       | env UV_INSTALL_DIR=/usr/local/bin sh -s -- --no-modify-path \
     && UV_TOOL_DIR=/usr/local/uv/tools \
@@ -57,6 +93,10 @@ RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv
          --with mcp --with websockets \
          "hermes-agent[acp] @ git+https://github.com/NousResearch/hermes-agent.git@${HERMES_AGENT_REF}" \
     && rm -rf /tmp/uv-cache /root/.cache/uv \
+    && sed -i 's/result\.isError/result.is_error/g' \
+         /usr/local/uv/tools/hermes-agent/lib/python3.11/site-packages/tools/mcp_tool.py \
+    && ! grep -q 'result\.isError' \
+         /usr/local/uv/tools/hermes-agent/lib/python3.11/site-packages/tools/mcp_tool.py \
     && hermes --version \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "import mcp, websockets" \
     && echo "hermes MCP SDK present"
@@ -93,6 +133,7 @@ COPY packages/interaction/package.json packages/interaction/package.json
 COPY packages/llm/package.json packages/llm/package.json
 COPY packages/plugin-install/package.json packages/plugin-install/package.json
 COPY packages/plugin-types/package.json packages/plugin-types/package.json
+COPY packages/records/package.json packages/records/package.json
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile
 
@@ -165,6 +206,9 @@ COPY --from=build --chown=neko:neko /app/apps/web/.next/static ./apps/web/.next/
 COPY --from=build --chown=neko:neko /app/apps/web/public ./apps/web/public
 # Next.js standalone tracing misses static asset dirs — copy explicitly.
 COPY --from=build --chown=neko:neko /app/packages/llm/assets ./packages/llm/assets
+# Blueprint JSON is read through the trusted records control plane at runtime;
+# Next's file tracer cannot discover fs-relative assets automatically.
+COPY --from=build --chown=neko:neko /app/packages/records/blueprints ./packages/records/blueprints
 # Next.js standalone tracing also misses the onnxruntime-node native .so
 # libraries (they're loaded by @huggingface/transformers at runtime via
 # dlopen, not via require()). Without these copies, /settings and every
@@ -332,4 +376,16 @@ RUN chmod +x /usr/local/bin/neko-graphjin-entrypoint.sh
 COPY db/graphjin/neko.yml /seed/neko.yml
 EXPOSE 8089
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/neko-graphjin-entrypoint.sh"]
+CMD ["serve", "--path", "/config"]
+
+# ─── 7. records-graphjin runtime ───────────────────────────────────────
+# The generated-app data plane has a separate process and a separate complete
+# config writer. Reuse the pinned GraphJin binary layer, but never inherit the
+# metadata GraphJin templating path. The entrypoint refuses to serve until the
+# worker has projected an exhaustive live-catalog RBAC config.
+FROM neko-graphjin AS records-graphjin
+COPY scripts/records-graphjin-entrypoint.sh /usr/local/bin/records-graphjin-entrypoint.sh
+RUN chmod +x /usr/local/bin/records-graphjin-entrypoint.sh
+EXPOSE 8090
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/records-graphjin-entrypoint.sh"]
 CMD ["serve", "--path", "/config"]

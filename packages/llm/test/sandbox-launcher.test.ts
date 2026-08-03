@@ -1,5 +1,6 @@
 import {
   access,
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -302,6 +303,11 @@ describe("stageSandboxWorkspace", () => {
         mkdir(workspace.memoryRoot, { recursive: true }),
         mkdir(join(workspace.skillsRoot, "quarterly-review"), { recursive: true }),
       ]);
+      await cp(
+        join(process.cwd(), "assets", "builtin-skills", "records"),
+        join(workspace.skillsRoot, "records"),
+        { recursive: true },
+      );
       await Promise.all([
         writeFile(join(workspace.knowledgeRoot, "schema.json"), "{}"),
         writeFile(join(workspace.threadUploadsRoot, "current.csv"), "current"),
@@ -313,10 +319,23 @@ describe("stageSandboxWorkspace", () => {
           join(workspace.skillsRoot, "quarterly-review", "SKILL.md"),
           "---\nname: quarterly-review\ndescription: Review quarters\n---\n",
         ),
+        // Simulate a durable workspace left behind by an older release.
+        writeFile(
+          join(workspace.skillsRoot, "records", "SKILL.md"),
+          "---\nname: records\ndescription: stale system skill\n---\n",
+        ),
       ]);
 
-      const staged = await stageSandboxWorkspace(workspace, stage);
-      expect(staged.skillOverrides).toEqual(["quarterly-review"]);
+      const staged = await stageSandboxWorkspace(workspace, stage, {
+        requiredSkillNames: ["records"],
+      });
+      expect(staged.skillOverrides).toEqual(["quarterly-review", "records"]);
+      await expect(
+        access(join(staged.workspace.skillsRoot, "records", "SKILL.md")),
+      ).resolves.toBeUndefined();
+      expect(
+        await readFile(join(staged.workspace.skillsRoot, "records", "SKILL.md"), "utf8"),
+      ).toContain("objective urgency cannot be determined");
       expect(await readFile(join(staged.workspace.knowledgeRoot, "schema.json"), "utf8"))
         .toBe("{}");
       expect(await readFile(join(staged.workspace.threadUploadsRoot, "current.csv"), "utf8"))
@@ -374,6 +393,25 @@ describe("makeSandboxRunCore", () => {
     const runCore = makeSandboxRunCore({ agentImage: "ghcr.io/open-neko/agent:test", onLog: () => {} });
     await runCore(fakeInput(async () => {}));
     expect(jobCapture.jobs.at(-1)?.model).toBeUndefined();
+  });
+
+  it("removes customer GraphJin egress and installs a deny guard for records turns", async () => {
+    const runCore = makeSandboxRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+    await runCore({
+      ...fakeInput(async () => {}),
+      dataSurface: "records",
+    });
+    expect(jobCapture.jobs.at(-1)).toMatchObject({
+      kind: "work",
+      dataSurface: "records",
+      graphjinEnabled: false,
+      graphjinDenied: true,
+    });
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinServerUrl");
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinClientConfig");
   });
 
   it("creates, uploads, exec-streams, returns the result, and deletes", async () => {

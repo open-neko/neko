@@ -10,6 +10,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  records-recovery:
+    name: Records recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify backup and database crash recovery
+        run: ./scripts/test-records-recovery.sh
+
   test:
     name: Test
     runs-on: ubuntu-latest

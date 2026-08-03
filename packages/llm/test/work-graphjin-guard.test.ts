@@ -99,6 +99,15 @@ describe("isGraphjinCommandSafe", () => {
       ),
     ).toBe(false);
   });
+
+  it("blocks every customer GraphJin command in records mode", () => {
+    expect(
+      isGraphjinCommandSafe(
+        ["cli", "execute_graphql", "--args", '{"query":"{ activity { id } }"}'],
+        { denyAll: true },
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("ensureGraphjinGuard wrapper script", () => {
@@ -115,6 +124,25 @@ describe("ensureGraphjinGuard wrapper script", () => {
   it("is syntactically valid bash", () => {
     const r = spawnSync("bash", ["-n", wrapper], { encoding: "utf8" });
     expect(r.status, `bash -n stderr: ${r.stderr}`).toBe(0);
+  });
+
+  it("installs an explicit records-mode deny wrapper", async () => {
+    const guardDir = await mkdtemp(join(tmpdir(), "neko-guard-records-"));
+    try {
+      const deniedWrapper = await ensureGraphjinGuard(guardDir, "/bin/echo", {
+        denyAll: true,
+      });
+      const result = spawnSync(
+        deniedWrapper,
+        ["cli", "execute_graphql", "--args", '{"query":"{ activity { id } }"}'],
+        { encoding: "utf8" },
+      );
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain("records-scoped turn");
+      expect(result.stdout).not.toContain("execute_graphql");
+    } finally {
+      await rm(guardDir, { recursive: true, force: true });
+    }
   });
 
   it("blocks raw GraphJin HTTP probes through curl and bounds other curl calls", async () => {

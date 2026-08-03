@@ -6,6 +6,8 @@ node_modules/
 # quantized, >80MB FP32) and reproducible, so we don't track them.
 packages/llm/.cache/
 apps/web/.cache/
+apps/web/test-results/
+apps/web/playwright-report/
 
 docs/
 .turbo/
@@ -24,6 +26,7 @@ out/
 db/graphjin/*
 !db/graphjin/dev.example.yml
 !db/graphjin/dev.sources.example.yml
+!db/graphjin/customer.sources.example.yml
 !db/graphjin/neko.yml
 
 # local onboarding scratch

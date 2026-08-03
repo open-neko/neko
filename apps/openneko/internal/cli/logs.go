@@ -16,6 +16,9 @@ func newLogsCmd() *cobra.Command {
 		Use:   "logs [service...]",
 		Short: "Stream logs from one or more services",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := configureBackupEnvironment(); err != nil {
+				return err
+			}
 			sup := compose.New(assets.ComposeFS)
 			files, err := sup.Materialize(compose.ModeDemo)
 			if err != nil {

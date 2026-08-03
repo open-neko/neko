@@ -39,6 +39,13 @@ function build(
     supportsPluginManagerTool?: boolean;
     pluginCatalog?: PluginCatalog;
     installedSkills?: Array<{ name: string; description: string }>;
+    pluginActions?: Array<{
+      kind: string;
+      description: string;
+      scope?: "external" | "internal";
+      default_mode?: "auto" | "ask" | "deny";
+    }>;
+    dataSurface?: "customer" | "records";
   } = {},
 ): string {
   return buildWorkPrompt({
@@ -57,9 +64,45 @@ function build(
     supportsPluginManagerTool: overrides.supportsPluginManagerTool ?? false,
     pluginCatalog: overrides.pluginCatalog,
     installedSkills: overrides.installedSkills,
+    pluginActions: overrides.pluginActions,
+    dataSurface: overrides.dataSurface,
+    ...(overrides.dataSurface === "records"
+      ? {
+          appContext: {
+            appId: "crm",
+            appLabel: "CRM",
+          },
+          recordContext: {
+            surface: "list" as const,
+            appId: "crm",
+            appLabel: "CRM",
+            objectApiName: "activity",
+            objectLabel: "Activities",
+          },
+        }
+      : {}),
     inlineTranscript: false,
   });
 }
+
+describe("buildWorkPrompt records data surface", () => {
+  it("routes generated-app questions only to native records tools", () => {
+    const prompt = build("claude-agent", {
+      dataSurface: "records",
+      supportsSourceConfigTool: true,
+    });
+    expect(prompt).toContain("<records_access>");
+    expect(prompt).toContain("mcp__neko_records__*");
+    expect(prompt).toContain('"appId":"crm"');
+    expect(prompt).toContain('"objectApiName":"activity"');
+    expect(prompt).toContain("default subject and conversational home");
+    expect(prompt).toContain("CRM account context plus Support tickets");
+    expect(prompt).toContain("existing app, object, and field");
+    expect(prompt).not.toContain("<data_access>");
+    expect(prompt).not.toContain("graphjin cli execute_graphql");
+    expect(prompt).not.toContain("neko_source_config_manager");
+  });
+});
 
 describe("buildWorkPrompt attachments guidance", () => {
   it("tells the claude-agent how to read uploads and which path shape to expect", () => {
@@ -102,6 +145,33 @@ describe("buildWorkPrompt skill catalog", () => {
     expect(prompt).toContain(`${workspace.skillsRoot}/pdf/SKILL.md`);
     expect(prompt).toContain("When a skill matches, read its SKILL.md");
     expect(prompt).not.toContain("Full PDF skill body");
+  });
+});
+
+describe("buildWorkPrompt action scopes", () => {
+  it("teaches fence-based agents the fixed scope for records and plugin actions", () => {
+    const prompt = build("hermes", {
+      pluginActions: [
+        {
+          kind: "record_create",
+          description: "Create a generated-app record.",
+          scope: "internal",
+          default_mode: "ask",
+        },
+        {
+          kind: "send_slack_dm",
+          description: "Send a Slack direct message.",
+          default_mode: "ask",
+        },
+      ],
+    });
+
+    expect(prompt).toContain("`record_create` (scope:internal; mode:ask)");
+    expect(prompt).toContain("`send_slack_dm` (scope:external; mode:ask)");
+    expect(prompt).toContain(
+      '"scope": "<the exact scope shown for the selected kind>"',
+    );
+    expect(prompt).toMatch(/Never relabel an internal records\s+action as external/);
   });
 });
 

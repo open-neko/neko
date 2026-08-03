@@ -63,6 +63,7 @@ export {
 } from "./builder-cards";
 export {
   buildWorkflowOutputServer,
+  handleWorkflowOutput,
   setWorkflowOutputDeliveryHook,
   type WorkflowOutputDeliveryHook,
 } from "./output-server";
@@ -91,6 +92,7 @@ export {
   type WorkflowTriggerKind,
 } from "./run-workflow-turn";
 export {
+  appendWorkflowRunSourceWrite,
   countSubscriptionsMatchingOutput,
   countWorkflowRunsForSubscription,
   countWorkflowRunsSince,
@@ -202,7 +204,9 @@ export {
   markActionRequestExecuted,
   markActionRequestFailed,
   recordActionExecution,
+  registerActionRequestCreatedHook,
   rejectActionRequest,
+  updateActionRequestPayload,
   updateActionPolicy,
   upsertActionPolicyByName,
   type ActionExecutionRecord,
@@ -210,6 +214,7 @@ export {
   type ActionPolicyMode,
   type ActionPolicyRecord,
   type ActionRequestRecord,
+  type ActionRequestCreatedHook,
   type ActionRequestStatus,
   type ActionScope,
   type CreateActionPolicyInput,
@@ -239,6 +244,7 @@ export {
   getRegisteredActionKinds,
   mockActionAdapter,
   registerActionAdapter,
+  RetryableActionAdapterError,
   setDefaultActionAdapter,
   type ActionAdapter,
   type ActionExecutionInput,
