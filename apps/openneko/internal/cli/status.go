@@ -42,12 +42,13 @@ const (
 // missing long-running services drive the verdict. Keep in sync with the
 // `restart: "no"` services in assets/compose/{core,demo,openshell}.yml.
 var oneShotJobs = map[string]bool{
-	"neko-migrate":             true,
-	"adventureworks-init":      true,
-	"graphjin-config-init":     true,
-	"neko-adventureworks-seed": true,
-	"openshell-certgen":        true,
-	"openshell-reg":            true,
+	"neko-migrate":                 true,
+	"adventureworks-init":          true,
+	"graphjin-config-init":         true,
+	"records-graphjin-config-init": true,
+	"neko-adventureworks-seed":     true,
+	"openshell-certgen":            true,
+	"openshell-reg":                true,
 }
 
 func newStatusCmd() *cobra.Command {
