@@ -164,6 +164,26 @@ services:
       - ${OPENNEKO_HOST_CONFIG_DIR:-./.openneko/host-config}:/restore/host-config
       - ${OPENNEKO_BACKUP_REPOSITORY:-./.openneko/backups}:/var/lib/pgbackrest
 
+  # One-shot ownership repair for the generated records config volume. Docker
+  # creates a fresh named volume as root before the non-root worker mounts it;
+  # this also repairs volumes created by an older release during upgrades.
+  records-graphjin-config-init:
+    build:
+      context: .
+      target: worker
+    user: "0:0"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /config/watch
+        chown -R neko:neko /config
+        chmod 0700 /config /config/watch
+    volumes:
+      - openneko-records-graphjin:/config
+    restart: "no"
+
   # Dedicated records data plane. Its supervisor stays stopped until the
   # worker has generated a complete, live-catalog-derived RBAC config into the
   # shared volume, and stops again around every schema projection.
@@ -173,6 +193,8 @@ services:
       target: records-graphjin
     restart: unless-stopped
     depends_on:
+      records-graphjin-config-init:
+        condition: service_completed_successfully
       records-db:
         condition: service_healthy
     volumes:
@@ -197,6 +219,8 @@ services:
       target: records-graphjin
     restart: unless-stopped
     depends_on:
+      records-graphjin-config-init:
+        condition: service_completed_successfully
       records-db:
         condition: service_healthy
     environment:

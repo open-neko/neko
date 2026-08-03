@@ -19,6 +19,7 @@ func TestClassifyStack(t *testing.T) {
 			{Service: "neko-graphjin", State: "running", Health: "healthy"},
 			{Service: "neko-db", State: "running", Health: "healthy"},
 			{Service: "neko-migrate", State: "exited", ExitCode: 0},
+			{Service: "records-graphjin-config-init", State: "exited", ExitCode: 0},
 		}, serving},
 		{"running without a healthcheck counts as serving", []composeService{
 			{Service: "web", State: "running", Health: ""},

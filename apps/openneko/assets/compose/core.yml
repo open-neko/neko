@@ -154,12 +154,32 @@ services:
       - ${OPENNEKO_HOST_CONFIG_DIR:?OPENNEKO_HOST_CONFIG_DIR is required}:/restore/host-config
       - ${OPENNEKO_BACKUP_REPOSITORY:?OPENNEKO_BACKUP_REPOSITORY is required}:/var/lib/pgbackrest
 
+  # One-shot ownership repair for the generated records config volume. Docker
+  # creates a fresh named volume as root before the non-root worker mounts it;
+  # this also repairs volumes created by an older release during upgrades.
+  records-graphjin-config-init:
+    image: ghcr.io/open-neko/neko-worker:${OPENNEKO_VERSION:-latest}
+    user: "0:0"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /config/watch
+        chown -R neko:neko /config
+        chmod 0700 /config /config/watch
+    volumes:
+      - openneko-records-graphjin:/config
+    restart: "no"
+
   # Starts only when a complete generated config exists in its private volume;
   # the image entrypoint exits before binding a port if the config is absent.
   records-graphjin:
     image: ghcr.io/open-neko/records-graphjin:${OPENNEKO_VERSION:-latest}
     restart: unless-stopped
     depends_on:
+      records-graphjin-config-init:
+        condition: service_completed_successfully
       records-db:
         condition: service_healthy
     volumes:
@@ -180,6 +200,8 @@ services:
     image: ghcr.io/open-neko/records-graphjin:${OPENNEKO_VERSION:-latest}
     restart: unless-stopped
     depends_on:
+      records-graphjin-config-init:
+        condition: service_completed_successfully
       records-db:
         condition: service_healthy
     environment:
