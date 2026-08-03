@@ -323,6 +323,7 @@
 .records-app-content {
   min-width: 0;
   flex: 1;
+  container: records-content / inline-size;
 }
 
 .app-chat-sidebar {
@@ -1191,6 +1192,21 @@
 .records-object-grid small {
   color: var(--text3);
   font-size: 10.5px;
+}
+
+@container records-content (max-width: 900px) {
+  .records-page-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .records-page-block.is-span-2,
+  .records-page-block.is-span-3 {
+    grid-column: span 1;
+  }
+
+  .records-page-metric {
+    font-size: clamp(30px, 7cqw, 42px);
+  }
 }
 
 @media (max-width: 900px) {
