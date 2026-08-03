@@ -168,6 +168,7 @@ const recordsPool = new pg.Pool({
   ...buildRecordsPoolConfig(),
   application_name: "openneko-worker-records",
 });
+const recordsRegistry = new RecordRegistry(recordsPool);
 const recordsOpsWatchDependencies = createRecordsOpsWatchDependencies(recordsPool);
 const recordsGraphjin = new RecordsGraphjinClient({
   baseUrl:
@@ -201,6 +202,7 @@ const seedRecordsStarterWatches = createRecordsStarterWatchSeeder({
 const evaluateRecordsStarterWatch = createRecordsWatchEvaluator({
   graphjin: recordsWatchGraphjin,
   token: recordsWatchServiceToken,
+  registry: recordsRegistry,
 });
 const recordsStorageMonitor = createRecordsStorageMonitor();
 
@@ -580,7 +582,7 @@ const unregisterRecordArtifactImportPreflight = registerRecordArtifactImportActi
 recordsImportAdminSurface = createRecordsCliImportBridge({
   orgId: ADMIN_ORG_ID,
   workspaceForOrg: ensureOrgWorkspace,
-  registry: new RecordRegistry(recordsPool),
+  registry: recordsRegistry,
   createRequest: createActionRequest,
   getRequest: getActionRequest,
   approveRequest: approveActionRequest,

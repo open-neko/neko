@@ -60,6 +60,11 @@ if [[ "$backup_ready" != "1" ]]; then
   exit 1
 fi
 
+echo "Seeding the representative Salesforce restore fixture..."
+"${recovery_compose[@]}" exec -T records-db psql \
+  -U records -d records -v ON_ERROR_STOP=1 \
+  < "$recovery_repo_root/packages/records/test/fixtures/salesforce-golden-restore.sql"
+
 echo "Creating and verifying a backup set with every recovery volume..."
 recovery_manifest="$("${recovery_compose[@]}" exec -T neko-backup \
   curl -fsS -X POST http://127.0.0.1:9470/v1/backups/now)"
@@ -83,6 +88,18 @@ if [[ "$recovery_verification" != *'"status": "succeeded"'* ]] || \
   echo "Throwaway restore verification did not prove the backup set" >&2
   exit 1
 fi
+python3 -c '
+import json, re, sys
+report = json.loads(sys.argv[1])
+records = next(item for item in report["databases"] if item["stanza"] == "openneko-records")
+probe = records["probe"]
+golden = probe["golden_fixture"]
+assert (golden["rows"], golden["accepted"], golden["rejected"]) == (24, 22, 2)
+assert golden["sample"]["rows_sampled"] == 24
+assert re.fullmatch(r"[0-9a-f]{64}", golden["sample"]["sha256"])
+integrity = probe.get("record_change_sample") or golden["sample"]
+assert re.fullmatch(r"[0-9a-f]{64}", integrity["sha256"])
+' "$recovery_verification"
 
 echo "Filling a small observed filesystem to ENOSPC and recovering it..."
 recovery_storage_image="${recovery_project}-records-storage-ops"

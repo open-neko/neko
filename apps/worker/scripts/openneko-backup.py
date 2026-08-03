@@ -123,6 +123,18 @@ def psql(cluster: dict, query: str) -> str:
     ).strip()
 
 
+def relation_sample(cluster: dict, relation: str, order_by: str, limit: int = 100) -> dict:
+    payload = psql(
+        cluster,
+        f"select to_jsonb(sample)::text from {relation} sample "
+        f"order by {order_by} limit {int(limit)}",
+    )
+    return {
+        "rows_sampled": 0 if not payload else len(payload.splitlines()),
+        "sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+    }
+
+
 def database_probe(cluster: dict) -> dict:
     raw = psql(
         cluster,
@@ -146,6 +158,35 @@ def database_probe(cluster: dict) -> dict:
         exists = psql(cluster, f"select to_regclass('{relation}') is not null") == "t"
         if exists:
             probe[key] = int(psql(cluster, f"select count(*) from {relation}"))
+    if psql(cluster, "select to_regclass('engine.record_change_log') is not null") == "t":
+        probe["record_change_sample"] = relation_sample(
+            cluster,
+            "engine.record_change_log",
+            "id asc",
+        )
+    golden_relation = "public.openneko_salesforce_golden_restore_fixture"
+    if psql(cluster, f"select to_regclass('{golden_relation}') is not null") == "t":
+        probe["golden_fixture"] = {
+            "rows": int(psql(cluster, f"select count(*) from {golden_relation}")),
+            "accepted": int(
+                psql(
+                    cluster,
+                    f"select count(*) from {golden_relation} where disposition = 'accepted'",
+                )
+            ),
+            "rejected": int(
+                psql(
+                    cluster,
+                    f"select count(*) from {golden_relation} where disposition = 'rejected'",
+                )
+            ),
+            "sample": relation_sample(
+                cluster,
+                golden_relation,
+                "object_api_name asc, row_number asc",
+                limit=500,
+            ),
+        }
     return probe
 
 
@@ -453,6 +494,11 @@ def verify_latest() -> dict:
                 if count in expected and probe.get(count, -1) < expected[count]:
                     raise RuntimeError(
                         f"{stanza} restored {count}={probe.get(count)} below backup boundary {expected[count]}"
+                    )
+            for fingerprint in ("record_change_sample", "golden_fixture"):
+                if fingerprint in expected and probe.get(fingerprint) != expected[fingerprint]:
+                    raise RuntimeError(
+                        f"{stanza} restored {fingerprint} does not match its backup boundary"
                     )
             reports.append({"stanza": stanza, "probe": probe})
         completed = utc_now()

@@ -5,7 +5,12 @@ import {
   records_watch_binding,
 } from "@neko/db";
 import type { RecordsWatchEvaluatePayload } from "@neko/db/jobs";
-import type { RecordsGraphjinTransport } from "@neko/records";
+import type {
+  AppRegistrySnapshot,
+  RecordField,
+  RecordObject,
+  RecordsGraphjinTransport,
+} from "@neko/records";
 import { publishRecordsSystemFinding } from "./records-system-finding.js";
 
 type Row = Record<string, unknown>;
@@ -20,7 +25,12 @@ function rows(value: unknown): Row[] {
 }
 
 function openStage(value: unknown): boolean {
-  return value !== "closed_won" && value !== "closed_lost";
+  const normalized = stringValue(value)
+    .trim()
+    .toLocaleLowerCase("en-US")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized !== "closed_won" && normalized !== "closed_lost";
 }
 
 function stringValue(value: unknown): string {
@@ -37,9 +47,129 @@ function monthBounds(now: Date): { start: string; end: string; label: string } {
   };
 }
 
+type RecordsWatchRegistry = {
+  loadApp(orgId: string, appId: string): Promise<AppRegistrySnapshot | null>;
+};
+
+type ResolvedOpportunity = {
+  object: RecordObject;
+  name: RecordField;
+  stage: RecordField;
+  closeDate: RecordField | null;
+  amount: RecordField | null;
+};
+
+type ResolvedActivity = {
+  object: RecordObject;
+  opportunity: RecordField;
+  occurredAt: RecordField;
+};
+
+function normalizedName(value: string | null): string {
+  return (value ?? "")
+    .trim()
+    .toLocaleLowerCase("en-US")
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function matchingField(
+  fields: RecordField[],
+  input: { apiNames?: string[]; sourceNames?: string[] },
+): RecordField | null {
+  const apiNames = new Set((input.apiNames ?? []).map(normalizedName));
+  const sourceNames = new Set((input.sourceNames ?? []).map(normalizedName));
+  return (
+    fields.find(
+      (field) =>
+        apiNames.has(normalizedName(field.apiName)) ||
+        sourceNames.has(normalizedName(field.sourceApiName)),
+    ) ?? null
+  );
+}
+
+function objectFields(snapshot: AppRegistrySnapshot, object: RecordObject): RecordField[] {
+  return snapshot.fields.filter(
+    (field) => field.objectId === object.id && field.archivedAt === null,
+  );
+}
+
+function resolveOpportunity(snapshot: AppRegistrySnapshot): ResolvedOpportunity | null {
+  const object = snapshot.objects.find(
+    (candidate) =>
+      candidate.archivedAt === null &&
+      (normalizedName(candidate.apiName) === "opportunity" ||
+        normalizedName(candidate.sourceApiName) === "opportunity"),
+  );
+  if (!object) return null;
+  const fields = objectFields(snapshot, object);
+  const name = fields.find((field) => field.apiName === object.nameField) ?? null;
+  const stage = matchingField(fields, {
+    apiNames: ["stage", "stage_name"],
+    sourceNames: ["StageName"],
+  });
+  if (!name || !stage) return null;
+  return {
+    object,
+    name,
+    stage,
+    closeDate: matchingField(fields, {
+      apiNames: ["close_date", "closedate"],
+      sourceNames: ["CloseDate"],
+    }),
+    amount: matchingField(fields, {
+      apiNames: ["amount"],
+      sourceNames: ["Amount"],
+    }),
+  };
+}
+
+function resolveActivities(snapshot: AppRegistrySnapshot): ResolvedActivity[] {
+  return snapshot.objects.flatMap((object) => {
+    if (object.archivedAt !== null) return [];
+    const fields = objectFields(snapshot, object);
+    const opportunity =
+      fields.find(
+        (field) =>
+          field.kind === "reference" &&
+          (field.referenceTargets ?? []).includes("opportunity") &&
+          (normalizedName(field.apiName) === "opportunity" ||
+            normalizedName(field.sourceApiName) === "whatid"),
+      ) ?? null;
+    const occurredAt = matchingField(fields, {
+      apiNames: [
+        "occurred_at",
+        "activity_date",
+        "activitydatetime",
+        "start_date_time",
+        "last_modified_date",
+      ],
+      sourceNames: [
+        "ActivityDate",
+        "ActivityDateTime",
+        "StartDateTime",
+        "LastModifiedDate",
+      ],
+    });
+    return opportunity && occurredAt ? [{ object, opportunity, occurredAt }] : [];
+  });
+}
+
+function fieldSelection(alias: string, field: RecordField): string {
+  return `${alias}: ${field.columnName}`;
+}
+
+async function appSnapshot(
+  registry: RecordsWatchRegistry | undefined,
+  orgId: string,
+  appId: string,
+): Promise<AppRegistrySnapshot | null> {
+  return registry ? registry.loadApp(orgId, appId) : null;
+}
+
 export function createRecordsWatchEvaluator(input: {
   graphjin: RecordsGraphjinTransport;
   token: (orgId: string) => string;
+  registry?: RecordsWatchRegistry;
   now?: () => Date;
   publish?: typeof publishRecordsSystemFinding;
 }) {
@@ -65,17 +195,47 @@ export function createRecordsWatchEvaluator(input: {
         | null = null;
       if (binding.watch_key === "opportunities_without_activity") {
         const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1_000).toISOString();
-        const result = await input.graphjin.execute<{
-          opportunities?: unknown;
-          activities?: unknown;
-        }>({
+        const snapshot = await appSnapshot(
+          input.registry,
+          payload.orgId,
+          binding.app_id,
+        );
+        const opportunity = snapshot ? resolveOpportunity(snapshot) : null;
+        const activities = snapshot ? resolveActivities(snapshot) : [];
+        if (snapshot && (!opportunity || activities.length === 0)) {
+          throw new Error(
+            "no-activity watch requires an opportunity schema and a related activity timestamp",
+          );
+        }
+        const dynamic = opportunity && activities.length > 0;
+        const query = dynamic
+          ? `query EvaluateRecordsStaleOpportunities { opportunities: ${opportunity.object.tableName}(limit: 500) { id ${fieldSelection("name", opportunity.name)} owner_user_id ${fieldSelection("stage", opportunity.stage)}${opportunity.closeDate ? ` ${fieldSelection("close_date", opportunity.closeDate)}` : ""} } ${activities
+              .map(
+                (activity, index) =>
+                  `activity_${index}: ${activity.object.tableName}(limit: 500) { ${fieldSelection("opportunity", activity.opportunity)} ${fieldSelection("occurred_at", activity.occurredAt)} }`,
+              )
+              .join(" ")} }`
+          : `query EvaluateRecordsStaleOpportunities($cutoff: Timestamptz!) { opportunities: crm__opportunity(limit: 500) { id name owner_user_id stage close_date } activities: crm__activity(where: { occurred_at: { gte: $cutoff } }, limit: 500) { opportunity } }`;
+        const result = await input.graphjin.execute<Record<string, unknown>>({
           operationName: "EvaluateRecordsStaleOpportunities",
-          query: `query EvaluateRecordsStaleOpportunities($cutoff: Timestamptz!) { opportunities: crm__opportunity(limit: 500) { id name owner_user_id stage close_date } activities: crm__activity(where: { occurred_at: { gte: $cutoff } }, limit: 500) { opportunity } }`,
-          variables: { cutoff },
+          query,
+          ...(dynamic ? {} : { variables: { cutoff } }),
           token: input.token(payload.orgId),
         });
         const activeOpportunityIds = new Set(
-          rows(result.activities).map((row) => stringValue(row.opportunity)).filter(Boolean),
+          (dynamic
+            ? activities.flatMap((_, index) => rows(result[`activity_${index}`]))
+            : rows(result.activities)
+          )
+            .filter(
+              (row) =>
+                !dynamic ||
+                (typeof row.occurred_at === "string" &&
+                  !Number.isNaN(Date.parse(row.occurred_at)) &&
+                  new Date(row.occurred_at).toISOString() >= cutoff),
+            )
+            .map((row) => stringValue(row.opportunity))
+            .filter(Boolean),
         );
         const stale = rows(result.opportunities).filter(
           (row) =>
@@ -120,9 +280,23 @@ export function createRecordsWatchEvaluator(input: {
         }
       } else if (binding.watch_key === "deals_closing_this_month") {
         const bounds = monthBounds(now);
+        const snapshot = await appSnapshot(
+          input.registry,
+          payload.orgId,
+          binding.app_id,
+        );
+        const opportunity = snapshot ? resolveOpportunity(snapshot) : null;
+        if (snapshot && (!opportunity || !opportunity.closeDate)) {
+          throw new Error(
+            "deals-closing watch requires an opportunity stage and close-date field",
+          );
+        }
+        const query = opportunity?.closeDate
+          ? `query EvaluateRecordsClosingDeals { opportunities: ${opportunity.object.tableName}(limit: 500) { id ${fieldSelection("name", opportunity.name)} owner_user_id ${fieldSelection("stage", opportunity.stage)}${opportunity.amount ? ` ${fieldSelection("amount", opportunity.amount)}` : ""} ${fieldSelection("close_date", opportunity.closeDate)} } }`
+          : `query EvaluateRecordsClosingDeals { opportunities: crm__opportunity(limit: 500) { id name owner_user_id stage amount close_date } }`;
         const result = await input.graphjin.execute<{ opportunities?: unknown }>({
           operationName: "EvaluateRecordsClosingDeals",
-          query: `query EvaluateRecordsClosingDeals { opportunities: crm__opportunity(limit: 500) { id name owner_user_id stage amount close_date } }`,
+          query,
           token: input.token(payload.orgId),
         });
         const closing = rows(result.opportunities).filter((row) => {

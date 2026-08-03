@@ -15,7 +15,13 @@ const report: BackupVerificationReport = {
   completed_at: "2026-08-02T19:48:10Z",
   databases: [
     { stanza: "openneko-metadata", probe: { action_requests: 10 } },
-    { stanza: "openneko-records", probe: { record_changes: 20 } },
+    {
+      stanza: "openneko-records",
+      probe: {
+        record_changes: 20,
+        record_change_sample: { rows_sampled: 20, sha256: "a".repeat(64) },
+      },
+    },
   ],
   config_snapshot: { status: "decrypted_and_checksum_verified" },
 };
@@ -84,6 +90,35 @@ describe("weekly records backup verification", () => {
       await expect(requestBackupVerification()).rejects.toThrow(
         "did not prove both database restores",
       );
+    }
+  });
+
+  it("rejects a restore report without a valid records integrity sample", async () => {
+    for (const sample of [undefined, { rows_sampled: 20, sha256: "short" }]) {
+      const invalid = {
+        ...report,
+        databases: report.databases.map((database) =>
+          database.stanza === "openneko-records"
+            ? {
+                ...database,
+                probe: {
+                  record_changes: 20,
+                  ...(sample ? { record_change_sample: sample } : {}),
+                },
+              }
+            : database,
+        ),
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(invalid), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+      await expect(requestBackupVerification()).rejects.toThrow(/sample integrity/i);
     }
   });
 });

@@ -6,7 +6,15 @@ import {
   deleteTestOrg,
   uniqueOrgId,
 } from "@neko/db/test-helpers";
-import type { RecordsGraphjinTransport } from "@neko/records";
+import {
+  buildRecordArtifactImportPlan,
+  type AppRegistrySnapshot,
+  type RecordsGraphjinTransport,
+} from "@neko/records";
+import {
+  SALESFORCE_GOLDEN_DIRECTORY,
+  salesforceGoldenArtifactFiles,
+} from "../../../../packages/records/test/fixtures/salesforce-golden.js";
 import { createRecordsWatchEvaluator } from "../../src/jobs/records-watch-evaluate.js";
 import {
   createRecordsStarterWatchSeeder,
@@ -194,5 +202,203 @@ describeIfDb("records starter watch lifecycle", () => {
       triggerKind: "schedule",
       finding: { topic: "opportunities_without_activity", mood: "act" },
     });
+  });
+
+  it("runs every seed in both trigger modes against the golden migration shape", async () => {
+    const staged = salesforceGoldenArtifactFiles();
+    const plan = await buildRecordArtifactImportPlan({
+      directory: SALESFORCE_GOLDEN_DIRECTORY,
+      app: "crm",
+      label: "CRM",
+      readFile: async (path) => {
+        const bytes = staged.get(path);
+        if (!bytes) throw new Error(`missing golden artifact ${path}`);
+        return bytes;
+      },
+    });
+    const objects = plan.definition.objects.map((object, index) => ({
+      id: `golden-object-${index}`,
+      orgId,
+      appId: plan.definition.appId,
+      apiName: object.apiName,
+      sourceApiName: object.sourceApiName,
+      label: object.label,
+      pluralLabel: object.pluralLabel,
+      tableSchema: "public" as const,
+      tableName: object.tableName,
+      nameField: object.nameField,
+      visibility: object.visibility,
+      custom: object.custom,
+      archivedAt: null,
+      recordCount: null,
+    }));
+    const snapshot: AppRegistrySnapshot = {
+      revision: "golden",
+      app: {
+        orgId,
+        appId: plan.definition.appId,
+        label: plan.definition.label,
+        purpose: plan.definition.purpose,
+        status: "active",
+        navOrder: plan.definition.navOrder,
+        registryRevision: "golden",
+      },
+      objects,
+      fields: plan.definition.objects.flatMap((object, objectIndex) =>
+        object.fields.map((field, fieldIndex) => ({
+          id: `golden-field-${objectIndex}-${fieldIndex}`,
+          orgId,
+          objectId: objects[objectIndex]!.id,
+          apiName: field.apiName,
+          sourceApiName: field.sourceApiName,
+          label: field.label,
+          kind: field.kind,
+          columnName: field.columnName,
+          required: field.required,
+          readOnly: field.readOnly,
+          archivedAt: null,
+          picklistValues: field.picklistValues,
+          referenceTargets: field.referenceTargets,
+          length: field.length,
+          scale: field.scale,
+        })),
+      ),
+      layouts: [],
+      pages: [],
+      permissions: [],
+    };
+    const sampleRows = (objectApiName: string) => {
+      const item = plan.imports.find((candidate) => candidate.objectApiName === objectApiName);
+      if (!item) throw new Error(`missing golden import ${objectApiName}`);
+      return item.sampleRows;
+    };
+    const opportunityRows = sampleRows("opportunity");
+    const taskRows = sampleRows("task");
+    const eventRows = sampleRows("event");
+    const userRows = sampleRows("user_nk");
+    let watchNumber = 0;
+    const evaluationQueries: string[] = [];
+    const graphjin: RecordsGraphjinTransport = {
+      async execute<T>(input): Promise<T> {
+        if (input.operationName === "FindRecordsNativeWatch") {
+          return { gj_watch: [] } as T;
+        }
+        if (input.operationName === "UpsertRecordsNativeWatch") {
+          watchNumber += 1;
+          return { gj_watch: [{ id: `golden-watch-${watchNumber}` }] } as T;
+        }
+        evaluationQueries.push(input.query);
+        if (input.operationName === "EvaluateRecordsStaleOpportunities") {
+          return {
+            opportunities: opportunityRows.map((row) => ({
+              id: row.Id,
+              name: row.Name,
+              owner_user_id: row.OwnerId,
+              stage: row.StageName,
+              close_date: row.CloseDate,
+            })),
+            activity_0: eventRows.map((row) => ({
+              opportunity: row.WhatId,
+              occurred_at: row.StartDateTime,
+            })),
+            activity_1: taskRows.map((row) => ({
+              opportunity: row.WhatId,
+              occurred_at: row.LastModifiedDate,
+            })),
+          } as T;
+        }
+        if (input.operationName === "EvaluateRecordsOwnerMappings") {
+          return {
+            identities: userRows.map((row) => ({
+              source_instance_id: "salesforce-golden-production",
+              source_user_id: row.Id,
+              source_email: row.Email,
+              source_is_active: true,
+              app_user_id: null,
+              status: "conflict",
+              updated_at: "2026-08-02T12:00:00.000Z",
+            })),
+          } as T;
+        }
+        if (input.operationName === "EvaluateRecordsClosingDeals") {
+          return {
+            opportunities: opportunityRows.map((row) => ({
+              id: row.Id,
+              name: row.Name,
+              owner_user_id: row.OwnerId,
+              stage: row.StageName,
+              amount: row.Amount,
+              close_date: row.CloseDate,
+            })),
+          } as T;
+        }
+        throw new Error(`unexpected operation ${input.operationName}`);
+      },
+    };
+    const seed = createRecordsStarterWatchSeeder({
+      graphjin,
+      token: () => "watch-service-token",
+      webhookUrl: "http://172.19.0.5:4100/admin/events/records-watch",
+    });
+    await expect(
+      seed({
+        orgId,
+        appId: "crm",
+        actionPayload: {
+          preview_hash: "b".repeat(64),
+          starter_workflows: [
+            { key: "opportunities_without_activity", enabled: true },
+            { key: "unlinked_or_departed_owners", enabled: true },
+            { key: "deals_closing_this_month", enabled: true },
+          ],
+        },
+      }),
+    ).resolves.toEqual({
+      seeded: [
+        "opportunities_without_activity",
+        "unlinked_or_departed_owners",
+        "deals_closing_this_month",
+      ],
+    });
+
+    const bindings = await db()
+      .select()
+      .from(records_watch_binding)
+      .where(eq(records_watch_binding.org_id, orgId));
+    const publish = vi.fn(async () => undefined);
+    const evaluate = createRecordsWatchEvaluator({
+      graphjin,
+      token: () => "watch-service-token",
+      registry: { loadApp: async () => snapshot },
+      now: () => new Date("2026-08-02T12:00:00.000Z"),
+      publish,
+    });
+    for (const binding of bindings) {
+      await expect(
+        evaluate({
+          orgId,
+          bindingId: binding.id,
+          triggerKind: "gj_watch",
+          eventId: `golden-${binding.watch_key}`,
+        }),
+      ).resolves.toEqual({ findings: 1 });
+      await expect(
+        evaluate({ orgId, bindingId: binding.id, triggerKind: "schedule" }),
+      ).resolves.toEqual({ findings: 1 });
+    }
+
+    expect(publish).toHaveBeenCalledTimes(6);
+    expect(publish.mock.calls.map((call) => call[0].finding.topic).sort()).toEqual([
+      "deals_closing_this_month",
+      "deals_closing_this_month",
+      "opportunities_without_activity",
+      "opportunities_without_activity",
+      "unlinked_or_departed_owners",
+      "unlinked_or_departed_owners",
+    ]);
+    expect(evaluationQueries.join("\n")).toContain("stage: stagename");
+    expect(evaluationQueries.join("\n")).toContain("close_date: closedate");
+    expect(evaluationQueries.join("\n")).toContain("crm__task");
+    expect(evaluationQueries.join("\n")).toContain("crm__event");
   });
 });

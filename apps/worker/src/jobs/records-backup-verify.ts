@@ -56,6 +56,29 @@ function asVerificationReport(value: unknown): BackupVerificationReport {
   ) {
     throw new Error("backup verification did not prove both database restores");
   }
+  const records = report.databases.find(
+    (database) =>
+      database && typeof database === "object" && database.stanza === "openneko-records",
+  );
+  const recordsProbe =
+    records?.probe && typeof records.probe === "object" ? records.probe : undefined;
+  const goldenFixture = recordsProbe?.golden_fixture as
+    | { sample?: unknown }
+    | undefined;
+  const sample = (recordsProbe?.record_change_sample ?? goldenFixture?.sample) as
+    | { rows_sampled?: unknown; sha256?: unknown }
+    | undefined;
+  if (
+    !sample ||
+    !Number.isSafeInteger(sample.rows_sampled) ||
+    Number(sample.rows_sampled) < 0 ||
+    typeof sample.sha256 !== "string" ||
+    !/^[0-9a-f]{64}$/.test(sample.sha256)
+  ) {
+    throw new Error(
+      "backup verification did not prove restored records sample integrity",
+    );
+  }
   return report as BackupVerificationReport;
 }
 
