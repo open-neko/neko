@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type {
   RecordFilterExpression,
+  RecordListFilter,
+  RecordFilterOperator,
   RecordSavedView,
   RecordSavedViewDefinition,
 } from "@neko/records";
@@ -71,15 +73,20 @@ export function RecordViewBar({
         </span>
       )}
       {activeFilter && (
-        <span className="records-filter-chip">
-          {filterCount(activeFilter)} active {filterCount(activeFilter) === 1 ? "filter" : "filters"}
+        <>
+          {filterSummaries(activeFilter, fields).map((summary) => (
+            <span className="records-filter-chip" key={summary.key}>
+              {summary.field} <b>{summary.value}</b>
+            </span>
+          ))}
           <Link
+            className="records-filter-clear"
             href={hrefWith(base, { ...query, filter: "null" }, mine)}
             aria-label="Clear all filters"
           >
             ×
           </Link>
-        </span>
+        </>
       )}
       <RecordFilterBuilder base={base} query={query} fields={fields} />
       <details className="records-view-save">
@@ -123,8 +130,79 @@ export function RecordViewBar({
   );
 }
 
-function filterCount(expression: RecordFilterExpression): number {
+function filterLeaves(expression: RecordFilterExpression): RecordFilterExpression[] {
   return "op" in expression
-    ? expression.clauses.reduce((total, clause) => total + filterCount(clause), 0)
-    : 1;
+    ? expression.clauses.flatMap(filterLeaves)
+    : [expression];
+}
+
+function optionLabel(field: RecordFilterField | undefined, value: unknown): string {
+  for (const option of field?.picklistValues ?? []) {
+    if (typeof option === "string" && option === value) return option;
+    if (option && typeof option === "object" && !Array.isArray(option)) {
+      const candidate = option as Record<string, unknown>;
+      if (candidate.value === value && typeof candidate.label === "string") {
+        return candidate.label;
+      }
+    }
+  }
+  if (Array.isArray(value)) return value.map((item) => optionLabel(field, item)).join(", ");
+  return String(value ?? "");
+}
+
+function filterValue(
+  filter: RecordListFilter,
+  field: RecordFilterField | undefined,
+): string {
+  if (filter.operator === "is_open") return "is open";
+  if (filter.operator === "is_closed") return "is closed";
+  if (filter.operator === "is_null") return filter.value ? "is empty" : "is set";
+  if (filter.operator === "relative") {
+    const value = filter.value && typeof filter.value === "object" && !Array.isArray(filter.value)
+      ? filter.value as Record<string, unknown>
+      : {};
+    if (value.macro === "this_quarter") return "this quarter";
+    if (value.macro === "last_n_days") return `in the last ${String(value.days)} days`;
+  }
+  const operatorLabels: Partial<Record<RecordFilterOperator, string>> = {
+    eq: "is",
+    neq: "is not",
+    in: "is one of",
+    not_in: "is not one of",
+    contains: "contains",
+    starts_with: "starts with",
+    gt: "is greater than",
+    gte: "is at least",
+    lt: "is less than",
+    lte: "is at most",
+  };
+  const operator = operatorLabels[filter.operator] ??
+    filter.operator.replaceAll("_", " ");
+  const value = optionLabel(field, filter.value);
+  return value ? `${operator} ${value}` : operator;
+}
+
+function filterSummaries(
+  expression: RecordFilterExpression,
+  fields: RecordFilterField[],
+): Array<{ key: string; field: string; value: string }> {
+  const byName = new Map(fields.map((field) => [field.apiName, field]));
+  const leaves = filterLeaves(expression);
+  const summaries = leaves.slice(0, 3).flatMap((leaf, index) => {
+    if ("op" in leaf) return [];
+    const field = byName.get(leaf.field);
+    return [{
+      key: `${leaf.field}-${leaf.operator}-${index}`,
+      field: field?.label ?? leaf.field.replaceAll("_", " "),
+      value: filterValue(leaf, field),
+    }];
+  });
+  if (leaves.length > 3) {
+    summaries.push({
+      key: "remaining-filters",
+      field: `+${leaves.length - 3}`,
+      value: "more",
+    });
+  }
+  return summaries;
 }

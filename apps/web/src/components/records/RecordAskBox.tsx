@@ -3,13 +3,36 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp, LoaderCircle, MessageCircle } from "lucide-react";
+import Link from "next/link";
 import {
   buildRecordAskSeed,
   recordAskThreadTitle,
   type RecordAskContext,
 } from "@/lib/record-ask";
+import type { PendingRecordAction } from "@/lib/records-pending";
+import { RecordActionDiff } from "./RecordActionDiff";
 
-export function RecordAskBox({ context }: { context: RecordAskContext }) {
+export type RecordAskPendingAction = {
+  recordId: string;
+  recordLabel: string;
+  action: PendingRecordAction;
+};
+
+export type RecordAskScenario = {
+  request: string;
+  response: string;
+  autoAction?: string;
+};
+
+export function RecordAskBox({
+  context,
+  pendingActions = [],
+  scenario,
+}: {
+  context: RecordAskContext;
+  pendingActions?: RecordAskPendingAction[];
+  scenario?: RecordAskScenario;
+}) {
   const router = useRouter();
   const [request, setRequest] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -40,15 +63,69 @@ export function RecordAskBox({ context }: { context: RecordAskContext }) {
     }
   }
 
+  const listSurface = context.surface === "list" || context.surface === "recycle_list";
   return (
-    <section className="records-ask" aria-label={`Ask OpenNeko about ${subject}`}>
+    <aside
+      className={`records-ask${listSurface ? " is-list-panel" : ""}`}
+      aria-label={`Ask OpenNeko about ${subject}`}
+    >
       <div className="records-ask-label">
         <MessageCircle aria-hidden="true" />
         <span>
-          <strong>Ask about {subject}</strong>
-          <small>Reads use your access. Changes still require policy approval.</small>
+          <strong>{listSurface ? "Ask" : `Ask about ${subject}`}</strong>
+          <small>
+            {listSurface
+              ? `Scope: ${context.objectLabel}`
+              : "Reads use your access. Changes still require policy approval."}
+          </small>
         </span>
       </div>
+      {listSurface && (
+        <div className="records-ask-thread">
+          {scenario && (
+            <>
+              <p className="records-ask-message is-user">{scenario.request}</p>
+              <p className="records-ask-message is-agent">{scenario.response}</p>
+            </>
+          )}
+          {pendingActions.slice(0, 3).map(({ recordId, recordLabel, action }) => (
+            <article className="records-ask-action" key={action.id}>
+              <header>
+                <span>Approval needed</span>
+                <code>{action.kind}</code>
+              </header>
+              <div>
+                <strong>{recordLabel}</strong>
+                <small>{context.objectLabel} · {recordId}</small>
+                <RecordActionDiff
+                  compact
+                  kind={action.kind}
+                  payload={{
+                    app: context.appId,
+                    object: context.objectApiName,
+                    id: recordId,
+                    fields: action.fields,
+                    expected: action.expected,
+                  }}
+                />
+              </div>
+              <Link href={`/actions/${action.id}`}>Review change</Link>
+            </article>
+          ))}
+          {scenario?.autoAction && (
+            <p className="records-ask-auto">
+              <span aria-hidden="true">✓</span>
+              {scenario.autoAction}
+            </p>
+          )}
+          {!scenario && pendingActions.length === 0 && (
+            <p className="records-ask-empty">
+              This thread is scoped to the current view. Reads use your access;
+              proposed changes keep their normal approval policy.
+            </p>
+          )}
+        </div>
+      )}
       <form onSubmit={openAsk}>
         <label className="sr-only" htmlFor={`records-ask-${context.surface}`}>
           Ask OpenNeko about {subject}
@@ -81,6 +158,6 @@ export function RecordAskBox({ context }: { context: RecordAskContext }) {
         </button>
       </form>
       {error && <span className="records-ask-error" role="alert">{error}</span>}
-    </section>
+    </aside>
   );
 }

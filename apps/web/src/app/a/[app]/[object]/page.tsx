@@ -19,6 +19,10 @@ import {
   normalizeRecordSavedViewDefinition,
   type RecordFilterExpression,
 } from "@neko/records";
+import {
+  loadRecordsVisualListFixture,
+  type VisualListFixture,
+} from "@/lib/records-visual-fixtures";
 
 export const dynamic = "force-dynamic";
 
@@ -165,20 +169,23 @@ export default async function RecordObjectPage({
   params: Promise<{ app: string; object: string }>;
   searchParams: Promise<SearchParams>;
 }) {
-  const [{ app, object }, queryParams, orgId] = await Promise.all([
+  const [{ app, object }, queryParams] = await Promise.all([
     params,
     searchParams,
-    getOrgId(),
   ]);
-  let loaded: Awaited<ReturnType<typeof loadPage>> | null = null;
+  let loaded: Awaited<ReturnType<typeof loadPage>> | VisualListFixture | null =
+    loadRecordsVisualListFixture(app, object);
   let routeError: RecordAppRouteError | null = null;
-  try {
-    loaded = await loadPage({ orgId, app, object, queryParams });
-  } catch (error) {
-    if (error instanceof RecordAppRouteError) {
-      routeError = error;
-    } else {
-      throw error;
+  if (!loaded) {
+    const orgId = await getOrgId();
+    try {
+      loaded = await loadPage({ orgId, app, object, queryParams });
+    } catch (error) {
+      if (error instanceof RecordAppRouteError) {
+        routeError = error;
+      } else {
+        throw error;
+      }
     }
   }
 
@@ -199,6 +206,21 @@ export default async function RecordObjectPage({
     base,
     query,
   } = loaded;
+  const askPendingActions = result.rows.flatMap((row) => {
+    const recordId = String(row.id ?? "");
+    if (!recordId) return [];
+    const recordLabel = String(
+      row[result.view.object.nameField] ?? recordId,
+    );
+    return (result.pendingActions[recordId] ?? []).map((action) => ({
+      recordId,
+      recordLabel,
+      action,
+    }));
+  });
+  const askScenario = "askScenario" in loaded
+    ? loaded.askScenario
+    : undefined;
   return (
     <main className="records-root">
       <header className="records-object-header">
@@ -240,43 +262,49 @@ export default async function RecordObjectPage({
           <Trash2 aria-hidden="true" /> Recycle bin
         </Link>
       </header>
-      <RecordViewBar
-        base={base}
-        objectLabel={result.view.object.pluralLabel}
-        query={query}
-        ownerScoped={result.view.object.visibility === "owner"}
-        appId={result.app.appId}
-        objectApiName={result.view.object.apiName}
-        views={views}
-        selectedView={selectedView ?? null}
-        definition={definition}
-        fields={filterFields}
-        canShare={actor.role === "admin"}
-      />
-      <RecordTable
-        appId={result.app.appId}
-        view={result.view}
-        rows={result.rows}
-        owners={result.owners}
-        references={result.references}
-        pendingActions={result.pendingActions}
-        total={result.total}
-        cursor={result.cursor}
-        page={page}
-        query={query}
-      />
-      <RecordAskBox
-        context={{
-          surface: "list",
-          appId: result.app.appId,
-          appLabel: result.app.label,
-          objectApiName: result.view.object.apiName,
-          objectLabel: result.view.object.pluralLabel,
-          ...(query.q ? { search: query.q } : {}),
-          ...(query.mine === "true" ? { myRecords: true } : {}),
-        }}
-      />
-      <SubstrateStrip status={substrate} />
+      <div className="records-list-workspace">
+        <section className="records-list-main">
+          <RecordViewBar
+            base={base}
+            objectLabel={result.view.object.pluralLabel}
+            query={query}
+            ownerScoped={result.view.object.visibility === "owner"}
+            appId={result.app.appId}
+            objectApiName={result.view.object.apiName}
+            views={views}
+            selectedView={selectedView ?? null}
+            definition={definition}
+            fields={filterFields}
+            canShare={actor.role === "admin"}
+          />
+          <RecordTable
+            appId={result.app.appId}
+            view={result.view}
+            rows={result.rows}
+            owners={result.owners}
+            references={result.references}
+            pendingActions={result.pendingActions}
+            total={result.total}
+            cursor={result.cursor}
+            page={page}
+            query={query}
+          />
+          <SubstrateStrip status={substrate} />
+        </section>
+        <RecordAskBox
+          context={{
+            surface: "list",
+            appId: result.app.appId,
+            appLabel: result.app.label,
+            objectApiName: result.view.object.apiName,
+            objectLabel: result.view.object.pluralLabel,
+            ...(query.q ? { search: query.q } : {}),
+            ...(query.mine === "true" ? { myRecords: true } : {}),
+          }}
+          pendingActions={askPendingActions}
+          scenario={askScenario}
+        />
+      </div>
     </main>
   );
 }

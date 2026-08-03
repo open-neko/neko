@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getOrgId } from "@/lib/db";
 import { loadRecordAppShell, RecordAppRouteError } from "@/lib/records";
 import { RecordsDegradedBanner } from "@/components/records/RecordsNotice";
+import { recordsVisualTestEnabled } from "@/lib/records-visual-fixtures";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,11 @@ export default async function RecordAppLayout({
   children: React.ReactNode;
   params: Promise<{ app: string }>;
 }) {
-  const [{ app }, orgId] = await Promise.all([params, getOrgId()]);
+  const { app } = await params;
+  if (recordsVisualTestEnabled()) {
+    return <div className="records-app-shell">{children}</div>;
+  }
+  const orgId = await getOrgId();
   const shell = await loadShell(orgId, app);
   return (
     <div className="records-app-shell">
