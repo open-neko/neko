@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.23.2](https://github.com/open-neko/openneko/compare/v2.23.1...v2.23.2) (2026-08-03)
+
+
+### Bug Fixes
+
+* **records:** accept authenticated GraphJin readiness responses ([1bb6cf2](https://github.com/open-neko/openneko/commit/1bb6cf2f5f0179f2878619f88ad447be5cf87a3c))
+* **records:** accept authenticated GraphJin readiness responses ([2db858f](https://github.com/open-neko/openneko/commit/2db858fda7d3f9d2412baed5e972f3da47725c9d))
+
 ## [2.23.1](https://github.com/open-neko/openneko/compare/v2.23.0...v2.23.1) (2026-08-03)
 
 
