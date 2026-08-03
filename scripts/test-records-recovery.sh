@@ -7,6 +7,7 @@ recovery_project="${OPENNEKO_RECOVERY_PROJECT:-openneko-records-recovery-${GITHU
 recovery_metadata_port="${OPENNEKO_RECOVERY_METADATA_PORT:-55432}"
 recovery_records_port="${OPENNEKO_RECOVERY_RECORDS_PORT:-55434}"
 recovery_disk_container="${recovery_project}-disk-pressure"
+recovery_storage_image="${recovery_project}-neko-backup"
 
 export OPENNEKO_BACKUP_CIPHER_PASS="recovery-test-key-with-more-than-thirty-two-characters"
 export OPENNEKO_BACKUP_REPOSITORY="$recovery_workspace/backups"
@@ -22,11 +23,21 @@ recovery_compose=(
 )
 
 cleanup() {
+  local recovery_status=$?
+  trap - EXIT
+  set +e
   docker rm -f "$recovery_disk_container" >/dev/null 2>&1 || true
   "${recovery_compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
   if [[ -d "$recovery_workspace" && "$(basename "$recovery_workspace")" == openneko-records-recovery.* ]]; then
-    rm -r -- "$recovery_workspace"
+    if docker image inspect "$recovery_storage_image" >/dev/null 2>&1; then
+      docker run --rm --user 0:0 --entrypoint sh \
+        -v "$recovery_workspace:/cleanup" \
+        "$recovery_storage_image" \
+        -c 'find /cleanup -mindepth 1 -delete' >/dev/null 2>&1
+    fi
+    rm -rf -- "$recovery_workspace"
   fi
+  exit "$recovery_status"
 }
 trap cleanup EXIT
 
@@ -102,7 +113,6 @@ assert re.fullmatch(r"[0-9a-f]{64}", integrity["sha256"])
 ' "$recovery_verification"
 
 echo "Filling a small observed filesystem to ENOSPC and recovering it..."
-recovery_storage_image="${recovery_project}-neko-backup"
 docker run -d --name "$recovery_disk_container" \
   -e PGBACKREST_REPO1_CIPHER_PASS="$OPENNEKO_BACKUP_CIPHER_PASS" \
   --tmpfs /var/lib/postgresql/neko:rw,size=32m \
