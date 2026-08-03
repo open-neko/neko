@@ -25,7 +25,7 @@ async function migrationDir(): Promise<string> {
 
 describe("buildRecordsPoolConfig", () => {
   it("uses host-development defaults without consulting metadata config", () => {
-    expect(buildRecordsPoolConfig({})).toMatchObject({
+    expect(buildRecordsPoolConfig({}, { localConfig: {} })).toMatchObject({
       host: "localhost",
       port: 5434,
       user: "records",
@@ -43,7 +43,7 @@ describe("buildRecordsPoolConfig", () => {
         RECORDS_PG_PASSWORD: "pw",
         RECORDS_PG_DATABASE: "business",
         RECORDS_PG_SSLMODE: "require",
-      }),
+      }, { localConfig: {} }),
     ).toMatchObject({
       host: "records-db",
       port: 5432,
@@ -52,9 +52,39 @@ describe("buildRecordsPoolConfig", () => {
       database: "business",
       ssl: { rejectUnauthorized: false },
     });
-    expect(() => buildRecordsPoolConfig({ RECORDS_PG_PORT: "nope" })).toThrow(
+    expect(() =>
+      buildRecordsPoolConfig(
+        { RECORDS_PG_PORT: "nope" },
+        { localConfig: {} },
+      ),
+    ).toThrow(
       /RECORDS_PG_PORT/,
     );
+  });
+
+  it("prefers the setup-managed records config over bootstrap environment values", () => {
+    expect(
+      buildRecordsPoolConfig(
+        {
+          RECORDS_PG_HOST: "records-db",
+          RECORDS_PG_PORT: "5432",
+          RECORDS_PG_PASSWORD: "bootstrap",
+        },
+        {
+          localConfig: {
+            host: "records.internal",
+            port: 55434,
+            password: "rotated",
+            sslmode: "require",
+          },
+        },
+      ),
+    ).toMatchObject({
+      host: "records.internal",
+      port: 55434,
+      password: "rotated",
+      ssl: { rejectUnauthorized: false },
+    });
   });
 });
 

@@ -2,11 +2,11 @@
  * POST /api/admin/change-password
  *
  * Bootstraps the admin's chosen DB password on first run. Steps:
- *   1. Run `ALTER USER neko WITH PASSWORD '<new>'` against the live DB
- *      (we're already authenticated as `neko` via the bootstrap default).
- *   2. Persist the new password to `~/.config/openneko/config.json` so the next
- *      process boot picks it up.
- *   3. Drain the web's pool so subsequent queries use the new password.
+ *   1. Transactionally rotate the `neko` metadata role and dedicated records
+ *      role while both old connections are live.
+ *   2. Persist both passwords to `~/.config/openneko/config.json` so every
+ *      process and generated GraphJin config picks them up.
+ *   3. Drain both web pools so subsequent queries use the new password.
  *   4. Fire-and-forget POST /admin/reconnect to the worker so its
  *      pg-boss singleton (which holds the OLD credentials in its own
  *      pool, separate from the web's @neko/db pool) restarts with fresh
@@ -21,8 +21,18 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db, reconnectPool, sql, writeLocalConfig } from "@neko/db";
+import {
+  buildRecordsPoolConfig,
+  hasCustomPassword,
+  pool,
+  reconnectPool,
+  writeLocalConfig,
+} from "@neko/db";
 import { isDenied, requireAdminActor } from "@/lib/admin-auth";
+import {
+  getWebRecordsPool,
+  reconnectWebRecordsRuntime,
+} from "@/lib/records";
 
 const MIN_LENGTH = 8;
 const FORBIDDEN = new Set(["secret", "password", "postgres"]);
@@ -33,6 +43,41 @@ function isPlainPasswordSafe(password: string): boolean {
   // the string can't escape the literal context. Most password managers
   // generate alnum + symbol passwords without these characters.
   return !/['\\\n\r\0]/.test(password);
+}
+
+function roleIdentifier(value: unknown, label: string): string {
+  const role = typeof value === "string" ? value.trim() : "";
+  if (!/^[a-z_][a-z0-9_]{0,62}$/.test(role)) {
+    throw new Error(`${label} database role is not a safe Postgres identifier`);
+  }
+  return role;
+}
+
+async function rotateDatabaseRoles(password: string): Promise<void> {
+  const metadata = await pool().connect();
+  const records = await getWebRecordsPool().connect();
+  const recordsRole = roleIdentifier(buildRecordsPoolConfig().user, "records");
+  try {
+    await metadata.query("begin");
+    await records.query("begin");
+    await metadata.query(`alter role neko with password '${password}'`);
+    await records.query(`alter role ${recordsRole} with password '${password}'`);
+    // Both ALTER ROLE statements are transactional. Keep both transactions
+    // open until both statements have succeeded, then commit the records role
+    // first so a metadata failure can still be reported through the live web
+    // connection.
+    await records.query("commit");
+    await metadata.query("commit");
+  } catch (error) {
+    await Promise.allSettled([
+      records.query("rollback"),
+      metadata.query("rollback"),
+    ]);
+    throw error;
+  } finally {
+    records.release();
+    metadata.release();
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -61,13 +106,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ALTER USER takes a literal; we vetted the string above so a sql.raw
-    // is safe here. Drizzle's parameter binding won't work for DDL.
-    await db().execute(sql.raw(`alter user neko with password '${password}'`));
+    // ALTER ROLE takes a literal; we vetted the string above because Postgres
+    // does not accept a bind parameter in this DDL position.
+    await rotateDatabaseRoles(password);
 
-    writeLocalConfig({ pg: { password } });
+    writeLocalConfig({
+      pg: { password },
+      recordsPg: { password },
+    });
 
-    // Drain the pool so subsequent queries use the new password.
+    // Drain both pools so subsequent queries use the new password.
+    await reconnectWebRecordsRuntime();
     await reconnectPool();
 
     // Tell the worker process to restart so its pg-boss singleton
@@ -103,6 +152,5 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   const allowed = await requireAdminActor();
   if (isDenied(allowed)) return allowed;
-  const { hasCustomPassword } = await import("@neko/db");
   return NextResponse.json({ changed: hasCustomPassword() });
 }

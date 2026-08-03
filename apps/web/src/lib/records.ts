@@ -91,11 +91,14 @@ export function getWebRecordsPool(): pg.Pool {
   return recordsRuntime().pool;
 }
 
-export async function resetWebRecordsRuntimeForTesting(): Promise<void> {
+/** Drain records connections so rotated credentials are picked up immediately. */
+export async function reconnectWebRecordsRuntime(): Promise<void> {
   const current = runtimeGlobal.__opennekoWebRecordsRuntime;
   runtimeGlobal.__opennekoWebRecordsRuntime = undefined;
   if (current) await current.pool.end();
 }
+
+export const resetWebRecordsRuntimeForTesting = reconnectWebRecordsRuntime;
 
 export type RecordAppNavObject = {
   apiName: string;

@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg, { type Pool, type PoolConfig } from "pg";
+import { readLocalConfig, type LocalPgConfig } from "./local-config";
 
 const RECORDS_MIGRATION_LOCK = "record-engine-migrations-v1";
 const MIGRATION_FILE = /^\d{4}_[a-z0-9_]+\.sql$/;
@@ -21,22 +22,24 @@ export type RecordsMigrationResult = {
 
 export function buildRecordsPoolConfig(
   env: NodeJS.ProcessEnv = process.env,
-  overrides: { database?: string } = {},
+  overrides: { database?: string; localConfig?: LocalPgConfig } = {},
 ): PoolConfig {
-  const port = Number.parseInt(env.RECORDS_PG_PORT ?? "5434", 10);
+  const local = overrides.localConfig ?? readLocalConfig().recordsPg ?? {};
+  const port = local.port ?? Number.parseInt(env.RECORDS_PG_PORT ?? "5434", 10);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error(`invalid RECORDS_PG_PORT: ${env.RECORDS_PG_PORT ?? ""}`);
   }
 
   const config: PoolConfig = {
-    host: env.RECORDS_PG_HOST ?? "localhost",
+    host: local.host ?? env.RECORDS_PG_HOST ?? "localhost",
     port,
-    user: env.RECORDS_PG_USER ?? "records",
-    password: env.RECORDS_PG_PASSWORD ?? "records-secret",
-    database: overrides.database ?? env.RECORDS_PG_DATABASE ?? "records",
+    user: local.user ?? env.RECORDS_PG_USER ?? "records",
+    password: local.password ?? env.RECORDS_PG_PASSWORD ?? "records-secret",
+    database:
+      overrides.database ?? local.database ?? env.RECORDS_PG_DATABASE ?? "records",
     max: 5,
   };
-  if (env.RECORDS_PG_SSLMODE === "require") {
+  if ((local.sslmode ?? env.RECORDS_PG_SSLMODE) === "require") {
     config.ssl = { rejectUnauthorized: false };
   }
   return config;

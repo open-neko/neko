@@ -10,6 +10,11 @@ x-neko-app-env: &neko-app-env
   NEKO_PG_USER: neko
   NEKO_PG_PASSWORD: secret
   NEKO_PG_DATABASE: neko
+  RECORDS_PG_HOST: records-db
+  RECORDS_PG_PORT: "5432"
+  RECORDS_PG_USER: ${OPENNEKO_RECORDS_PG_USER:-records}
+  RECORDS_PG_PASSWORD: ${OPENNEKO_RECORDS_PG_PASSWORD:-records-secret}
+  RECORDS_PG_DATABASE: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
   OPENNEKO_RECORDS_GRAPHJIN_URL: http://records-graphjin:8090
   NO_PROXY: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,records-storage-ops,worker,web,neko-graphjin,records-graphjin,records-watch-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
   no_proxy: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,records-storage-ops,worker,web,neko-graphjin,records-graphjin,records-watch-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
