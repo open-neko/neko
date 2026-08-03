@@ -187,7 +187,10 @@ services:
     expose:
       - "8090"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/api/v1/graphql"]
+      # Readiness is the endpoint accepting HTTP, not anonymous GraphQL access.
+      # Generated RBAC may intentionally answer this unauthenticated GET with a
+      # non-2xx status, so do not make curl fail on the response status itself.
+      test: ["CMD", "curl", "-sS", "-o", "/dev/null", "http://127.0.0.1:8090/api/v1/graphql"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -211,7 +214,9 @@ services:
     expose:
       - "8090"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/api/v1/graphql"]
+      # The private watch endpoint likewise rejects unauthenticated GraphQL;
+      # receiving an HTTP response is its readiness signal.
+      test: ["CMD", "curl", "-sS", "-o", "/dev/null", "http://127.0.0.1:8090/api/v1/graphql"]
       interval: 10s
       timeout: 3s
       retries: 5

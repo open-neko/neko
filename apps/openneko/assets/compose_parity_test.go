@@ -118,6 +118,23 @@ func withoutMount(mounts []string, ignored string) []string {
 	return filtered
 }
 
+func composeHealthcheckTest(t *testing.T, label, serviceName string, service composeParityService) []string {
+	t.Helper()
+	raw, ok := service.Healthcheck["test"].([]any)
+	if !ok {
+		t.Fatalf("%s %s healthcheck test is not a command: %#v", label, serviceName, service.Healthcheck["test"])
+	}
+	command := make([]string, len(raw))
+	for index, value := range raw {
+		argument, ok := value.(string)
+		if !ok {
+			t.Fatalf("%s %s healthcheck argument %d is not a string: %#v", label, serviceName, index, value)
+		}
+		command[index] = argument
+	}
+	return command
+}
+
 func TestSourceAndPackagedComposeStateInventoryMatch(t *testing.T) {
 	rootRaw, err := os.ReadFile("../../../compose.yml")
 	if err != nil {
@@ -167,6 +184,10 @@ func TestRecordsGraphJinEndpointsRemainPrivate(t *testing.T) {
 		"source":   loadComposeParityDocument(t, rootRaw),
 		"packaged": loadComposeParityDocument(t, packagedRaw),
 	} {
+		wantHealthcheck := []string{
+			"CMD", "curl", "-sS", "-o", "/dev/null",
+			"http://127.0.0.1:8090/api/v1/graphql",
+		}
 		for _, serviceName := range []string{"records-graphjin", "records-watch-graphjin"} {
 			service, ok := document.Services[serviceName]
 			if !ok {
@@ -174,6 +195,9 @@ func TestRecordsGraphJinEndpointsRemainPrivate(t *testing.T) {
 			}
 			if len(service.Ports) != 0 {
 				t.Errorf("%s %s must not publish host ports: %v", label, serviceName, service.Ports)
+			}
+			if got := composeHealthcheckTest(t, label, serviceName, service); !reflect.DeepEqual(got, wantHealthcheck) {
+				t.Errorf("%s %s healthcheck must accept an authenticated-error HTTP response as ready:\ngot:  %v\nwant: %v", label, serviceName, got, wantHealthcheck)
 			}
 		}
 	}
