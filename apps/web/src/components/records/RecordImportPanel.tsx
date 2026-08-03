@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { RecordImportPlan } from "@neko/records";
 import type {
+  RecordArtifactImportSummary,
   RecordImportAdminObject,
   RecordImportRunSummary,
 } from "@/lib/records-imports";
@@ -37,15 +38,34 @@ function count(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function recordList(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.flatMap((entry) => {
+        const parsed = record(entry);
+        return parsed ? [parsed] : [];
+      })
+    : [];
+}
+
 export function RecordImportPanel({
   appId,
   objects,
   recentRuns,
+  artifactImport,
+  importsEnabled,
   initialObject,
 }: {
   appId: string;
   objects: RecordImportAdminObject[];
   recentRuns: RecordImportRunSummary[];
+  artifactImport: RecordArtifactImportSummary | null;
+  importsEnabled: boolean;
   initialObject?: string;
 }) {
   const firstObject =
@@ -228,11 +248,28 @@ export function RecordImportPanel({
   const processed = count(progress?.processed);
   const total = count(progress?.total) || activeRun?.sourceRows || 0;
   const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+  const artifactValidation = record(artifactImport?.validation);
+  const artifactRows = recordList(artifactValidation?.rows);
+  const artifactSamples = recordList(artifactValidation?.sampledChecksums);
+  const artifactDangling = recordList(artifactValidation?.danglingReferences);
+  const artifactPermissions = record(artifactValidation?.permissionCollapse);
+  const artifactRoles = recordList(artifactPermissions?.roles);
+  const artifactLiveRows = artifactRows.reduce((sum, row) => sum + count(row.live), 0);
+  const artifactVerifiedSamples = artifactSamples.reduce(
+    (sum, sample) => sum + count(sample.verified),
+    0,
+  );
+  const artifactDanglingCount = artifactDangling.reduce(
+    (sum, reference) => sum + count(reference.dangling),
+    0,
+  );
+  const artifactIntegrity = artifactValidation?.integrity;
 
   return (
     <div className="records-import-layout">
       <section className="records-import-main">
-        <form className="records-import-upload" onSubmit={preview}>
+        {importsEnabled ? (
+          <form className="records-import-upload" onSubmit={preview}>
           <div>
             <span className="records-eyebrow">Step 1 · Inspect</span>
             <h2>Choose a destination and CSV</h2>
@@ -263,9 +300,16 @@ export function RecordImportPanel({
             {previewing ? <LoaderCircle className="records-spin" aria-hidden="true" /> : <Upload aria-hidden="true" />}
             {previewing ? "Inspecting…" : "Review mapping"}
           </button>
-        </form>
+          </form>
+        ) : (
+          <section className="records-import-principles">
+            <Ban aria-hidden="true" />
+            <h2>Imports paused</h2>
+            <p>The connector validation report needs attention. Import controls stay closed until the app returns to an active state.</p>
+          </section>
+        )}
 
-        {plan && selectedObject && (
+        {importsEnabled && plan && selectedObject && (
           <section className="records-import-review">
             <header>
               <div>
@@ -347,6 +391,31 @@ export function RecordImportPanel({
       </section>
 
       <aside className="records-import-side">
+        {artifactValidation && (
+          <section className="records-import-artifact-report" aria-label="Connector import report">
+            <header>
+              {artifactIntegrity === "passed" ? (
+                <CheckCircle2 aria-hidden="true" />
+              ) : (
+                <Ban aria-hidden="true" />
+              )}
+              <div>
+                <span className="records-eyebrow">Connector migration</span>
+                <h2>{artifactIntegrity === "passed" ? "Integrity verified" : "Needs attention"}</h2>
+              </div>
+            </header>
+            <dl className="records-import-report">
+              <div><dt>Objects</dt><dd>{artifactRows.length.toLocaleString("en")}</dd></div>
+              <div><dt>Live rows</dt><dd>{artifactLiveRows.toLocaleString("en")}</dd></div>
+              <div><dt>Samples verified</dt><dd>{artifactVerifiedSamples.toLocaleString("en")}</dd></div>
+              <div><dt>Dangling references</dt><dd>{artifactDanglingCount.toLocaleString("en")}</dd></div>
+              <div><dt>Unmatched users</dt><dd>{count(artifactValidation.unmatchedUsers).toLocaleString("en")}</dd></div>
+            </dl>
+            <p>
+              Permissions collapsed to {artifactRoles.map((role) => String(role.role)).join(" and ") || "admin and member"}.
+            </p>
+          </section>
+        )}
         {activeRun ? (
           <section className="records-import-status">
             <header>

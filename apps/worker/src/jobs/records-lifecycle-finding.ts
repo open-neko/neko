@@ -16,6 +16,7 @@ export type RecordsImportReport = {
   runIds: string[];
   progress: Record<string, number>;
   reports: Record<string, unknown>;
+  validation?: Record<string, unknown>;
   identity?: Record<string, unknown>;
   cleanup?: Record<string, unknown>;
   error?: string;
@@ -166,7 +167,7 @@ export function buildRecordsImportReportFinding(
       ? `${report.appId} import completed`
       : `${report.appId} import needs attention`,
     body: good
-      ? `All ${total} import run${total === 1 ? "" : "s"} completed successfully. ${succeeded} succeeded; identity reconciliation and staging cleanup results are attached.`
+      ? `All ${total} import run${total === 1 ? "" : "s"} completed successfully. ${succeeded} succeeded; row, checksum, reference, identity, permission, and staging results are attached.`
       : `${succeeded} of ${total} import runs succeeded; ${failed} failed and ${cancelled} were cancelled. Review the attached per-run report before retrying or cutting over.`,
     mood: good ? "good" : "act",
     payload: {
@@ -175,6 +176,7 @@ export function buildRecordsImportReportFinding(
       runIds: report.runIds,
       progress: report.progress,
       reports: report.reports,
+      ...(report.validation ? { validation: report.validation } : {}),
       ...(report.identity ? { identity: report.identity } : {}),
       ...(report.cleanup ? { cleanup: report.cleanup } : {}),
       ...(report.error ? { error: report.error } : {}),

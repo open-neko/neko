@@ -10,6 +10,10 @@ import {
 import { reconcileArtifactIdentities } from "./artifact-identity.js";
 import { cleanupRecordsManagedStaging } from "./staging-hygiene.js";
 import type { RecordsImportReport } from "../jobs/records-lifecycle-finding.js";
+import {
+  validateArtifactImport,
+  type ArtifactImportValidationReport,
+} from "./artifact-import-validation.js";
 
 type ArtifactImportState = {
   kind: "artifact";
@@ -25,6 +29,7 @@ type ArtifactImportState = {
   reports?: Record<string, unknown>;
   error?: string;
   identity?: Record<string, unknown>;
+  validation?: ArtifactImportValidationReport;
   cleanup?: Record<string, unknown>;
 };
 
@@ -151,6 +156,7 @@ export async function refreshArtifactImportState(
     importRunId: string;
     graphjin?: RecordsGraphjinTransport;
     serviceToken?: string;
+    validate?: typeof validateArtifactImport;
     onReportReady?: (input: {
       orgId: string;
       report: RecordsImportReport;
@@ -203,7 +209,11 @@ export async function refreshArtifactImportState(
   const complete = counts.succeeded === runIds.length && missing === 0;
   const terminal =
     counts.succeeded + counts.failed + counts.cancelled === runIds.length && missing === 0;
-  const status = complete ? "succeeded" : terminal || missing > 0 ? "failed" : "running";
+  let status: "succeeded" | "failed" | "running" = complete
+    ? "succeeded"
+    : terminal || missing > 0
+      ? "failed"
+      : "running";
   const next: ArtifactImportState = {
     ...(state as ArtifactImportState),
     status,
@@ -222,6 +232,22 @@ export async function refreshArtifactImportState(
     ),
   };
   if (complete) {
+    if (!input.graphjin || !input.serviceToken) {
+      throw new Error("completed artifact import requires the records GraphJin service");
+    }
+    next.validation = await (input.validate ?? validateArtifactImport)({
+      pool,
+      orgId: input.orgId,
+      appId: match.appId,
+      runIds,
+      graphjin: input.graphjin,
+      serviceToken: input.serviceToken,
+    });
+    if (next.validation.integrity === "failed") {
+      status = "failed";
+      next.status = "failed";
+      next.error = "post-import row or checksum validation failed";
+    }
     const connector = asRecord(match.config.connector);
     const sourceInstanceId = connector?.source_instance_id;
     const objects = connector?.objects;
@@ -235,68 +261,72 @@ export async function refreshArtifactImportState(
     ) {
       throw new Error("completed artifact import is missing connector cursor metadata");
     }
-    for (const value of objects) {
-      const object = asRecord(value);
-      const objectApiName = object?.object_api_name;
-      const watermark = asRecord(object?.watermark);
-      if (typeof objectApiName !== "string" || !watermark) {
-        throw new Error("completed artifact import has invalid object cursor metadata");
+    if (status === "succeeded") {
+      for (const value of objects) {
+        const object = asRecord(value);
+        const objectApiName = object?.object_api_name;
+        const watermark = asRecord(object?.watermark);
+        if (typeof objectApiName !== "string" || !watermark) {
+          throw new Error("completed artifact import has invalid object cursor metadata");
+        }
+        await seedRecordSyncCursor(pool, {
+          orgId: input.orgId,
+          appId: match.appId,
+          sourceInstanceId,
+          objectApiName,
+          watermark,
+          manifestHash,
+        });
       }
-      await seedRecordSyncCursor(pool, {
-        orgId: input.orgId,
-        appId: match.appId,
-        sourceInstanceId,
-        objectApiName,
-        watermark,
-        manifestHash,
-      });
-    }
-    const hasSourceUsers = objects.some(
-      (value) =>
-        asRecord(value)?.source_api_name?.toString().toLocaleLowerCase("en-US") ===
-        "user",
-    );
-    if (hasSourceUsers) {
-      if (!input.graphjin || !input.serviceToken) {
-        throw new Error("completed identity import requires the records GraphJin service");
+      const hasSourceUsers = objects.some(
+        (value) =>
+          asRecord(value)?.source_api_name?.toString().toLocaleLowerCase("en-US") ===
+          "user",
+      );
+      if (hasSourceUsers) {
+        const identity = await reconcileArtifactIdentities(pool, {
+          orgId: input.orgId,
+          appId: match.appId,
+          sourceInstanceId,
+          manifestHash,
+          importActionRequestId,
+          graphjin: input.graphjin,
+          serviceToken: input.serviceToken,
+        });
+        next.identity = identity.report;
+        const unlinked = Number(identity.report.unlinked ?? 0);
+        const conflicts = Number(identity.report.conflicts ?? 0);
+        next.validation.unmatchedUsers =
+          (Number.isSafeInteger(unlinked) ? unlinked : 0) +
+          (Number.isSafeInteger(conflicts) ? conflicts : 0);
+        if (identity.action?.status === "approved") {
+          await enqueue(
+            QUEUE.ACTION_EXECUTE,
+            { orgId: input.orgId, actionRequestId: identity.action.id },
+            { singletonKey: `records-identity-import:${identity.action.id}` },
+          );
+        }
+      } else {
+        next.identity = { status: "not_available" };
       }
-      const identity = await reconcileArtifactIdentities(pool, {
-        orgId: input.orgId,
-        appId: match.appId,
-        sourceInstanceId,
-        manifestHash,
-        importActionRequestId,
-        graphjin: input.graphjin,
-        serviceToken: input.serviceToken,
-      });
-      next.identity = identity.report;
-      if (identity.action?.status === "approved") {
-        await enqueue(
-          QUEUE.ACTION_EXECUTE,
-          { orgId: input.orgId, actionRequestId: identity.action.id },
-          { singletonKey: `records-identity-import:${identity.action.id}` },
-        );
+      try {
+        next.cleanup = await cleanupRecordsManagedStaging({
+          orgId: input.orgId,
+          sourcePath: String(state.artifact_path),
+        });
+      } catch (error) {
+        next.cleanup = {
+          status: "failed",
+          completed_at: new Date().toISOString(),
+          error: (error instanceof Error ? error.message : String(error)).slice(0, 2_000),
+        };
       }
-    } else {
-      next.identity = { status: "not_available" };
-    }
-    try {
-      next.cleanup = await cleanupRecordsManagedStaging({
-        orgId: input.orgId,
-        sourcePath: String(state.artifact_path),
-      });
-    } catch (error) {
-      next.cleanup = {
-        status: "failed",
-        completed_at: new Date().toISOString(),
-        error: (error instanceof Error ? error.message : String(error)).slice(0, 2_000),
-      };
     }
   }
   await db()
     .update(app_state)
     .set({
-      status: complete ? "active" : status === "failed" ? "degraded" : "importing",
+      status: status === "succeeded" ? "active" : status === "failed" ? "degraded" : "importing",
       config: sql`${app_state.config} || ${JSON.stringify({ import: next })}::jsonb`,
     })
     .where(and(eq(app_state.org_id, input.orgId), eq(app_state.app_id, match.appId)));
@@ -305,10 +335,11 @@ export async function refreshArtifactImportState(
       orgId: input.orgId,
       report: {
         appId: match.appId,
-        status,
+        status: status === "succeeded" ? "succeeded" : "failed",
         runIds,
         progress: next.progress ?? {},
         reports: next.reports ?? {},
+        ...(next.validation ? { validation: next.validation } : {}),
         ...(next.identity ? { identity: next.identity } : {}),
         ...(next.cleanup ? { cleanup: next.cleanup } : {}),
         ...(next.error ? { error: next.error } : {}),

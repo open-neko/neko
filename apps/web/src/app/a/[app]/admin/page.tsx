@@ -61,6 +61,8 @@ export default async function RecordAppAdminPage({
         appId={model.appId}
         objects={model.objects}
         recentRuns={model.recentRuns}
+        artifactImport={model.artifactImport}
+        importsEnabled={model.importsEnabled}
         initialObject={query.object}
       />
     </main>

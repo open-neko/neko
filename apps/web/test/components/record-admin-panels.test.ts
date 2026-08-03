@@ -5,6 +5,7 @@ import { validateRecordIdentifier } from "@neko/records";
 import { RecordAdminNav } from "@/components/records/RecordAdminNav";
 import { RecordPermissionsPanel } from "@/components/records/RecordPermissionsPanel";
 import { RecordSchemaHistory } from "@/components/records/RecordSchemaHistory";
+import { RecordImportPanel } from "@/components/records/RecordImportPanel";
 
 const id = validateRecordIdentifier;
 
@@ -62,5 +63,39 @@ describe("record app admin surfaces", () => {
     expect(history).toContain("Add field priority");
     expect(history).toContain("request-1");
     expect(history).not.toContain("previewSql");
+
+    const imports = renderToStaticMarkup(createElement(RecordImportPanel, {
+      appId: "crm",
+      objects: [{
+        apiName: "account",
+        label: "Account",
+        pluralLabel: "Accounts",
+        fields: [],
+      }],
+      recentRuns: [],
+      importsEnabled: true,
+      artifactImport: {
+        status: "succeeded",
+        validation: {
+          integrity: "passed",
+          rows: [{ objectApiName: "account", live: 24 }],
+          sampledChecksums: [{ objectApiName: "account", verified: 5 }],
+          danglingReferences: [{
+            objectApiName: "contact",
+            fieldApiName: "accountid",
+            dangling: 1,
+          }],
+          unmatchedUsers: 2,
+          permissionCollapse: {
+            roles: [{ role: "admin" }, { role: "member" }],
+          },
+        },
+      },
+    }));
+    expect(imports).toContain("Integrity verified");
+    expect(imports).toContain("Live rows");
+    expect(imports).toContain("24");
+    expect(imports).toContain("Dangling references");
+    expect(imports).toContain("admin and member");
   });
 });

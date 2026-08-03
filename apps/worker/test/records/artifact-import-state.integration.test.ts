@@ -138,10 +138,28 @@ describeIfDb("artifact import metadata lifecycle", () => {
       }),
     } as unknown as Pool;
     const onReportReady = vi.fn(async () => undefined);
+    const validate = vi.fn(async () => ({
+      format: "openneko.records.artifact-import-validation.v1" as const,
+      integrity: "passed" as const,
+      rows: [],
+      sampledChecksums: [],
+      danglingReferences: [],
+      unmatchedUsers: null,
+      permissionCollapse: {
+        strategy: "admin_member" as const,
+        source: "salesforce_v1_mode_defaults" as const,
+        roles: [],
+        note: "test",
+      },
+      recordCountsRefreshed: true,
+    }));
     await expect(
       refreshArtifactImportState(recordsPool, {
         orgId,
         importRunId: runIds[0]!,
+        graphjin: { execute: vi.fn() },
+        serviceToken: "service-token",
+        validate,
         onReportReady,
       }),
     ).resolves.toEqual({ matched: true, status: "succeeded" });
@@ -156,6 +174,7 @@ describeIfDb("artifact import metadata lifecycle", () => {
           [runIds[0]!]: { inserted: 1, reconciled: true },
           [runIds[1]!]: { inserted: 1, reconciled: true },
         },
+        validation: expect.objectContaining({ integrity: "passed" }),
       }),
     });
     rows = await db()
@@ -171,6 +190,89 @@ describeIfDb("artifact import metadata lifecycle", () => {
           progress: { total: 2, succeeded: 2, missing: 0 },
         },
       },
+    });
+  });
+
+  it("keeps the app degraded when aggregate integrity validation fails", async () => {
+    const action = request(orgId);
+    const artifactPlan = plan();
+    const runId = "00000000-0000-4000-a000-000000000834";
+    await stageArtifactImportState(action, artifactPlan);
+    await projectMetadataAppState({
+      orgId,
+      definition: artifactPlan.definition,
+      registryRevision: "1",
+      actorUserId: "admin-1",
+    });
+    await trackArtifactImportRuns(action, artifactPlan, [runId]);
+    const recordsPool = {
+      query: async () => ({
+        rowCount: 1,
+        rows: [
+          {
+            id: runId,
+            status: "succeeded",
+            report: { inserted: 1, reconciled: true },
+            error: null,
+          },
+        ],
+      }),
+    } as unknown as Pool;
+    const validate = vi.fn(async () => ({
+      format: "openneko.records.artifact-import-validation.v1" as const,
+      integrity: "failed" as const,
+      rows: [{
+        objectApiName: "account",
+        expected: 1,
+        inserted: 1,
+        rejected: 0,
+        duplicates: 0,
+        live: 0,
+        reconciled: false,
+      }],
+      sampledChecksums: [],
+      danglingReferences: [],
+      unmatchedUsers: null,
+      permissionCollapse: {
+        strategy: "admin_member" as const,
+        source: "salesforce_v1_mode_defaults" as const,
+        roles: [],
+        note: "test",
+      },
+      recordCountsRefreshed: true,
+    }));
+    const onReportReady = vi.fn(async () => undefined);
+
+    await expect(
+      refreshArtifactImportState(recordsPool, {
+        orgId,
+        importRunId: runId,
+        graphjin: { execute: vi.fn() },
+        serviceToken: "service-token",
+        validate,
+        onReportReady,
+      }),
+    ).resolves.toEqual({ matched: true, status: "failed" });
+    const rows = await db()
+      .select({ status: app_state.status, config: app_state.config })
+      .from(app_state)
+      .where(and(eq(app_state.org_id, orgId), eq(app_state.app_id, "crm")));
+    expect(rows[0]).toMatchObject({
+      status: "degraded",
+      config: {
+        import: {
+          status: "failed",
+          error: "post-import row or checksum validation failed",
+          validation: { integrity: "failed" },
+        },
+      },
+    });
+    expect(onReportReady).toHaveBeenCalledWith({
+      orgId,
+      report: expect.objectContaining({
+        status: "failed",
+        validation: expect.objectContaining({ integrity: "failed" }),
+      }),
     });
   });
 });

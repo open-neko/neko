@@ -5,7 +5,10 @@ import {
   RecordArtifactImportPlanError,
   verifyRecordArtifactImportPlan,
 } from "../src/import/artifact";
-import { prepareRecordImportSource } from "../src/import/executor";
+import {
+  prepareRecordImportSamples,
+  prepareRecordImportSource,
+} from "../src/import/executor";
 import type { RecordField } from "../src/types";
 import {
   SALESFORCE_GOLDEN_DIRECTORY,
@@ -279,6 +282,9 @@ describe("artifact-directory import planning", () => {
       const prepared = prepareRecordImportSource({ plan: importPlan, source, fields });
       expect(prepareRecordImportSource({ plan: importPlan, source, fields })).toEqual(
         prepared,
+      );
+      expect(prepareRecordImportSamples({ plan: importPlan, fields })).toEqual(
+        prepared.candidates.slice(0, importPlan.sampleRows.length),
       );
       return prepared.candidates;
     });

@@ -306,6 +306,31 @@ export function prepareRecordImportSource(input: {
   };
 }
 
+/**
+ * Rebuild the human-reviewed preview rows without reopening the staged CSV.
+ * `sampleRows` and every mapping are covered by the approved plan hash, so the
+ * final import validator can compare a deterministic target sample after the
+ * worker has finished loading the object.
+ */
+export function prepareRecordImportSamples(input: {
+  plan: RecordImportPlan;
+  fields: RecordField[];
+}): PreparedRecordImportCandidate[] {
+  verifyRecordImportPlanHash(input.plan);
+  const headers = input.plan.columns.map((column) => column.sourceColumn);
+  return input.plan.sampleRows.map((sample, index) =>
+    prepareCandidate({
+      plan: input.plan,
+      headers,
+      row: {
+        rowNumber: index + 1,
+        values: headers.map((header) => sample[header] ?? ""),
+      },
+      fields: input.fields,
+    }),
+  );
+}
+
 function resultRows(data: Record<string, unknown>, key: string): Array<Record<string, unknown>> {
   const value = data[key];
   return Array.isArray(value)

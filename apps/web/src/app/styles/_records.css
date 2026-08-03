@@ -2233,6 +2233,7 @@
 
 .records-import-upload,
 .records-import-review,
+.records-import-artifact-report,
 .records-import-status,
 .records-import-principles,
 .records-import-recent {
@@ -2256,6 +2257,7 @@
 
 .records-import-upload h2,
 .records-import-review h2,
+.records-import-artifact-report h2,
 .records-import-status h2,
 .records-import-principles h2 {
   margin: 4px 0 3px;
@@ -2435,6 +2437,7 @@
   color: var(--success-mid);
 }
 
+.records-import-artifact-report,
 .records-import-status,
 .records-import-principles,
 .records-import-recent {
@@ -2444,6 +2447,38 @@
 .records-import-status {
   display: grid;
   gap: 9px;
+}
+
+.records-import-artifact-report {
+  display: grid;
+  gap: 10px;
+}
+
+.records-import-artifact-report > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.records-import-artifact-report > header > svg {
+  width: 20px;
+  height: 20px;
+  color: var(--success-mid);
+}
+
+.records-import-artifact-report > p {
+  margin: 0;
+  color: var(--text3);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.records-import-artifact-report .records-import-report {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.records-import-artifact-report .records-import-report > div:nth-child(2n) {
+  border-right: 0;
 }
 
 .records-import-status > header {

@@ -49,6 +49,8 @@ export type RecordImportRunSummary = {
   updatedAt: string;
 };
 
+export type RecordArtifactImportSummary = Record<string, unknown>;
+
 export class RecordImportWebPermissionError extends Error {
   constructor(
     message = "Records imports require an administrator.",
@@ -152,10 +154,18 @@ export async function getRecordImportAdminModel(input: {
   appLabel: string;
   objects: RecordImportAdminObject[];
   recentRuns: RecordImportRunSummary[];
+  artifactImport: RecordArtifactImportSummary | null;
+  importsEnabled: boolean;
 }> {
   await requireImportAdmin();
   const shell = await loadRecordAppShell(input.orgId, input.appId);
-  if (shell.availability !== "active") {
+  const artifactImport =
+    typeof shell.config.import === "object" &&
+    shell.config.import !== null &&
+    !Array.isArray(shell.config.import)
+      ? (shell.config.import as RecordArtifactImportSummary)
+      : null;
+  if (shell.availability !== "active" && !artifactImport) {
     throw new RecordAppRouteError(
       shell.degradedReason ?? "The records data plane is degraded.",
       503,
@@ -197,6 +207,8 @@ export async function getRecordImportAdminModel(input: {
     appLabel: shell.snapshot.app.label,
     objects,
     recentRuns: runs.filter((run) => run !== null).map((run) => runSummary(run!)),
+    artifactImport,
+    importsEnabled: shell.availability === "active",
   };
 }
 
