@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { validateRecordIdentifier } from "../naming";
+import { loadRecordPolicyGrants } from "./store";
 import type {
   RecordAppStatus,
   RecordIdentifier,
@@ -212,16 +213,6 @@ type FieldRow = {
   object_id: string;
   column_name: string;
   archived_at: Date | null;
-};
-
-type PermissionRow = {
-  app_id: string;
-  role: string;
-  object_api_name: string;
-  can_read: boolean;
-  can_create: boolean;
-  can_update: boolean;
-  can_delete: boolean;
 };
 
 function relationKey(schema: string, table: string): string {
@@ -756,12 +747,7 @@ export async function loadRecordsGraphjinPolicyModel(
        where o.org_id = $1 order by f.object_id, f.column_name`,
       [orgId],
     );
-    const permissionResult = await client.query<PermissionRow>(
-      `select app_id, role, object_api_name, can_read, can_create, can_update, can_delete
-       from engine.record_permission where org_id = $1
-       order by role, object_api_name`,
-      [orgId],
-    );
+    const permissions = await loadRecordPolicyGrants(client, { orgId });
 
     const model: RecordsGraphjinPolicyModel = {
       orgId,
@@ -791,15 +777,7 @@ export async function loadRecordsGraphjinPolicyModel(
         columnName: validateRecordIdentifier(row.column_name),
         archived: row.archived_at !== null,
       })),
-      permissions: permissionResult.rows.map((row) => ({
-        appId: row.app_id,
-        role: row.role,
-        objectApiName: validateRecordIdentifier(row.object_api_name),
-        canRead: row.can_read,
-        canCreate: row.can_create,
-        canUpdate: row.can_update,
-        canDelete: row.can_delete,
-      })),
+      permissions,
     };
     await client.query("commit");
     assertPolicyModel(model);

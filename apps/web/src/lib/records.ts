@@ -21,6 +21,7 @@ import {
   buildRecordRecycleListQuery,
   buildRecordReferenceLabelQuery,
   buildRecordSchemaLogQuery,
+  evaluateRecordObjectPermission,
   mintRecordsGraphjinToken,
   parseRecordAppPage,
   RecordRegistry,
@@ -28,6 +29,7 @@ import {
   recordsGraphjinSigningSecret,
   RecordsGraphjinClient,
   syncRecordsActor,
+  selectRecordPolicyGrant,
   validateRecordIdentifier,
   type AppRegistrySnapshot,
   type JsonObject,
@@ -149,13 +151,30 @@ function viewerPermission(
   snapshot: AppRegistrySnapshot,
   role: RecordViewerRole,
   objectApiName: string,
+  operation: "read" | "create" | "update" | "delete" = "read",
 ) {
-  return snapshot.permissions.find(
-    (permission) =>
-      permission.role === role &&
-      permission.objectApiName === objectApiName &&
-      permission.canRead,
+  const object = snapshot.objects.find(
+    (candidate) => candidate.apiName === objectApiName,
   );
+  if (!object) return null;
+  const permission = selectRecordPolicyGrant(snapshot.permissions, {
+    appId: snapshot.app.appId,
+    role,
+    objectApiName: object.apiName,
+  });
+  return evaluateRecordObjectPermission({
+    actor: { role },
+    object: {
+      appId: object.appId,
+      apiName: object.apiName,
+      visibility: object.visibility,
+      archived: object.archivedAt !== null,
+    },
+    grant: permission,
+    operation,
+  })
+    ? permission
+    : null;
 }
 
 async function metadataAppState(orgId: string, appId: string): Promise<{
@@ -237,7 +256,9 @@ export async function listRecordAppsForViewer(input: {
           pluralLabel: object.pluralLabel,
           recordCount: object.recordCount,
           custom: object.custom,
-          canCreate: permission.canCreate,
+          canCreate: Boolean(
+            viewerPermission(snapshot, input.role, object.apiName, "create"),
+          ),
         },
       ];
     });
@@ -274,7 +295,9 @@ export async function getRecordAppNav(input: {
         pluralLabel: object.pluralLabel,
         recordCount: object.recordCount,
         custom: object.custom,
-        canCreate: permission.canCreate,
+        canCreate: Boolean(
+          viewerPermission(shell.snapshot, input.role, object.apiName, "create"),
+        ),
       },
     ];
   });
@@ -928,12 +951,9 @@ export async function readRecordDetail(input: {
     const field = shell.snapshot.fields.find(
       (candidate) => candidate.id === relationship.fromFieldId && candidate.archivedAt === null,
     );
-    const readable = source && shell.snapshot.permissions.some(
-      (permission) =>
-        permission.role === viewer.role &&
-        permission.objectApiName === source.apiName &&
-        permission.canRead,
-    );
+    const readable =
+      source &&
+      viewerPermission(shell.snapshot, viewer.role, source.apiName, "read");
     return source && field && readable
       ? [{ relationship, source, field }]
       : [];

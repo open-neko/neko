@@ -1,5 +1,9 @@
 import { validateRecordIdentifier } from "../naming";
 import { RECORD_SYSTEM_COLUMNS } from "../policy/graphjin";
+import {
+  evaluateRecordObjectPermission,
+  selectRecordPolicyGrant,
+} from "../policy/evaluate";
 import type {
   AppRegistrySnapshot,
   JsonObject,
@@ -176,13 +180,27 @@ function permissionFor(
   object: RecordObject,
   role: RecordViewerRole,
 ): RecordPermission {
-  const permission = snapshot.permissions.find(
-    (candidate) =>
-      candidate.appId === snapshot.app.appId &&
-      candidate.objectApiName === object.apiName &&
-      candidate.role === role,
-  );
-  if (!permission?.canRead) throw new RecordReadPermissionError();
+  const permission = selectRecordPolicyGrant(snapshot.permissions, {
+    appId: snapshot.app.appId,
+    objectApiName: object.apiName,
+    role,
+  });
+  if (
+    !permission ||
+    !evaluateRecordObjectPermission({
+      actor: { role },
+      object: {
+        appId: object.appId,
+        apiName: object.apiName,
+        visibility: object.visibility,
+        archived: object.archivedAt !== null,
+      },
+      grant: permission,
+      operation: "read",
+    })
+  ) {
+    throw new RecordReadPermissionError();
+  }
   return permission;
 }
 

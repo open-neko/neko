@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { validateRecordIdentifier } from "./naming";
+import { loadRecordPolicyGrants } from "./policy/store";
 import type {
   AppPage,
   AppRegistrySnapshot,
@@ -11,7 +12,6 @@ import type {
   RecordLayout,
   RecordLayoutKind,
   RecordObject,
-  RecordPermission,
   RecordRelationship,
   RecordVisibility,
 } from "./types";
@@ -81,16 +81,6 @@ type RawRelationship = {
   from_field: string;
   to_object: string;
   relationship_label: string | null;
-};
-
-type RawPermission = {
-  app_id: string;
-  role: string;
-  object_api_name: string;
-  can_read: boolean;
-  can_create: boolean;
-  can_update: boolean;
-  can_delete: boolean;
 };
 
 type CacheEntry = {
@@ -254,13 +244,7 @@ export class RecordRegistry {
          order by r.to_object, r.from_object, r.from_field`,
         [orgId, appId],
       );
-      const permissionsResult = await client.query<RawPermission>(
-        `select app_id, role, object_api_name, can_read, can_create, can_update, can_delete
-         from engine.record_permission
-         where org_id = $1 and app_id = $2
-         order by role, object_api_name`,
-        [orgId, appId],
-      );
+      const permissions = await loadRecordPolicyGrants(client, { orgId, appId });
 
       const snapshot: AppRegistrySnapshot = {
         revision,
@@ -286,15 +270,7 @@ export class RecordRegistry {
           definition: row.definition,
           navOrder: row.nav_order,
         })),
-        permissions: permissionsResult.rows.map((row): RecordPermission => ({
-          appId: row.app_id,
-          role: row.role,
-          objectApiName: validateRecordIdentifier(row.object_api_name),
-          canRead: row.can_read,
-          canCreate: row.can_create,
-          canUpdate: row.can_update,
-          canDelete: row.can_delete,
-        })),
+        permissions,
       };
       await client.query("commit");
       this.cache.set(key, { revision, snapshot });

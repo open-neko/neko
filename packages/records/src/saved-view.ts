@@ -7,6 +7,10 @@ import {
   type RecordViewerRole,
 } from "./read/query";
 import { RecordRegistry } from "./registry";
+import {
+  evaluateRecordObjectPermission,
+  selectRecordPolicyGrant,
+} from "./policy/evaluate";
 import type { AppRegistrySnapshot } from "./types";
 
 const FILTER_OPERATORS = new Set<RecordFilterOperator>([
@@ -231,13 +235,27 @@ function readableObject(
   const recordObject = snapshot.objects.find(
     (candidate) => candidate.apiName === canonical && candidate.archivedAt === null,
   );
-  const permission = snapshot.permissions.find(
-    (candidate) =>
-      candidate.objectApiName === canonical &&
-      candidate.role === role &&
-      candidate.canRead,
-  );
-  if (!recordObject || !permission) throw new RecordSavedViewPermissionError();
+  if (!recordObject) throw new RecordSavedViewPermissionError();
+  const permission = selectRecordPolicyGrant(snapshot.permissions, {
+    appId: snapshot.app.appId,
+    objectApiName: recordObject.apiName,
+    role,
+  });
+  if (
+    !evaluateRecordObjectPermission({
+      actor: { role },
+      object: {
+        appId: recordObject.appId,
+        apiName: recordObject.apiName,
+        visibility: recordObject.visibility,
+        archived: recordObject.archivedAt !== null,
+      },
+      grant: permission,
+      operation: "read",
+    })
+  ) {
+    throw new RecordSavedViewPermissionError();
+  }
   return recordObject;
 }
 

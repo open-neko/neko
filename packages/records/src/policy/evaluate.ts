@@ -58,6 +58,25 @@ function grantAllows(grant: RecordPolicyGrant, operation: RecordCrudOperation): 
   }
 }
 
+/** Object-level capability used by generated route/UI guards. Row ownership
+ * remains enforced by GraphJin filters and evaluateRecordPermission below. */
+export function evaluateRecordObjectPermission(input: {
+  actor: Pick<RecordPolicyActor, "role">;
+  object: RecordPolicyObject;
+  grant: RecordPolicyGrant | null;
+  operation: RecordCrudOperation;
+}): boolean {
+  const { actor, object, grant, operation } = input;
+  return Boolean(
+    !object.archived &&
+      grant !== null &&
+      grant.appId === object.appId &&
+      grant.role === actor.role &&
+      grant.objectApiName === object.apiName &&
+      grantAllows(grant, operation),
+  );
+}
+
 /**
  * C7's single permission evaluator. The action executor and route guards use
  * this result; GraphJin receives the same grant/visibility inputs through the
@@ -71,15 +90,9 @@ export function evaluateRecordPermission(input: {
   row?: RecordPolicyRow;
 }): boolean {
   const { actor, object, grant, operation, row } = input;
-  if (object.archived || grant === null) return false;
-  if (
-    grant.appId !== object.appId ||
-    grant.role !== actor.role ||
-    grant.objectApiName !== object.apiName
-  ) {
+  if (!evaluateRecordObjectPermission({ actor, object, grant, operation })) {
     return false;
   }
-  if (!grantAllows(grant, operation)) return false;
 
   if (actor.role !== "member" || object.visibility !== "owner") return true;
 

@@ -22,6 +22,7 @@ export * from "./naming";
 export * from "./policy/evaluate";
 export * from "./policy/actor";
 export * from "./policy/graphjin";
+export * from "./policy/store";
 export * from "./read/query";
 export * from "./read/gateway";
 export * from "./registry";

@@ -7,6 +7,10 @@ import {
 import { validateRecordIdentifier } from "../naming";
 import { syncRecordsActor } from "../policy/actor";
 import {
+  evaluateRecordObjectPermission,
+  selectRecordPolicyGrant,
+} from "../policy/evaluate";
+import {
   buildRecordDetailQuery,
   buildRecordListQuery,
   buildRecordRecycleDetailQuery,
@@ -199,14 +203,27 @@ export class RecordsReadGateway {
         }
         const objects = snapshot.objects.flatMap((object): RecordsCatalogObject[] => {
           if (object.archivedAt !== null) return [];
-          const permission = snapshot.permissions.find(
-            (candidate) =>
-              candidate.appId === snapshot.app.appId &&
-              candidate.objectApiName === object.apiName &&
-              candidate.role === input.viewer.role &&
-              candidate.canRead,
-          );
-          if (!permission) return [];
+          const permission = selectRecordPolicyGrant(snapshot.permissions, {
+            appId: snapshot.app.appId,
+            objectApiName: object.apiName,
+            role: input.viewer.role,
+          });
+          if (
+            !permission ||
+            !evaluateRecordObjectPermission({
+              actor: { role: input.viewer.role },
+              object: {
+                appId: object.appId,
+                apiName: object.apiName,
+                visibility: object.visibility,
+                archived: object.archivedAt !== null,
+              },
+              grant: permission,
+              operation: "read",
+            })
+          ) {
+            return [];
+          }
           return [
             {
               apiName: object.apiName,

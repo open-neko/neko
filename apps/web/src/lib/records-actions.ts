@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   buildRecordDetailQuery,
+  evaluateRecordObjectPermission,
   RecordReadPermissionError,
   RecordValidationError,
   validateRecordFields,
@@ -76,6 +77,24 @@ function editableColumns(columns: RecordViewColumn[]): RecordViewColumn[] {
   );
 }
 
+function viewAllows(
+  view: ReturnType<typeof resolveFormView>,
+  role: "admin" | "member",
+  operation: "create" | "update",
+): boolean {
+  return evaluateRecordObjectPermission({
+    actor: { role },
+    object: {
+      appId: view.object.appId,
+      apiName: view.object.apiName,
+      visibility: view.object.visibility,
+      archived: view.object.archivedAt !== null,
+    },
+    grant: view.permission,
+    operation,
+  });
+}
+
 function resolveFormView(
   shell: RecordAppShell,
   objectApiName: string,
@@ -107,11 +126,9 @@ export async function getRecordFormModel(input: {
       503,
     );
   }
-  const view = resolveFormView(shell, input.objectApiName, roleForActor(actor.role));
-  const allowed =
-    input.operation === "create"
-      ? view.permission.canCreate
-      : view.permission.canUpdate;
+  const role = roleForActor(actor.role);
+  const view = resolveFormView(shell, input.objectApiName, role);
+  const allowed = viewAllows(view, role, input.operation);
   if (!allowed) throw new RecordReadPermissionError();
 
   let row: Record<string, unknown> | null = null;
@@ -178,10 +195,7 @@ export async function submitRecordFormAction(input: {
   }
   const role = roleForActor(actor.role);
   const view = resolveFormView(shell, input.objectApiName, role);
-  const permission =
-    input.operation === "create"
-      ? view.permission.canCreate
-      : view.permission.canUpdate;
+  const permission = viewAllows(view, role, input.operation);
   if (!permission) throw new RecordReadPermissionError();
 
   const fields = validationObject(input.fields, "fields");
@@ -309,9 +323,12 @@ export async function submitRecordRestoreAction(input: {
     getCurrentActor(),
   ]);
   if (!recycled.row) throw new RecordReadPermissionError();
-  if (!recycled.view.permission.canUpdate) throw new RecordReadPermissionError();
-
   const role = roleForActor(actor.role);
+  if (
+    !viewAllows(recycled.view, role, "update")
+  ) {
+    throw new RecordReadPermissionError();
+  }
   const target = `record:${recycled.app.appId}/${recycled.view.object.apiName}`;
   const decision = await inProcessControlPlane.evaluateActionPolicy({
     orgId: input.orgId,

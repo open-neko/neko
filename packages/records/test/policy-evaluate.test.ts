@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { validateRecordIdentifier } from "../src/naming";
-import { evaluateRecordPermission } from "../src/policy/evaluate";
+import {
+  evaluateRecordObjectPermission,
+  evaluateRecordPermission,
+} from "../src/policy/evaluate";
 import { projectRecordsGraphjinRoles } from "../src/policy/graphjin";
 import { recordsPolicyFixture } from "./policy-fixture";
 
@@ -45,6 +48,20 @@ describe("evaluateRecordPermission", () => {
     ).toBe(true);
     expect(
       evaluateRecordPermission({ actor, object, grant, operation: "create", row: { ownerUserId: "user-2" } }),
+    ).toBe(false);
+  });
+
+  it("exposes object capability without weakening row ownership checks", () => {
+    expect(
+      evaluateRecordObjectPermission({
+        actor,
+        object,
+        grant,
+        operation: "read",
+      }),
+    ).toBe(true);
+    expect(
+      evaluateRecordPermission({ actor, object, grant, operation: "read" }),
     ).toBe(false);
   });
 
