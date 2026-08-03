@@ -32,8 +32,8 @@ import { BrokerControlPlane, postAgentEvents } from "./broker-client";
  * sandbox; never runs on the host.
  *
  * argv[2] = server name (agent-core's mcpServers map key). Per-run context
- * arrives via env (agent-core's mcpBridgeEnv); broker coords inherit through
- * the process env (entry.ts → hermes → here).
+ * arrives via env (agent-core's mcpBridgeEnv); broker coords are copied into
+ * this clean bridge-child env and are not exposed to the model process.
  */
 
 function requireEnv(name: string): string {
@@ -55,6 +55,7 @@ export function buildBridgeServer(
     brokerToken?: string;
     workflowRunId?: string;
     triggeredByObservationId?: string | null;
+    recordScope?: { appId: string; objectApiName: string };
   },
 ): { instance: { connect: (t: Transport) => Promise<void> } } {
   const { orgId, threadId, runId, skillsRoot, pluginActions, controlPlane } = ctx;
@@ -78,7 +79,12 @@ export function buildBridgeServer(
         },
       );
     case "neko_records":
-      return buildRecordsReadServer({ orgId, runId, controlPlane });
+      return buildRecordsReadServer({
+        orgId,
+        runId,
+        controlPlane,
+        ...(ctx.recordScope ? { scope: ctx.recordScope } : {}),
+      });
     case "neko_workflow_builder":
       return buildWorkflowBuilderServer({
         orgId,
@@ -215,6 +221,12 @@ async function main(): Promise<void> {
     workflowRunId: process.env.OPENNEKO_MCP_WORKFLOW_RUN_ID,
     triggeredByObservationId:
       process.env.OPENNEKO_MCP_TRIGGERED_BY_OBSERVATION_ID ?? null,
+    recordScope: process.env.OPENNEKO_MCP_RECORD_SCOPE
+      ? (JSON.parse(process.env.OPENNEKO_MCP_RECORD_SCOPE) as {
+          appId: string;
+          objectApiName: string;
+        })
+      : undefined,
   });
   await server.instance.connect(new StdioServerTransport());
 }

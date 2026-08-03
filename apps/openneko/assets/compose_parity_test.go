@@ -22,6 +22,7 @@ type composeParityService struct {
 	DependsOn   map[string]composeParityDependency `yaml:"depends_on"`
 	Environment map[string]any                     `yaml:"environment"`
 	Volumes     []string                           `yaml:"volumes"`
+	Ports       []string                           `yaml:"ports"`
 	Command     []string                           `yaml:"command"`
 	Healthcheck map[string]any                     `yaml:"healthcheck"`
 }
@@ -107,6 +108,16 @@ func composeParityInventoryFor(service composeParityService) composeParityInvent
 	}
 }
 
+func withoutMount(mounts []string, ignored string) []string {
+	filtered := make([]string, 0, len(mounts))
+	for _, mount := range mounts {
+		if mount != ignored {
+			filtered = append(filtered, mount)
+		}
+	}
+	return filtered
+}
+
 func TestSourceAndPackagedComposeStateInventoryMatch(t *testing.T) {
 	rootRaw, err := os.ReadFile("../../../compose.yml")
 	if err != nil {
@@ -128,8 +139,42 @@ func TestSourceAndPackagedComposeStateInventoryMatch(t *testing.T) {
 	for _, name := range sortedKeys(root.Services) {
 		got := composeParityInventoryFor(root.Services[name])
 		want := composeParityInventoryFor(packaged.Services[name])
+		if name == "graphjin-config-init" {
+			// Source compose reads the neutral seed from the checkout. Packaged
+			// compose reads the same path baked into neko-worker, so it correctly
+			// has no host bind mount for this immutable input.
+			got.Mounts = withoutMount(
+				got.Mounts,
+				"./db/graphjin/customer.sources.example.yml:/seed/customer.sources.yml:ro",
+			)
+		}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("service %s state/recovery inventory drifted:\nsource:   %#v\npackaged: %#v", name, got, want)
+		}
+	}
+}
+
+func TestRecordsGraphJinEndpointsRemainPrivate(t *testing.T) {
+	rootRaw, err := os.ReadFile("../../../compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	packagedRaw, err := ComposeFS.ReadFile("compose/core.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, document := range map[string]composeParityDocument{
+		"source":   loadComposeParityDocument(t, rootRaw),
+		"packaged": loadComposeParityDocument(t, packagedRaw),
+	} {
+		for _, serviceName := range []string{"records-graphjin", "records-watch-graphjin"} {
+			service, ok := document.Services[serviceName]
+			if !ok {
+				t.Fatalf("%s compose is missing %s", label, serviceName)
+			}
+			if len(service.Ports) != 0 {
+				t.Errorf("%s %s must not publish host ports: %v", label, serviceName, service.Ports)
+			}
 		}
 	}
 }

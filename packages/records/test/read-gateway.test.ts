@@ -125,7 +125,30 @@ function harness(result: Record<string, unknown>) {
       return appId === current.app.appId ? current : null;
     },
   };
-  const query = vi.fn(async () => ({ rows: [] }));
+  const query = vi.fn(async (statement: string) => {
+    if (statement.includes("from engine.app_access_grant")) {
+      return { rows: [{ granted: true }] };
+    }
+    if (statement.includes("from engine.object_access_grant")) {
+      return {
+        rows: [
+          {
+            object_api_name: "loan",
+            can_read: true,
+            can_create: true,
+            can_update: true,
+            can_delete: false,
+          },
+        ],
+      };
+    }
+    if (statement.includes("from engine.field_access_grant")) {
+      return {
+        rows: [{ field_id: "field-subject", can_read: true, can_write: true }],
+      };
+    }
+    return { rows: [] };
+  });
   const execute = vi.fn(async () => result);
   const gateway = new RecordsReadGateway(
     { query } as unknown as Pool,
@@ -135,7 +158,11 @@ function harness(result: Record<string, unknown>) {
   return { gateway, query, execute };
 }
 
-const viewer = { orgId: "org-a", userId: "member-1", role: "member" as const };
+const viewer = {
+  orgId: "org-a",
+  userId: "member-1",
+  role: "member" as const,
+};
 
 describe("RecordsReadGateway", () => {
   it("returns only active, readable, non-archived registry content", async () => {

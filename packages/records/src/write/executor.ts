@@ -16,6 +16,7 @@ import {
   type RecordPolicyGrant,
 } from "../policy/evaluate";
 import { RECORD_SYSTEM_COLUMNS } from "../policy/graphjin";
+import { authorizeRecordSnapshot } from "../policy/access";
 import { RecordRegistry } from "../registry";
 import type {
   AppRegistrySnapshot,
@@ -264,10 +265,18 @@ export class RecordWriteExecutor {
     fields: RecordField[];
     grant: RecordPolicyGrant | null;
   }> {
-    const snapshot = await this.registry.loadApp(request.orgId, request.appId);
-    if (!snapshot || snapshot.app.status !== "active") {
+    const registrySnapshot = await this.registry.loadApp(request.orgId, request.appId);
+    if (!registrySnapshot || registrySnapshot.app.status !== "active") {
       throw new RecordWriteTargetError("record app is missing or not active");
     }
+    const snapshot = request.system?.kind === "sync"
+      ? registrySnapshot
+      : await authorizeRecordSnapshot(
+          this.dependencies.pool,
+          registrySnapshot,
+          request.actor,
+        );
+    if (!snapshot) throw new RecordPermissionDeniedError();
     const objectApiName = validateRecordIdentifier(request.objectApiName);
     const object = snapshot.objects.find(
       (candidate) => candidate.apiName === objectApiName && candidate.archivedAt === null,

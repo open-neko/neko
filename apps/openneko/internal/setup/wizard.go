@@ -470,7 +470,7 @@ func defaultDataURL(cfg Config, ds *DataSource) string {
 	if cfg.Mode == "dev" {
 		return "http://localhost:8080"
 	}
-	return "http://host.docker.internal:8080"
+	return "http://graphjin:8080"
 }
 
 func modelDefault(defaults map[string]string, provider string, current ProviderConfig) string {

@@ -1,5 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
-import { appendFile, chmod, mkdir, rename, symlink, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  chmod,
+  mkdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -50,6 +58,7 @@ interface SandboxJob {
   backendState?: Record<string, unknown>;
   pluginActions?: RunAgentBackendInput["pluginActions"];
   sourceConfigEnabled?: boolean;
+  dataSurface?: RunAgentBackendInput["dataSurface"];
   wantsCards?: boolean;
   workflowRunId?: string;
   mode?: "live" | "headless";
@@ -57,6 +66,8 @@ interface SandboxJob {
   workspace: AgentWorkspace;
   /** Whether the raw GraphJin binary is replaced with the guarded client. */
   graphjinEnabled?: boolean;
+  /** Install a deny wrapper even though no customer GraphJin egress/token exists. */
+  graphjinDenied?: boolean;
   /** Explicit least-privilege envelope for non-interactive agent jobs. */
   agentAccess?: {
     graphjinRead?: boolean;
@@ -115,6 +126,14 @@ export async function main(): Promise<void> {
     job.workspace.skillsRoot,
     job.workspace.claudeProjectRoot,
   );
+  // Claude discovers project skills through `.claude/skills`; Hermes scans
+  // HERMES_HOME/skills. Point both backends at the same per-run catalog so a
+  // required skill staged by the host is visible to Hermes' native skill tool.
+  if (job.backendId === "hermes" && process.env.HERMES_HOME) {
+    const hermesSkillsRoot = join(process.env.HERMES_HOME, "skills");
+    await rm(hermesSkillsRoot, { recursive: true, force: true });
+    await symlink(job.workspace.skillsRoot, hermesSkillsRoot, "dir");
+  }
   const brokerUrl = process.env.OPENNEKO_BROKER_URL;
   const brokerToken = process.env.OPENNEKO_BROKER_TOKEN;
 
@@ -158,6 +177,7 @@ export async function main(): Promise<void> {
       ? job.graphjinEnabled === true
       : job.graphjinEnabled !== false;
   const graphjinBinary = graphjinEnabled
+    || job.graphjinDenied === true
     ? await resolveBinaryOnPath("graphjin")
     : null;
   if (graphjinBinary) {
@@ -200,6 +220,7 @@ export async function main(): Promise<void> {
       ...(job.graphjinWriteGrants?.length
         ? { allowSubcommands: job.graphjinWriteGrants }
         : {}),
+      ...(job.graphjinDenied ? { denyAll: true } : {}),
     });
     if (realBinary === "/usr/local/bin/graphjin.real") {
       // The move vacated /usr/local/bin/graphjin — point it at the guard wrapper.
@@ -309,6 +330,7 @@ export async function main(): Promise<void> {
       backendState: job.backendState,
       pluginActions: job.pluginActions ?? [],
       sourceConfigEnabled: job.sourceConfigEnabled ?? false,
+      dataSurface: job.dataSurface ?? "customer",
       wantsCards: job.wantsCards ?? true,
       controlPlane,
       emit,

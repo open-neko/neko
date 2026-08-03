@@ -60,6 +60,7 @@ import {
 import type { PluginActionDescriptor } from "./tools";
 import { createToolOutputRecorder } from "./tool-output/metrics";
 import { runAgentBackend } from "./agent-core";
+import { parseRecordWorkContext, type WorkDataSurface } from "./data-surface";
 import {
   inProcessControlPlane,
   type AgentControlPlane,
@@ -213,21 +214,27 @@ export async function runChatTurn(
     );
     return { status: "failed", finalText: "", error: errMsg };
   }
+  const recordContext = parseRecordWorkContext(
+    bundle.thread.backendState.recordContext,
+  );
+  const dataSurface: WorkDataSurface = recordContext ? "records" : "customer";
 
   const backend = await resolveAgentBackend(orgId);
   const workspace = await ensureWorkWorkspace(orgId, threadId, runId);
 
   // Knowledge layering: agentic deployments (auth_mode=jwt) get the slim
   // gj_catalog bootstrap; legacy ones keep the broad discovery dumps.
-  const refresh = await prefetchKnowledgeForOrg(orgId, workspace.knowledgeRoot);
-  if (!refresh.ok) {
-    console.warn(
-      `[work-run] org=${orgId} knowledge refresh failed (${refresh.error}); proceeding with on-disk pack`,
-    );
+  if (dataSurface === "customer") {
+    const refresh = await prefetchKnowledgeForOrg(orgId, workspace.knowledgeRoot);
+    if (!refresh.ok) {
+      console.warn(
+        `[work-run] org=${orgId} knowledge refresh failed (${refresh.error}); proceeding with on-disk pack`,
+      );
+    }
   }
-  const knowledge = await readKnowledgePack(
-    knowledgePackPaths(workspace.knowledgeRoot),
-  );
+  const knowledge = dataSurface === "records"
+    ? { mode: "legacy" as const, tables: "{}", namespaces: "{}", insights: "{}", syntax: "{}" }
+    : await readKnowledgePack(knowledgePackPaths(workspace.knowledgeRoot));
 
   let assistantText = "";
   // Token instrumentation: correlate each tool_end back to its tool_start name
@@ -252,7 +259,7 @@ export async function runChatTurn(
   };
 
   const graphjinBinary = await resolveBinaryOnPath("graphjin");
-  if (!graphjinBinary) {
+  if (!graphjinBinary && dataSurface === "customer") {
     const errMsg = "graphjin CLI is not installed on PATH.";
     await wrappedEmit({ type: "error", message: errMsg });
     await finishWorkRun(runId, "failed", errMsg);
@@ -266,7 +273,7 @@ export async function runChatTurn(
   // run's CLI calls carry this run's actor token — a per-run client.json
   // the guard pins XDG_CONFIG_HOME at. Legacy mode is unchanged.
   let guardXdg: string | undefined;
-  {
+  if (dataSurface === "customer") {
     const { data_source, db, desc, eq } = await import("@neko/db");
     const [src] = await db()
       .select({ authMode: data_source.auth_mode, mcpUrl: data_source.mcp_url })
@@ -294,11 +301,16 @@ export async function runChatTurn(
   // GJ5: an org policy may grant an admin actor specific write
   // subcommands; everyone else keeps the read-only guard.
   const { resolveGraphjinWriteGrants } = await import("./graphjin-actor-guard");
-  const writeGrants = await resolveGraphjinWriteGrants(orgId, actor);
-  await ensureGraphjinGuard(workspace.binRoot, graphjinBinary, {
-    ...(guardXdg ? { xdgConfigHome: guardXdg } : {}),
-    ...(writeGrants.length > 0 ? { allowSubcommands: writeGrants } : {}),
-  });
+  const writeGrants = dataSurface === "customer"
+    ? await resolveGraphjinWriteGrants(orgId, actor)
+    : [];
+  if (graphjinBinary) {
+    await ensureGraphjinGuard(workspace.binRoot, graphjinBinary, {
+      ...(guardXdg ? { xdgConfigHome: guardXdg } : {}),
+      ...(writeGrants.length > 0 ? { allowSubcommands: writeGrants } : {}),
+      ...(dataSurface === "records" ? { denyAll: true } : {}),
+    });
+  }
 
   try {
     await wrappedEmit({
@@ -311,14 +323,19 @@ export async function runChatTurn(
     // projection). Thin channels answer in plain markdown — no rendering
     // vocabulary in their prompt. See docs/PER_CHANNEL_RENDERING.md.
     const RENDERING_CHANNELS = new Set(["web", "telegram"]);
-    const wantsCards = RENDERING_CHANNELS.has(opts.channel ?? "web");
-    const supportsCardTool = backend.capabilities.mcpTools;
-    const supportsSkillTool = backend.capabilities.mcpTools;
-    const supportsMemoryTool = backend.capabilities.mcpTools;
-    const supportsWorkflowTool = backend.capabilities.mcpTools;
-    const supportsPolicyTool = backend.capabilities.mcpTools;
-    const supportsPluginManagerTool = backend.capabilities.mcpTools;
-    const sourceConfigSettings = await getGraphjinConfigSettingsForOrg(orgId);
+    const customerSurface = dataSurface === "customer";
+    const wantsCards =
+      customerSurface && RENDERING_CHANNELS.has(opts.channel ?? "web");
+    const supportsCardTool = customerSurface && backend.capabilities.mcpTools;
+    const supportsSkillTool = customerSurface && backend.capabilities.mcpTools;
+    const supportsMemoryTool = customerSurface && backend.capabilities.mcpTools;
+    const supportsWorkflowTool = customerSurface && backend.capabilities.mcpTools;
+    const supportsPolicyTool = customerSurface && backend.capabilities.mcpTools;
+    const supportsPluginManagerTool =
+      customerSurface && backend.capabilities.mcpTools;
+    const sourceConfigSettings = dataSurface === "customer"
+      ? await getGraphjinConfigSettingsForOrg(orgId)
+      : { sourceConfigEnabled: false };
     const supportsSourceConfigTool =
       backend.capabilities.mcpTools &&
       actor.role === "admin" &&
@@ -360,18 +377,24 @@ export async function runChatTurn(
     });
 
     const [memoryContext, installedSkills, profile] = await Promise.all([
-      formatWorkMemoryPromptContext(
-        {
-          orgId,
-          threadId,
-          runId,
-          userId: effectiveMemoryLayer(orgId, actor),
-        },
-        // Use the latest user message as the retrieval query so we pull
-        // memories semantically close to what the operator just asked.
-        { contextQuery: message, contextLimit: 5 },
+      customerSurface
+        ? formatWorkMemoryPromptContext(
+            {
+              orgId,
+              threadId,
+              runId,
+              userId: effectiveMemoryLayer(orgId, actor),
+            },
+            // Use the latest user message as the retrieval query so we pull
+            // memories semantically close to what the operator just asked.
+            { contextQuery: message, contextLimit: 5 },
+          )
+        : Promise.resolve(""),
+      listInstalledSkills(workspace.skillsRoot).then((skills) =>
+        customerSurface
+          ? skills
+          : skills.filter((skill) => skill.name === "records"),
       ),
-      listInstalledSkills(workspace.skillsRoot),
       getOperatorProfile(orgId, actor.userId),
     ]);
     const operatorProfile = buildOperatorProfileSection(profile);
@@ -416,7 +439,9 @@ export async function runChatTurn(
       supportsPluginManagerTool,
       pluginCatalog,
       inlineTranscript,
-      pluginActions: opts.pluginActions ?? [],
+      pluginActions: customerSurface ? (opts.pluginActions ?? []) : [],
+      dataSurface,
+      ...(recordContext ? { recordContext } : {}),
     });
 
     const result = await runCore({
@@ -428,8 +453,9 @@ export async function runChatTurn(
       runId,
       workspace,
       backendState: bundle.thread.backendState,
-      pluginActions: opts.pluginActions ?? [],
+      pluginActions: customerSurface ? (opts.pluginActions ?? []) : [],
       sourceConfigEnabled: supportsSourceConfigTool,
+      dataSurface,
       controlPlane: opts.controlPlane,
       wantsCards,
       emit: wrappedEmit,
@@ -442,9 +468,14 @@ export async function runChatTurn(
       const base = (
         backendStateChanged ? result.backendState : bundle.thread.backendState
       ) as Record<string, unknown>;
+      const protectedBase = recordContext
+        ? { ...base, recordContext }
+        : base;
       await setWorkThreadBackendState(
         threadId,
-        newCompaction ? { ...base, compaction: newCompaction } : base,
+        newCompaction
+          ? { ...protectedBase, compaction: newCompaction }
+          : protectedBase,
       );
     }
 

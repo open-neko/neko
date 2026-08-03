@@ -50,7 +50,10 @@ export function RecordAskBox({
       const response = await fetch("/api/work/threads", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: recordAskThreadTitle(context) }),
+        body: JSON.stringify({
+          title: recordAskThreadTitle(context),
+          recordContext: context,
+        }),
       });
       if (!response.ok) throw new Error("Could not open Ask");
       const payload = (await response.json()) as { thread?: { id?: string } };

@@ -8,6 +8,8 @@ export type RecordCrudOperation = "read" | "create" | "update" | "delete";
 export type RecordPolicyActor = {
   userId: string;
   role: RecordHumanRole;
+  groupIds?: readonly string[];
+  solo?: boolean;
 };
 
 export type RecordPolicyObject = {

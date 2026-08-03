@@ -104,6 +104,7 @@ export async function createWorkThread(
   title = "",
   channel = "web",
   createdByUserId: string | null = null,
+  backendState: Record<string, unknown> = {},
 ) {
   const rows = await db()
     .insert(work_thread)
@@ -112,6 +113,7 @@ export async function createWorkThread(
       title,
       channel,
       created_by_user_id: createdByUserId,
+      backend_state: backendState,
     })
     .returning();
   return rows[0];

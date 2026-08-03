@@ -71,6 +71,34 @@ function toWire<T>(value: T): Wire<T> {
   return JSON.parse(JSON.stringify(value ?? null)) as Wire<T>;
 }
 
+export async function createActionRequestViaWorker(
+  baseUrl: string,
+  input: CreateActionRequestInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ id: string }> {
+  const url = `${baseUrl.replace(/\/$/, "")}/admin/action-requests/create`;
+  const response = await fetchImpl(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+    signal: AbortSignal.timeout(65_000),
+  });
+  const body = (await response.json().catch(() => null)) as
+    | { id?: unknown; error?: unknown }
+    | null;
+  if (!response.ok) {
+    const message =
+      body && typeof body.error === "string"
+        ? body.error
+        : `worker action preflight failed with status ${response.status}`;
+    throw new Error(message);
+  }
+  if (!body || typeof body.id !== "string" || !body.id) {
+    throw new Error("worker action preflight returned an invalid response");
+  }
+  return { id: body.id };
+}
+
 export function assertReadOnlyGraphql(query: string): void {
   const text = query.trim();
   if (!text) throw new Error("GraphJin read query is empty");
@@ -244,7 +272,15 @@ async function recordsViewerForRun(input: {
   orgId: string;
   runId: string;
 }): Promise<RecordsViewer> {
-  const { and, app_user, db, eq, work_run } = await import("@neko/db");
+  const {
+    and,
+    app_user,
+    db,
+    eq,
+    sso_group,
+    sso_group_membership,
+    work_run,
+  } = await import("@neko/db");
   const [run] = await db()
     .select({
       orgId: work_run.org_id,
@@ -273,7 +309,30 @@ async function recordsViewerForRun(input: {
     ) {
       throw new Error("records tools are not available to this actor");
     }
-    return { orgId: input.orgId, userId: run.userId, role: user.role };
+    const memberships = await db()
+      .select({ groupId: sso_group.id })
+      .from(sso_group_membership)
+      .innerJoin(
+        sso_group,
+        and(
+          eq(sso_group.id, sso_group_membership.group_id),
+          eq(sso_group.org_id, sso_group_membership.org_id),
+        ),
+      )
+      .where(
+        and(
+          eq(sso_group_membership.org_id, input.orgId),
+          eq(sso_group_membership.user_id, run.userId),
+          eq(sso_group.active, true),
+        ),
+      );
+    return {
+      orgId: input.orgId,
+      userId: run.userId,
+      role: user.role,
+      groupIds: memberships.map((row) => row.groupId),
+      solo: false,
+    };
   }
 
   // A userless admin exists only in the solo profile. Once the org has any
@@ -290,6 +349,8 @@ async function recordsViewerForRun(input: {
     orgId: input.orgId,
     userId: `urn:openneko:solo-admin:${input.orgId}`,
     role: "admin",
+    groupIds: [],
+    solo: true,
   };
 }
 
@@ -437,6 +498,15 @@ export interface AgentControlPlane {
       role: string;
       disabledAt: string | null;
       lastLoginAt: string | null;
+      groupIds?: string[];
+    }>;
+    groups?: Array<{
+      id: string;
+      provider: string;
+      tenantId: string;
+      externalId: string;
+      displayName: string | null;
+      active: boolean;
     }>;
   }>;
   /**
@@ -632,6 +702,10 @@ export class InProcessControlPlane implements AgentControlPlane {
       if (!gate.ok) {
         throw new Error(`source_config_admin: ${gate.error}`);
       }
+    }
+    const workerAdminUrl = process.env.WORKER_ADMIN_URL?.trim();
+    if (workerAdminUrl) {
+      return createActionRequestViaWorker(workerAdminUrl, input);
     }
     const request = await createActionRequest(input);
     return { id: request.id };
@@ -959,7 +1033,13 @@ export class InProcessControlPlane implements AgentControlPlane {
   }
 
   async listUsers(input: { orgId: string }) {
-    const { app_user, db, eq } = await import("@neko/db");
+    const {
+      app_user,
+      db,
+      eq,
+      sso_group,
+      sso_group_membership,
+    } = await import("@neko/db");
     const rows = await db()
       .select({
         id: app_user.id,
@@ -971,12 +1051,36 @@ export class InProcessControlPlane implements AgentControlPlane {
       })
       .from(app_user)
       .where(eq(app_user.org_id, input.orgId));
+    const [groups, memberships] = await Promise.all([
+      db()
+        .select({
+          id: sso_group.id,
+          provider: sso_group.provider,
+          tenantId: sso_group.tenant_id,
+          externalId: sso_group.external_id,
+          displayName: sso_group.display_name,
+          active: sso_group.active,
+        })
+        .from(sso_group)
+        .where(eq(sso_group.org_id, input.orgId)),
+      db()
+        .select({
+          userId: sso_group_membership.user_id,
+          groupId: sso_group_membership.group_id,
+        })
+        .from(sso_group_membership)
+        .where(eq(sso_group_membership.org_id, input.orgId)),
+    ]);
     return {
       users: rows.map((r) => ({
         ...r,
         disabledAt: r.disabledAt?.toISOString() ?? null,
         lastLoginAt: r.lastLoginAt?.toISOString() ?? null,
+        groupIds: memberships
+          .filter((membership) => membership.userId === r.id)
+          .map((membership) => membership.groupId),
       })),
+      groups,
     };
   }
 

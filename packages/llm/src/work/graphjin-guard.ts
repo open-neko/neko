@@ -58,8 +58,9 @@ const RAW_HTTP_TOOLS = ["curl", "wget"] as const;
  */
 export function isGraphjinCommandSafe(
   args: string[],
-  opts: { allowSubcommands?: string[] } = {},
+  opts: { allowSubcommands?: string[]; denyAll?: boolean } = {},
 ): boolean {
+  if (opts.denyAll) return false;
   if (args.length === 0) return false;
   if (args[0] !== "cli") return false;
 
@@ -90,6 +91,8 @@ export async function ensureGraphjinGuard(
     xdgConfigHome?: string;
     /** GJ5: write subcommands this run's policy grants (admin actors only). */
     allowSubcommands?: string[];
+    /** Records-mode isolation: customer GraphJin is not a permitted data plane. */
+    denyAll?: boolean;
   } = {},
 ): Promise<string> {
   const wrapperPath = join(binRoot, "graphjin");
@@ -111,6 +114,13 @@ export async function ensureGraphjinGuard(
       ? `export HOME=${shellQuote(pinnedXdgConfigHome)}`
       : "",
     "",
+    ...(opts.denyAll
+      ? [
+          "echo \"Customer GraphJin is unavailable in a records-scoped turn. Use the native neko_records tools.\" >&2",
+          "exit 2",
+          "",
+        ]
+      : []),
     "if [[ \"${1:-}\" != \"cli\" ]]; then",
     "  echo \"OpenNeko allows only 'graphjin cli <subcommand>'. Direct '${1:-(none)}' invocations are not permitted.\" >&2",
     "  exit 2",

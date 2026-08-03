@@ -1,0 +1,110 @@
+# Production source-mode template for the CUSTOMER-data GraphJin.
+#
+# A fresh install intentionally has no customer database source. OpenNeko ships
+# this GraphJin container and its governed config plane; an admin then registers
+# the customer's existing database or API source through setup/chat. The demo
+# overlay replaces this seed with dev.sources.example.yml, which includes the
+# AdventureWorks source.
+#
+# The worker replaces the JWT placeholder with the deployment/org-derived
+# signing secret at boot. The config initializer replaces the keystore
+# placeholder with a random 32-byte key before GraphJin starts.
+
+app_name: OpenNeko Customer Data
+mode: agentic
+host_port: 0.0.0.0:8080
+production: true
+# OpenNeko and the GraphJin server agent compile ad-hoc, role-scoped GraphQL
+# from chat. This disables the production named-query allow-list; JWT auth,
+# source access, read_only, and admin-only roots still apply.
+disable_production_security: true
+debug: false
+log_format: plain
+log_level: info
+http_compress: true
+reload_on_config_change: true
+server_timing: true
+
+auth:
+  type: jwt
+  jwt:
+    secret: "REPLACE_WITH_PER_ORG_SECRET_B64"
+    audience: ""
+    issuer: ""
+
+roles_query: ""
+identity:
+  user_id_claim: sub
+  role_claims:
+    - role
+  namespace_claim: org_id
+  admin_roles:
+    - admin
+
+auth_fail_block: true
+
+cors_allowed_origins:
+  - '*'
+
+default_limit: 20
+enable_tracing: true
+subs_poll_duration: 5s
+
+mcp:
+  disable: false
+  # The approved OpenNeko worker applies reviewed gj_config previews. The
+  # GraphJin server agent itself remains read-only.
+  allow_config_updates: true
+  include_tools_with_agent: true
+  allow_mutations: false
+  allow_raw_queries: true
+  workflow_timeout: 300
+  allow_dev_tools: false
+  legacy_discovery: false
+
+agent:
+  enabled: true
+  provider: openai
+  model: gpt-4.1-mini
+  api_key_env: GRAPHJIN_AGENT_API_KEY
+  max_steps: 8
+  timeout_seconds: 50
+  read_only: true
+  return_trace: false
+
+analytics_mode: true
+
+# Keep every JWT role explicit: GraphJin re-normalizes roles on config updates.
+roles:
+  - name: user
+    comment: Authenticated user
+  - name: admin
+    comment: Org admin
+
+# Required for GraphJin to seal database passwords into gjsecret:// refs.
+secrets:
+  keystore:
+    key: "REPLACE_WITH_BASE64_32_BYTE_KEY"
+
+blocklist:
+  - ar_internal_metadata
+  - schema_migrations
+  - secret
+  - password
+  - encrypted
+  - token
+
+sources:
+  - name: graphjin
+    kind: graphjin
+    metadata: true
+    catalog: true
+    control_plane: true
+    capabilities:
+      config.write: true
+    access:
+      roots:
+        gj_catalog: authenticated
+        gj_config: admin
+        gj_security: admin
+        gj_runtime: admin

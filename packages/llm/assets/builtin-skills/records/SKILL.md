@@ -36,6 +36,16 @@ actor's current admin/member identity. Do not use the customer-source
   asks for their records.
 - Treat a `null` detail row as absent or invisible. Do not distinguish those
   cases or suggest that a hidden record exists.
+- Derive date and status meaning from the catalog field names and labels. In
+  particular, `occurred_at` means when an activity occurred or is scheduled;
+  it is not a due date and does not prove an item is overdue.
+- If a question asks for urgency but the object has no explicit priority,
+  due-date, or status field, say objective urgency cannot be determined. You
+  may offer a clearly labeled heuristic (for example, the latest scheduled
+  task), but never rename that heuristic as urgency, priority, or overdue.
+- Stay on the trusted app/object surface for contextual record chats. Do not
+  inspect other objects to embellish an answer unless the operator explicitly
+  asks for that cross-object analysis.
 - If the records data plane is unavailable, report that plainly. Never fill
   missing results from memory or another source.
 

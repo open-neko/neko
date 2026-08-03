@@ -91,6 +91,9 @@ RUN curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/graphjin.tgz
     && rm /tmp/graphjin.tgz \
     && graphjin version
 # hermes: default agent backend (any provider). claude: claude-agent backend.
+# Hermes' pinned MCP adapter still reads the JSON alias (`isError`) as a
+# Python attribute. Current mcp releases expose the field as `is_error`, so
+# patch that single adapter access until the upstream pin contains the fix.
 RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv/install.sh \
       | env UV_INSTALL_DIR=/usr/local/bin sh -s -- --no-modify-path \
     && UV_TOOL_DIR=/usr/local/uv/tools \
@@ -101,6 +104,10 @@ RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv
          --with mcp --with websockets \
          "hermes-agent[acp] @ git+https://github.com/NousResearch/hermes-agent.git@${HERMES_AGENT_REF}" \
     && rm -rf /tmp/uv-cache /root/.cache/uv \
+    && sed -i 's/result\.isError/result.is_error/g' \
+         /usr/local/uv/tools/hermes-agent/lib/python3.11/site-packages/tools/mcp_tool.py \
+    && ! grep -q 'result\.isError' \
+         /usr/local/uv/tools/hermes-agent/lib/python3.11/site-packages/tools/mcp_tool.py \
     && hermes --version \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "import mcp, websockets" \
     && echo "hermes MCP SDK present"

@@ -72,6 +72,56 @@ export const app_user = pgTable(
   }),
 );
 
+export const sso_group = pgTable(
+  "sso_group",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    tenant_id: text("tenant_id").notNull(),
+    external_id: text("external_id").notNull(),
+    display_name: text("display_name"),
+    active: boolean("active").notNull().default(true),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    identity_unique: uniqueIndex("sso_group_identity_unique").on(
+      t.org_id,
+      t.provider,
+      t.tenant_id,
+      t.external_id,
+    ),
+    id_org_unique: uniqueIndex("sso_group_id_org_unique").on(t.id, t.org_id),
+  }),
+);
+
+export const sso_group_membership = pgTable(
+  "sso_group_membership",
+  {
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    group_id: uuid("group_id")
+      .notNull()
+      .references(() => sso_group.id, { onDelete: "cascade" }),
+    user_id: text("user_id")
+      .notNull()
+      .references(() => app_user.id, { onDelete: "cascade" }),
+    synced_at: ts("synced_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.org_id, t.group_id, t.user_id] }),
+    user_idx: index("sso_group_membership_user_idx").on(
+      t.org_id,
+      t.user_id,
+      t.group_id,
+    ),
+  }),
+);
+
 // Availability mirror for the records-engine registry. The records database
 // remains authoritative for app definitions; metadata consumers use this
 // narrow projection for navigation, orchestration, and degraded-state checks.

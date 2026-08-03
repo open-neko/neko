@@ -36,6 +36,8 @@ describe("records agent skill contracts", () => {
   it("keeps Salesforce semantics in the CRM pack rather than engine code", async () => {
     const body = await skill("crm");
     expect(body).toContain('blueprint: "crm"');
+    expect(body).toContain("`../app-builder/SKILL.md`");
+    expect(body).toContain("`../records/SKILL.md`");
     expect(body).toContain("owner_user_id");
     expect(body).toContain("15-character");
     expect(body).toContain("two Salesforce instances");
@@ -45,8 +47,27 @@ describe("records agent skill contracts", () => {
   it("keeps Zendesk semantics and ambiguous-ticket handling in the support pack", async () => {
     const body = await skill("support-desk");
     expect(body).toContain('blueprint: "support"');
+    expect(body).toContain("`../app-builder/SKILL.md`");
+    expect(body).toContain("`../records/SKILL.md`");
     expect(body).toContain("requester-visible replies");
     expect(body).toContain("connector instance plus source ID");
     expect(body).toContain("never choose the first similar subject");
+  });
+
+  it("ships governed, exact-ID app access administration", async () => {
+    const body = await skill("access-admin");
+    expect(body).toContain("mcp__neko_user_manager__list_users");
+    expect(body).toContain("stable `sso_group.id`");
+    for (const kind of [
+      "app_access_grant",
+      "app_access_revoke",
+      "app_object_permission_set",
+      "app_field_permission_set",
+    ]) {
+      expect(body).toContain(kind);
+    }
+    expect(body).toContain("scope: internal");
+    expect(body).toContain("solo operator already has full access");
+    expect(body).not.toMatch(/update\s+engine\.|insert\s+into\s+engine\./i);
   });
 });

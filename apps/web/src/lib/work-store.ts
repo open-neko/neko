@@ -7,6 +7,7 @@ export {
   type WorkThreadBundle,
   listWorkThreads,
   createWorkThread,
+  parseRecordWorkContext,
   deleteWorkThread,
   getWorkThread,
   setWorkThreadBackendState,

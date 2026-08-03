@@ -11,8 +11,11 @@ import {
   desc,
   eq,
   inArray,
+  sso_group,
+  sso_group_membership,
 } from "@neko/db";
 import {
+  authorizeRecordSnapshot,
   buildRecordDetailQuery,
   buildRecordChangeLogQuery,
   buildRecordAggregateQuery,
@@ -198,7 +201,7 @@ function canonicalAppId(value: string): string {
   }
 }
 
-export async function loadRecordAppShell(
+async function loadRecordAppShellRaw(
   orgId: string,
   appId: string,
 ): Promise<RecordAppShell> {
@@ -228,10 +231,28 @@ export async function loadRecordAppShell(
   };
 }
 
+export async function loadRecordAppShell(
+  orgId: string,
+  appId: string,
+): Promise<RecordAppShell> {
+  const [shell, viewer] = await Promise.all([
+    loadRecordAppShellRaw(orgId, appId),
+    recordsViewer(orgId),
+  ]);
+  const snapshot = await authorizeRecordSnapshot(
+    recordsRuntime().pool,
+    shell.snapshot,
+    viewer,
+  );
+  if (!snapshot) throw new RecordAppRouteError("record app was not found", 404);
+  return { ...shell, snapshot };
+}
+
 export async function listRecordAppsForViewer(input: {
   orgId: string;
   role: RecordViewerRole;
 }): Promise<RecordAppNavItem[]> {
+  const viewer = await recordsViewer(input.orgId);
   const states = await db()
     .select({ appId: app_state.app_id })
     .from(app_state)
@@ -240,14 +261,17 @@ export async function listRecordAppsForViewer(input: {
   const apps = (await recordsRuntime().registry.listApps(input.orgId)).filter(
     (app) => app.status === "active" && activeMetadata.has(app.appId),
   );
-  const snapshots = await Promise.all(
-    apps.map((app) => recordsRuntime().registry.loadApp(input.orgId, app.appId)),
-  );
+  const snapshots = await Promise.all(apps.map(async (app) => {
+    const snapshot = await recordsRuntime().registry.loadApp(input.orgId, app.appId);
+    return snapshot
+      ? authorizeRecordSnapshot(recordsRuntime().pool, snapshot, viewer)
+      : null;
+  }));
   return snapshots.flatMap((snapshot): RecordAppNavItem[] => {
     if (!snapshot) return [];
     const objects = snapshot.objects.flatMap((object): RecordAppNavObject[] => {
       if (object.archivedAt !== null) return [];
-      const permission = viewerPermission(snapshot, input.role, object.apiName);
+      const permission = viewerPermission(snapshot, viewer.role, object.apiName);
       if (!permission) return [];
       return [
         {
@@ -257,7 +281,7 @@ export async function listRecordAppsForViewer(input: {
           recordCount: object.recordCount,
           custom: object.custom,
           canCreate: Boolean(
-            viewerPermission(snapshot, input.role, object.apiName, "create"),
+            viewerPermission(snapshot, viewer.role, object.apiName, "create"),
           ),
         },
       ];
@@ -281,12 +305,13 @@ export async function getRecordAppNav(input: {
   role: RecordViewerRole;
 }): Promise<RecordAppNavItem> {
   const shell = await loadRecordAppShell(input.orgId, input.appId);
+  const viewer = await recordsViewer(input.orgId);
   if (shell.availability !== "active") {
     throw new RecordAppRouteError(shell.degradedReason ?? "record app is degraded", 503);
   }
   const objects = shell.snapshot.objects.flatMap((object): RecordAppNavObject[] => {
     if (object.archivedAt !== null) return [];
-    const permission = viewerPermission(shell.snapshot, input.role, object.apiName);
+    const permission = viewerPermission(shell.snapshot, viewer.role, object.apiName);
     if (!permission) return [];
     return [
       {
@@ -296,7 +321,7 @@ export async function getRecordAppNav(input: {
         recordCount: object.recordCount,
         custom: object.custom,
         canCreate: Boolean(
-          viewerPermission(shell.snapshot, input.role, object.apiName, "create"),
+          viewerPermission(shell.snapshot, viewer.role, object.apiName, "create"),
         ),
       },
     ];
@@ -329,7 +354,7 @@ export async function getRecordAdminModel(input: {
   history: RecordSchemaHistoryEntry[];
   fallbackHref: string;
 }> {
-  const shell = await loadRecordAppShell(input.orgId, input.appId);
+  const shell = await loadRecordAppShellRaw(input.orgId, input.appId);
   if (shell.availability !== "active") {
     throw new RecordAppRouteError(shell.degradedReason ?? "record app is degraded", 503);
   }
@@ -379,15 +404,39 @@ export async function getRecordAdminModel(input: {
 async function recordsViewer(orgId: string): Promise<{
   role: RecordViewerRole;
   userId: string;
+  groupIds: string[];
+  solo: boolean;
   token: string;
 }> {
   const actor = await getCurrentActor();
   const role: RecordViewerRole = actor.role === "member" ? "member" : "admin";
   const userId = actor.userId ?? `urn:openneko:solo-admin:${orgId}`;
+  const solo = actor.userId === null;
+  const memberships = solo
+    ? []
+    : await db()
+        .select({ groupId: sso_group.id })
+        .from(sso_group_membership)
+        .innerJoin(
+          sso_group,
+          and(
+            eq(sso_group.id, sso_group_membership.group_id),
+            eq(sso_group.org_id, sso_group_membership.org_id),
+          ),
+        )
+        .where(
+          and(
+            eq(sso_group_membership.org_id, orgId),
+            eq(sso_group_membership.user_id, userId),
+            eq(sso_group.active, true),
+          ),
+        );
   await syncRecordsActor(recordsRuntime().pool, { orgId, userId, role });
   return {
     role,
     userId,
+    groupIds: memberships.map((row) => row.groupId),
+    solo,
     token: mintRecordsGraphjinToken({
       secret: recordsGraphjinSigningSecret(orgId),
       orgId,
@@ -1177,7 +1226,7 @@ export async function getRecordSubstrateStatus(input: {
   unlinkedIdentities: number;
   latestSync: { watermark: unknown; updatedAt: string } | null;
 }> {
-  const shell = await loadRecordAppShell(input.orgId, input.appId);
+  const shell = await loadRecordAppShellRaw(input.orgId, input.appId);
   const [identity, sync] = await Promise.all([
     recordsRuntime().pool.query<{ count: number }>(
       `select count(*)::int as count from engine.identity_map

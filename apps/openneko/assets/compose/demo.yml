@@ -196,11 +196,16 @@ services:
       graphjin:
         condition: service_started
     environment:
+      # The packaged demo overrides core's neutral config with its
+      # AdventureWorks source-mode config in a dedicated volume.
+      OPENNEKO_GRAPHJIN_CONFIG: /graphjin-config/agentic.yml
       # Trial default: route every external action (e.g. send_webhook) to
       # the mock adapter so bundled workflows can propose Slack alerts
       # without hitting real endpoints. Flip to "false" once you're past
       # trial and have wired real webhooks.
       NEKO_ACTIONS_DRY_RUN: ${NEKO_ACTIONS_DRY_RUN:-true}
+    volumes:
+      - graphjin-config:/graphjin-config
 
   worker:
     depends_on:

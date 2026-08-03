@@ -204,8 +204,10 @@ services:
 
   # Native durable gj_watch runner. This is deliberately separate from the
   # human/chat records GraphJin instance because GraphJin source mode and the
-  # generated legacy per-table RBAC model are mutually exclusive. The worker
-  # fences and projects both instances together around schema changes.
+  # generated legacy per-table RBAC model are mutually exclusive. Its distinct
+  # signing domain also prevents human records tokens from reaching watch
+  # control roots. The worker fences and projects both instances together
+  # around schema changes.
   records-watch-graphjin:
     build:
       context: .
@@ -225,6 +227,46 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+  # Customer-data GraphJin. This is the endpoint stored per organization and
+  # configured to point at the customer's existing databases/APIs. A fresh
+  # production install starts with only GraphJin's governed config plane; the
+  # demo overlay adds AdventureWorks as its initial data source.
+  graphjin-config-init:
+    image: alpine:3.20
+    user: "0:0"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        if [ ! -f /config/agentic.yml ]; then
+          cp /seed/customer.sources.yml /config/agentic.yml
+          KEY=$$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+          sed -i "s|REPLACE_WITH_BASE64_32_BYTE_KEY|$$KEY|" /config/agentic.yml
+        fi
+        chmod -R a+rwX /config
+    volumes:
+      - openneko-graphjin-cli:/config
+      - ./db/graphjin/customer.sources.example.yml:/seed/customer.sources.yml:ro
+    restart: "no"
+
+  graphjin:
+    image: dosco/graphjin:3.18.42
+    restart: unless-stopped
+    depends_on:
+      graphjin-config-init:
+        condition: service_completed_successfully
+    ports:
+      - "${GRAPHJIN_PORT:-8080}:8080"
+    environment:
+      GO_ENV: agentic
+      GRAPHJIN_AGENT_API_KEY: ${GRAPHJIN_AGENT_API_KEY:-}
+      GJ_AGENT_PROVIDER: ${GRAPHJIN_AGENT_PROVIDER:-openai}
+      GJ_AGENT_MODEL: ${GRAPHJIN_AGENT_MODEL:-gpt-4.1-mini}
+    volumes:
+      - openneko-graphjin-cli:/config
+    command: ["serve", "--path", "/config"]
 
   # One-shot: applies SQL migrations to neko-db and exits. Every long-
   # running service (web, worker, neko-graphjin) depends on this completing
@@ -302,11 +344,14 @@ services:
         condition: service_completed_successfully
       neko-graphjin:
         condition: service_started
+      graphjin:
+        condition: service_started
     environment:
       <<: *neko-app-env
       WORKER_ADMIN_URL: http://worker:4100
       OPENNEKO_RESTART_WEB_ON_PASSWORD_CHANGE: "1"
       OPENNEKO_GRAPHJIN_URL: http://neko-graphjin:8089
+      OPENNEKO_GRAPHJIN_CONFIG: /config/graphjin/agentic.yml
     ports:
       - "${OPENNEKO_PORT:-3000}:8080"
     volumes:
@@ -332,9 +377,12 @@ services:
         condition: service_started
       records-watch-graphjin:
         condition: service_started
+      graphjin:
+        condition: service_started
     environment:
       <<: *neko-app-env
       OPENNEKO_GRAPHJIN_URL: http://neko-graphjin:8089
+      OPENNEKO_GRAPHJIN_CONFIG: /config/graphjin/agentic.yml
       RECORDS_PG_HOST: records-db
       RECORDS_PG_PORT: "5432"
       RECORDS_PG_USER: ${OPENNEKO_RECORDS_PG_USER:-records}

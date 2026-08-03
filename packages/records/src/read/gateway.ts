@@ -6,6 +6,7 @@ import {
 } from "../graphjin/client";
 import { validateRecordIdentifier } from "../naming";
 import { syncRecordsActor } from "../policy/actor";
+import { authorizeRecordSnapshot } from "../policy/access";
 import {
   evaluateRecordObjectPermission,
   selectRecordPolicyGrant,
@@ -30,6 +31,8 @@ export type RecordsViewer = {
   orgId: string;
   userId: string;
   role: RecordViewerRole;
+  groupIds?: readonly string[];
+  solo?: boolean;
 };
 
 export type RecordsCatalogField = {
@@ -193,7 +196,9 @@ export class RecordsReadGateway {
         );
 
     return {
-      apps: apps.flatMap((snapshot): RecordsCatalogApp[] => {
+      apps: (await Promise.all(apps.map(async (snapshot) =>
+        snapshot ? authorizeRecordSnapshot(this.pool, snapshot, input.viewer) : null,
+      ))).flatMap((snapshot): RecordsCatalogApp[] => {
         if (
           !snapshot ||
           snapshot.app.status !== "active" ||
@@ -295,7 +300,13 @@ export class RecordsReadGateway {
     if (!snapshot || snapshot.app.status !== "active") {
       throw new Error("record app is not active");
     }
-    return snapshot;
+    const authorized = await authorizeRecordSnapshot(
+      this.pool,
+      snapshot,
+      input.viewer,
+    );
+    if (!authorized) throw new Error("record app is not active or accessible");
+    return authorized;
   }
 
   private async token(viewer: RecordsViewer): Promise<string> {

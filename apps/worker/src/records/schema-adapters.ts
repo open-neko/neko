@@ -30,17 +30,57 @@ export const RECORD_SCHEMA_ACTION_DESCRIPTORS = [
       purpose: "Track customer requests and ownership",
       objects: [
         {
-          name: "ticket",
+          api_name: "ticket",
+          label: "Ticket",
+          plural_label: "Tickets",
           name_field: "subject",
           visibility: "owner",
           fields: [
-            { name: "subject", required: true },
             {
-              name: "status",
+              api_name: "subject",
+              label: "Subject",
+              kind: "text",
+              required: true,
+            },
+            {
+              api_name: "status",
+              label: "Status",
               kind: "picklist",
               picklist_values: ["new", "open", "closed"],
             },
           ],
+          layouts: [
+            {
+              kind: "list",
+              definition: { columns: ["subject", "status"] },
+            },
+          ],
+        },
+      ],
+      permissions: [
+        {
+          role: "admin",
+          object: "ticket",
+          read: true,
+          create: true,
+          update: true,
+          delete: true,
+        },
+        {
+          role: "member",
+          object: "ticket",
+          read: true,
+          create: true,
+          update: true,
+          delete: false,
+        },
+      ],
+      pages: [
+        {
+          api_name: "overview",
+          label: "Overview",
+          nav_order: 0,
+          definition: { blocks: [] },
         },
       ],
     },
@@ -53,15 +93,26 @@ export const RECORD_SCHEMA_ACTION_DESCRIPTORS = [
     example: {
       app: "crm",
       object: {
-        name: "contact",
+        api_name: "contact",
+        label: "Contact",
+        plural_label: "Contacts",
+        name_field: "full_name",
+        visibility: "org",
         fields: [
-          { name: "name", required: true },
           {
-            name: "account",
+            api_name: "full_name",
+            label: "Full name",
+            kind: "text",
+            required: true,
+          },
+          {
+            api_name: "account",
+            label: "Account",
             kind: "reference",
             reference_targets: ["account"],
           },
         ],
+        layouts: [],
       },
     },
   },
@@ -74,7 +125,12 @@ export const RECORD_SCHEMA_ACTION_DESCRIPTORS = [
     example: {
       app: "crm",
       object: "account",
-      field: { name: "industry", kind: "text" },
+      field: {
+        api_name: "industry",
+        label: "Industry",
+        kind: "text",
+        required: false,
+      },
     },
   },
   {

@@ -45,6 +45,7 @@ function build(
       scope?: "external" | "internal";
       default_mode?: "auto" | "ask" | "deny";
     }>;
+    dataSurface?: "customer" | "records";
   } = {},
 ): string {
   return buildWorkPrompt({
@@ -64,9 +65,37 @@ function build(
     pluginCatalog: overrides.pluginCatalog,
     installedSkills: overrides.installedSkills,
     pluginActions: overrides.pluginActions,
+    dataSurface: overrides.dataSurface,
+    ...(overrides.dataSurface === "records"
+      ? {
+          recordContext: {
+            surface: "list" as const,
+            appId: "crm",
+            appLabel: "CRM",
+            objectApiName: "activity",
+            objectLabel: "Activities",
+          },
+        }
+      : {}),
     inlineTranscript: false,
   });
 }
+
+describe("buildWorkPrompt records data surface", () => {
+  it("routes generated-app questions only to native records tools", () => {
+    const prompt = build("claude-agent", {
+      dataSurface: "records",
+      supportsSourceConfigTool: true,
+    });
+    expect(prompt).toContain("<records_access>");
+    expect(prompt).toContain("mcp__neko_records__*");
+    expect(prompt).toContain('"appId":"crm"');
+    expect(prompt).toContain('"objectApiName":"activity"');
+    expect(prompt).not.toContain("<data_access>");
+    expect(prompt).not.toContain("graphjin cli execute_graphql");
+    expect(prompt).not.toContain("neko_source_config_manager");
+  });
+});
 
 describe("buildWorkPrompt attachments guidance", () => {
   it("tells the claude-agent how to read uploads and which path shape to expect", () => {

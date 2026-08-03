@@ -24,7 +24,16 @@
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
-import { and, app_user, db, eq, isNull } from "@neko/db";
+import {
+  and,
+  app_user,
+  db,
+  eq,
+  isNull,
+  sql,
+  sso_group,
+  sso_group_membership,
+} from "@neko/db";
 import { getOrgId } from "@/lib/db";
 
 export const SESSION_COOKIE_NAME = "openneko_session";
@@ -45,7 +54,7 @@ export interface AuthIdentity {
   email: string;
   name?: string | null;
   orgId?: string | null;
-  groups?: string[];
+  groups?: Array<string | { id: string; name?: string | null }>;
 }
 
 export interface SessionPayload {
@@ -281,6 +290,7 @@ export async function upsertUserFromIdentity(
         updated_at: new Date(),
       })
       .where(eq(app_user.id, bySub[0].id));
+    await syncSsoGroups({ orgId, userId: bySub[0].id, identity });
     return {
       id: bySub[0].id,
       email: identity.email,
@@ -308,6 +318,7 @@ export async function upsertUserFromIdentity(
         updated_at: new Date(),
       })
       .where(eq(app_user.id, byEmail[0].id));
+    await syncSsoGroups({ orgId, userId: byEmail[0].id, identity });
     return {
       id: byEmail[0].id,
       email: identity.email,
@@ -340,6 +351,7 @@ export async function upsertUserFromIdentity(
       role,
       last_login_at: new Date(),
     });
+  await syncSsoGroups({ orgId, userId: newId, identity });
   return {
     id: newId,
     email: identity.email,
@@ -368,12 +380,109 @@ async function orgHasActiveAdmin(orgId: string): Promise<boolean> {
  * with richer requirements override `app_user.role` directly until
  * we ship a configurable mapping screen.
  */
-function defaultRoleForGroups(groups: string[]): string {
-  const lower = new Set(groups.map((g) => g.toLowerCase()));
+function defaultRoleForGroups(
+  groups: Array<string | { id: string; name?: string | null }>,
+): string {
+  const lower = new Set(
+    groups.flatMap((group) =>
+      typeof group === "string"
+        ? [group.toLowerCase()]
+        : [group.id.toLowerCase(), group.name?.toLowerCase()].filter(
+            (value): value is string => Boolean(value),
+          ),
+    ),
+  );
   if (lower.has("admin") || lower.has("admins") || lower.has("owners")) {
     return "admin";
   }
   return "member";
+}
+
+function normalizedIdentityGroups(identity: AuthIdentity): Array<{
+  externalId: string;
+  displayName: string | null;
+}> {
+  const groups = new Map<string, string | null>();
+  for (const group of identity.groups ?? []) {
+    const externalId = (typeof group === "string" ? group : group.id).trim();
+    if (!externalId) continue;
+    const displayName = typeof group === "string"
+      ? group
+      : group.name?.trim() || null;
+    groups.set(externalId, displayName);
+  }
+  return [...groups].map(([externalId, displayName]) => ({
+    externalId,
+    displayName,
+  }));
+}
+
+/** Sign-in claim sync fallback. SCIM writes the same tables when available. */
+async function syncSsoGroups(input: {
+  orgId: string;
+  userId: string;
+  identity: AuthIdentity;
+}): Promise<void> {
+  const provider = (await getAuthProvider())?.pluginName ?? "oidc";
+  const tenantId = input.identity.orgId?.trim() || input.orgId;
+  const groups = normalizedIdentityGroups(input.identity);
+  await db().transaction(async (tx) => {
+    const groupIds: string[] = [];
+    for (const group of groups) {
+      const [row] = await tx
+        .insert(sso_group)
+        .values({
+          org_id: input.orgId,
+          provider,
+          tenant_id: tenantId,
+          external_id: group.externalId,
+          display_name: group.displayName,
+          active: true,
+          updated_at: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [
+            sso_group.org_id,
+            sso_group.provider,
+            sso_group.tenant_id,
+            sso_group.external_id,
+          ],
+          set: {
+            display_name: group.displayName,
+            active: true,
+            updated_at: new Date(),
+          },
+        })
+        .returning({ id: sso_group.id });
+      if (row) groupIds.push(row.id);
+    }
+    await tx
+      .delete(sso_group_membership)
+      .where(
+        and(
+          eq(sso_group_membership.org_id, input.orgId),
+          eq(sso_group_membership.user_id, input.userId),
+        ),
+      );
+    if (groupIds.length > 0) {
+      await tx.insert(sso_group_membership).values(
+        groupIds.map((groupId) => ({
+          org_id: input.orgId,
+          group_id: groupId,
+          user_id: input.userId,
+          synced_at: new Date(),
+        })),
+      );
+    }
+    await tx.execute(sql`
+      insert into sso_group_sync_audit
+        (org_id, user_id, provider, tenant_id, external_group_ids)
+      values (
+        ${input.orgId}, ${input.userId}, ${provider}, ${tenantId},
+        ${groups.map((group) => group.externalId)}::text[]
+      )
+    `);
+  });
 }
 
 export function encodeSession(payload: SessionPayload): string {

@@ -126,4 +126,24 @@ describe("records app definitions", () => {
     ];
     expect(() => parseRecordAppDefinition(picklist)).toThrow(/picklist_values/);
   });
+
+  it("rejects legacy field aliases instead of silently changing semantics", () => {
+    const legacyType = appPayload();
+    const typeObjects = legacyType.objects as Array<{
+      fields: Array<Record<string, unknown>>;
+    }>;
+    typeObjects[0]!.fields[0]!.type = "picklist";
+    expect(() => parseRecordAppDefinition(legacyType)).toThrow(
+      /\.type: use the canonical field key "kind"/,
+    );
+
+    const legacyOptions = appPayload();
+    const optionObjects = legacyOptions.objects as Array<{
+      fields: Array<Record<string, unknown>>;
+    }>;
+    optionObjects[0]!.fields[0]!.options = ["one", "two"];
+    expect(() => parseRecordAppDefinition(legacyOptions)).toThrow(
+      /\.options: use the canonical field key "picklist_values"/,
+    );
+  });
 });

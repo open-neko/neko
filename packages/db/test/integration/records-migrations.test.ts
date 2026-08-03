@@ -59,12 +59,13 @@ describeIfRecordsDb("records migration stream", () => {
         "0007_identity_mapping.sql",
         "0008_graphjin_watch_store.sql",
         "0009_change_log_owner_scope.sql",
+        "0010_subject_entitlements.sql",
       ],
-      current: "0009_change_log_owner_scope.sql",
+      current: "0010_subject_entitlements.sql",
     });
     await expect(runRecordsMigrations({ pool: testPool })).resolves.toEqual({
       applied: [],
-      current: "0009_change_log_owner_scope.sql",
+      current: "0010_subject_entitlements.sql",
     });
 
     const tables = await testPool.query<{ table_name: string }>(
@@ -85,6 +86,11 @@ describeIfRecordsDb("records migration stream", () => {
         "record_permission",
         "recycle_record",
         "registry_version",
+        "app_access_grant",
+        "object_access_grant",
+        "field_access_grant",
+        "entitlement_revision",
+        "entitlement_audit",
         "schema_migrations",
         "substrate_version",
       ]),
@@ -133,5 +139,100 @@ describeIfRecordsDb("records migration stream", () => {
            'name', 'Name', 'text', 'name')
       `),
     ).rejects.toThrow(/foreign key/i);
+  });
+
+  it("backfills legacy role permissions and keeps revision triggers valid on revoke", async () => {
+    const upgradeDatabase = `${database}_upgrade`;
+    let upgradePool: pg.Pool | undefined;
+    try {
+      await adminPool.query(`create database ${upgradeDatabase}`);
+      upgradePool = new pg.Pool(
+        buildRecordsPoolConfig(process.env, { database: upgradeDatabase }),
+      );
+      const migrations = await discoverRecordsMigrations();
+      await upgradePool.query("create schema if not exists engine");
+      await upgradePool.query(`
+        create table engine.schema_migrations (
+          name text primary key,
+          checksum_sha256 text not null,
+          applied_at timestamptz not null default now()
+        )
+      `);
+      for (const migration of migrations.slice(0, -1)) {
+        await upgradePool.query(migration.sql);
+        await upgradePool.query(
+          `insert into engine.schema_migrations (name, checksum_sha256)
+           values ($1, $2)`,
+          [migration.name, migration.checksumSha256],
+        );
+      }
+      await upgradePool.query(`
+        insert into engine.record_app (org_id, app_id, label)
+        values ('org-upgrade', 'crm', 'CRM');
+        insert into engine.record_object
+          (id, org_id, app_id, api_name, label, plural_label, table_name)
+        values
+          ('00000000-0000-0000-0000-000000000301', 'org-upgrade', 'crm',
+           'activity', 'Activity', 'Activities', 'crm__activity');
+        insert into engine.record_field
+          (id, org_id, object_id, api_name, label, kind, column_name)
+        values
+          ('00000000-0000-0000-0000-000000000302', 'org-upgrade',
+           '00000000-0000-0000-0000-000000000301',
+           'subject', 'Subject', 'text', 'subject');
+        insert into engine.record_permission
+          (org_id, app_id, role, object_api_name,
+           can_read, can_create, can_update, can_delete)
+        values
+          ('org-upgrade', 'crm', 'member', 'activity',
+           false, true, false, false);
+      `);
+
+      await expect(runRecordsMigrations({ pool: upgradePool })).resolves.toEqual({
+        applied: ["0010_subject_entitlements.sql"],
+        current: "0010_subject_entitlements.sql",
+      });
+      const objectGrant = await upgradePool.query(
+        `select can_read, can_create, can_update, can_delete
+         from engine.object_access_grant
+         where org_id = 'org-upgrade' and app_id = 'crm'
+           and subject_type = 'role' and subject_id = 'member'
+           and object_api_name = 'activity'`,
+      );
+      expect(objectGrant.rows).toEqual([
+        {
+          can_read: true,
+          can_create: true,
+          can_update: false,
+          can_delete: false,
+        },
+      ]);
+      const fieldGrant = await upgradePool.query(
+        `select can_read, can_write from engine.field_access_grant
+         where org_id = 'org-upgrade' and app_id = 'crm'
+           and subject_type = 'role' and subject_id = 'member'`,
+      );
+      expect(fieldGrant.rows).toEqual([{ can_read: true, can_write: true }]);
+
+      const before = await upgradePool.query<{ revision: string }>(
+        `select revision::text as revision from engine.entitlement_revision
+         where org_id = 'org-upgrade'`,
+      );
+      await upgradePool.query(
+        `delete from engine.app_access_grant
+         where org_id = 'org-upgrade' and app_id = 'crm'
+           and subject_type = 'role' and subject_id = 'member'`,
+      );
+      const after = await upgradePool.query<{ revision: string }>(
+        `select revision::text as revision from engine.entitlement_revision
+         where org_id = 'org-upgrade'`,
+      );
+      expect(BigInt(after.rows[0]?.revision ?? "0")).toBeGreaterThan(
+        BigInt(before.rows[0]?.revision ?? "0"),
+      );
+    } finally {
+      if (upgradePool) await upgradePool.end();
+      await adminPool.query(`drop database if exists ${upgradeDatabase}`);
+    }
   });
 });

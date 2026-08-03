@@ -43,6 +43,21 @@ describe("records GraphJin schema boundary", () => {
     ).toBe("CREATE TABLE safe (id TEXT);");
   });
 
+  it("canonicalizes GraphJin statement ordering for stable approvals", () => {
+    const account = [
+      "-- Create table: crm__account",
+      'CREATE TABLE "crm__account" ("id" TEXT PRIMARY KEY);',
+    ].join("\n");
+    const contact = [
+      "-- Create table: crm__contact",
+      'CREATE TABLE "crm__contact" ("id" TEXT PRIMARY KEY);',
+    ].join("\n");
+
+    expect(
+      normalizeRecordsGraphjinSchemaPreview(`${contact}\n\n${account}\n`),
+    ).toBe(normalizeRecordsGraphjinSchemaPreview(`${account}\n\n${contact}\n`));
+  });
+
   it("uses only the pinned serve db diff/sync invocation", async () => {
     const directory = await mkdtemp(join(tmpdir(), "records-schema-cli-"));
     await writeFile(join(directory, "dev.yml"), "database: {}\n", { mode: 0o600 });

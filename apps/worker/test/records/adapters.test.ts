@@ -20,6 +20,7 @@ import { RECORD_IDENTITY_ACTION_DESCRIPTORS } from "../../src/records/identity-a
 import { RECORD_SALESFORCE_ACTION_DESCRIPTORS } from "../../src/records/salesforce-adapters.js";
 import { RECORD_ARTIFACT_IMPORT_ACTION_DESCRIPTORS } from "../../src/records/artifact-import-adapters.js";
 import { RECORD_BACKFILL_ACTION_DESCRIPTORS } from "../../src/records/backfill-adapters.js";
+import { RECORD_ACCESS_ACTION_DESCRIPTORS } from "../../src/records/access-adapters.js";
 
 function actionRequest(
   kind: string,
@@ -70,6 +71,23 @@ function outcome(request: RecordWriteRequest): RecordWriteResult {
   };
 }
 
+async function currentActor(request: ActionRequestRecord) {
+  if (!request.actorUserId) {
+    return {
+      userId: `urn:openneko:solo-admin:${request.orgId}`,
+      role: "admin" as const,
+      groupIds: [],
+      solo: true,
+    };
+  }
+  return {
+    userId: request.actorUserId,
+    role: request.actorRole as "admin" | "member",
+    groupIds: [],
+    solo: false,
+  };
+}
+
 describe("records worker action adapters", () => {
   it("registers all four ask-mode kinds with concrete payload examples", () => {
     const registered = new Map<string, unknown>();
@@ -101,6 +119,7 @@ describe("records worker action adapters", () => {
       ...RECORD_IDENTITY_ACTION_DESCRIPTORS.map((descriptor) => descriptor.kind),
       ...RECORD_SALESFORCE_ACTION_DESCRIPTORS.map((descriptor) => descriptor.kind),
       ...RECORD_ARTIFACT_IMPORT_ACTION_DESCRIPTORS.map((descriptor) => descriptor.kind),
+      ...RECORD_ACCESS_ACTION_DESCRIPTORS.map((descriptor) => descriptor.kind),
       "send_message",
     ]);
     expect(
@@ -115,7 +134,11 @@ describe("records worker action adapters", () => {
     const execute = vi.fn(async (request: RecordWriteRequest) =>
       outcome(request),
     );
-    const create = createRecordActionAdapter("record_create", { execute });
+    const create = createRecordActionAdapter(
+      "record_create",
+      { execute },
+      currentActor,
+    );
     await expect(
       create({
         request: actionRequest(
@@ -134,12 +157,18 @@ describe("records worker action adapters", () => {
         actor: {
           userId: "urn:openneko:solo-admin:org-a",
           role: "admin",
+          groupIds: [],
+          solo: true,
         },
         fields: { lastname: "Rivera" },
       }),
     );
 
-    const update = createRecordActionAdapter("record_update", { execute });
+    const update = createRecordActionAdapter(
+      "record_update",
+      { execute },
+      currentActor,
+    );
     await update({
       request: actionRequest("record_update", {
         app: "crm",
@@ -153,7 +182,12 @@ describe("records worker action adapters", () => {
       expect.objectContaining({
         operation: "update",
         id: "opp-1",
-        actor: { userId: "member-1", role: "member" },
+        actor: {
+          userId: "member-1",
+          role: "member",
+          groupIds: [],
+          solo: false,
+        },
         fields: { stage: "won" },
         expected: { stage: "proposal" },
       }),
@@ -165,7 +199,7 @@ describe("records worker action adapters", () => {
       outcome(request),
     );
     for (const kind of ["record_delete", "record_restore"] as const) {
-      await createRecordActionAdapter(kind, { execute })({
+      await createRecordActionAdapter(kind, { execute }, currentActor)({
         request: actionRequest(kind, {
           app: "crm",
           object: "contact",
@@ -225,14 +259,14 @@ describe("records worker action adapters", () => {
         execute: vi
           .fn()
           .mockRejectedValue(new RecordsGraphjinRequestError("unavailable", null)),
-      })({ request }),
+      }, currentActor)({ request }),
     ).rejects.toBeInstanceOf(RetryableActionAdapterError);
     await expect(
       createRecordActionAdapter("record_delete", {
         execute: vi
           .fn()
           .mockRejectedValue(new RecordsGraphjinRequestError("forbidden", 403)),
-      })({ request }),
+      }, currentActor)({ request }),
     ).rejects.toBeInstanceOf(RecordsGraphjinRequestError);
   });
 });

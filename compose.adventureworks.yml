@@ -44,7 +44,9 @@ services:
     volumes:
       - graphjin-config:/config
       - ./db/graphjin/dev.example.yml:/seed/dev.yml:ro
-    command:
+    # Override core's source-mode initializer: source checkout demo keeps the
+    # legacy anonymous dev config used by the local AdventureWorks workflow.
+    entrypoint:
       - /bin/sh
       - -c
       - |
@@ -66,6 +68,8 @@ services:
     ports:
       - "${GRAPHJIN_PORT:-8080}:8080"
     environment:
+      # Override core's agentic default so GraphJin selects /config/dev.yml.
+      GO_ENV: dev
       GJ_DATABASE_HOST: adventureworks-db
       GJ_DATABASE_PORT: 5432
       GJ_DATABASE_USER: ${CUSTOMER_PGUSER:-postgres}
@@ -185,6 +189,8 @@ services:
       graphjin:
         condition: service_started
     environment:
+      # Source demo uses legacy dev.yml, not core's managed agentic.yml.
+      OPENNEKO_GRAPHJIN_CONFIG: ""
       # Trial default: route every external action (e.g. send_webhook) to
       # the mock adapter so bundled workflows can propose Slack alerts
       # without hitting real endpoints. Flip to "false" once you're past
@@ -197,6 +203,7 @@ services:
         condition: service_started
     environment:
       NEKO_ACTIONS_DRY_RUN: ${NEKO_ACTIONS_DRY_RUN:-true}
+      OPENNEKO_GRAPHJIN_CONFIG: ""
 
 volumes:
   adventureworks-db-data:

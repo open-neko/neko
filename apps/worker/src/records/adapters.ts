@@ -42,6 +42,10 @@ import {
   RECORD_BACKFILL_ACTION_DESCRIPTORS,
   RECORD_BACKFILL_ACTION_KINDS,
 } from "./backfill-adapters.js";
+import {
+  RECORD_ACCESS_ACTION_DESCRIPTORS,
+  RECORD_ACCESS_ACTION_KINDS,
+} from "./access-adapters.js";
 
 export const RECORD_ACTION_KINDS = [
   "record_create",
@@ -134,6 +138,7 @@ export function includeRecordActionDescriptors(
     ...RECORD_IDENTITY_ACTION_KINDS,
     ...RECORD_SALESFORCE_ACTION_KINDS,
     ...RECORD_ARTIFACT_IMPORT_ACTION_KINDS,
+    ...RECORD_ACCESS_ACTION_KINDS,
   ]);
   return [
     ...RECORD_ACTION_DESCRIPTORS,
@@ -143,6 +148,7 @@ export function includeRecordActionDescriptors(
     ...RECORD_IDENTITY_ACTION_DESCRIPTORS,
     ...RECORD_SALESFORCE_ACTION_DESCRIPTORS,
     ...RECORD_ARTIFACT_IMPORT_ACTION_DESCRIPTORS,
+    ...RECORD_ACCESS_ACTION_DESCRIPTORS,
     ...descriptors.filter((descriptor) => !builtins.has(descriptor.kind)),
   ];
 }
@@ -159,6 +165,10 @@ export class RecordActionPayloadError extends Error {
 export type RecordActionExecutor = {
   execute(request: RecordWriteRequest): Promise<RecordWriteResult>;
 };
+
+export type RecordActionActorResolver = (
+  request: ActionRequestRecord,
+) => Promise<RecordPolicyActor>;
 
 const TRANSIENT_ERROR_CODES = new Set([
   "ECONNREFUSED",
@@ -283,7 +293,7 @@ function operationForKind(kind: RecordActionKind): RecordWriteOperation {
   }
 }
 
-function actorForRequest(request: ActionRequestRecord): RecordPolicyActor {
+async function actorForRequest(request: ActionRequestRecord): Promise<RecordPolicyActor> {
   if (request.actorRole !== "admin" && request.actorRole !== "member") {
     throw new RecordActionPayloadError(
       "record actions require an admin or member actor snapshot",
@@ -295,18 +305,78 @@ function actorForRequest(request: ActionRequestRecord): RecordPolicyActor {
       "record actions require a linked member identity",
     );
   }
+  const {
+    and,
+    app_user,
+    db,
+    eq,
+    sso_group,
+    sso_group_membership,
+  } = await import("@neko/db");
+  if (!actorUserId) {
+    const [anyUser] = await db()
+      .select({ id: app_user.id })
+      .from(app_user)
+      .where(eq(app_user.org_id, request.orgId))
+      .limit(1);
+    if (anyUser || request.actorRole !== "admin") {
+      throw new RecordActionPayloadError(
+        "record action actor is no longer available",
+      );
+    }
+    return {
+      userId: `urn:openneko:solo-admin:${request.orgId}`,
+      role: "admin",
+      groupIds: [],
+      solo: true,
+    };
+  }
+  const [user] = await db()
+    .select({ role: app_user.role, disabledAt: app_user.disabled_at })
+    .from(app_user)
+    .where(
+      and(eq(app_user.org_id, request.orgId), eq(app_user.id, actorUserId)),
+    )
+    .limit(1);
+  if (
+    !user ||
+    user.disabledAt ||
+    (user.role !== "admin" && user.role !== "member")
+  ) {
+    throw new RecordActionPayloadError(
+      "record action actor is disabled or no longer belongs to the organization",
+    );
+  }
+  const memberships = await db()
+    .select({ groupId: sso_group.id })
+    .from(sso_group_membership)
+    .innerJoin(
+      sso_group,
+      and(
+        eq(sso_group.id, sso_group_membership.group_id),
+        eq(sso_group.org_id, sso_group_membership.org_id),
+      ),
+    )
+    .where(
+      and(
+        eq(sso_group_membership.org_id, request.orgId),
+        eq(sso_group_membership.user_id, actorUserId),
+        eq(sso_group.active, true),
+      ),
+    );
   return {
-    // Solo deployments intentionally have no app_user row. Keep their admin
-    // audit identity explicit instead of mislabelling the write as service.
-    userId: actorUserId || `urn:openneko:solo-admin:${request.orgId}`,
-    role: request.actorRole,
+    userId: actorUserId,
+    role: user.role,
+    groupIds: memberships.map((row) => row.groupId),
+    solo: false,
   };
 }
 
-function writeRequest(
+async function writeRequest(
   kind: RecordActionKind,
   request: ActionRequestRecord,
-): RecordWriteRequest {
+  resolveActor: RecordActionActorResolver,
+): Promise<RecordWriteRequest> {
   const payload = request.payload;
   const operation = operationForKind(kind);
   const common = {
@@ -315,7 +385,7 @@ function writeRequest(
     appId: requiredString(payload, "app"),
     objectApiName: requiredString(payload, "object"),
     operation,
-    actor: actorForRequest(request),
+    actor: await resolveActor(request),
   };
 
   if (kind === "record_create") {
@@ -338,6 +408,7 @@ function writeRequest(
 export function createRecordActionAdapter(
   kind: RecordActionKind,
   executor: RecordActionExecutor,
+  resolveActor: RecordActionActorResolver = actorForRequest,
 ): ActionAdapter {
   return async ({ request }) => {
     if (request.kind !== kind) {
@@ -347,7 +418,9 @@ export function createRecordActionAdapter(
     }
     let result: RecordWriteResult;
     try {
-      result = await executor.execute(writeRequest(kind, request));
+      result = await executor.execute(
+        await writeRequest(kind, request, resolveActor),
+      );
     } catch (error) {
       if (isRetryableRecordsError(error)) {
         throw new RetryableActionAdapterError(
@@ -368,8 +441,9 @@ export function createRecordActionAdapter(
 export function registerRecordActionAdapters(
   executor: RecordActionExecutor,
   register: (kind: string, adapter: ActionAdapter) => void = registerActionAdapter,
+  resolveActor: RecordActionActorResolver = actorForRequest,
 ): void {
   for (const kind of RECORD_ACTION_KINDS) {
-    register(kind, createRecordActionAdapter(kind, executor));
+    register(kind, createRecordActionAdapter(kind, executor, resolveActor));
   }
 }

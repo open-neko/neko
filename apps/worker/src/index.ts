@@ -28,6 +28,7 @@ import {
 import { buildRecordsPoolConfig } from "@neko/db/records-migrate";
 import {
   RecordBackfillExecutor,
+  RecordsAccessAdmin,
   mintRecordsGraphjinToken,
   normalizeRecordImportSourcePath,
   RecordRegistry,
@@ -129,6 +130,7 @@ import { registerRecordIdentityActions } from "./records/identity-adapters.js";
 import { registerRecordSalesforceActions } from "./records/salesforce-adapters.js";
 import { registerRecordArtifactImportActions } from "./records/artifact-import-adapters.js";
 import { registerRecordBackfillAction } from "./records/backfill-adapters.js";
+import { registerRecordAccessActions } from "./records/access-adapters.js";
 import { refreshArtifactImportState } from "./records/artifact-import-state.js";
 import {
   createRecordsSchemaRuntime,
@@ -382,6 +384,7 @@ async function runMetricRefreshSweep() {
 // without a server restart.
 let pluginRegistry: PluginRegistry | null = null;
 let recordsImportAdminSurface: RecordsImportHandlerSurface | null = null;
+let actionRequestPreflightReady = false;
 function recordsImportSurface(): RecordsImportHandlerSurface {
   if (!recordsImportAdminSurface) {
     throw new Error("records import CLI bridge is not ready");
@@ -420,6 +423,17 @@ const server = createServer(
         includeRecordActionDescriptors(
           pluginRegistry?.getRegisteredActionDescriptors() ?? [],
         ),
+    },
+    actionRequests: {
+      create: async (input) => {
+        if (!actionRequestPreflightReady) {
+          throw new Error("action request preflight is not ready");
+        }
+        const request = await createActionRequest(
+          input as Parameters<typeof createActionRequest>[0],
+        );
+        return { id: request.id };
+      },
     },
     events: {
       dispatchExternal: async (input) => {
@@ -528,6 +542,7 @@ if (reboundRecordsWatches > 0) {
 await seedDefaultActionPolicies(ADMIN_ORG_ID);
 registerBuiltinAdapters();
 registerRecordActionAdapters(recordsWriteExecutor);
+registerRecordAccessActions(new RecordsAccessAdmin(recordsPool));
 registerRecordBackfillAction(recordsBackfillExecutor);
 registerRecordIdentityActions(recordsOwnerBackfillExecutor);
 const unregisterRecordSalesforcePreflight = registerRecordSalesforceActions({
@@ -579,6 +594,10 @@ const unregisterRecordArtifactImportPreflight = registerRecordArtifactImportActi
       singletonKey: `records-import:${payload.importRunId}`,
     }),
 });
+// Only now may the web process create action requests through this worker:
+// every worker-owned preflight hook is registered and will finish before the
+// request id is returned for an approval card.
+actionRequestPreflightReady = true;
 recordsImportAdminSurface = createRecordsCliImportBridge({
   orgId: ADMIN_ORG_ID,
   workspaceForOrg: ensureOrgWorkspace,

@@ -82,6 +82,17 @@ describe("records schema worker adapters", () => {
       expect(descriptor.default_mode).toBe("ask");
       expect(descriptor.example).toMatchObject({ app: expect.any(String) });
     }
+    const appCreate = RECORD_SCHEMA_ACTION_DESCRIPTORS.find(
+      (descriptor) => descriptor.kind === "app_create",
+    )!;
+    const fieldAdd = RECORD_SCHEMA_ACTION_DESCRIPTORS.find(
+      (descriptor) => descriptor.kind === "app_field_add",
+    )!;
+    expect(JSON.stringify(appCreate.example)).toContain('"api_name"');
+    expect(JSON.stringify(appCreate.example)).not.toContain('"name":"ticket"');
+    expect(fieldAdd.example).toMatchObject({
+      field: { api_name: "industry", kind: "text", required: false },
+    });
   });
 
   it("persists the planned preview before returning from request creation", async () => {

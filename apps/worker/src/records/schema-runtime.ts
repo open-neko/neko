@@ -309,6 +309,14 @@ export async function createRecordsSchemaRuntime(options: {
         orgId: change.orgId,
         definition,
         desiredRevision: change.desiredRevision,
+        ...(change.artifact.action === "app_create" && change.artifact.actorUserId
+          ? {
+              creatorGrant: {
+                userId: change.artifact.actorUserId,
+                actionRequestId: change.actionRequestId,
+              },
+            }
+          : {}),
       });
       await projectPolicy();
       await projectMetadata({

@@ -186,6 +186,8 @@ services:
 
   # Native durable gj_watch runner. Source mode is isolated from the generated
   # exhaustive legacy RBAC config used by the human/chat records data plane.
+  # Its separate JWT signing domain prevents records API tokens from being
+  # replayed against the private watch-control roots.
   records-watch-graphjin:
     image: ghcr.io/open-neko/records-graphjin:${OPENNEKO_VERSION:-latest}
     restart: unless-stopped
@@ -203,6 +205,44 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+  # Customer-data GraphJin. Its endpoint is stored per organization and its
+  # sources are configured to point at customer-owned databases/APIs. The
+  # worker image carries the neutral seed so binary installs need no host file.
+  graphjin-config-init:
+    image: ghcr.io/open-neko/neko-worker:${OPENNEKO_VERSION:-latest}
+    user: "0:0"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        if [ ! -f /config/agentic.yml ]; then
+          cp /app/db/graphjin/customer.sources.example.yml /config/agentic.yml
+          KEY=$$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64"))')
+          sed -i "s|REPLACE_WITH_BASE64_32_BYTE_KEY|$$KEY|" /config/agentic.yml
+        fi
+        chmod -R a+rwX /config
+    volumes:
+      - openneko-graphjin-cli:/config
+    restart: "no"
+
+  graphjin:
+    image: dosco/graphjin:3.18.42
+    restart: unless-stopped
+    depends_on:
+      graphjin-config-init:
+        condition: service_completed_successfully
+    ports:
+      - "${GRAPHJIN_PORT:-8080}:8080"
+    environment:
+      GO_ENV: agentic
+      GRAPHJIN_AGENT_API_KEY: ${GRAPHJIN_AGENT_API_KEY:-}
+      GJ_AGENT_PROVIDER: ${GRAPHJIN_AGENT_PROVIDER:-openai}
+      GJ_AGENT_MODEL: ${GRAPHJIN_AGENT_MODEL:-gpt-4.1-mini}
+    volumes:
+      - openneko-graphjin-cli:/config
+    command: ["serve", "--path", "/config"]
 
   # One-shot: applies SQL migrations to neko-db and exits. Every long-
   # running service (web, worker, neko-graphjin) depends on this completing
@@ -266,11 +306,14 @@ services:
         condition: service_completed_successfully
       neko-graphjin:
         condition: service_started
+      graphjin:
+        condition: service_started
     environment:
       <<: *neko-app-env
       WORKER_ADMIN_URL: http://worker:4100
       OPENNEKO_RESTART_WEB_ON_PASSWORD_CHANGE: "1"
       OPENNEKO_GRAPHJIN_URL: http://neko-graphjin:8089
+      OPENNEKO_GRAPHJIN_CONFIG: /config/graphjin/agentic.yml
     ports:
       - "${OPENNEKO_PORT:-3000}:8080"
     volumes:
@@ -295,9 +338,12 @@ services:
         condition: service_started
       records-watch-graphjin:
         condition: service_started
+      graphjin:
+        condition: service_started
     environment:
       <<: *neko-app-env
       OPENNEKO_GRAPHJIN_URL: http://neko-graphjin:8089
+      OPENNEKO_GRAPHJIN_CONFIG: /config/graphjin/agentic.yml
       RECORDS_PG_HOST: records-db
       RECORDS_PG_PORT: "5432"
       RECORDS_PG_USER: ${OPENNEKO_RECORDS_PG_USER:-records}

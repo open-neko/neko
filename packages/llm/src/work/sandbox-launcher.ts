@@ -280,6 +280,7 @@ async function copyDirectoryIfPresent(
 export async function stageSandboxWorkspace(
   workspace: AgentWorkspace,
   stageDir: string,
+  options: { requiredSkillNames?: readonly string[] } = {},
 ): Promise<StagedSandboxWorkspace> {
   const stageOrgRoot = path.join(
     stageDir,
@@ -316,6 +317,7 @@ export async function stageSandboxWorkspace(
   const skillOverrides = await copySkillOverrides(
     workspace.skillsRoot,
     stagedWorkspace.skillsRoot,
+    options.requiredSkillNames,
   );
 
   return {
@@ -464,7 +466,11 @@ function makeSandboxCore(
 
     // Non-interactive jobs never receive direct source egress or a GraphJin
     // token. Their graphjinRead capability is a brokered query-only MCP tool.
-    const graphjinEnabled = !isJob;
+    const graphjinDenied =
+      !isJob &&
+      kind === "work" &&
+      (input as RunAgentBackendInput).dataSurface === "records";
+    const graphjinEnabled = !isJob && !graphjinDenied;
 
     // Job agents are always read-only. Interactive/workflow turns retain
     // their existing actor-policy grant resolution.
@@ -512,12 +518,15 @@ function makeSandboxCore(
       model: input.backend.model,
       workspace: boxWorkspace,
       graphjinEnabled,
+      ...(graphjinDenied ? { graphjinDenied: true } : {}),
       ...(kind === "work"
         ? {
             backendState: (input as RunAgentBackendInput).backendState,
             pluginActions: (input as RunAgentBackendInput).pluginActions,
             sourceConfigEnabled:
               (input as RunAgentBackendInput).sourceConfigEnabled ?? false,
+            dataSurface:
+              (input as RunAgentBackendInput).dataSurface ?? "customer",
             // Channel render intent — gates the in-box render tool (see
             // docs/PER_CHANNEL_RENDERING.md). Default true if absent.
             wantsCards: (input as RunAgentBackendInput).wantsCards ?? true,
@@ -566,7 +575,11 @@ function makeSandboxCore(
         type: "status",
         message: "Preparing secure agent workspace…",
       });
-      const staged = await stageSandboxWorkspace(input.workspace, stageDir);
+      const staged = await stageSandboxWorkspace(input.workspace, stageDir, {
+        // A records-scoped turn must remain functional during a rolling
+        // upgrade even if the sandbox image predates the records skill.
+        requiredSkillNames: graphjinDenied ? ["records"] : [],
+      });
       const stageRuntimeRoot = path.join(
         staged.workspace.runRoot,
         SANDBOX_RUNTIME_DIR,

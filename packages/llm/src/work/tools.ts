@@ -324,8 +324,9 @@ export function buildUserManagerServer(opts: {
   const listUsers = tool(
     "list_users",
     [
-      "List the org's users (email, role, disabled state, last login).",
-      "Use before proposing any change, and to answer 'who has access?'.",
+      "List the org's users and synchronized SSO groups with stable IDs,",
+      "membership, role, disabled state, and last login. Use before",
+      "proposing any user or generated-app access change.",
     ].join(" "),
     {},
     async () => ({
@@ -1018,8 +1019,21 @@ export function buildRecordsReadServer(opts: {
   orgId: string;
   runId: string;
   controlPlane?: AgentControlPlane;
+  /** Restrict a records-UI turn to the trusted app/object surface it opened. */
+  scope?: { appId: string; objectApiName: string };
 }) {
   const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const assertInScope = (appId: string, objectApiName?: string): void => {
+    if (!opts.scope) return;
+    if (
+      appId !== opts.scope.appId ||
+      (objectApiName !== undefined && objectApiName !== opts.scope.objectApiName)
+    ) {
+      throw new Error(
+        `records turn is scoped to ${opts.scope.appId}.${opts.scope.objectApiName}`,
+      );
+    }
+  };
   const browseCatalog = tool(
     "browse_catalog",
     [
@@ -1030,20 +1044,33 @@ export function buildRecordsReadServer(opts: {
     {
       app: z.string().trim().min(1).max(63).optional(),
     },
-    async (args) => ({
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(
-            await controlPlane.listRecordCatalog({
-              orgId: opts.orgId,
-              runId: opts.runId,
-              ...(args.app ? { appId: args.app } : {}),
-            }),
-          ),
-        },
-      ],
-    }),
+    async (args) => {
+      const appId = args.app ?? opts.scope?.appId;
+      if (appId) assertInScope(appId);
+      const result = await controlPlane.listRecordCatalog({
+        orgId: opts.orgId,
+        runId: opts.runId,
+        ...(appId ? { appId } : {}),
+      });
+      const scopedResult = opts.scope
+        ? {
+            ...result,
+            apps: result.apps
+              .filter((app) => app.appId === opts.scope!.appId)
+              .map((app) => ({
+                ...app,
+                objects: app.objects.filter(
+                  (object) => object.apiName === opts.scope!.objectApiName,
+                ),
+              })),
+          }
+        : result;
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(scopedResult) },
+        ],
+      };
+    },
   );
 
   const browseBlueprints = tool(
@@ -1099,12 +1126,14 @@ export function buildRecordsReadServer(opts: {
         .optional(),
       myRecords: z.boolean().optional(),
     },
-    async (args) => ({
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(
-            await controlPlane.findRecords({
+    async (args) => {
+      assertInScope(args.app, args.object);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              await controlPlane.findRecords({
               orgId: opts.orgId,
               runId: opts.runId,
               appId: args.app,
@@ -1117,11 +1146,12 @@ export function buildRecordsReadServer(opts: {
               ...(args.myRecords !== undefined
                 ? { myRecords: args.myRecords }
                 : {}),
-            }),
-          ),
-        },
-      ],
-    }),
+              }),
+            ),
+          },
+        ],
+      };
+    },
   );
 
   const getRecord = tool(
@@ -1137,12 +1167,14 @@ export function buildRecordsReadServer(opts: {
       id: z.string().trim().min(1).max(512),
       allFields: z.boolean().optional(),
     },
-    async (args) => ({
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(
-            await controlPlane.getRecord({
+    async (args) => {
+      assertInScope(args.app, args.object);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              await controlPlane.getRecord({
               orgId: opts.orgId,
               runId: opts.runId,
               appId: args.app,
@@ -1151,11 +1183,12 @@ export function buildRecordsReadServer(opts: {
               ...(args.allFields !== undefined
                 ? { allFields: args.allFields }
                 : {}),
-            }),
-          ),
-        },
-      ],
-    }),
+              }),
+            ),
+          },
+        ],
+      };
+    },
   );
 
   const findRecycledRecords = tool(
@@ -1173,12 +1206,14 @@ export function buildRecordsReadServer(opts: {
       after: z.string().trim().min(1).max(4_096).optional(),
       search: z.string().trim().min(1).max(200).optional(),
     },
-    async (args) => ({
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(
-            await controlPlane.findRecycledRecords({
+    async (args) => {
+      assertInScope(args.app, args.object);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              await controlPlane.findRecycledRecords({
               orgId: opts.orgId,
               runId: opts.runId,
               appId: args.app,
@@ -1186,11 +1221,12 @@ export function buildRecordsReadServer(opts: {
               ...(args.first !== undefined ? { first: args.first } : {}),
               ...(args.after ? { after: args.after } : {}),
               ...(args.search ? { search: args.search } : {}),
-            }),
-          ),
-        },
-      ],
-    }),
+              }),
+            ),
+          },
+        ],
+      };
+    },
   );
 
   const getRecycledRecord = tool(
@@ -1205,22 +1241,25 @@ export function buildRecordsReadServer(opts: {
       object: z.string().trim().min(1).max(63),
       id: z.string().trim().min(1).max(512),
     },
-    async (args) => ({
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(
-            await controlPlane.getRecycledRecord({
+    async (args) => {
+      assertInScope(args.app, args.object);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              await controlPlane.getRecycledRecord({
               orgId: opts.orgId,
               runId: opts.runId,
               appId: args.app,
               objectApiName: args.object,
               recordId: args.id,
-            }),
-          ),
-        },
-      ],
-    }),
+              }),
+            ),
+          },
+        ],
+      };
+    },
   );
 
   return createSdkMcpServer({
@@ -1228,7 +1267,7 @@ export function buildRecordsReadServer(opts: {
     version: "1.0.0",
     tools: [
       browseCatalog,
-      browseBlueprints,
+      ...(opts.scope ? [] : [browseBlueprints]),
       findRecords,
       getRecord,
       findRecycledRecords,

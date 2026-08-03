@@ -201,7 +201,7 @@ func TestPureHelpers(t *testing.T) {
 		t.Errorf("dev default = %q", dev)
 	}
 	prod := defaultDataURL(Config{Mode: "prod"}, &DataSource{Source: "unset"})
-	if prod != "http://host.docker.internal:8080" {
+	if prod != "http://graphjin:8080" {
 		t.Errorf("prod default = %q", prod)
 	}
 	saved := defaultDataURL(Config{Mode: "demo"}, &DataSource{Source: "org", GraphqlURL: "http://h:9/api/v1/graphql"})

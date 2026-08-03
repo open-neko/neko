@@ -90,14 +90,25 @@ export function assertAdditiveRecordsSchemaSql(sql: string): void {
   }
 }
 
-/** Remove CLI diagnostics so approval bytes do not depend on staging paths. */
+/**
+ * Remove CLI diagnostics and canonicalize independent statement blocks.
+ * GraphJin may emit the same additive diff in a different table order across
+ * consecutive invocations; approval bytes must represent the statement set,
+ * not Go map iteration order.
+ */
 export function normalizeRecordsGraphjinSchemaPreview(output: string): string {
-  return output
+  const normalized = output
     .replace(/\u001b\[[0-9;]*m/g, "")
     .split(/\r?\n/)
     .filter((line) => !/^DEBUG\s+Using schema DDL: /.test(line))
     .join("\n")
     .trim();
+  return normalized
+    .split(/\n\s*\n+/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right))
+    .join("\n\n");
 }
 
 /** Atomically persist the exact DDL bytes consumed by diff and sync. */

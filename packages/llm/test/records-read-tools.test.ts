@@ -135,4 +135,37 @@ describe("native records read tools", () => {
     expect(find?.description).toContain("disambiguate");
     expect(find?.description).toContain("never guess");
   });
+
+  it("enforces the trusted records UI app/object scope", async () => {
+    const listRecordCatalog = vi.fn(async () => ({
+      apps: [
+        {
+          appId: "crm",
+          objects: [{ apiName: "activity" }, { apiName: "opportunity" }],
+        },
+      ],
+    }));
+    const findRecords = vi.fn(async () => ({ rows: [], total: 0, cursor: null }));
+    buildRecordsReadServer({
+      orgId: "org-1",
+      runId: "run-1",
+      scope: { appId: "crm", objectApiName: "activity" },
+      controlPlane: {
+        listRecordCatalog,
+        findRecords,
+      } as unknown as AgentControlPlane,
+    });
+
+    const catalog = await sdk.tools.get("browse_catalog")?.handler({});
+    expect(JSON.parse(catalog?.content[0]?.text ?? "{}").apps[0].objects).toEqual([
+      { apiName: "activity" },
+    ]);
+    await expect(
+      sdk.tools.get("find_records")?.handler({
+        app: "crm",
+        object: "opportunity",
+      }),
+    ).rejects.toThrow(/scoped to crm\.activity/);
+    expect(findRecords).not.toHaveBeenCalled();
+  });
 });

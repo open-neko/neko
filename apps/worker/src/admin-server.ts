@@ -24,6 +24,8 @@
  *                               Proxies to the installed auth plugin's
  *                               complete_auth RPC.
  *   GET  /admin/plugins/status → 200 + registry health/status summary.
+ *   POST /admin/action-requests/create → persist + run worker-owned preflight
+ *                               before returning an approval-card-safe id.
  *
  * Extracted from index.ts so the handler can be unit-tested without
  * booting pg-boss / the agent stack.
@@ -226,7 +228,13 @@ export type AdminHandlerOptions = {
   recordsWatches?: RecordsWatchHandlerSurface | null;
   /** Governed CSV/artifact import preparation for the host CLI. */
   recordsImports?: RecordsImportHandlerSurface | null;
+  /** Trusted web→worker action creation so worker-owned preflight hooks run. */
+  actionRequests?: ActionRequestHandlerSurface | null;
 };
+
+export interface ActionRequestHandlerSurface {
+  create(input: Record<string, unknown>): Promise<{ id: string }>;
+}
 
 export interface ExternalEventHandlerSurface {
   dispatchExternal(input: {
@@ -278,6 +286,7 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
   const events = opts.events ?? null;
   const recordsWatches = opts.recordsWatches ?? null;
   const recordsImports = opts.recordsImports ?? null;
+  const actionRequests = opts.actionRequests ?? null;
 
   return function handle(req: IncomingMessage, res: ServerResponse) {
     if (req.method === "GET" && req.url === "/health") {
@@ -380,6 +389,13 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
       void handleRecordsImportStart(req, res, recordsImports);
       return;
     }
+    if (
+      req.method === "POST" &&
+      req.url === "/admin/action-requests/create"
+    ) {
+      void handleActionRequestCreate(req, res, actionRequests);
+      return;
+    }
     if (req.method === "GET" && req.url === "/admin/install-policy") {
       void handleInstallPolicy(res, installPolicy);
       return;
@@ -404,6 +420,31 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
     }
     res.writeHead(404).end();
   };
+}
+
+async function handleActionRequestCreate(
+  req: IncomingMessage,
+  res: ServerResponse,
+  actionRequests: ActionRequestHandlerSurface | null,
+): Promise<void> {
+  if (!actionRequests) {
+    json(res, 503, { error: "action request preflight is not ready" });
+    return;
+  }
+  try {
+    const body = await readJson(req);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      json(res, 400, { error: "request body must be a JSON object" });
+      return;
+    }
+    json(
+      res,
+      200,
+      await actionRequests.create(body as Record<string, unknown>),
+    );
+  } catch (err) {
+    json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 async function handleRecordsImportStaging(

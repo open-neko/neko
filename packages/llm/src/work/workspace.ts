@@ -271,13 +271,17 @@ function builtinFingerprint(name: string, root: string): Promise<string> {
 /**
  * Copy only skills that the agent image cannot reconstruct itself: custom
  * organization skills and locally modified built-ins. Full skill bodies stay
- * off the per-turn transfer for the common, unmodified built-in case.
+ * off the per-turn transfer for the common, unmodified built-in case. A
+ * security-required system skill is copied from the current bundled source,
+ * so an old durable workspace cannot pin records behavior across upgrades.
  */
 export async function copySkillOverrides(
   skillsRoot: string,
   destinationRoot: string,
+  forceNames: readonly string[] = [],
 ): Promise<string[]> {
   await mkdir(destinationRoot, { recursive: true });
+  const forced = new Set(forceNames);
   let entries: Dirent[];
   try {
     entries = await readdir(skillsRoot, { withFileTypes: true });
@@ -288,15 +292,18 @@ export async function copySkillOverrides(
   const copied: string[] = [];
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory()) continue;
-    const source = join(skillsRoot, entry.name);
+    const workspaceSource = join(skillsRoot, entry.name);
     const bundled = join(BUILTIN_SKILLS_ROOT, entry.name);
+    const source = forced.has(entry.name) ? bundled : workspaceSource;
     let isUnmodifiedBuiltin = false;
-    try {
-      isUnmodifiedBuiltin =
-        (await fingerprintTree(source)) ===
-        (await builtinFingerprint(entry.name, bundled));
-    } catch {
-      // A missing bundled directory identifies an organization-created skill.
+    if (!forced.has(entry.name)) {
+      try {
+        isUnmodifiedBuiltin =
+          (await fingerprintTree(workspaceSource)) ===
+          (await builtinFingerprint(entry.name, bundled));
+      } catch {
+        // A missing bundled directory identifies an organization-created skill.
+      }
     }
     if (isUnmodifiedBuiltin) continue;
 
@@ -304,6 +311,10 @@ export async function copySkillOverrides(
     await rm(destination, { recursive: true, force: true });
     await cp(source, destination, { recursive: true, force: true });
     copied.push(entry.name);
+  }
+  const missing = [...forced].filter((name) => !copied.includes(name));
+  if (missing.length > 0) {
+    throw new Error(`required sandbox skill is unavailable: ${missing.sort().join(", ")}`);
   }
   return copied;
 }

@@ -159,6 +159,16 @@ function stringList(value: unknown, path: string): string[] | null {
 
 function parseField(value: unknown, path: string): RecordAppFieldDefinition {
   const raw = objectValue(value, path);
+  if ("type" in raw) {
+    throw new RecordSchemaDefinitionError(
+      `${path}.type: use the canonical field key "kind"`,
+    );
+  }
+  if ("options" in raw) {
+    throw new RecordSchemaDefinitionError(
+      `${path}.options: use the canonical field key "picklist_values"`,
+    );
+  }
   const apiName = recordIdentifier(identifierSource(raw, path));
   const kind = raw.kind ?? "text";
   if (
@@ -509,6 +519,8 @@ export async function projectRecordAppDefinition(
     orgId: string;
     definition: RecordAppDefinition;
     desiredRevision: string;
+    /** Explicit owner entitlement for a newly created SSO/multi-user app. */
+    creatorGrant?: { userId: string; actionRequestId: string };
   },
 ): Promise<string> {
   const client = await pool.connect();
@@ -697,6 +709,94 @@ export async function projectRecordAppDefinition(
             permission.canCreate,
             permission.canUpdate,
             permission.canDelete,
+          ],
+        );
+      }
+      if (input.creatorGrant) {
+        await client.query(
+          `insert into engine.app_access_grant
+             (org_id, app_id, subject_type, subject_id,
+              created_by_user_id, action_request_id)
+           values ($1, $2, 'user', $3, $3, $4)
+           on conflict (org_id, app_id, subject_type, subject_id) do nothing`,
+          [
+            input.orgId,
+            input.definition.appId,
+            input.creatorGrant.userId,
+            input.creatorGrant.actionRequestId,
+          ],
+        );
+        for (const object of input.definition.objects.filter((item) => !item.archived)) {
+          const ceiling = input.definition.permissions.find(
+            (permission) =>
+              permission.role === "admin" &&
+              permission.objectApiName === object.apiName,
+          );
+          if (!ceiling || !ceiling.canRead) continue;
+          await client.query(
+            `insert into engine.object_access_grant
+               (org_id, app_id, subject_type, subject_id, object_api_name,
+                can_read, can_create, can_update, can_delete,
+                created_by_user_id, action_request_id)
+             values ($1, $2, 'user', $3, $4, $5, $6, $7, $8, $3, $9)
+             on conflict
+               (org_id, app_id, subject_type, subject_id, object_api_name)
+             do update set
+               can_read = excluded.can_read,
+               can_create = excluded.can_create,
+               can_update = excluded.can_update,
+               can_delete = excluded.can_delete,
+               updated_at = now()`,
+            [
+              input.orgId,
+              input.definition.appId,
+              input.creatorGrant.userId,
+              object.apiName,
+              ceiling.canRead,
+              ceiling.canCreate,
+              ceiling.canUpdate,
+              ceiling.canDelete,
+              input.creatorGrant.actionRequestId,
+            ],
+          );
+          for (const field of object.fields.filter((item) => !item.archived)) {
+            const fieldId = fieldIds.get(`${object.apiName}\u0000${field.apiName}`);
+            if (!fieldId) continue;
+            await client.query(
+              `insert into engine.field_access_grant
+                 (org_id, app_id, subject_type, subject_id, object_api_name,
+                  field_id, can_read, can_write,
+                  created_by_user_id, action_request_id)
+               values ($1, $2, 'user', $3, $4, $5::uuid, true, $6, $3, $7)
+               on conflict (org_id, app_id, subject_type, subject_id, field_id)
+               do update set
+                 can_read = excluded.can_read,
+                 can_write = excluded.can_write,
+                 updated_at = now()`,
+              [
+                input.orgId,
+                input.definition.appId,
+                input.creatorGrant.userId,
+                object.apiName,
+                fieldId,
+                (ceiling.canCreate || ceiling.canUpdate) && !field.readOnly,
+                input.creatorGrant.actionRequestId,
+              ],
+            );
+          }
+        }
+        await client.query(
+          `insert into engine.entitlement_audit
+             (org_id, app_id, subject_type, subject_id, resource_kind,
+              resource_id, operation, after_value, actor_user_id,
+              action_request_id)
+           values ($1, $2, 'user', $3, 'app', $2, 'grant',
+                   jsonb_build_object('owner', true), $3, $4)`,
+          [
+            input.orgId,
+            input.definition.appId,
+            input.creatorGrant.userId,
+            input.creatorGrant.actionRequestId,
           ],
         );
       }

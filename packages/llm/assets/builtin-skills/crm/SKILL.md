@@ -7,7 +7,9 @@ description: Model or interpret a generated CRM app, especially for Salesforce-s
 
 Apply CRM domain knowledge through the generic records engine. Use
 `mcp__neko_records__browse_blueprints` with `blueprint: "crm"` to load the
-canonical starting payload, then follow `$app-builder` to adapt and propose it.
+canonical starting payload. Before proposing or changing the app, read
+`../app-builder/SKILL.md` completely and follow it to adapt the loaded payload.
+Before reading or writing CRM rows, read `../records/SKILL.md` completely.
 The blueprint is a prior, not a mandatory sales process.
 
 ## Model the sales workflow

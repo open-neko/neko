@@ -329,6 +329,29 @@ export async function seedDefaultActionPolicies(orgId: string): Promise<void> {
       enabled: true,
     });
   }
+  if (!names.has("record_access_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "record_access_default",
+      description:
+        "Granting, changing, or revoking generated-app user/group access requires admin approval.",
+      appliesToKinds: [
+        "app_access_grant",
+        "app_access_revoke",
+        "app_object_permission_set",
+        "app_field_permission_set",
+      ],
+      appliesToScopes: ["internal", "external"],
+      mode: "approval_required" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: "admin",
+      priority: 93,
+      enabled: true,
+    });
+  }
   // D7: additive field backfills can update many rows and are one step in a
   // reviewed schema-evolution sequence. Keep them admin-approved even though
   // the physical mutations use the ordinary audited records data plane.
