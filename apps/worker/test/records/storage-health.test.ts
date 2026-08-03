@@ -37,7 +37,7 @@ function response(freeBytes: number) {
 describe("records storage watermarks", () => {
   it("rejects bulk work when its projected footprint crosses critical", async () => {
     const monitor = new RecordsStorageMonitor({
-      endpoint: "http://records-ops:9465",
+      endpoint: "http://neko-backup:9470",
       fallbackPath: "/unused",
       thresholds,
       fetch: vi.fn().mockResolvedValue(response(12 * GIB)),
@@ -54,7 +54,7 @@ describe("records storage watermarks", () => {
 
   it("keeps interactive writes open at critical and stops them at hard-stop", async () => {
     const critical = new RecordsStorageMonitor({
-      endpoint: "http://records-ops:9465",
+      endpoint: "http://neko-backup:9470",
       fallbackPath: "/unused",
       thresholds,
       fetch: vi.fn().mockResolvedValue(response(8 * GIB)),
@@ -62,7 +62,7 @@ describe("records storage watermarks", () => {
     await expect(critical.assertInteractiveWritesAllowed()).resolves.toBeDefined();
 
     const hard = new RecordsStorageMonitor({
-      endpoint: "http://records-ops:9465",
+      endpoint: "http://neko-backup:9470",
       fallbackPath: "/unused",
       thresholds,
       fetch: vi.fn().mockResolvedValue(response(900 * 1024 ** 2)),
@@ -85,7 +85,7 @@ describe("records storage watermarks", () => {
   it("coalesces capacity reads across a burst of record writes", async () => {
     const read = vi.fn().mockResolvedValue(response(50 * GIB));
     const monitor = new RecordsStorageMonitor({
-      endpoint: "http://records-ops:9465",
+      endpoint: "http://neko-backup:9470",
       fallbackPath: "/unused",
       thresholds,
       fetch: read,
@@ -104,7 +104,7 @@ describe("records storage watermarks", () => {
       .mockResolvedValueOnce(response(900 * 1024 ** 2))
       .mockResolvedValueOnce(response(50 * GIB));
     const monitor = new RecordsStorageMonitor({
-      endpoint: "http://records-ops:9465",
+      endpoint: "http://neko-backup:9470",
       fallbackPath: "/unused",
       thresholds,
       fetch: read,

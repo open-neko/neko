@@ -16,8 +16,8 @@ x-neko-app-env: &neko-app-env
   RECORDS_PG_PASSWORD: ${OPENNEKO_RECORDS_PG_PASSWORD:-records-secret}
   RECORDS_PG_DATABASE: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
   OPENNEKO_RECORDS_GRAPHJIN_URL: http://records-graphjin:8090
-  NO_PROXY: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,records-storage-ops,worker,web,neko-graphjin,records-graphjin,records-watch-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
-  no_proxy: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,records-storage-ops,worker,web,neko-graphjin,records-graphjin,records-watch-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
+  NO_PROXY: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,worker,web,neko-graphjin,records-graphjin,records-watch-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
+  no_proxy: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,worker,web,neko-graphjin,records-graphjin,records-watch-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
 
 services:
   neko-db:
@@ -103,6 +103,8 @@ services:
   # Encrypted whole-deployment backups: paired pgBackRest base backups for
   # metadata + records, continuous WAL from both database containers, and an
   # encrypted snapshot of the config/GraphJin volumes in one global manifest.
+  # Its read-only mounts also power the storage-capacity endpoint used for
+  # records write backpressure.
   neko-backup:
     build:
       context: .
@@ -131,6 +133,7 @@ services:
       - openneko-graphjin-cli:/snapshots/graphjin:ro
       - openneko-records-graphjin:/snapshots/records-graphjin:ro
       - openneko-plugins:/snapshots/plugins:ro
+      - openneko-agent-home:/volumes/staging:ro
       - ${OPENNEKO_HOST_CONFIG_DIR:-./.openneko/host-config}:/snapshots/host-config:ro
       - ${OPENNEKO_BACKUP_REPOSITORY:-./.openneko/backups}:/var/lib/pgbackrest
     expose:
@@ -160,26 +163,6 @@ services:
       - openneko-plugins:/restore/plugins
       - ${OPENNEKO_HOST_CONFIG_DIR:-./.openneko/host-config}:/restore/host-config
       - ${OPENNEKO_BACKUP_REPOSITORY:-./.openneko/backups}:/var/lib/pgbackrest
-
-  # Capacity observer for the metadata, records, and staging filesystems. Its
-  # mounts are read-only and it intentionally has neither database credentials
-  # nor the Docker socket, keeping worker backpressure separate from host ops.
-  records-storage-ops:
-    build:
-      context: .
-      target: records-storage-ops
-    restart: unless-stopped
-    volumes:
-      - neko-db-data:/volumes/metadata:ro
-      - records-db-data:/volumes/records:ro
-      - openneko-agent-home:/volumes/staging:ro
-    expose:
-      - "9465"
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9465/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
 
   # Dedicated records data plane. Its supervisor stays stopped until the
   # worker has generated a complete, live-catalog-derived RBAC config into the
@@ -371,7 +354,7 @@ services:
         condition: service_completed_successfully
       records-db:
         condition: service_healthy
-      records-storage-ops:
+      neko-backup:
         condition: service_healthy
       records-graphjin:
         condition: service_started
@@ -390,7 +373,7 @@ services:
       RECORDS_PG_DATABASE: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
       OPENNEKO_RECORDS_GRAPHJIN_CONFIG_DIR: /config/records-graphjin
       OPENNEKO_RECORDS_WATCH_GRAPHJIN_URL: http://records-watch-graphjin:8090
-      OPENNEKO_RECORDS_OPS_URL: http://records-storage-ops:9465
+      OPENNEKO_RECORDS_OPS_URL: http://neko-backup:9470
       OPENNEKO_BACKUP_URL: http://neko-backup:9470
       # Plugin manifest + per-user secrets live on the openneko-config
       # volume, not under /app (which is read-only-ish post-build). The

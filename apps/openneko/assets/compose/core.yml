@@ -21,8 +21,8 @@ x-neko-app-env: &neko-app-env
   RECORDS_PG_PASSWORD: ${OPENNEKO_RECORDS_PG_PASSWORD:-records-secret}
   RECORDS_PG_DATABASE: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
   OPENNEKO_RECORDS_GRAPHJIN_URL: http://records-graphjin:8090
-  NO_PROXY: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,records-storage-ops,worker,web,neko-graphjin,records-graphjin,records-watch-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
-  no_proxy: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,records-storage-ops,worker,web,neko-graphjin,records-graphjin,records-watch-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
+  NO_PROXY: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,worker,web,neko-graphjin,records-graphjin,records-watch-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
+  no_proxy: localhost,127.0.0.1,::1,neko-db,records-db,neko-backup,worker,web,neko-graphjin,records-graphjin,records-watch-graphjin,graphjin,adventureworks-db,host.docker.internal,host.internal
 
 services:
   neko-db:
@@ -97,6 +97,8 @@ services:
       timeout: 5s
       retries: 20
 
+  # Whole-deployment backup coordinator and read-only filesystem-capacity
+  # observer used by records write backpressure.
   neko-backup:
     image: ghcr.io/open-neko/neko-backup:${OPENNEKO_VERSION:-latest}
     restart: unless-stopped
@@ -123,6 +125,7 @@ services:
       - openneko-graphjin-cli:/snapshots/graphjin:ro
       - openneko-records-graphjin:/snapshots/records-graphjin:ro
       - openneko-plugins:/snapshots/plugins:ro
+      - openneko-agent-home:/volumes/staging:ro
       - ${OPENNEKO_HOST_CONFIG_DIR:?OPENNEKO_HOST_CONFIG_DIR is required}:/snapshots/host-config:ro
       - ${OPENNEKO_BACKUP_REPOSITORY:?OPENNEKO_BACKUP_REPOSITORY is required}:/var/lib/pgbackrest
     expose:
@@ -150,21 +153,6 @@ services:
       - openneko-plugins:/restore/plugins
       - ${OPENNEKO_HOST_CONFIG_DIR:?OPENNEKO_HOST_CONFIG_DIR is required}:/restore/host-config
       - ${OPENNEKO_BACKUP_REPOSITORY:?OPENNEKO_BACKUP_REPOSITORY is required}:/var/lib/pgbackrest
-
-  records-storage-ops:
-    image: ghcr.io/open-neko/records-storage-ops:${OPENNEKO_VERSION:-latest}
-    restart: unless-stopped
-    volumes:
-      - neko-db-data:/volumes/metadata:ro
-      - records-db-data:/volumes/records:ro
-      - openneko-agent-home:/volumes/staging:ro
-    expose:
-      - "9465"
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9465/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
 
   # Starts only when a complete generated config exists in its private volume;
   # the image entrypoint exits before binding a port if the config is absent.
@@ -332,7 +320,7 @@ services:
         condition: service_completed_successfully
       records-db:
         condition: service_healthy
-      records-storage-ops:
+      neko-backup:
         condition: service_healthy
       records-graphjin:
         condition: service_started
@@ -351,7 +339,7 @@ services:
       RECORDS_PG_DATABASE: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
       OPENNEKO_RECORDS_GRAPHJIN_CONFIG_DIR: /config/records-graphjin
       OPENNEKO_RECORDS_WATCH_GRAPHJIN_URL: http://records-watch-graphjin:8090
-      OPENNEKO_RECORDS_OPS_URL: http://records-storage-ops:9465
+      OPENNEKO_RECORDS_OPS_URL: http://neko-backup:9470
       OPENNEKO_BACKUP_URL: http://neko-backup:9470
       OPENNEKO_PLUGINS_MANIFEST_PATH: /config/openneko/plugins.json
       # Plugin npm packages install into a dedicated dir, isolated from /app's

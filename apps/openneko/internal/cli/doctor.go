@@ -154,12 +154,12 @@ func runOperationalDoctor(ctx context.Context, out io.Writer) (bool, error) {
 		}
 	}
 
-	if !running["records-storage-ops"] {
-		fmt.Fprintln(out, "storage:  FAIL — records-storage-ops is not running")
+	if !running["neko-backup"] {
+		fmt.Fprintln(out, "storage:  FAIL — neko-backup is not running")
 		failed = true
 	} else {
 		raw, err := composeCommandOutput(ctx, project, files,
-			"exec", "-T", "records-storage-ops", "curl", "-fsS", "http://127.0.0.1:9465/v1/storage")
+			"exec", "-T", "neko-backup", "curl", "-fsS", "http://127.0.0.1:9470/v1/storage")
 		if err != nil {
 			fmt.Fprintf(out, "storage:  FAIL — %v\n", err)
 			failed = true

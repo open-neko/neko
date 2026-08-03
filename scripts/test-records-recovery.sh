@@ -37,7 +37,7 @@ backup_status() {
 
 echo "Starting isolated records recovery stack ($recovery_project)..."
 "${recovery_compose[@]}" up -d --build --wait --wait-timeout 180 \
-  neko-backup records-storage-ops
+  neko-backup
 
 backup_ready=0
 for _ in $(seq 1 90); do
@@ -102,44 +102,45 @@ assert re.fullmatch(r"[0-9a-f]{64}", integrity["sha256"])
 ' "$recovery_verification"
 
 echo "Filling a small observed filesystem to ENOSPC and recovering it..."
-recovery_storage_image="${recovery_project}-records-storage-ops"
+recovery_storage_image="${recovery_project}-neko-backup"
 docker run -d --name "$recovery_disk_container" \
-  --tmpfs /volumes/metadata:rw,size=32m \
-  --tmpfs /volumes/records:rw,size=32m \
+  -e PGBACKREST_REPO1_CIPHER_PASS="$OPENNEKO_BACKUP_CIPHER_PASS" \
+  --tmpfs /var/lib/postgresql/neko:rw,size=32m \
+  --tmpfs /var/lib/postgresql/records:rw,size=32m \
   --tmpfs /volumes/staging:rw,size=32m \
   "$recovery_storage_image" >/dev/null
 for _ in $(seq 1 30); do
   if docker exec "$recovery_disk_container" \
-    curl -fsS http://127.0.0.1:9465/health >/dev/null 2>&1; then
+    curl -fsS http://127.0.0.1:9470/health >/dev/null 2>&1; then
     break
   fi
   sleep 0.25
 done
 recovery_storage_before="$(docker exec "$recovery_disk_container" \
-  curl -fsS http://127.0.0.1:9465/v1/storage)"
+  curl -fsS http://127.0.0.1:9470/v1/storage)"
 python3 -c 'import json,sys; value=json.loads(sys.argv[1]); assert value["records"]["usedPercent"] < 10' \
   "$recovery_storage_before"
 if docker exec "$recovery_disk_container" sh -c \
-  'dd if=/dev/zero of=/volumes/records/fill bs=1M count=64 conv=fsync' \
+  'dd if=/dev/zero of=/var/lib/postgresql/records/fill bs=1M count=64 conv=fsync' \
   >"$recovery_workspace/enospc.log" 2>&1; then
   echo "Expected the small records filesystem to reach ENOSPC" >&2
   exit 1
 fi
 recovery_storage_full="$(docker exec "$recovery_disk_container" \
-  curl -fsS http://127.0.0.1:9465/v1/storage)"
+  curl -fsS http://127.0.0.1:9470/v1/storage)"
 python3 -c 'import json,sys; value=json.loads(sys.argv[1]); assert value["records"]["usedPercent"] >= 99' \
   "$recovery_storage_full"
 if docker exec "$recovery_disk_container" sh -c \
-  'printf blocked > /volumes/records/blocked'; then
+  'printf blocked > /var/lib/postgresql/records/blocked'; then
   echo "A records write unexpectedly succeeded at ENOSPC" >&2
   exit 1
 fi
 docker exec "$recovery_disk_container" rm -f \
-  /volumes/records/fill /volumes/records/blocked
+  /var/lib/postgresql/records/fill /var/lib/postgresql/records/blocked
 docker exec "$recovery_disk_container" sh -c \
-  'printf recovered > /volumes/records/recovered'
+  'printf recovered > /var/lib/postgresql/records/recovered'
 recovery_storage_recovered="$(docker exec "$recovery_disk_container" \
-  curl -fsS http://127.0.0.1:9465/v1/storage)"
+  curl -fsS http://127.0.0.1:9470/v1/storage)"
 python3 -c 'import json,sys; value=json.loads(sys.argv[1]); assert value["records"]["usedPercent"] < 10' \
   "$recovery_storage_recovered"
 docker rm -f "$recovery_disk_container" >/dev/null

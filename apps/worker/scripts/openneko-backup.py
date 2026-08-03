@@ -52,6 +52,18 @@ SNAPSHOT_NAMES = (
     "host-config",
     "plugins",
 )
+STORAGE_PATHS = {
+    "metadata": pathlib.Path(
+        os.environ.get("OPENNEKO_METADATA_VOLUME_PATH", "/var/lib/postgresql/neko")
+    ),
+    "records": pathlib.Path(
+        os.environ.get("OPENNEKO_RECORDS_VOLUME_PATH", "/var/lib/postgresql/records")
+    ),
+    "staging": pathlib.Path(
+        os.environ.get("OPENNEKO_STAGING_VOLUME_PATH", "/volumes/staging")
+    ),
+}
+MAX_SAFE_INTEGER = (1 << 53) - 1
 LOCK = threading.Lock()
 
 
@@ -73,6 +85,33 @@ def atomic_json(path: pathlib.Path, value: object) -> None:
 
 def read_json(path: pathlib.Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def storage_capacity(path: pathlib.Path) -> dict:
+    value = os.statvfs(path)
+    fragment_size = value.f_frsize or value.f_bsize
+    total_bytes = value.f_blocks * fragment_size
+    free_bytes = value.f_bavail * fragment_size
+    if (
+        total_bytes <= 0
+        or total_bytes > MAX_SAFE_INTEGER
+        or free_bytes < 0
+        or free_bytes > total_bytes
+        or free_bytes > MAX_SAFE_INTEGER
+    ):
+        raise RuntimeError(f"{path} returned an invalid capacity sample")
+    return {
+        "totalBytes": total_bytes,
+        "freeBytes": free_bytes,
+        "usedPercent": ((total_bytes - free_bytes) / total_bytes) * 100,
+    }
+
+
+def storage_sample() -> dict:
+    return {
+        "sampledAt": iso(),
+        **{name: storage_capacity(path) for name, path in STORAGE_PATHS.items()},
+    }
 
 
 def command(args: list[str], *, postgres: bool = False, timeout: int = 3600) -> str:
@@ -694,8 +733,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urllib.parse.urlsplit(self.path).path
-        if path == "/health":
-            self.send_json(200, {"status": "ok"})
+        if path in {"/health", "/v1/storage"}:
+            try:
+                value = storage_sample()
+            except Exception as error:
+                self.send_json(
+                    503,
+                    {"error": "storage_unavailable", "message": str(error)},
+                )
+                return
+            self.send_json(200, {"status": "ok"} if path == "/health" else value)
         elif path == "/v1/backups/status":
             value = read_json(STATUS) if STATUS.exists() else {"state": "initializing"}
             if VERIFICATION.exists():
