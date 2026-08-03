@@ -4,7 +4,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Database, LogOut, Search, Settings2, Star, Table2 } from "lucide-react";
+import {
+  Database,
+  LayoutGrid,
+  LogOut,
+  Search,
+  Settings2,
+  Star,
+  Table2,
+} from "lucide-react";
 import DensityToggle from "@/components/DensityToggle";
 import {
   ALL_NAV,
@@ -423,11 +431,26 @@ export default function AppRail() {
           ))}
         </div>
 
-        {(recordApps.length > 0 || recordAppsUnavailable) && (
-          <>
-            <div className="app-rail-heading app-rail-records-heading">
-              {recordAppsUnavailable ? "Apps unavailable" : "Apps"}
+        <>
+          <div className="app-rail-heading app-rail-records-heading">Apps</div>
+          <div className="app-rail-group">
+            <div className="app-rail-link-wrap">
+              <Link
+                href="/apps"
+                className={`app-rail-link${isActive(pathname, "/apps") ? " is-active" : ""}`}
+                aria-current={isActive(pathname, "/apps") ? "page" : undefined}
+                title="All apps"
+              >
+                <LayoutGrid aria-hidden="true" strokeWidth={2} />
+                <span className="app-rail-label">All apps</span>
+                <span className="app-rail-short">Apps</span>
+              </Link>
             </div>
+          </div>
+          {recordAppsUnavailable ? (
+            <span className="app-rail-record-status">Temporarily unavailable</span>
+          ) : recordApps.length > 0 ? (
+            <>
             <label className="app-rail-record-switcher">
               <span className="sr-only">Choose an app</span>
               <Database aria-hidden="true" strokeWidth={2} />
@@ -475,8 +498,9 @@ export default function AppRail() {
                 canAdmin={sessionMode !== "member" && sessionMode !== "loading"}
               />
             )}
-          </>
-        )}
+            </>
+          ) : null}
+        </>
 
         {!RECORDS_VISUAL_TEST && (
           <>

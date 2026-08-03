@@ -259,6 +259,7 @@ body {
   }
 
   .app-rail-record-switcher,
+  .app-rail-record-status,
   .app-rail-record-search,
   .app-rail-record-section-label,
   .app-rail-record-favorite,
@@ -580,6 +581,14 @@ body {
 
   .app-rail-records-heading {
     margin-top: 4px;
+  }
+
+  .app-rail-record-status {
+    display: block;
+    padding: 2px 9px 0;
+    color: var(--danger);
+    font-size: 9px;
+    line-height: 1.4;
   }
 
   .app-rail-record-compact-apps {
