@@ -329,6 +329,27 @@ export async function seedDefaultActionPolicies(orgId: string): Promise<void> {
       enabled: true,
     });
   }
+  // D7: additive field backfills can update many rows and are one step in a
+  // reviewed schema-evolution sequence. Keep them admin-approved even though
+  // the physical mutations use the ordinary audited records data plane.
+  if (!names.has("record_backfill_default")) {
+    await createActionPolicy({
+      orgId,
+      name: "record_backfill_default",
+      description:
+        "Populating a newly added generated-app field requires admin approval.",
+      appliesToKinds: ["record_backfill"],
+      appliesToScopes: ["internal", "external"],
+      mode: "approval_required" as ActionPolicyMode,
+      riskThresholdAutoApprove: null,
+      allowedTargets: null,
+      deniedTargets: null,
+      limits: {},
+      approverRole: "admin",
+      priority: 90,
+      enabled: true,
+    });
+  }
   // C8: a reviewed mapping may create thousands of app rows, so starting or
   // cancelling an import stays admin-approved. Status is a read-only control
   // operation and can execute without manufacturing another approval card.

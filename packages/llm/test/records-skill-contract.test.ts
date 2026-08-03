@@ -21,6 +21,8 @@ describe("records agent skill contracts", () => {
     expect(body).toContain("Never invent a blueprint payload");
     expect(body).toContain("blueprints are starting priors");
     expect(body).toContain("one card");
+    expect(body).toContain("`record_backfill`");
+    expect(body).toContain("explicit `transform`");
   });
 
   it("requires exact ID resolution, disambiguation, and optimistic concurrency", async () => {

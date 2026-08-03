@@ -103,15 +103,20 @@ Use only the typed installed actions:
 - `app_field_add` for a new optional field.
 - `app_field_modify` for labels, validations, read-only state, picklist values,
   or reference targets; never change a stored field's type in place.
+- `record_backfill` to populate only null values in a newly added field. Supply
+  either a reviewed non-null `value`, or `from` plus an explicit `transform`:
+  `copy`, `string`, `integer`, `decimal`, `boolean`, `date`, or `datetime`.
 - `app_permission_set` and `app_layout_update` for access and presentation.
 - `app_object_archive` or `app_field_archive` to hide obsolete schema while
   retaining data.
 
-For a new required field, propose an additive sequence: add it optional,
-backfill through governed writes/import, verify, then make it required. For a
-type change, add a new field, backfill, verify, and archive the old field.
-Never propose `hard_drop`; it is not an agent action. Archived means hidden,
-not deleted.
+For a new required field, propose an additive sequence: add it optional, gather
+the value for existing rows, run `record_backfill`, verify that no live rows
+remain null, then make it required. For a type change, add a new optional and
+editable field, run `record_backfill` from the old field with the explicit
+conversion, verify the report, apply the desired required/read-only metadata,
+and archive the old field. Never propose `hard_drop`; it is not an agent
+action. Archived means hidden, not deleted.
 
 ## Proactive app suggestions
 

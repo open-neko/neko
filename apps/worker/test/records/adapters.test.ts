@@ -19,6 +19,7 @@ import { RECORD_IMPORT_ACTION_KINDS } from "../../src/records/import-adapters.js
 import { RECORD_IDENTITY_ACTION_DESCRIPTORS } from "../../src/records/identity-adapters.js";
 import { RECORD_SALESFORCE_ACTION_DESCRIPTORS } from "../../src/records/salesforce-adapters.js";
 import { RECORD_ARTIFACT_IMPORT_ACTION_DESCRIPTORS } from "../../src/records/artifact-import-adapters.js";
+import { RECORD_BACKFILL_ACTION_DESCRIPTORS } from "../../src/records/backfill-adapters.js";
 
 function actionRequest(
   kind: string,
@@ -94,6 +95,7 @@ describe("records worker action adapters", () => {
     ]);
     expect(descriptors.map((descriptor) => descriptor.kind)).toEqual([
       ...RECORD_ACTION_KINDS,
+      ...RECORD_BACKFILL_ACTION_DESCRIPTORS.map((descriptor) => descriptor.kind),
       ...RECORD_SCHEMA_ACTION_KINDS,
       ...RECORD_IMPORT_ACTION_KINDS,
       ...RECORD_IDENTITY_ACTION_DESCRIPTORS.map((descriptor) => descriptor.kind),

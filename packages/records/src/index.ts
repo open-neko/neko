@@ -35,5 +35,6 @@ export * from "./schema/planner";
 export * from "./schema/saga";
 export * from "./types";
 export * from "./write/executor";
+export * from "./write/backfill";
 export * from "./write/validate";
 export * from "./watchers/starter";

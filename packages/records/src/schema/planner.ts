@@ -1,7 +1,12 @@
 import type { Pool } from "pg";
 import { recordIdentifier } from "../naming";
 import { RecordRegistry } from "../registry";
-import type { JsonObject, RecordIdentifier } from "../types";
+import {
+  RECORD_FIELD_KINDS,
+  type JsonObject,
+  type RecordFieldKind,
+  type RecordIdentifier,
+} from "../types";
 import { loadRecordsCatalogSnapshot } from "./catalog";
 import {
   parseRecordAppDefinition,
@@ -329,10 +334,26 @@ function mutateFieldAdd(
       "required fields cannot be added to an existing object without a backfill",
       {
         sequence: [
-          { kind: "app_field_add", field: { ...field, required: false } },
-          { kind: "record_backfill", field: added.apiName },
+          {
+            kind: "app_field_add",
+            app: current.appId,
+            object: objectApiName,
+            field: { ...field, required: false },
+          },
+          {
+            kind: "record_backfill",
+            app: current.appId,
+            object: objectApiName,
+            to: added.apiName,
+            requires_value: {
+              kind: added.kind,
+              prompt: `Choose the value for existing ${objectApiName} records`,
+            },
+          },
           {
             kind: "app_field_modify",
+            app: current.appId,
+            object: objectApiName,
             field: added.apiName,
             changes: { required: true },
           },
@@ -348,6 +369,44 @@ function mutateFieldAdd(
     ],
     warnings: [],
   };
+}
+
+function suggestedBackfillTransform(
+  kind: RecordFieldKind,
+):
+  | "copy"
+  | "string"
+  | "integer"
+  | "decimal"
+  | "boolean"
+  | "date"
+  | "datetime" {
+  switch (kind) {
+    case "integer":
+      return "integer";
+    case "decimal":
+    case "currency":
+    case "percent":
+      return "decimal";
+    case "boolean":
+      return "boolean";
+    case "date":
+      return "date";
+    case "datetime":
+      return "datetime";
+    case "text":
+    case "textarea":
+    case "email":
+    case "phone":
+    case "url":
+    case "picklist":
+    case "reference":
+    case "readonly_formula":
+      return "string";
+    case "id":
+    case "multipicklist":
+      return "copy";
+  }
 }
 
 function mutateFieldModify(
@@ -375,21 +434,63 @@ function mutateFieldModify(
   }
   const oldKind = field.kind;
   if (changes.kind !== undefined && changes.kind !== oldKind) {
+    if (
+      typeof changes.kind !== "string" ||
+      !RECORD_FIELD_KINDS.includes(changes.kind as RecordFieldKind) ||
+      changes.kind === "id"
+    ) {
+      throw new RecordSchemaActionPayloadError(
+        "payload.changes.kind: unsupported field kind",
+      );
+    }
+    const targetKind = changes.kind as RecordFieldKind;
+    const replacementApiName = recordIdentifier(`${fieldApiName}_v2`);
+    const desiredRequired = changes.required ?? field.required;
+    const desiredReadOnly = changes.read_only ?? field.read_only;
     throw new RecordSchemaCounterproposalError(
       "record field types are permanent; use an additive replacement and backfill",
       {
         sequence: [
           {
             kind: "app_field_add",
+            app: current.appId,
             object: objectApiName,
-            field: { ...field, api_name: `${fieldApiName}_v2`, ...changes },
+            field: {
+              ...field,
+              api_name: replacementApiName,
+              ...changes,
+              required: false,
+              read_only: false,
+            },
           },
           {
             kind: "record_backfill",
+            app: current.appId,
+            object: objectApiName,
             from: fieldApiName,
-            to: `${fieldApiName}_v2`,
+            to: replacementApiName,
+            transform: suggestedBackfillTransform(targetKind),
           },
-          { kind: "app_field_archive", object: objectApiName, field: fieldApiName },
+          ...(desiredRequired || desiredReadOnly
+            ? [
+                {
+                  kind: "app_field_modify",
+                  app: current.appId,
+                  object: objectApiName,
+                  field: replacementApiName,
+                  changes: {
+                    ...(desiredRequired ? { required: true } : {}),
+                    ...(desiredReadOnly ? { read_only: true } : {}),
+                  },
+                },
+              ]
+            : []),
+          {
+            kind: "app_field_archive",
+            app: current.appId,
+            object: objectApiName,
+            field: fieldApiName,
+          },
         ],
       },
     );

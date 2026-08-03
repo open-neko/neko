@@ -38,6 +38,10 @@ import {
   RECORD_ARTIFACT_IMPORT_ACTION_DESCRIPTORS,
   RECORD_ARTIFACT_IMPORT_ACTION_KINDS,
 } from "./artifact-import-adapters.js";
+import {
+  RECORD_BACKFILL_ACTION_DESCRIPTORS,
+  RECORD_BACKFILL_ACTION_KINDS,
+} from "./backfill-adapters.js";
 
 export const RECORD_ACTION_KINDS = [
   "record_create",
@@ -124,6 +128,7 @@ export function includeRecordActionDescriptors(
 ): WorkerActionDescriptor[] {
   const builtins = new Set<string>([
     ...RECORD_ACTION_KINDS,
+    ...RECORD_BACKFILL_ACTION_KINDS,
     ...RECORD_SCHEMA_ACTION_KINDS,
     ...RECORD_IMPORT_ACTION_KINDS,
     ...RECORD_IDENTITY_ACTION_KINDS,
@@ -132,6 +137,7 @@ export function includeRecordActionDescriptors(
   ]);
   return [
     ...RECORD_ACTION_DESCRIPTORS,
+    ...RECORD_BACKFILL_ACTION_DESCRIPTORS,
     ...RECORD_SCHEMA_ACTION_DESCRIPTORS,
     ...RECORD_IMPORT_ACTION_DESCRIPTORS,
     ...RECORD_IDENTITY_ACTION_DESCRIPTORS,

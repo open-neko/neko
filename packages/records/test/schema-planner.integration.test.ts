@@ -329,7 +329,33 @@ describeIfLive("records schema action planner", () => {
           field: { name: "External ID", required: true },
         },
       }),
-    ).rejects.toBeInstanceOf(RecordSchemaCounterproposalError);
+    ).rejects.toMatchObject({
+      code: "records_schema_counterproposal_required",
+      counterproposal: {
+        sequence: [
+          expect.objectContaining({
+            kind: "app_field_add",
+            app: "crm",
+            object: "account",
+            field: expect.objectContaining({ required: false }),
+          }),
+          {
+            kind: "record_backfill",
+            app: "crm",
+            object: "account",
+            to: "external_id",
+            requires_value: expect.objectContaining({ kind: "text" }),
+          },
+          {
+            kind: "app_field_modify",
+            app: "crm",
+            object: "account",
+            field: "external_id",
+            changes: { required: true },
+          },
+        ],
+      },
+    });
 
     await expect(
       planner.prepare({
@@ -345,7 +371,35 @@ describeIfLive("records schema action planner", () => {
       }),
     ).rejects.toMatchObject({
       code: "records_schema_counterproposal_required",
-      counterproposal: { sequence: expect.any(Array) },
+      counterproposal: {
+        sequence: [
+          expect.objectContaining({
+            kind: "app_field_add",
+            app: "crm",
+            object: "account",
+            field: expect.objectContaining({
+              api_name: "description_v2",
+              kind: "integer",
+              required: false,
+              read_only: false,
+            }),
+          }),
+          {
+            kind: "record_backfill",
+            app: "crm",
+            object: "account",
+            from: "description",
+            to: "description_v2",
+            transform: "integer",
+          },
+          {
+            kind: "app_field_archive",
+            app: "crm",
+            object: "account",
+            field: "description",
+          },
+        ],
+      },
     });
   });
 

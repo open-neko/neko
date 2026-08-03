@@ -27,6 +27,7 @@ import {
 } from "@neko/db/jobs";
 import { buildRecordsPoolConfig } from "@neko/db/records-migrate";
 import {
+  RecordBackfillExecutor,
   mintRecordsGraphjinToken,
   normalizeRecordImportSourcePath,
   RecordImportExecutor,
@@ -120,6 +121,7 @@ import { registerRecordImportActions } from "./records/import-adapters.js";
 import { registerRecordIdentityActions } from "./records/identity-adapters.js";
 import { registerRecordSalesforceActions } from "./records/salesforce-adapters.js";
 import { registerRecordArtifactImportActions } from "./records/artifact-import-adapters.js";
+import { registerRecordBackfillAction } from "./records/backfill-adapters.js";
 import { refreshArtifactImportState } from "./records/artifact-import-state.js";
 import {
   createRecordsSchemaRuntime,
@@ -230,6 +232,16 @@ const recordsWriteExecutor = new RecordWriteExecutor({
     return mode === "mirror" || mode === "cutting_over" || mode === "primary"
       ? mode
       : null;
+  },
+});
+const recordsBackfillExecutor = new RecordBackfillExecutor({
+  pool: recordsPool,
+  graphjin: recordsGraphjin,
+  serviceToken: recordsServiceToken,
+  leaseOwner: `worker-backfill:${process.pid}:${randomUUID()}`,
+  recordSourceWrite: recordActionRequestSourceWrite,
+  assertWritesAllowed: async () => {
+    await recordsStorageMonitor.assertInteractiveWritesAllowed();
   },
 });
 const recordsImportExecutor = new RecordImportExecutor({
@@ -493,6 +505,7 @@ if (reboundRecordsWatches > 0) {
 await seedDefaultActionPolicies(ADMIN_ORG_ID);
 registerBuiltinAdapters();
 registerRecordActionAdapters(recordsWriteExecutor);
+registerRecordBackfillAction(recordsBackfillExecutor);
 registerRecordIdentityActions(recordsOwnerBackfillExecutor);
 const unregisterRecordSalesforcePreflight = registerRecordSalesforceActions({
   enqueueExport: (payload) =>
