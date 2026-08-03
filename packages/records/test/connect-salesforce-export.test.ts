@@ -41,7 +41,10 @@ const accountDescribe = {
   ],
 };
 
-function connector(fetcher: SalesforceFetch): SalesforceConnector {
+function connector(
+  fetcher: SalesforceFetch,
+  options: { restRecordThreshold?: number; pkChunkSize?: number } = {},
+): SalesforceConnector {
   return new SalesforceConnector({
     client: new SalesforceApiClient({
       instanceUrl: "https://tenant.my.salesforce.com",
@@ -55,6 +58,8 @@ function connector(fetcher: SalesforceFetch): SalesforceConnector {
     app: "CRM",
     label: "CRM",
     objects: ["Account"],
+    restRecordThreshold: options.restRecordThreshold ?? 0,
+    pkChunkSize: options.pkChunkSize,
     pollIntervalMs: 0,
     now: () => new Date("2026-08-02T12:00:00.000Z"),
     sleep: async () => undefined,
@@ -207,6 +212,242 @@ describe("Salesforce Bulk export", () => {
     );
     expect(persisted).toEqual(result.manifest);
     expect((await stat(root)).mode & 0o777).toBe(0o700);
+  });
+
+  it("uses paged REST queryAll for a small object", async () => {
+    const root = await mkdtemp(join(tmpdir(), "records-sf-rest-export-"));
+    roots.push(root);
+    let bulkCreates = 0;
+    const fetcher = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/services/oauth2/token")) {
+        return json({
+          access_token: "token",
+          instance_url: "https://tenant.my.salesforce.com",
+        });
+      }
+      if (url.pathname.endsWith("/sobjects")) {
+        return json({
+          sobjects: [{ name: "Account", queryable: true, replicateable: true }],
+        });
+      }
+      if (url.pathname.endsWith("/sobjects/Account/describe")) {
+        return json(accountDescribe);
+      }
+      if (url.pathname.endsWith("/query")) {
+        expect(decodeURIComponent(url.search)).toContain("SELECT count() FROM Account");
+        return json({ totalSize: 2, done: true, records: [] });
+      }
+      if (url.pathname.endsWith("/jobs/query") && init?.method === "POST") {
+        bulkCreates += 1;
+      }
+      if (url.pathname.endsWith("/queryAll")) {
+        expect(decodeURIComponent(url.search)).toContain("SELECT Id, Name, OwnerId");
+        return json({
+          done: false,
+          nextRecordsUrl: "/services/data/v64.0/queryAll/next-page",
+          records: [
+            {
+              Id: "001A000010khO8I",
+              Name: "Acme, Inc.",
+              OwnerId: null,
+              SystemModstamp: "2026-08-02T10:00:00.000Z",
+              IsDeleted: false,
+            },
+          ],
+        });
+      }
+      if (url.pathname.endsWith("/queryAll/next-page")) {
+        return json({
+          done: true,
+          records: [
+            {
+              Id: "001A000010khO8J",
+              Name: 'Quote "Co"',
+              OwnerId: null,
+              SystemModstamp: "2026-08-02T11:00:00.000Z",
+              IsDeleted: false,
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected Salesforce request: ${url}`);
+    });
+
+    const result = await connector(fetcher, {
+      restRecordThreshold: 2_000,
+    }).export({ directory: root });
+
+    expect(bulkCreates).toBe(0);
+    expect(result.manifest.objects[0]?.expectedRows).toBe(2);
+    const csv = await readFile(join(root, "data/account.csv"), "utf8");
+    expect(csv.match(/"Id","Name"/g)).toHaveLength(1);
+    expect(csv).toContain('"Acme, Inc."');
+    expect(csv).toContain('"Quote ""Co"""');
+  });
+
+  it("falls back from a rejected Bulk 2 job to checkpointed PK chunks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "records-sf-pk-export-"));
+    roots.push(root);
+    let pkCreates = 0;
+    let failSecondPkResult = true;
+    const pkResultRequests: string[] = [];
+    const fetcher = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/services/oauth2/token")) {
+        return json({
+          access_token: "token",
+          instance_url: "https://tenant.my.salesforce.com",
+        });
+      }
+      if (url.pathname.endsWith("/sobjects")) {
+        return json({
+          sobjects: [{ name: "Account", queryable: true, replicateable: true }],
+        });
+      }
+      if (url.pathname.endsWith("/sobjects/Account/describe")) {
+        return json(accountDescribe);
+      }
+      if (url.pathname.endsWith("/jobs/query") && init?.method === "POST") {
+        return json({ id: "bulk2-job", state: "UploadComplete" });
+      }
+      if (url.pathname.endsWith("/jobs/query/bulk2-job")) {
+        return json({ id: "bulk2-job", state: "Failed", errorMessage: "query too large" });
+      }
+      if (url.pathname.endsWith("/services/async/64.0/job") && init?.method === "POST") {
+        pkCreates += 1;
+        const headers = new Headers(init.headers);
+        expect(headers.get("sforce-enable-pkchunking")).toBe("chunkSize=125000");
+        expect(headers.get("x-sfdc-session")).toBe("token");
+        expect(String(init.body)).toContain('"operation":"queryAll"');
+        return json({ id: "pk-job", state: "Open" });
+      }
+      if (url.pathname.endsWith("/job/pk-job/batch") && init?.method === "POST") {
+        expect(String(init.body)).toContain("SELECT Id, Name, OwnerId");
+        return json({ id: "seed", state: "Queued" });
+      }
+      if (url.pathname.endsWith("/job/pk-job") && init?.method === "POST") {
+        expect(String(init.body)).toContain('"state":"Closed"');
+        return json({ id: "pk-job", state: "Closed" });
+      }
+      if (url.pathname.endsWith("/job/pk-job/batch")) {
+        return json({
+          batchInfo: [
+            { id: "seed", state: "Not Processed" },
+            { id: "chunk-b", state: "Completed" },
+            { id: "chunk-a", state: "Completed" },
+          ],
+        });
+      }
+      if (url.pathname.endsWith("/batch/chunk-a/result")) {
+        return json({ result: ["result-a"] });
+      }
+      if (url.pathname.endsWith("/batch/chunk-b/result")) {
+        return json({ result: ["result-b"] });
+      }
+      if (url.pathname.endsWith("/result/result-a")) {
+        pkResultRequests.push("result-a");
+        return new Response(
+          '"Id","Name","OwnerId","SystemModstamp","IsDeleted"\n"001A000010khO8I","Acme","","2026-08-02T10:00:00.000Z","false"\n',
+          { headers: { "content-type": "text/csv" } },
+        );
+      }
+      if (url.pathname.endsWith("/result/result-b")) {
+        pkResultRequests.push("result-b");
+        if (failSecondPkResult) throw new Error("simulated PK result kill");
+        return new Response(
+          '"Id","Name","OwnerId","SystemModstamp","IsDeleted"\n"001A000010khO8J","Beta","","2026-08-02T11:00:00.000Z","false"\n',
+          { headers: { "content-type": "text/csv" } },
+        );
+      }
+      throw new Error(`unexpected Salesforce request: ${url}`);
+    });
+
+    await expect(
+      connector(fetcher, { pkChunkSize: 125_000 }).export({ directory: root }),
+    ).rejects.toThrow("simulated PK result kill");
+    failSecondPkResult = false;
+    const result = await connector(fetcher, { pkChunkSize: 125_000 }).export({
+      directory: root,
+      resume: true,
+    });
+
+    expect(pkCreates).toBe(1);
+    expect(pkResultRequests).toEqual(["result-a", "result-b", "result-b"]);
+    expect(result.manifest.objects[0]?.expectedRows).toBe(2);
+    const csv = await readFile(join(root, "data/account.csv"), "utf8");
+    expect(csv.match(/"Id","Name"/g)).toHaveLength(1);
+    expect(csv).toContain("Acme");
+    expect(csv).toContain("Beta");
+    const checkpoint = JSON.parse(
+      await readFile(join(root, "export-checkpoint.json"), "utf8"),
+    ) as { objects: { Account: { strategy: string; fallbackReason: string } } };
+    expect(checkpoint.objects.Account).toMatchObject({
+      strategy: "pk_chunk",
+      fallbackReason: expect.stringContaining("query too large"),
+    });
+  });
+
+  it("uses REST as the final tail when both bulk modes are unsupported", async () => {
+    const root = await mkdtemp(join(tmpdir(), "records-sf-rest-tail-"));
+    roots.push(root);
+    const fetcher = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/services/oauth2/token")) {
+        return json({
+          access_token: "token",
+          instance_url: "https://tenant.my.salesforce.com",
+        });
+      }
+      if (url.pathname.endsWith("/sobjects")) {
+        return json({
+          sobjects: [{ name: "Account", queryable: true, replicateable: true }],
+        });
+      }
+      if (url.pathname.endsWith("/sobjects/Account/describe")) {
+        return json(accountDescribe);
+      }
+      if (url.pathname.endsWith("/jobs/query") && init?.method === "POST") {
+        return json(
+          [{ errorCode: "INVALIDJOB", message: "Bulk 2 unsupported" }],
+          { status: 400 },
+        );
+      }
+      if (url.pathname.endsWith("/services/async/64.0/job") && init?.method === "POST") {
+        return json(
+          [{ errorCode: "InvalidEntity", message: "PK chunking unsupported" }],
+          { status: 400 },
+        );
+      }
+      if (url.pathname.endsWith("/queryAll")) {
+        return json({
+          done: true,
+          records: [
+            {
+              Id: "001A000010khO8I",
+              Name: "REST Tail",
+              OwnerId: null,
+              SystemModstamp: "2026-08-02T10:00:00.000Z",
+              IsDeleted: false,
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected Salesforce request: ${url}`);
+    });
+
+    const result = await connector(fetcher).export({ directory: root });
+    expect(result.manifest.objects[0]?.expectedRows).toBe(1);
+    await expect(readFile(join(root, "data/account.csv"), "utf8")).resolves.toContain(
+      "REST Tail",
+    );
+    const checkpoint = JSON.parse(
+      await readFile(join(root, "export-checkpoint.json"), "utf8"),
+    ) as { objects: { Account: { strategy: string; fallbackReason: string } } };
+    expect(checkpoint.objects.Account).toMatchObject({
+      strategy: "rest",
+      fallbackReason: expect.stringContaining("PK chunking unsupported"),
+    });
   });
 
   it("normalizes source and polymorphic ids while paging delta queryAll", async () => {

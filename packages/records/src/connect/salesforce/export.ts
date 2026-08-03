@@ -11,9 +11,11 @@ import type {
 } from "../types";
 import {
   SalesforceApiClient,
+  SalesforceApiError,
   type SalesforceApiBudgetSnapshot,
 } from "./client";
 import { normalizeSalesforceId } from "./id";
+import { parseRecordsCsv } from "../../import/csv";
 import {
   buildSalesforceAppSchema,
   createSalesforceSchemaReview,
@@ -36,6 +38,11 @@ type ExportObjectCheckpoint = {
   page: number;
   rows: number;
   sha256: string | null;
+  strategy?: "bulk2" | "pk_chunk" | "rest";
+  fallbackReason?: string | null;
+  restNextPath?: string | null;
+  pkSeedBatchId?: string | null;
+  pkResults?: Array<{ batchId: string; resultId: string }>;
 };
 
 type ExportCheckpoint = {
@@ -65,6 +72,18 @@ type BulkJob = {
   errorMessage?: string;
 };
 
+type BulkV1Job = {
+  id?: string;
+  state?: string;
+  errorMessage?: string;
+};
+
+type BulkV1Batch = {
+  id?: string;
+  state?: string;
+  stateMessage?: string;
+};
+
 type QueryResult = {
   totalSize?: number;
   done?: boolean;
@@ -81,6 +100,20 @@ export class SalesforceExportError extends Error {
   }
 }
 
+class SalesforceBulkQueryRejectedError extends SalesforceExportError {
+  constructor(message: string) {
+    super(message);
+    this.name = "SalesforceBulkQueryRejectedError";
+  }
+}
+
+class SalesforcePkChunkRejectedError extends SalesforceExportError {
+  constructor(message: string) {
+    super(message);
+    this.name = "SalesforcePkChunkRejectedError";
+  }
+}
+
 function assertApiName(value: string, label: string): string {
   if (!SALESFORCE_API_NAME.test(value) || value.length > 255) {
     throw new SalesforceExportError(`${label}: invalid Salesforce API name`);
@@ -94,6 +127,66 @@ function quotedSoqlIdentifier(value: string): string {
 
 function sha256(value: Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function fallbackReason(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 500);
+}
+
+function canUseExportFallback(error: unknown): boolean {
+  if (
+    error instanceof SalesforceBulkQueryRejectedError ||
+    error instanceof SalesforcePkChunkRejectedError
+  ) {
+    return true;
+  }
+  return (
+    error instanceof SalesforceApiError &&
+    !error.retryable &&
+    error.status !== null &&
+    [400, 404, 405, 415].includes(error.status)
+  );
+}
+
+function csvCell(value: unknown): string {
+  const text =
+    value === null || value === undefined
+      ? ""
+      : typeof value === "object"
+        ? JSON.stringify(value)
+        : String(value);
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function restCsv(
+  fields: string[],
+  records: Array<Record<string, unknown>>,
+): Uint8Array {
+  const lines = [
+    fields.map(csvCell).join(","),
+    ...records.map((record) => fields.map((field) => csvCell(record[field])).join(",")),
+  ];
+  return new TextEncoder().encode(`${lines.join("\n")}\n`);
+}
+
+function bulkV1Batches(value: unknown): BulkV1Batch[] {
+  if (Array.isArray(value)) return value as BulkV1Batch[];
+  if (!value || typeof value !== "object") return [];
+  const raw = (value as Record<string, unknown>).batchInfo;
+  if (Array.isArray(raw)) return raw as BulkV1Batch[];
+  return raw && typeof raw === "object" ? [raw as BulkV1Batch] : [];
+}
+
+function bulkV1ResultIds(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string" && Boolean(item));
+  }
+  if (!value || typeof value !== "object") return [];
+  const raw = (value as Record<string, unknown>).result;
+  if (typeof raw === "string" && raw) return [raw];
+  return Array.isArray(raw)
+    ? raw.filter((item): item is string => typeof item === "string" && Boolean(item))
+    : [];
 }
 
 async function atomicWrite(path: string, bytes: string | Uint8Array): Promise<void> {
@@ -176,6 +269,11 @@ function checkpointObject(
     page: 0,
     rows: 0,
     sha256: null,
+    strategy: "bulk2",
+    fallbackReason: null,
+    restNextPath: null,
+    pkSeedBatchId: null,
+    pkResults: [],
   };
 }
 
@@ -197,6 +295,7 @@ function normalizedRecord(
 
 export class SalesforceConnector implements RecordsConnector {
   private readonly describes = new Map<string, SalesforceObjectDescribe>();
+  private readonly counts = new Map<string, number | null>();
   private discovered: SObjectList["sobjects"] | null = null;
 
   constructor(
@@ -210,6 +309,8 @@ export class SalesforceConnector implements RecordsConnector {
       objects?: string[];
       maxObjects?: number;
       maxRecordsPerPage?: number;
+      restRecordThreshold?: number;
+      pkChunkSize?: number;
       pollIntervalMs?: number;
       maxPolls?: number;
       now?: () => Date;
@@ -220,6 +321,18 @@ export class SalesforceConnector implements RecordsConnector {
       throw new Error("Salesforce source instance id is required");
     }
     for (const object of options.objects ?? []) assertApiName(object, "Salesforce object");
+    const restThreshold = options.restRecordThreshold ?? 2_000;
+    if (!Number.isSafeInteger(restThreshold) || restThreshold < 0) {
+      throw new Error("Salesforce REST export threshold must be a non-negative integer");
+    }
+    const pkChunkSize = options.pkChunkSize ?? 100_000;
+    if (
+      !Number.isSafeInteger(pkChunkSize) ||
+      pkChunkSize < 1 ||
+      pkChunkSize > 250_000
+    ) {
+      throw new Error("Salesforce PK chunk size must be between 1 and 250000");
+    }
   }
 
   private now(): Date {
@@ -293,14 +406,19 @@ export class SalesforceConnector implements RecordsConnector {
   }
 
   private async count(sourceApiName: string, signal?: AbortSignal): Promise<number | null> {
+    if (this.counts.has(sourceApiName)) {
+      return this.counts.get(sourceApiName) ?? null;
+    }
     const query = `SELECT count() FROM ${quotedSoqlIdentifier(sourceApiName)}`;
     const result = await this.options.client.json<QueryResult>(
       `${this.options.client.dataPath("/query")}?q=${encodeURIComponent(query)}`,
       { signal },
     );
-    return Number.isSafeInteger(result.totalSize) && Number(result.totalSize) >= 0
+    const count = Number.isSafeInteger(result.totalSize) && Number(result.totalSize) >= 0
       ? Number(result.totalSize)
       : null;
+    this.counts.set(sourceApiName, count);
+    return count;
   }
 
   async discover(signal?: AbortSignal): Promise<RecordConnectorInventory> {
@@ -435,7 +553,7 @@ export class SalesforceConnector implements RecordsConnector {
       );
       if (job.state === "JobComplete") return;
       if (job.state === "Failed" || job.state === "Aborted") {
-        throw new SalesforceExportError(
+        throw new SalesforceBulkQueryRejectedError(
           `Salesforce Bulk job ${jobId} ${job.state.toLowerCase()}: ${job.errorMessage ?? "unknown error"}`,
         );
       }
@@ -444,34 +562,35 @@ export class SalesforceConnector implements RecordsConnector {
     throw new SalesforceExportError(`Salesforce Bulk job ${jobId} exceeded its poll budget`);
   }
 
-  private async exportObject(input: {
+  private resetExportStrategy(
+    current: ExportObjectCheckpoint,
+    strategy: "pk_chunk" | "rest",
+    reason: string,
+  ): void {
+    current.strategy = strategy;
+    current.fallbackReason = reason;
+    current.jobId = null;
+    current.state = "pending";
+    current.nextLocator = null;
+    current.pagesComplete = false;
+    current.page = 0;
+    current.rows = 0;
+    current.sha256 = null;
+    current.restNextPath = null;
+    current.pkSeedBatchId = null;
+    current.pkResults = [];
+  }
+
+  private async exportBulk2Pages(input: {
     root: string;
+    parts: string;
     checkpoint: ExportCheckpoint;
+    current: ExportObjectCheckpoint;
     sourceApiName: string;
-    targetApiName: string;
     fields: string[];
     signal?: AbortSignal;
-  }): Promise<ExportObjectCheckpoint> {
-    const current =
-      input.checkpoint.objects[input.sourceApiName] ??
-      checkpointObject(input.sourceApiName, input.targetApiName);
-    if (current.targetApiName !== input.targetApiName) {
-      throw new SalesforceExportError(`${input.sourceApiName}: target changed after export began`);
-    }
-    input.checkpoint.objects[input.sourceApiName] = current;
-    const dataPath = join(input.root, "data", `${input.targetApiName}.csv`);
-    const parts = join(input.root, ".pages", input.targetApiName);
-    await mkdir(parts, { recursive: true, mode: 0o700 });
-
-    if (current.state === "complete") {
-      try {
-        const bytes = new Uint8Array(await readFile(dataPath));
-        if (current.sha256 === sha256(bytes)) return current;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-      current.state = "pages";
-    }
+  }): Promise<void> {
+    const current = input.current;
     if (!current.jobId) {
       current.jobId = await this.createBulkJob(
         input.sourceApiName,
@@ -496,7 +615,7 @@ export class SalesforceConnector implements RecordsConnector {
         { headers: { accept: "text/csv" }, signal: input.signal },
       );
       const bytes = new Uint8Array(await response.arrayBuffer());
-      await atomicWrite(join(parts, `${current.page}.csv`), bytes);
+      await atomicWrite(join(input.parts, `${current.page}.csv`), bytes);
       const rawRows = response.headers.get("sforce-numberofrecords");
       const pageRows = rawRows === null ? Number.NaN : Number.parseInt(rawRows, 10);
       if (!Number.isSafeInteger(pageRows) || pageRows < 0) {
@@ -516,6 +635,278 @@ export class SalesforceConnector implements RecordsConnector {
       current.nextLocator = current.pagesComplete ? null : locator;
       await this.writeCheckpoint(input.root, input.checkpoint);
     }
+  }
+
+  private async waitForPkChunkBatches(
+    jobId: string,
+    seedBatchId: string,
+    signal?: AbortSignal,
+  ): Promise<BulkV1Batch[]> {
+    const maximum = this.options.maxPolls ?? 720;
+    for (let poll = 0; poll < maximum; poll += 1) {
+      const raw = await this.options.client.json<unknown>(
+        this.options.client.asyncPath(`/job/${encodeURIComponent(jobId)}/batch`),
+        { signal },
+      );
+      const batches = bulkV1Batches(raw).filter(
+        (batch): batch is Required<Pick<BulkV1Batch, "id" | "state">> & BulkV1Batch =>
+          typeof batch.id === "string" &&
+          Boolean(batch.id) &&
+          typeof batch.state === "string" &&
+          Boolean(batch.state),
+      );
+      const failed = batches.find(
+        (batch) => batch.state === "Failed" || batch.state === "Aborted",
+      );
+      if (failed) {
+        throw new SalesforcePkChunkRejectedError(
+          `Salesforce PK chunk batch ${failed.id} ${failed.state.toLowerCase()}: ${failed.stateMessage ?? "unknown error"}`,
+        );
+      }
+      const active = batches.some((batch) =>
+        ["Queued", "InProgress"].includes(batch.state),
+      );
+      const completed = batches.filter((batch) => batch.state === "Completed");
+      const seed = batches.find((batch) => batch.id === seedBatchId);
+      if (!active && completed.length > 0 && seed) return completed;
+      await this.sleep(this.options.pollIntervalMs ?? 2_000);
+    }
+    throw new SalesforceExportError(
+      `Salesforce PK chunk job ${jobId} exceeded its poll budget`,
+    );
+  }
+
+  private async exportPkChunkPages(input: {
+    root: string;
+    parts: string;
+    checkpoint: ExportCheckpoint;
+    current: ExportObjectCheckpoint;
+    sourceApiName: string;
+    fields: string[];
+    signal?: AbortSignal;
+  }): Promise<void> {
+    const current = input.current;
+    if (!current.jobId || !current.pkSeedBatchId) {
+      const query = `SELECT ${input.fields.join(", ")} FROM ${quotedSoqlIdentifier(input.sourceApiName)}`;
+      const job = await this.options.client.json<BulkV1Job>(
+        this.options.client.asyncPath("/job"),
+        {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+            "sforce-enable-pkchunking": `chunkSize=${this.options.pkChunkSize ?? 100_000}`,
+          },
+          body: JSON.stringify({
+            operation: "queryAll",
+            object: input.sourceApiName,
+            contentType: "CSV",
+            concurrencyMode: "Parallel",
+          }),
+          signal: input.signal,
+        },
+      );
+      if (typeof job.id !== "string" || !job.id) {
+        throw new SalesforcePkChunkRejectedError(
+          `${input.sourceApiName}: PK chunking did not return a job id`,
+        );
+      }
+      const batch = await this.options.client.json<BulkV1Batch>(
+        this.options.client.asyncPath(`/job/${encodeURIComponent(job.id)}/batch`),
+        {
+          method: "POST",
+          headers: { accept: "application/json", "content-type": "text/csv" },
+          body: query,
+          signal: input.signal,
+        },
+      );
+      if (typeof batch.id !== "string" || !batch.id) {
+        throw new SalesforcePkChunkRejectedError(
+          `${input.sourceApiName}: PK chunking did not return a seed batch id`,
+        );
+      }
+      await this.options.client.json<BulkV1Job>(
+        this.options.client.asyncPath(`/job/${encodeURIComponent(job.id)}`),
+        {
+          method: "POST",
+          headers: { accept: "application/json", "content-type": "application/json" },
+          body: JSON.stringify({ state: "Closed" }),
+          signal: input.signal,
+        },
+      );
+      current.jobId = job.id;
+      current.pkSeedBatchId = batch.id;
+      current.state = "querying";
+      await this.writeCheckpoint(input.root, input.checkpoint);
+    }
+
+    if (!current.pkResults || current.pkResults.length === 0) {
+      const batches = await this.waitForPkChunkBatches(
+        current.jobId,
+        current.pkSeedBatchId,
+        input.signal,
+      );
+      const results: Array<{ batchId: string; resultId: string }> = [];
+      for (const batch of batches) {
+        const raw = await this.options.client.json<unknown>(
+          this.options.client.asyncPath(
+            `/job/${encodeURIComponent(current.jobId)}/batch/${encodeURIComponent(batch.id!)}/result`,
+          ),
+          { signal: input.signal },
+        );
+        for (const resultId of bulkV1ResultIds(raw)) {
+          results.push({ batchId: batch.id!, resultId });
+        }
+      }
+      results.sort(
+        (left, right) =>
+          left.batchId.localeCompare(right.batchId) ||
+          left.resultId.localeCompare(right.resultId),
+      );
+      if (results.length === 0) {
+        throw new SalesforcePkChunkRejectedError(
+          `${input.sourceApiName}: PK chunking produced no result sets`,
+        );
+      }
+      current.pkResults = results;
+      current.state = "pages";
+      await this.writeCheckpoint(input.root, input.checkpoint);
+    }
+
+    while (!current.pagesComplete) {
+      const result = current.pkResults[current.page];
+      if (!result) {
+        current.pagesComplete = true;
+        await this.writeCheckpoint(input.root, input.checkpoint);
+        break;
+      }
+      const response = await this.options.client.request(
+        this.options.client.asyncPath(
+          `/job/${encodeURIComponent(current.jobId)}/batch/${encodeURIComponent(result.batchId)}/result/${encodeURIComponent(result.resultId)}`,
+        ),
+        { headers: { accept: "text/csv" }, signal: input.signal },
+      );
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const parsed = parseRecordsCsv(
+        new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      );
+      await atomicWrite(join(input.parts, `${current.page}.csv`), bytes);
+      current.rows += parsed.rows.length;
+      current.page += 1;
+      current.pagesComplete = current.page >= current.pkResults.length;
+      await this.writeCheckpoint(input.root, input.checkpoint);
+    }
+  }
+
+  private async exportRestPages(input: {
+    root: string;
+    parts: string;
+    checkpoint: ExportCheckpoint;
+    current: ExportObjectCheckpoint;
+    sourceApiName: string;
+    fields: string[];
+    signal?: AbortSignal;
+  }): Promise<void> {
+    const current = input.current;
+    current.state = "pages";
+    while (!current.pagesComplete) {
+      const query = `SELECT ${input.fields.join(", ")} FROM ${quotedSoqlIdentifier(input.sourceApiName)}`;
+      const path =
+        current.restNextPath ??
+        `${this.options.client.dataPath("/queryAll")}?q=${encodeURIComponent(query)}`;
+      const page = await this.options.client.json<QueryResult>(path, {
+        signal: input.signal,
+      });
+      const records = Array.isArray(page.records) ? page.records : [];
+      await atomicWrite(
+        join(input.parts, `${current.page}.csv`),
+        restCsv(input.fields, records),
+      );
+      const next = page.done === false ? page.nextRecordsUrl : null;
+      if (
+        page.done === false &&
+        (typeof next !== "string" ||
+          !next.startsWith("/services/") ||
+          next === path)
+      ) {
+        throw new SalesforceExportError(
+          `${input.sourceApiName}: REST query pagination path is invalid`,
+        );
+      }
+      current.rows += records.length;
+      current.page += 1;
+      current.pagesComplete = page.done !== false;
+      current.restNextPath = current.pagesComplete ? null : next;
+      await this.writeCheckpoint(input.root, input.checkpoint);
+    }
+  }
+
+  private async exportObject(input: {
+    root: string;
+    checkpoint: ExportCheckpoint;
+    sourceApiName: string;
+    targetApiName: string;
+    fields: string[];
+    estimatedRows: number | null;
+    signal?: AbortSignal;
+  }): Promise<ExportObjectCheckpoint> {
+    const current =
+      input.checkpoint.objects[input.sourceApiName] ??
+      checkpointObject(input.sourceApiName, input.targetApiName);
+    if (current.targetApiName !== input.targetApiName) {
+      throw new SalesforceExportError(`${input.sourceApiName}: target changed after export began`);
+    }
+    current.strategy ??= "bulk2";
+    current.pkResults ??= [];
+    input.checkpoint.objects[input.sourceApiName] = current;
+    const dataPath = join(input.root, "data", `${input.targetApiName}.csv`);
+    const parts = join(input.root, ".pages", input.targetApiName);
+    await mkdir(parts, { recursive: true, mode: 0o700 });
+
+    if (current.state === "complete") {
+      try {
+        const bytes = new Uint8Array(await readFile(dataPath));
+        if (current.sha256 === sha256(bytes)) return current;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      current.state = "pages";
+    }
+
+    const restThreshold = this.options.restRecordThreshold ?? 2_000;
+    if (
+      current.state === "pending" &&
+      current.page === 0 &&
+      !current.jobId &&
+      input.estimatedRows !== null &&
+      input.estimatedRows <= restThreshold
+    ) {
+      this.resetExportStrategy(current, "rest", "small_object");
+      await this.writeCheckpoint(input.root, input.checkpoint);
+    }
+
+    if (current.strategy === "bulk2") {
+      try {
+        await this.exportBulk2Pages({ ...input, parts, current });
+      } catch (error) {
+        if (!canUseExportFallback(error)) throw error;
+        this.resetExportStrategy(current, "pk_chunk", fallbackReason(error));
+        await this.writeCheckpoint(input.root, input.checkpoint);
+      }
+    }
+    if (current.strategy === "pk_chunk") {
+      try {
+        await this.exportPkChunkPages({ ...input, parts, current });
+      } catch (error) {
+        if (!canUseExportFallback(error)) throw error;
+        this.resetExportStrategy(current, "rest", fallbackReason(error));
+        await this.writeCheckpoint(input.root, input.checkpoint);
+      }
+    }
+    if (current.strategy === "rest") {
+      await this.exportRestPages({ ...input, parts, current });
+    }
+
     const merged = await mergeCsvParts({
       partsDirectory: parts,
       pages: current.page,
@@ -560,12 +951,17 @@ export class SalesforceConnector implements RecordsConnector {
         join(root, "describe", `${mapping.targetObject}.json`),
         `${JSON.stringify(describe, null, 2)}\n`,
       );
+      const estimatedRows =
+        (this.options.restRecordThreshold ?? 2_000) > 0
+          ? await this.count(describe.name, input.signal)
+          : null;
       const object = await this.exportObject({
         root,
         checkpoint,
         sourceApiName: describe.name,
         targetApiName: mapping.targetObject,
         fields: sourceFields(schema, describe.name),
+        estimatedRows,
         signal: input.signal,
       });
       artifacts.push({

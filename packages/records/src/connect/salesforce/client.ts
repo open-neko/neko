@@ -277,6 +277,9 @@ export class SalesforceApiClient {
       const url = new URL(path, token.instanceUrl);
       const headers = new Headers(init.headers);
       headers.set("authorization", `Bearer ${token.accessToken}`);
+      if (path.startsWith("/services/async/")) {
+        headers.set("x-sfdc-session", token.accessToken);
+      }
       headers.set("accept", headers.get("accept") ?? "application/json");
       let response: Response;
       try {
@@ -322,6 +325,11 @@ export class SalesforceApiClient {
 
   dataPath(suffix: string): string {
     return `/services/data/v${this.apiVersion}${suffix.startsWith("/") ? suffix : `/${suffix}`}`;
+  }
+
+  /** Original Bulk API endpoint, used only for its explicit PK-chunk fallback. */
+  asyncPath(suffix: string): string {
+    return `/services/async/${this.apiVersion}${suffix.startsWith("/") ? suffix : `/${suffix}`}`;
   }
 
   budgetSnapshot(): SalesforceApiBudgetSnapshot | null {
