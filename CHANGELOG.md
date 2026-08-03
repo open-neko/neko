@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.23.1](https://github.com/open-neko/openneko/compare/v2.23.0...v2.23.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **records:** initialize GraphJin config volume ownership ([f54992b](https://github.com/open-neko/openneko/commit/f54992bb8c6bf8b643bb3a59d0a8027d96a67a76))
+* **records:** initialize GraphJin config volume ownership ([e07a6fe](https://github.com/open-neko/openneko/commit/e07a6fe7d6113261cbf7c7dce5272227f19fca01))
+
 ## [2.23.0](https://github.com/open-neko/openneko/compare/v2.22.0...v2.23.0) (2026-08-03)
 
 
