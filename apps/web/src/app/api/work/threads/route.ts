@@ -29,6 +29,7 @@ export async function GET() {
     orgId,
     "web",
     actor.userId,
+    { surface: "main" },
   );
   return NextResponse.json({ threads });
 }

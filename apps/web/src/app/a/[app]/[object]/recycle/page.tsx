@@ -6,7 +6,6 @@ import {
   readRecordRecycleList,
   RecordAppRouteError,
 } from "@/lib/records";
-import { RecordAskBox } from "@/components/records/RecordAskBox";
 import { RecordRecycleTable } from "@/components/records/RecordRecycleTable";
 import { RecordsUnavailable } from "@/components/records/RecordsNotice";
 
@@ -109,16 +108,6 @@ export default async function RecordRecyclePage({
         cursor={result.cursor}
         page={page}
         query={query}
-      />
-      <RecordAskBox
-        context={{
-          surface: "recycle_list",
-          appId: result.app.appId,
-          appLabel: result.app.label,
-          objectApiName: result.view.object.apiName,
-          objectLabel: result.view.object.pluralLabel,
-          ...(query.q ? { search: query.q } : {}),
-        }}
       />
     </main>
   );

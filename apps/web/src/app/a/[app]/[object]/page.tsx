@@ -14,7 +14,6 @@ import { RecordTable } from "@/components/records/RecordTable";
 import { RecordViewBar } from "@/components/records/RecordViewBar";
 import { RecordsUnavailable } from "@/components/records/RecordsNotice";
 import { SubstrateStrip } from "@/components/records/SubstrateStrip";
-import { RecordAskBox } from "@/components/records/RecordAskBox";
 import {
   normalizeRecordSavedViewDefinition,
   type RecordFilterExpression,
@@ -206,21 +205,6 @@ export default async function RecordObjectPage({
     base,
     query,
   } = loaded;
-  const askPendingActions = result.rows.flatMap((row) => {
-    const recordId = String(row.id ?? "");
-    if (!recordId) return [];
-    const recordLabel = String(
-      row[result.view.object.nameField] ?? recordId,
-    );
-    return (result.pendingActions[recordId] ?? []).map((action) => ({
-      recordId,
-      recordLabel,
-      action,
-    }));
-  });
-  const askScenario = "askScenario" in loaded
-    ? loaded.askScenario
-    : undefined;
   return (
     <main className="records-root">
       <header className="records-object-header">
@@ -291,19 +275,6 @@ export default async function RecordObjectPage({
           />
           <SubstrateStrip status={substrate} />
         </section>
-        <RecordAskBox
-          context={{
-            surface: "list",
-            appId: result.app.appId,
-            appLabel: result.app.label,
-            objectApiName: result.view.object.apiName,
-            objectLabel: result.view.object.pluralLabel,
-            ...(query.q ? { search: query.q } : {}),
-            ...(query.mine === "true" ? { myRecords: true } : {}),
-          }}
-          pendingActions={askPendingActions}
-          scenario={askScenario}
-        />
       </div>
     </main>
   );

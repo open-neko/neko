@@ -112,4 +112,49 @@ describe("runAgentBackend", () => {
       ]),
     );
   });
+
+  it("uses app ownership as context without narrowing the actor's records grants", async () => {
+    let captured: AgentRunOptions | undefined;
+    const backend: AgentBackend = {
+      id: "hermes",
+      capabilities: {
+        mcpTools: true,
+        sdkStopHook: false,
+        sessionResume: false,
+        canUseToolGate: true,
+        nativeDelegation: "hermes-delegate-task",
+      },
+      async run(opts) {
+        captured = opts;
+        return { status: "completed", finalText: "done" };
+      },
+    };
+
+    await runAgentBackend({
+      backend,
+      prompt: "prompt",
+      userMessage: "include this account's support tickets",
+      orgId: "org-1",
+      threadId: "thread-1",
+      runId: "run-1",
+      workspace,
+      pluginActions: [],
+      dataSurface: "records",
+      backendState: {
+        appContext: { appId: "crm", appLabel: "CRM" },
+        recordContext: {
+          surface: "detail",
+          appId: "crm",
+          appLabel: "CRM",
+          objectApiName: "account",
+          objectLabel: "Account",
+          recordId: "account-1",
+        },
+      },
+      emit: async () => {},
+    });
+
+    expect(Object.keys(captured?.mcpServers ?? {})).toEqual(["neko_records"]);
+    expect(captured?.mcpBridgeEnv?.OPENNEKO_MCP_RECORD_SCOPE).toBeUndefined();
+  });
 });

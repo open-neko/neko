@@ -6,7 +6,6 @@ import {
   readRecordRecycleDetail,
   RecordAppRouteError,
 } from "@/lib/records";
-import { RecordAskBox } from "@/components/records/RecordAskBox";
 import { RecordRestoreButton } from "@/components/records/RecordRestoreButton";
 import { RecordsUnavailable } from "@/components/records/RecordsNotice";
 
@@ -107,17 +106,6 @@ export default async function RecordRecycleDetailPage({
       <div className="records-recycle-warning">
         Deleted business fields stay sealed until the record is restored.
       </div>
-      <RecordAskBox
-        context={{
-          surface: "recycle_detail",
-          appId: result.app.appId,
-          appLabel: result.app.label,
-          objectApiName: result.view.object.apiName,
-          objectLabel: result.view.object.label,
-          recordId: result.row.recordId,
-          recordLabel: result.row.recordName,
-        }}
-      />
     </main>
   );
 }

@@ -68,6 +68,10 @@ function build(
     dataSurface: overrides.dataSurface,
     ...(overrides.dataSurface === "records"
       ? {
+          appContext: {
+            appId: "crm",
+            appLabel: "CRM",
+          },
           recordContext: {
             surface: "list" as const,
             appId: "crm",
@@ -91,6 +95,9 @@ describe("buildWorkPrompt records data surface", () => {
     expect(prompt).toContain("mcp__neko_records__*");
     expect(prompt).toContain('"appId":"crm"');
     expect(prompt).toContain('"objectApiName":"activity"');
+    expect(prompt).toContain("default subject and conversational home");
+    expect(prompt).toContain("CRM account context plus Support tickets");
+    expect(prompt).toContain("existing app, object, and field");
     expect(prompt).not.toContain("<data_access>");
     expect(prompt).not.toContain("graphjin cli execute_graphql");
     expect(prompt).not.toContain("neko_source_config_manager");

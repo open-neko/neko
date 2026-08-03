@@ -7,6 +7,7 @@ import type {
 import { buildRuleBuilderServer, buildWorkflowBuilderServer } from "../workflows";
 import type { AgentControlPlane } from "./control-plane";
 import {
+  parseAppWorkContext,
   parseRecordWorkContext,
   type WorkDataSurface,
 } from "./data-surface";
@@ -83,10 +84,15 @@ export async function runAgentBackend(
 
   const mcp = backend.capabilities.mcpTools;
   const recordsOnly = dataSurface === "records";
+  const appContext = recordsOnly
+    ? parseAppWorkContext(backendState?.appContext)
+    : null;
   const recordContext = recordsOnly
     ? parseRecordWorkContext(backendState?.recordContext)
     : null;
-  const recordScope = recordContext
+  // Legacy record-context threads retain their original exact-object scope.
+  // App-owned chat uses the actor's normal records grants across apps.
+  const recordScope = !appContext && recordContext
     ? {
         appId: recordContext.appId,
         objectApiName: recordContext.objectApiName,

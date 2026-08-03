@@ -3,6 +3,7 @@ import { getOrgId } from "@/lib/db";
 import { loadRecordAppShell, RecordAppRouteError } from "@/lib/records";
 import { RecordsDegradedBanner } from "@/components/records/RecordsNotice";
 import { recordsVisualTestEnabled } from "@/lib/records-visual-fixtures";
+import { AppChatSidebar } from "@/components/records/AppChatSidebar";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,13 @@ export default async function RecordAppLayout({
   }
   const orgId = await getOrgId();
   const shell = await loadShell(orgId, app);
+  const chatObjects = shell.snapshot.objects
+    .filter((object) => object.archivedAt === null)
+    .map((object) => ({
+      apiName: object.apiName,
+      label: object.label,
+      pluralLabel: object.pluralLabel,
+    }));
   return (
     <div className="records-app-shell">
       {shell.availability === "degraded" && (
@@ -35,7 +43,15 @@ export default async function RecordAppLayout({
           message={shell.degradedReason ?? "The app is degraded."}
         />
       )}
-      {children}
+      <div className="records-app-frame">
+        <div className="records-app-content">{children}</div>
+        <AppChatSidebar
+          key={shell.snapshot.app.appId}
+          appId={shell.snapshot.app.appId}
+          appLabel={shell.snapshot.app.label}
+          objects={chatObjects}
+        />
+      </div>
     </div>
   );
 }

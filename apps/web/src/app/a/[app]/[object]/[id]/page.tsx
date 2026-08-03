@@ -5,7 +5,6 @@ import { getOrgId } from "@/lib/db";
 import { readRecordDetail, RecordAppRouteError } from "@/lib/records";
 import { RecordDetailCard } from "@/components/records/RecordDetailCard";
 import { RecordsUnavailable } from "@/components/records/RecordsNotice";
-import { RecordAskBox } from "@/components/records/RecordAskBox";
 import {
   RecordChangeTimeline,
   RecordRelatedLists,
@@ -70,17 +69,6 @@ export default async function RecordDetailPage({
       />
       <RecordRelatedLists appId={result.app.appId} lists={result.relatedLists} />
       <RecordChangeTimeline history={result.history} view={result.view} />
-      <RecordAskBox
-        context={{
-          surface: "detail",
-          appId: result.app.appId,
-          appLabel: result.app.label,
-          objectApiName: result.view.object.apiName,
-          objectLabel: result.view.object.label,
-          recordId: String(result.row.id),
-          recordLabel: name,
-        }}
-      />
     </main>
   );
 }

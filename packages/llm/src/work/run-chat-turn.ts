@@ -60,7 +60,11 @@ import {
 import type { PluginActionDescriptor } from "./tools";
 import { createToolOutputRecorder } from "./tool-output/metrics";
 import { runAgentBackend } from "./agent-core";
-import { parseRecordWorkContext, type WorkDataSurface } from "./data-surface";
+import {
+  parseAppWorkContext,
+  parseRecordWorkContext,
+  type WorkDataSurface,
+} from "./data-surface";
 import {
   inProcessControlPlane,
   type AgentControlPlane,
@@ -214,10 +218,15 @@ export async function runChatTurn(
     );
     return { status: "failed", finalText: "", error: errMsg };
   }
+  const appContext = parseAppWorkContext(
+    bundle.thread.backendState.appContext,
+  );
   const recordContext = parseRecordWorkContext(
     bundle.thread.backendState.recordContext,
   );
-  const dataSurface: WorkDataSurface = recordContext ? "records" : "customer";
+  const dataSurface: WorkDataSurface = appContext || recordContext
+    ? "records"
+    : "customer";
 
   const backend = await resolveAgentBackend(orgId);
   const workspace = await ensureWorkWorkspace(orgId, threadId, runId);
@@ -441,6 +450,7 @@ export async function runChatTurn(
       inlineTranscript,
       pluginActions: customerSurface ? (opts.pluginActions ?? []) : [],
       dataSurface,
+      ...(appContext ? { appContext } : {}),
       ...(recordContext ? { recordContext } : {}),
     });
 
@@ -468,9 +478,11 @@ export async function runChatTurn(
       const base = (
         backendStateChanged ? result.backendState : bundle.thread.backendState
       ) as Record<string, unknown>;
-      const protectedBase = recordContext
-        ? { ...base, recordContext }
-        : base;
+      const protectedBase = {
+        ...base,
+        ...(appContext ? { appContext } : {}),
+        ...(recordContext ? { recordContext } : {}),
+      };
       await setWorkThreadBackendState(
         threadId,
         newCompaction

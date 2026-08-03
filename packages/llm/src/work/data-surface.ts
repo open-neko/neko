@@ -10,6 +10,16 @@ export type RecordWorkContext = {
   myRecords?: boolean;
 };
 
+/**
+ * Stable ownership marker for a conversation opened inside a generated app.
+ * This is deliberately not an authorization scope: records tools continue to
+ * enforce the actor's existing grants, including across generated apps.
+ */
+export type AppWorkContext = {
+  appId: string;
+  appLabel: string;
+};
+
 export type WorkDataSurface = "customer" | "records";
 
 const RECORD_SURFACES = new Set<RecordWorkContext["surface"]>([
@@ -21,6 +31,25 @@ const RECORD_SURFACES = new Set<RecordWorkContext["surface"]>([
 
 function optionalString(value: unknown): value is string | undefined {
   return value === undefined || (typeof value === "string" && value.length <= 512);
+}
+
+export function parseAppWorkContext(value: unknown): AppWorkContext | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.appId !== "string" ||
+    candidate.appId.length < 1 ||
+    candidate.appId.length > 128 ||
+    typeof candidate.appLabel !== "string" ||
+    candidate.appLabel.length < 1 ||
+    candidate.appLabel.length > 256
+  ) {
+    return null;
+  }
+  return {
+    appId: candidate.appId,
+    appLabel: candidate.appLabel,
+  };
 }
 
 /**
