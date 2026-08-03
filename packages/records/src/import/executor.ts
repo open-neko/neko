@@ -40,7 +40,7 @@ import {
   type RecordImportRun,
 } from "./store";
 
-type PreparedImportRow = {
+export type PreparedRecordImportRow = {
   rowNumber: number;
   rowHash: string;
   sourceRow: Record<string, string>;
@@ -49,8 +49,8 @@ type PreparedImportRow = {
   duplicateValue: unknown;
 };
 
-type PreparedCandidate =
-  | { kind: "row"; row: PreparedImportRow }
+export type PreparedRecordImportCandidate =
+  | { kind: "row"; row: PreparedRecordImportRow }
   | { kind: "reject"; reject: RecordImportRejectInput };
 
 export type RecordImportReport = {
@@ -108,11 +108,14 @@ function rowHash(plan: RecordImportPlan, row: CsvRecord): string {
   );
 }
 
-function mutationId(actionRequestId: string, row: PreparedImportRow): string {
+function mutationId(actionRequestId: string, row: PreparedRecordImportRow): string {
   return sha256(`${actionRequestId}\u0000${row.rowNumber}\u0000${row.rowHash}`);
 }
 
-function batchHash(plan: RecordImportPlan, candidates: PreparedCandidate[]): string {
+function batchHash(
+  plan: RecordImportPlan,
+  candidates: PreparedRecordImportCandidate[],
+): string {
   return sha256(
     JSON.stringify({
       format: "openneko.records.csv-batch.v1",
@@ -188,7 +191,7 @@ function prepareCandidate(input: {
   headers: string[];
   row: CsvRecord;
   fields: RecordField[];
-}): PreparedCandidate {
+}): PreparedRecordImportCandidate {
   const source = sourceRow(input.plan, input.headers, input.row);
   const hash = rowHash(input.plan, input.row);
   try {
@@ -249,6 +252,60 @@ function prepareCandidate(input: {
   }
 }
 
+/**
+ * Rebuild the exact deterministic row/reject candidates bound by an approved
+ * plan. The executor and migration fixtures share this function so their
+ * reconciliation evidence cannot drift from the write path.
+ */
+export function prepareRecordImportSource(input: {
+  plan: RecordImportPlan;
+  source: Uint8Array;
+  fields: RecordField[];
+}): {
+  headers: string[];
+  candidates: PreparedRecordImportCandidate[];
+} {
+  verifyRecordImportPlanHash(input.plan);
+  if (
+    input.source.byteLength !== input.plan.source.bytes ||
+    sha256(input.source) !== input.plan.source.sha256
+  ) {
+    throw new RecordImportTerminalError("import source changed after approval");
+  }
+  let parsed;
+  try {
+    parsed = parseRecordsCsv(
+      new TextDecoder("utf-8", { fatal: true }).decode(input.source),
+    );
+  } catch (error) {
+    throw new RecordImportTerminalError("approved CSV can no longer be parsed", {
+      cause: error,
+    });
+  }
+  if (parsed.rows.length !== input.plan.rowCount) {
+    throw new RecordImportTerminalError("import row count changed after approval");
+  }
+  if (
+    parsed.headers.length !== input.plan.columns.length ||
+    parsed.headers.some(
+      (header, index) => header !== input.plan.columns[index]?.sourceColumn,
+    )
+  ) {
+    throw new RecordImportTerminalError("import headers changed after approval");
+  }
+  return {
+    headers: parsed.headers,
+    candidates: parsed.rows.map((row) =>
+      prepareCandidate({
+        plan: input.plan,
+        headers: parsed.headers,
+        row,
+        fields: input.fields,
+      }),
+    ),
+  };
+}
+
 function resultRows(data: Record<string, unknown>, key: string): Array<Record<string, unknown>> {
   const value = data[key];
   return Array.isArray(value)
@@ -303,7 +360,7 @@ export class RecordImportExecutor {
   private async existingDuplicateValues(input: {
     plan: RecordImportPlan;
     object: RecordObject;
-    rows: PreparedImportRow[];
+    rows: PreparedRecordImportRow[];
     token: string;
   }): Promise<Set<string>> {
     if (input.rows.length === 0) return new Set();
@@ -321,7 +378,7 @@ export class RecordImportExecutor {
   private async processChunk(input: {
     run: RecordImportRun;
     object: RecordObject;
-    candidates: PreparedCandidate[];
+    candidates: PreparedRecordImportCandidate[];
     actorUserId: string;
     token: string;
     leaseOwner: string;
@@ -361,12 +418,12 @@ export class RecordImportExecutor {
     }
 
     const staticRejects = input.candidates
-      .filter((candidate): candidate is Extract<PreparedCandidate, { kind: "reject" }> =>
+      .filter((candidate): candidate is Extract<PreparedRecordImportCandidate, { kind: "reject" }> =>
         candidate.kind === "reject",
       )
       .map((candidate) => candidate.reject);
     const validRows = input.candidates
-      .filter((candidate): candidate is Extract<PreparedCandidate, { kind: "row" }> =>
+      .filter((candidate): candidate is Extract<PreparedRecordImportCandidate, { kind: "row" }> =>
         candidate.kind === "row",
       )
       .map((candidate) => candidate.row);
@@ -569,31 +626,11 @@ export class RecordImportExecutor {
         cause: error,
       });
     }
-    if (
-      source.byteLength !== run.plan.source.bytes ||
-      sha256(source) !== run.plan.source.sha256
-    ) {
-      throw new RecordImportTerminalError("import source changed after approval");
-    }
-    let parsed;
-    try {
-      parsed = parseRecordsCsv(new TextDecoder("utf-8", { fatal: true }).decode(source));
-    } catch (error) {
-      throw new RecordImportTerminalError("approved CSV can no longer be parsed", {
-        cause: error,
-      });
-    }
-    if (parsed.rows.length !== run.plan.rowCount) {
-      throw new RecordImportTerminalError("import row count changed after approval");
-    }
-    if (
-      parsed.headers.length !== run.plan.columns.length ||
-      parsed.headers.some(
-        (header, index) => header !== run.plan.columns[index]?.sourceColumn,
-      )
-    ) {
-      throw new RecordImportTerminalError("import headers changed after approval");
-    }
+    const prepared = prepareRecordImportSource({
+      plan: run.plan,
+      source,
+      fields,
+    });
 
     const claim = await claimRecordsActionExecution(this.dependencies.pool, {
       actionRequestId: run.actionRequestId,
@@ -606,9 +643,7 @@ export class RecordImportExecutor {
     if (claim.kind === "replay") return claim.result as RecordImportReport;
     const token = await this.dependencies.serviceToken(run.orgId);
     try {
-      const candidates = parsed.rows.map((row) =>
-        prepareCandidate({ plan: run.plan, headers: parsed.headers, row, fields }),
-      );
+      const candidates = prepared.candidates;
       for (let index = 0; index < candidates.length; index += run.plan.batchSize) {
         const chunk = candidates.slice(index, index + run.plan.batchSize);
         await this.processChunk({

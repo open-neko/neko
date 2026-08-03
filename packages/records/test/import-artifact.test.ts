@@ -5,6 +5,15 @@ import {
   RecordArtifactImportPlanError,
   verifyRecordArtifactImportPlan,
 } from "../src/import/artifact";
+import { prepareRecordImportSource } from "../src/import/executor";
+import type { RecordField } from "../src/types";
+import {
+  SALESFORCE_GOLDEN_DIRECTORY,
+  SALESFORCE_GOLDEN_OBJECT_COUNT,
+  SALESFORCE_GOLDEN_REJECT_COUNT,
+  SALESFORCE_GOLDEN_ROW_COUNT,
+  salesforceGoldenArtifactFiles,
+} from "./fixtures/salesforce-golden";
 
 const directory = "imports/salesforce/00000000-0000-4000-a000-000000000801";
 const csv = Buffer.from(
@@ -178,5 +187,132 @@ describe("artifact-directory import planning", () => {
         readFile: async () => new Uint8Array(),
       }),
     ).rejects.toBeInstanceOf(RecordArtifactImportPlanError);
+  });
+
+  it("reconciles a deterministic twelve-object Salesforce migration fixture", async () => {
+    const staged = salesforceGoldenArtifactFiles();
+    const buildGolden = () =>
+      buildRecordArtifactImportPlan({
+        directory: SALESFORCE_GOLDEN_DIRECTORY,
+        app: "CRM Migration",
+        label: "CRM Migration",
+        readFile: async (path) => {
+          const bytes = staged.get(path);
+          if (!bytes) throw new Error(`missing golden artifact ${path}`);
+          return bytes;
+        },
+      });
+    const first = await buildGolden();
+    const second = await buildGolden();
+
+    expect(first.definition.objects).toHaveLength(SALESFORCE_GOLDEN_OBJECT_COUNT);
+    expect(first.imports).toHaveLength(SALESFORCE_GOLDEN_OBJECT_COUNT);
+    expect(first.imports.reduce((total, plan) => total + plan.rowCount, 0)).toBe(
+      SALESFORCE_GOLDEN_ROW_COUNT,
+    );
+    expect(first.planHash).toBe(second.planHash);
+    expect(first.definition).toEqual(second.definition);
+    expect(first.imports).toEqual(second.imports);
+    expect(first.imports.every((plan) => plan.allowReadOnly === true)).toBe(true);
+
+    const object = (apiName: string) => {
+      const found = first.definition.objects.find((candidate) => candidate.apiName === apiName);
+      if (!found) throw new Error(`missing golden object ${apiName}`);
+      return found;
+    };
+    const field = (objectApiName: string, fieldApiName: string) => {
+      const found = object(objectApiName).fields.find(
+        (candidate) => candidate.apiName === fieldApiName,
+      );
+      if (!found) throw new Error(`missing golden field ${objectApiName}.${fieldApiName}`);
+      return found;
+    };
+
+    expect(object("case_nk").sourceApiName).toBe("Case");
+    expect(object("user_nk").sourceApiName).toBe("User");
+    expect(object("subscription__c")).toMatchObject({
+      sourceApiName: "Subscription__c",
+      custom: true,
+    });
+    expect(field("task", "whatid").referenceTargets).toEqual([
+      "account",
+      "opportunity",
+    ]);
+    expect(field("task", "whoid").referenceTargets).toEqual(["contact", "lead"]);
+    expect(field("campaignmember", "campaignid").referenceTargets).toEqual([
+      "campaign",
+    ]);
+    expect(field("case_nk", "status").picklistValues).toEqual(["New", "Closed"]);
+    expect(field("opportunity", "forecast__c")).toMatchObject({
+      kind: "readonly_formula",
+      readOnly: true,
+    });
+    expect(field("subscription__c", "tags__c")).toMatchObject({
+      kind: "multipicklist",
+      picklistValues: ["Annual", "Priority", "Trial"],
+    });
+    expect(first.warnings).toContain(
+      "BillingAddress: compound fields use their flattened component columns",
+    );
+
+    const allCandidates = first.imports.flatMap((importPlan) => {
+      const definition = object(importPlan.objectApiName);
+      const fields: RecordField[] = definition.fields.map((candidate, index) => ({
+        id: `${definition.apiName}-field-${index}`,
+        orgId: "golden-org",
+        objectId: `${definition.apiName}-object`,
+        apiName: candidate.apiName,
+        sourceApiName: candidate.sourceApiName,
+        label: candidate.label,
+        kind: candidate.kind,
+        columnName: candidate.columnName,
+        required: candidate.required,
+        readOnly: candidate.readOnly,
+        archivedAt: candidate.archived ? new Date(0) : null,
+        picklistValues: candidate.picklistValues,
+        referenceTargets: candidate.referenceTargets,
+        length: candidate.length,
+        scale: candidate.scale,
+      }));
+      const source = staged.get(importPlan.source.path);
+      if (!source) throw new Error(`missing golden CSV ${importPlan.source.path}`);
+      const prepared = prepareRecordImportSource({ plan: importPlan, source, fields });
+      expect(prepareRecordImportSource({ plan: importPlan, source, fields })).toEqual(
+        prepared,
+      );
+      return prepared.candidates;
+    });
+    const rows = allCandidates.filter((candidate) => candidate.kind === "row");
+    const rejects = allCandidates.filter((candidate) => candidate.kind === "reject");
+
+    expect(rows).toHaveLength(SALESFORCE_GOLDEN_ROW_COUNT - SALESFORCE_GOLDEN_REJECT_COUNT);
+    expect(rejects).toHaveLength(SALESFORCE_GOLDEN_REJECT_COUNT);
+    expect(
+      rows.filter((candidate) => candidate.row.sourceRow.Email === "shared@example.com"),
+    ).toHaveLength(2);
+    expect(
+      rows.find((candidate) => candidate.row.sourceRow.Name === "Partner lead")?.row
+        .sourceRow.LeadId,
+    ).toBe("021A00000000001");
+    expect(rejects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reject: expect.objectContaining({
+            objectApiName: "case_nk",
+            rowNumber: 2,
+            reasonCode: "validation",
+            reason: expect.stringMatching(/configured values/i),
+          }),
+        }),
+        expect.objectContaining({
+          reject: expect.objectContaining({
+            objectApiName: "product2",
+            rowNumber: 2,
+            reasonCode: "validation",
+            reason: expect.stringMatching(/must be true/i),
+          }),
+        }),
+      ]),
+    );
   });
 });
