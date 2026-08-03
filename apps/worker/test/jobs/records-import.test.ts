@@ -34,7 +34,12 @@ describe("records import job", () => {
         getRun: vi.fn().mockResolvedValue({
           appId: "equipment",
           status: "planned",
-          plan: { source: { bytes: 128 } },
+          plan: {
+            source: {
+              bytes: 128,
+              path: "imports/cli/00000000000000000000000000000001/loans.csv",
+            },
+          },
         }),
         assertStorage,
       },
@@ -49,6 +54,7 @@ describe("records import job", () => {
     expect(assertStorage).toHaveBeenCalledWith(384);
     expect(result).toEqual({
       appId: "equipment",
+      sourcePath: "imports/cli/00000000000000000000000000000001/loans.csv",
       report,
       terminalError: null,
     });

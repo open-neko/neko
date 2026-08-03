@@ -780,6 +780,144 @@ describe("worker admin /admin/auth/*", () => {
   });
 });
 
+describe("worker records import CLI routes", () => {
+  it("exposes staging and prepares imports through the configured bridge", async () => {
+    const staging = vi.fn().mockResolvedValue({
+      orgId: "org-a",
+      containerRoot: "/tmp/openneko-home/org-a/imports/cli",
+    });
+    const prepare = vi.fn().mockResolvedValue({
+      request: {
+        id: "request-1",
+        kind: "records_import_start",
+        status: "pending_approval",
+        payload: { import_plan: { planHash: "planned" } },
+      },
+    });
+    const srv = await startServer(
+      createAdminHandler({
+        recordsImports: {
+          staging,
+          prepare,
+          start: vi.fn(),
+        },
+      }),
+    );
+    try {
+      const stagingResponse = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/records/import/staging`,
+      );
+      expect(stagingResponse.status).toBe(200);
+      await expect(stagingResponse.json()).resolves.toEqual({
+        orgId: "org-a",
+        containerRoot: "/tmp/openneko-home/org-a/imports/cli",
+      });
+
+      const input = {
+        mode: "file",
+        sourcePath: "imports/cli/stage-1/loans.csv",
+        object: "loan",
+      };
+      const prepareResponse = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/records/import/prepare`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
+      expect(prepareResponse.status).toBe(200);
+      expect(prepare).toHaveBeenCalledWith(input);
+      await expect(prepareResponse.json()).resolves.toMatchObject({
+        request: { id: "request-1", status: "pending_approval" },
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("starts a prepared request and returns the queued job", async () => {
+    const start = vi.fn().mockResolvedValue({
+      requestId: "request-1",
+      status: "queued",
+      jobId: "job-1",
+    });
+    const srv = await startServer(
+      createAdminHandler({
+        recordsImports: {
+          staging: vi.fn(),
+          prepare: vi.fn(),
+          start,
+        },
+      }),
+    );
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/records/import/start`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestId: "request-1" }),
+        },
+      );
+      expect(response.status).toBe(202);
+      expect(start).toHaveBeenCalledWith("request-1");
+      await expect(response.json()).resolves.toEqual({
+        requestId: "request-1",
+        status: "queued",
+        jobId: "job-1",
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("rejects an invalid start body", async () => {
+    const start = vi.fn();
+    const srv = await startServer(
+      createAdminHandler({
+        recordsImports: {
+          staging: vi.fn(),
+          prepare: vi.fn(),
+          start,
+        },
+      }),
+    );
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/records/import/start`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        },
+      );
+      expect(response.status).toBe(400);
+      expect(start).not.toHaveBeenCalled();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("returns 503 when the CLI bridge is unavailable", async () => {
+    const srv = await startServer(createAdminHandler());
+    try {
+      for (const [method, path] of [
+        ["GET", "/admin/records/import/staging"],
+        ["POST", "/admin/records/import/prepare"],
+        ["POST", "/admin/records/import/start"],
+      ] as const) {
+        const response = await fetch(`http://127.0.0.1:${srv.port}${path}`, {
+          method,
+        });
+        expect(response.status).toBe(503);
+      }
+    } finally {
+      await srv.close();
+    }
+  });
+});
+
 describe("worker channel routes", () => {
   function fakeChannel(
     overrides: Partial<NonNullable<Parameters<typeof createAdminHandler>[0]["channels"]>> = {},

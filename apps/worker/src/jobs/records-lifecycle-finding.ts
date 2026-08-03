@@ -26,6 +26,7 @@ export function buildRecordsSingleImportReport(input: {
   importRunId: string;
   report: RecordImportReport | null;
   terminalError: Record<string, unknown> | null;
+  cleanup?: Record<string, unknown>;
 }): RecordsImportReport {
   const succeeded = input.report?.status === "succeeded";
   const cancelled = input.report?.status === "cancelled";
@@ -43,6 +44,7 @@ export function buildRecordsSingleImportReport(input: {
       [input.importRunId]:
         input.report ?? input.terminalError ?? { status: "failed" },
     },
+    ...(input.cleanup ? { cleanup: input.cleanup } : {}),
     ...(input.terminalError
       ? { error: String(input.terminalError.message) }
       : cancelled

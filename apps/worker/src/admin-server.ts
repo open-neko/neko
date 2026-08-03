@@ -224,6 +224,8 @@ export type AdminHandlerOptions = {
   events?: ExternalEventHandlerSurface | null;
   /** HMAC-authenticated native GraphJin watch delivery ingress. */
   recordsWatches?: RecordsWatchHandlerSurface | null;
+  /** Governed CSV/artifact import preparation for the host CLI. */
+  recordsImports?: RecordsImportHandlerSurface | null;
 };
 
 export interface ExternalEventHandlerSurface {
@@ -245,6 +247,26 @@ export interface RecordsWatchHandlerSurface {
   }): Promise<{ accepted: boolean }>;
 }
 
+/** Host CLI bridge. The port is internal-only; the CLI reaches it with
+ * `docker compose exec worker curl` after staging source files into the
+ * worker's existing per-org workspace volume. */
+export interface RecordsImportHandlerSurface {
+  staging(): Promise<{ orgId: string; containerRoot: string }>;
+  prepare(input: Record<string, unknown>): Promise<{
+    request: {
+      id: string;
+      kind: string;
+      status: string;
+      payload: Record<string, unknown>;
+    };
+  }>;
+  start(requestId: string): Promise<{
+    requestId: string;
+    status: string;
+    jobId: string | null;
+  }>;
+}
+
 export function createAdminHandler(opts: AdminHandlerOptions = {}) {
   const exit = opts.exit ?? ((code = 0) => process.exit(code));
   const exitDelayMs = opts.exitDelayMs ?? 100;
@@ -255,6 +277,7 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
   const installPolicy = opts.installPolicy ?? null;
   const events = opts.events ?? null;
   const recordsWatches = opts.recordsWatches ?? null;
+  const recordsImports = opts.recordsImports ?? null;
 
   return function handle(req: IncomingMessage, res: ServerResponse) {
     if (req.method === "GET" && req.url === "/health") {
@@ -336,6 +359,27 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
       void handleRecordsWatch(req, res, recordsWatches);
       return;
     }
+    if (
+      req.method === "GET" &&
+      req.url === "/admin/records/import/staging"
+    ) {
+      void handleRecordsImportStaging(res, recordsImports);
+      return;
+    }
+    if (
+      req.method === "POST" &&
+      req.url === "/admin/records/import/prepare"
+    ) {
+      void handleRecordsImportPrepare(req, res, recordsImports);
+      return;
+    }
+    if (
+      req.method === "POST" &&
+      req.url === "/admin/records/import/start"
+    ) {
+      void handleRecordsImportStart(req, res, recordsImports);
+      return;
+    }
     if (req.method === "GET" && req.url === "/admin/install-policy") {
       void handleInstallPolicy(res, installPolicy);
       return;
@@ -360,6 +404,80 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
     }
     res.writeHead(404).end();
   };
+}
+
+async function handleRecordsImportStaging(
+  res: ServerResponse,
+  recordsImports: RecordsImportHandlerSurface | null,
+) {
+  if (!recordsImports) {
+    json(res, 503, { error: "records import CLI bridge unavailable" });
+    return;
+  }
+  try {
+    json(res, 200, await recordsImports.staging());
+  } catch (error) {
+    json(res, 500, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function handleRecordsImportPrepare(
+  req: IncomingMessage,
+  res: ServerResponse,
+  recordsImports: RecordsImportHandlerSurface | null,
+) {
+  if (!recordsImports) {
+    json(res, 503, { error: "records import CLI bridge unavailable" });
+    return;
+  }
+  const body = (await readJson(req).catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    json(res, 400, { error: "request body must be JSON" });
+    return;
+  }
+  try {
+    json(res, 200, await recordsImports.prepare(body));
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error
+        ? String((error as { code?: unknown }).code)
+        : "";
+    json(res, code.includes("invalid") || code.includes("plan") ? 400 : 500, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function handleRecordsImportStart(
+  req: IncomingMessage,
+  res: ServerResponse,
+  recordsImports: RecordsImportHandlerSurface | null,
+) {
+  if (!recordsImports) {
+    json(res, 503, { error: "records import CLI bridge unavailable" });
+    return;
+  }
+  const body = (await readJson(req).catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  const requestId = body?.requestId;
+  if (typeof requestId !== "string" || !requestId.trim()) {
+    json(res, 400, { error: "requestId (string) is required" });
+    return;
+  }
+  try {
+    json(res, 202, await recordsImports.start(requestId.trim()));
+  } catch (error) {
+    json(res, 400, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function handleInstallPolicy(

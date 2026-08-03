@@ -8,7 +8,7 @@ import {
   type RecordArtifactImportPlan,
 } from "@neko/records";
 import { reconcileArtifactIdentities } from "./artifact-identity.js";
-import { cleanupSalesforceArtifactStaging } from "./staging-hygiene.js";
+import { cleanupRecordsManagedStaging } from "./staging-hygiene.js";
 import type { RecordsImportReport } from "../jobs/records-lifecycle-finding.js";
 
 type ArtifactImportState = {
@@ -281,9 +281,9 @@ export async function refreshArtifactImportState(
       next.identity = { status: "not_available" };
     }
     try {
-      next.cleanup = await cleanupSalesforceArtifactStaging({
+      next.cleanup = await cleanupRecordsManagedStaging({
         orgId: input.orgId,
-        artifactPath: String(state.artifact_path),
+        sourcePath: String(state.artifact_path),
       });
     } catch (error) {
       next.cleanup = {

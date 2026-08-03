@@ -30,6 +30,7 @@ import {
   RecordBackfillExecutor,
   mintRecordsGraphjinToken,
   normalizeRecordImportSourcePath,
+  RecordRegistry,
   RecordImportExecutor,
   RecordOwnerBackfillExecutor,
   recordsGraphjinSigningSecret,
@@ -38,7 +39,10 @@ import {
   RecordsGraphjinClient,
   RecordWriteExecutor,
 } from "@neko/records";
-import { createAdminHandler } from "./admin-server.js";
+import {
+  createAdminHandler,
+  type RecordsImportHandlerSurface,
+} from "./admin-server.js";
 import {
   and,
   data_source,
@@ -62,7 +66,10 @@ import {
 import {
   getDataSourceForOrg,
   getWorkflowRunChainDepth,
+  approveActionRequest,
+  createActionRequest,
   dispatchExternalEvent,
+  getActionRequest,
   handleSourceChangeMatch,
   handleSubscriptionMatch,
   registerBuiltinAdapters,
@@ -128,6 +135,8 @@ import {
   resolveRecordsWatchWebhookUrl,
 } from "./records/schema-runtime.js";
 import { createRecordsStorageMonitor } from "./records/storage-health.js";
+import { createRecordsCliImportBridge } from "./records/cli-import.js";
+import { cleanupRecordsManagedStaging } from "./records/staging-hygiene.js";
 import {
   createRecordsStarterWatchSeeder,
   enqueueRecordsWatchFallbackSweep,
@@ -370,6 +379,13 @@ async function runMetricRefreshSweep() {
 // admin handler can lazily reach a freshly-installed auth plugin
 // without a server restart.
 let pluginRegistry: PluginRegistry | null = null;
+let recordsImportAdminSurface: RecordsImportHandlerSurface | null = null;
+function recordsImportSurface(): RecordsImportHandlerSurface {
+  if (!recordsImportAdminSurface) {
+    throw new Error("records import CLI bridge is not ready");
+  }
+  return recordsImportAdminSurface;
+}
 const server = createServer(
   createAdminHandler({
     auth: {
@@ -420,6 +436,11 @@ const server = createServer(
     recordsWatches: {
       secret: recordsWatchWebhookSecret(ADMIN_ORG_ID),
       dispatch: receiveRecordsNativeWatchEvent,
+    },
+    recordsImports: {
+      staging: () => recordsImportSurface().staging(),
+      prepare: (input) => recordsImportSurface().prepare(input),
+      start: (requestId) => recordsImportSurface().start(requestId),
     },
     installPolicy: {
       getInstallPolicy: async () => {
@@ -555,6 +576,15 @@ const unregisterRecordArtifactImportPreflight = registerRecordArtifactImportActi
       retryDelay: 15,
       singletonKey: `records-import:${payload.importRunId}`,
     }),
+});
+recordsImportAdminSurface = createRecordsCliImportBridge({
+  orgId: ADMIN_ORG_ID,
+  workspaceForOrg: ensureOrgWorkspace,
+  registry: new RecordRegistry(recordsPool),
+  createRequest: createActionRequest,
+  getRequest: getActionRequest,
+  approveRequest: approveActionRequest,
+  enqueueAction: (payload) => enqueue(QUEUE.ACTION_EXECUTE, payload),
 });
 // ADM3: execute approved chat-proposed plugin installs/uninstalls.
 {
@@ -906,6 +936,24 @@ await b.work(
           onReportReady: publishRecordsImportReport,
         });
         if (!artifact.matched) {
+          let cleanup: Record<string, unknown> | undefined;
+          if (outcome.report?.status === "succeeded") {
+            try {
+              cleanup = await cleanupRecordsManagedStaging({
+                orgId: job.data.orgId,
+                sourcePath: outcome.sourcePath,
+              });
+            } catch (error) {
+              cleanup = {
+                status: "failed",
+                completed_at: new Date().toISOString(),
+                error: (error instanceof Error ? error.message : String(error)).slice(
+                  0,
+                  2_000,
+                ),
+              };
+            }
+          }
           await publishRecordsImportReport({
             orgId: job.data.orgId,
             report: buildRecordsSingleImportReport({
@@ -913,6 +961,7 @@ await b.work(
               importRunId: job.data.importRunId,
               report: outcome.report,
               terminalError: outcome.terminalError,
+              ...(cleanup ? { cleanup } : {}),
             }),
           });
         }

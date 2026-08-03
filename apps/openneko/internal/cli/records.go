@@ -90,7 +90,7 @@ func newRecordsCmd() *cobra.Command {
 		Use:   "records",
 		Short: "Perform guarded records-engine operations",
 	}
-	cmd.AddCommand(newRecordsDropCmd())
+	cmd.AddCommand(newRecordsDropCmd(), newRecordsImportCmd())
 	return cmd
 }
 

@@ -21,6 +21,7 @@ export type RecordsImportJobOptions = {
 
 export type RecordsImportJobResult = {
   appId: string;
+  sourcePath: string;
   report: RecordImportReport | null;
   terminalError: Record<string, unknown> | null;
 };
@@ -58,7 +59,12 @@ export async function runRecordsImport(
     console.log(
       `[records-import] run=${payload.importRunId} status=${report.status} inserted=${report.inserted} rejected=${report.rejected}`,
     );
-    return { appId: run.appId, report, terminalError: null };
+    return {
+      appId: run.appId,
+      sourcePath: run.plan.source.path,
+      report,
+      terminalError: null,
+    };
   } catch (error) {
     if (error instanceof RecordImportTerminalError) {
       const terminalError = { code: error.code, message: error.message };
@@ -73,7 +79,12 @@ export async function runRecordsImport(
       console.warn(
         `[records-import] run=${payload.importRunId} failed terminally: ${error.message}`,
       );
-      return { appId: run.appId, report: null, terminalError };
+      return {
+        appId: run.appId,
+        sourcePath: run.plan.source.path,
+        report: null,
+        terminalError,
+      };
     }
     throw error;
   }

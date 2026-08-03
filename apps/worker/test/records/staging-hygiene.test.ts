@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanupSalesforceArtifactStaging } from "../../src/records/staging-hygiene.js";
+import { cleanupRecordsManagedStaging } from "../../src/records/staging-hygiene.js";
 
 const EXPORT_ID = "00000000-0000-4000-a000-000000000922";
 const roots: string[] = [];
@@ -27,8 +27,8 @@ describe("connected staging hygiene", () => {
     await writeFile(join(target, "data", "account.csv"), "Id,Name\n001,Acme\n");
 
     await expect(
-      cleanupSalesforceArtifactStaging(
-        { orgId: "org-a", artifactPath: `imports/salesforce/${EXPORT_ID}` },
+      cleanupRecordsManagedStaging(
+        { orgId: "org-a", sourcePath: `imports/salesforce/${EXPORT_ID}` },
         {
           workspaceForOrg: async () => ({ orgRoot: root }) as never,
           now: () => new Date("2026-08-02T12:00:00.000Z"),
@@ -51,8 +51,8 @@ describe("connected staging hygiene", () => {
     await symlink(outside, join(root, "imports", "salesforce", EXPORT_ID));
 
     await expect(
-      cleanupSalesforceArtifactStaging(
-        { orgId: "org-a", artifactPath: `imports/salesforce/${EXPORT_ID}` },
+      cleanupRecordsManagedStaging(
+        { orgId: "org-a", sourcePath: `imports/salesforce/${EXPORT_ID}` },
         { workspaceForOrg: async () => ({ orgRoot: root }) as never },
       ),
     ).rejects.toThrow("not a regular directory");
@@ -61,8 +61,8 @@ describe("connected staging hygiene", () => {
 
   it("retains human uploads and non-export import paths", async () => {
     await expect(
-      cleanupSalesforceArtifactStaging(
-        { orgId: "org-a", artifactPath: "uploads/customer.csv" },
+      cleanupRecordsManagedStaging(
+        { orgId: "org-a", sourcePath: "uploads/customer.csv" },
         {
           workspaceForOrg: async () => {
             throw new Error("workspace must not be opened");
@@ -71,7 +71,34 @@ describe("connected staging hygiene", () => {
       ),
     ).resolves.toEqual({
       status: "skipped",
-      reason: "not_connected_salesforce_staging",
+      reason: "not_worker_managed_staging",
+    });
+  });
+
+  it("deletes the whole random CLI stage after a successful source import", async () => {
+    const root = await temporaryRoot();
+    const stageId = "00000000000000000000000000000001";
+    const target = join(root, "imports", "cli", stageId);
+    await mkdir(join(target, "sf-export", "data"), { recursive: true });
+    await writeFile(join(target, "sf-export", "data", "account.csv"), "Id,Name\n001,Acme\n");
+
+    await expect(
+      cleanupRecordsManagedStaging(
+        {
+          orgId: "org-a",
+          sourcePath: `imports/cli/${stageId}/sf-export`,
+        },
+        {
+          workspaceForOrg: async () => ({ orgRoot: root }) as never,
+          now: () => new Date("2026-08-02T12:00:00.000Z"),
+        },
+      ),
+    ).resolves.toEqual({
+      status: "deleted",
+      completed_at: "2026-08-02T12:00:00.000Z",
+    });
+    await expect(readFile(join(target, "sf-export", "data", "account.csv"))).rejects.toMatchObject({
+      code: "ENOENT",
     });
   });
 });
