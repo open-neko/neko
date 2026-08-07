@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
 """Build a self-contained digital-twin HTML from a world spec.
 
-Usage: python3 build.py <world.json> <output.html>
+Usage: python3 build.py <world.json> <output.html> [--page]
 
 Inlines the prebuilt Babylon.js bundle and the generic engine, injects the
-world spec, and writes a single HTML file with no external dependencies
-(safe for strict CSP environments like Claude Artifacts).
+world spec, and writes a single HTML file with no external dependencies.
+
+Default output is a bare fragment (no doctype/html wrapper) as Claude
+Artifacts require. Pass --page for a complete standalone page with a UTF-8
+charset declaration — use that whenever the file will be opened from disk
+or served over HTTP; without it, browsers mis-decode the file:// fragment.
 """
 import json, os, sys
 
 def main():
-    if len(sys.argv) != 3:
+    args = [a for a in sys.argv[1:] if a != '--page']
+    page = '--page' in sys.argv[1:]
+    if len(args) != 2:
         sys.exit(__doc__)
-    world_path, out_path = sys.argv[1], sys.argv[2]
+    world_path, out_path = args
     assets = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'assets')
     world = json.load(open(world_path))
 
@@ -34,8 +40,11 @@ def main():
     html = html.replace('__ENGINE__', open(os.path.join(assets, 'engine.js')).read())
     html = html.replace('__BABYLON__', open(os.path.join(assets, 'babylon.js')).read())
 
+    if page:
+        html = ('<!doctype html>\n<html><head><meta charset="utf-8"></head><body>\n'
+                + html + '\n</body></html>\n')
     open(out_path, 'w').write(html)
-    print(f'wrote {out_path} ({len(html)/1e6:.1f} MB)')
+    print(f'wrote {out_path} ({len(html)/1e6:.1f} MB{", standalone page" if page else ""})')
 
 def validate(world):
     problems = []

@@ -1,6 +1,6 @@
 ---
 name: db-digital-twin
-description: Generate an interactive 3D "sim-city" digital twin of a business from any database — a single self-contained HTML file with a daylight, Cities-Skylines-style world where entities become districts and buildings, transactions become vehicles moving on roads, and operational alerts become in-world findings with drafted actions. Use this whenever the user wants to visualize a database, schema, or company as a 3D world, city, simulation, "digital twin", or "sim city" — or asks for an interactive/visual/spatial overview of their business data, operations dashboard as a game, or "watch my orders flow". Works from a live database connection, a SQL/DDL schema dump, a SQLite file, CSVs, or even a written description of the data.
+description: Generate an interactive 3D "sim-city" digital twin of a business from any database — a single self-contained HTML file with a daylight, Cities-Skylines-style world where entities become districts and buildings, transactions become vehicles moving on roads, and operational alerts become in-world findings with drafted actions. Use this whenever the user wants to visualize a database, schema, or company as a 3D world, city, simulation, "digital twin", or "sim city" — or asks for an interactive/visual/spatial overview of their business data, operations dashboard as a game, or "watch my orders flow". Works from a live database connection, a SQL/DDL schema dump, a SQLite file, CSVs, or even a written description of the data. When a running GraphQL endpoint (e.g. GraphJin) is available, it can also wire the twin live — polling on an interval so heights, KPIs, and findings track the database in real time; use it for "live view of my data as a city/simulation" requests too.
 ---
 
 # Database → Digital Twin
@@ -63,11 +63,37 @@ Write `world.json` following the spec. Quality bar learned from iteration:
 ### 4. Build
 
 ```bash
-python3 <skill-path>/scripts/build.py world.json twin.html
+python3 <skill-path>/scripts/build.py world.json twin.html          # artifact fragment
+python3 <skill-path>/scripts/build.py world.json twin.html --page   # standalone page
 ```
 
 The script validates the spec (unknown finding targets, duplicate ids, empty
-districts) and fails with a readable list if something's wrong — fix and rerun.
+districts) and fails with a readable list if something's wrong — fix and
+rerun. Use `--page` whenever the file will be opened from disk or served
+over HTTP (it adds the doctype and UTF-8 charset wrapper; without it,
+browsers mis-decode the bare fragment). The default bare fragment is only
+for publishing as a Claude Artifact.
+
+### 4b. Live mode — when there's a queryable endpoint
+
+If the data source is a *running* GraphQL endpoint (GraphJin, Hasura-style)
+rather than a dump, offer the live twin: add a `WORLD.live` block (endpoint,
+poll interval, query bindings) and the page becomes a synchronized twin —
+heights, stats, and KPIs re-poll on an interval, and findings with their
+rings, badges, and stuck-vehicle clusters appear and dissolve as thresholds
+breach and clear in the data. The binding vocabulary is in
+`references/world-spec.md` (Live mode section) and a complete working spec is
+`examples/adventureworks-live.json`.
+
+Live constraints to respect:
+- The endpoint must allow CORS from the page's origin, and the page must be
+  served (`--page` build + any static server) — a live twin cannot be a
+  CSP-locked artifact, since it fetches at runtime.
+- Write findings as *thresholds over queries* (min/below), not as baked
+  facts, so the world reflects the database rather than the build moment.
+- The best verification is causal: change the data (insert or age rows —
+  openneko's demo stack ships scenario SQL for exactly this) and confirm the
+  twin reacts within one poll without a reload.
 
 ### 5. Verify before delivering
 
@@ -88,11 +114,15 @@ if available) rather than guessing.
 
 ### 6. Deliver
 
-- In a session with the Artifact tool: publish it (the file is CSP-safe by
-  construction). Note the file already omits doctype/html wrappers as
-  Artifacts require.
-- Otherwise: hand over the HTML file and mention it opens locally with no
-  server, and that drag orbits / scroll zooms / clicking inspects.
+- Static twin in a session with the Artifact tool: publish the default
+  (fragment) build — it is CSP-safe by construction and already omits the
+  doctype/html wrapper as Artifacts require.
+- Static twin otherwise: hand over a `--page` build and mention it opens
+  locally with no server, and that drag orbits / scroll zooms / clicking
+  inspects.
+- Live twin: serve a `--page` build over HTTP (e.g. `python3 -m http.server`)
+  and point the user at the URL; note the LIVE/OFFLINE chip and the poll
+  interval.
 
 In your summary, tell the user which entities became what (two or three
 sentences), and flag any numbers that are estimates rather than queried facts.
