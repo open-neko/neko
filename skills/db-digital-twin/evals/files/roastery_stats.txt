@@ -1,0 +1,8 @@
+Snapshot (this morning) — Copper Kettle Roasters
+regions + revenue MTD: North $412k (74 cafes), Central $355k (61), South $198k (39), Coastal $566k (88)
+Coastal is up 9% WoW; South is DOWN 22% WoW (manager flagged churn)
+orders: 96,412 total; today so far: 214; pending (not shipped): 63, of which 11 pending > 4 days (SLA is 3)
+roast pipeline (qty_kg by stage): green 1,840 / roasting 320 / cooling 210 / packed 990
+inventory (on_hand vs reorder_point): ETH-YIRG 480/300 ok; COL-HUIL 190/250 BELOW; BRA-SANT 820/400 ok; DECAF-SW 95/120 BELOW
+purchase_orders open: 6 (2 in transit from Colombia, ETA 5 days)
+revenue MTD total: $1.53M

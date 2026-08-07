@@ -1,0 +1,54 @@
+{
+  "skill_name": "db-digital-twin",
+  "evals": [
+    {
+      "id": 0,
+      "name": "roastery-schema-and-stats",
+      "prompt": "Our ops team at Copper Kettle Roasters wants a visual way to watch the business instead of staring at dashboards. I've attached our postgres schema (roastery_schema.sql) and this morning's stats snapshot (roastery_stats.txt). Can you build one of those sim-city style digital twin things \u2014 a single html file I can just open in a browser? Want to see orders flowing, the roast pipeline, our warehouses, and it should flag stuff that's stuck or below reorder.",
+      "expected_output": "Single self-contained HTML with daylight 3D city: region towers sized by revenue, roast pipeline stages, inventory tanks (COL-HUIL and DECAF-SW flagged low), order flow vehicles, slow-ship + South-revenue findings",
+      "files": [
+        "files/roastery_schema.sql",
+        "files/roastery_stats.txt"
+      ],
+      "assertions": [
+        "Single self-contained HTML, no external network references (CDN scripts/styles/images)",
+        "Loads in a browser with zero JavaScript errors",
+        "Renders a bright daylight 3D scene (screenshot mean luminance > 0.45, non-blank)",
+        "Grounded: contains >=3 real entity names from the input (Coastal, COL-HUIL, DECAF, roast, South...)",
+        "Alerts derived from data visible (reorder / pending / SLA / down / stuck)"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "saas-helpdesk-schema",
+      "prompt": "we run a b2b helpdesk saas called deskly. attached our schema with some current numbers in the comments (deskly_schema.sql). want an interactive 3d city view of the business \u2014 accounts, agents, ticket queues \u2014 cartoony daylight style like cities skylines. one self-contained html file please, no server stuff",
+      "expected_output": "Single HTML twin mapping a non-physical business: account towers by MRR, ticket queue buildings in pipeline order, ticket vans flowing, SLA-breach finding on triage, growing waiting_customer flagged",
+      "files": [
+        "files/deskly_schema.sql"
+      ],
+      "assertions": [
+        "Single self-contained HTML, no external network references (CDN scripts/styles/images)",
+        "Loads in a browser with zero JavaScript errors",
+        "Renders a bright daylight 3D scene (screenshot mean luminance > 0.45, non-blank)",
+        "Grounded: contains >=3 real entity names from the input (Globex, Initech, triage, waiting_customer...)",
+        "Alerts derived from data visible (SLA / breach / waiting / growing)"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "sqlite-real-data",
+      "prompt": "here's our ops.db sqlite file from the factory. make me a digital twin city visualization of what's in it \u2014 single html i can open. would love to actually see where things pile up / get stuck.",
+      "expected_output": "Single HTML twin built from real queried data: customer towers by ytd_revenue, production line stages by wip, SKU tanks (CTRL-2 below reorder), pending>4d orders as a stuck cluster finding",
+      "files": [
+        "files/ops.db"
+      ],
+      "assertions": [
+        "Single self-contained HTML, no external network references (CDN scripts/styles/images)",
+        "Loads in a browser with zero JavaScript errors",
+        "Renders a bright daylight 3D scene (screenshot mean luminance > 0.45, non-blank)",
+        "Grounded: contains >=3 real entity names queried from ops.db (CTRL-2, Fabrikam, Welding, Assembly...)",
+        "Alerts derived from data visible (reorder / pending / stuck / below)"
+      ]
+    }
+  ]
+}
