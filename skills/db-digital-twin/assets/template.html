@@ -17,10 +17,13 @@
   canvas{display:block; position:fixed; inset:0; width:100%; height:100%;
     touch-action:none; cursor:grab}
   #overlay{position:fixed; inset:0; pointer-events:none; z-index:5; overflow:hidden}
-  .lbl{position:absolute; top:0; left:0; font-size:10.5px; font-weight:600;
-    color:#2A4460; white-space:nowrap; will-change:transform;
-    text-shadow:0 1px 0 rgba(255,255,255,.85), 0 0 6px rgba(255,255,255,.7)}
-  .lbl.big{font-size:11px; letter-spacing:.22em; color:#3E5A76; font-weight:700}
+  .lbl{position:absolute; top:0; left:0; font-size:11.5px; font-weight:600;
+    color:#22384F; white-space:nowrap; will-change:transform;
+    background:rgba(255,255,255,.88); padding:1.5px 8px 2.5px; border-radius:99px;
+    border:1px solid rgba(215,225,234,.9); box-shadow:0 1px 4px rgba(30,60,90,.22)}
+  .lbl.big{font-size:12px; letter-spacing:.22em; color:#3E5A76; font-weight:700;
+    background:none; border:none; box-shadow:none; padding:0;
+    text-shadow:0 1px 0 rgba(255,255,255,.9), 0 0 8px rgba(255,255,255,.8)}
   .badge{position:absolute; top:0; left:0; width:19px; height:19px; border-radius:50%;
     text-align:center; line-height:17px; font-weight:700; font-family:var(--font-mono);
     font-size:11px; color:#fff; cursor:pointer; will-change:transform;
