@@ -279,17 +279,21 @@ for(let i=0;i<9;i++){
   clouds.push(c);
 }
 
-/* ---------- findings: rings, badges, stuck clusters ---------- */
-const findings = (W.findings||[]).slice();
+/* ---------- findings: rings, badges, stuck clusters (dynamic) ---------- */
+const findings = [];
 const rings = [];
-findings.forEach(f=>{
+function makeRing(f){
   const b = byId[f.target]; if(!b) return;
   const t = MeshBuilder.CreateTorus('ring', {diameter:b.w+2.2, thickness:0.09, tessellation:48}, scene);
   t.position.set(b.cx, 0.12, b.cz);
   t.material = mat('#000000', {emissive:SEVC[f.severity]||SEVC.info, alpha:0.85});
   t.material.disableLighting = true; t.isPickable = false;
   rings.push({mesh:t, f, phase:b.gx});
-});
+}
+function removeRing(f){
+  const i = rings.findIndex(r=>r.f===f); if(i<0) return;
+  rings[i].mesh.dispose(); rings.splice(i,1);
+}
 
 /* ---------- vehicles ---------- */
 function vehicleMaster(hex, len, wid, hgt){
@@ -303,16 +307,23 @@ const VKIND = {
   truck:h=>vehicleMaster(h, .72, .28, .28),
   cart: h=>vehicleMaster(h, .34, .2, .16),
 };
-findings.filter(f=>f.cluster && byId[f.target]).forEach((f,fi)=>{
-  const b = byId[f.target];
-  const m = vehicleMaster(SEVC[f.severity]||SEVC.amber, .42, .22, .2);
-  const n = Math.min(f.cluster, 12);
-  for(let i=0;i<n;i++){
-    const inst = m.createInstance('stuck');
+const clusterPools = {};
+function setClusterCount(f, n){
+  const b = byId[f.target]; if(!b) return;
+  n = Math.min(n||0, 12);
+  let pool = clusterPools[f.id];
+  if(!pool && n>0) pool = clusterPools[f.id] =
+    {master: vehicleMaster(SEVC[f.severity]||SEVC.amber, .42, .22, .2), insts: []};
+  if(!pool) return;
+  while(pool.insts.length < n){
+    const i = pool.insts.length;
+    const inst = pool.master.createInstance('stuck');
     inst.position.set(b.cx-1.4+(i%4)*.62, 0.13, b.gy+b.d+0.6+((i/4)|0)*.6);
-    inst.rotation.y = (rnd(i+300+fi)-.5)*.9;
+    inst.rotation.y = (rnd(i+300)-.5)*.9;
+    pool.insts.push(inst);
   }
-});
+  while(pool.insts.length > n) pool.insts.pop().dispose();
+}
 
 /* route builder: any source/target → waypoint list via roads */
 function routeOut(b){        /* building → point on main road */
@@ -417,13 +428,32 @@ buildings.forEach(b=>{
   track(el, ...d._labelAt);
 });
 const badgeEls = {};
-findings.forEach(f=>{
+function makeBadge(f){
   const b = byId[f.target]; if(!b) return;
   const el = document.createElement('div');
   el.className = 'badge '+(f.severity||'info'); el.textContent = '!';
   badgeEls[f.id] = el;
   track(el, b.cx, b.h+1.35, b.cz, b.id);
-});
+}
+function removeBadge(f){
+  const el = badgeEls[f.id]; if(!el) return;
+  const i = tracked.findIndex(t=>t.el===el);
+  if(i>=0) tracked.splice(i,1);
+  el.remove(); delete badgeEls[f.id];
+}
+function addFinding(f){
+  if(!byId[f.target]) return;
+  findings.push(f); makeRing(f); makeBadge(f);
+  if(f.cluster) setClusterCount(f, f.cluster);
+  renderFindings();
+}
+function removeFindingById(id){
+  const i = findings.findIndex(f=>f.id===id); if(i<0) return;
+  const f = findings[i];
+  removeRing(f); removeBadge(f); setClusterCount(f, 0);
+  findings.splice(i,1); renderFindings();
+}
+(W.findings||[]).forEach(f=>addFinding(Object.assign({}, f)));
 function updateOverlay(){
   const w = engine.getRenderWidth(), h = engine.getRenderHeight();
   const dpr = engine.getHardwareScalingLevel();
@@ -466,6 +496,13 @@ scene.onBeforeRenderObservable.add(()=>{
       placeAgent(a);
     }
     clouds.forEach(c=>{ c.position.x += dt*0.25; if(c.position.x > offR+14) c.position.x = offL-14; });
+    buildings.forEach(b=>{
+      const m = meshById[b.id];
+      if(m && m._targetSy!=null && Math.abs(m.scaling.y-m._targetSy)>0.001){
+        m.scaling.y += (m._targetSy-m.scaling.y)*Math.min(1, dt*3);
+        m.position.y = b.h*m.scaling.y/2;
+      }
+    });
   }
   rings.forEach(r=>{
     if(r.f.queued || findings.indexOf(r.f)<0){ r.mesh.setEnabled(false); return; }
@@ -541,9 +578,11 @@ insp.addEventListener('click', e=>{
   const dm = e.target.dataset && e.target.dataset.dismiss;
   if(ap||dm){
     const f = findings.find(x=>x.id===(ap||dm));
-    f.queued = !!ap;
-    if(dm) findings.splice(findings.indexOf(f),1);
-    if(badgeEls[f.id]) badgeEls[f.id].style.display='none';
+    if(dm){ removeFindingById(f.id); }
+    else{
+      f.queued = true;
+      if(badgeEls[f.id]) badgeEls[f.id].style.display='none';
+    }
     select(selectedId); renderFindings();
   }
 });
@@ -562,6 +601,107 @@ function renderFindings(){
     r.addEventListener('click', ()=>select(r.dataset.go)));
 }
 renderFindings();
+
+/* ---------- live mode: poll a GraphQL endpoint, patch the world ----------
+   WORLD.live = {endpoint, pollMs, bindings:[...]} — two binding shapes:
+   row-matched: {query, root, matchPrefix, rowKey, size:{field,max},
+                 stat:{label,field,format}, weightField}
+   scalar:      {query, root, field, target?, stat?, kpi?, format?,
+                 finding:{id,severity,target,titleTpl,source,action,
+                          min?|below?, cluster?}}
+   {{daysAgo:N}} in queries resolves to an ISO date at fetch time. */
+const LIVE = W.live;
+const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+function fmtVal(v, f){
+  v = v==null ? 0 : v;
+  if(f==='$M') return '$'+(v/1e6).toFixed(2)+'M';
+  if(f==='$k') return '$'+(v/1e3).toFixed(1)+'k';
+  if(f==='int') return String(Math.round(v));
+  return String(v);
+}
+function setKpi(i, str){
+  kpiVals[i] = str;
+  const el = document.getElementById('kpi-'+i); if(el) el.textContent = str;
+}
+function setStat(b, label, val){
+  b.stats = b.stats || [];
+  const row = b.stats.find(r=>r[0]===label);
+  if(row){ if(Array.isArray(row[1])) row[1][0] = val; else row[1] = val; }
+  else b.stats.push([label, val]);
+  if(selectedId===b.id) select(b.id);
+}
+function setBuildingSize(b, sizeNorm){
+  if(b.tiered) return;
+  const k = KIND[b.kind]||KIND.block;
+  const m = meshById[b.id]; if(!m) return;
+  m._targetSy = k.h(Math.max(0, Math.min(1, sizeNorm)))/b.h;
+}
+function upsertLiveFinding(bd, v){
+  const spec = bd.finding;
+  const fire = spec.below!=null ? v < spec.below : v >= (spec.min==null ? 1 : spec.min);
+  const cur = findings.find(f=>f.id===spec.id);
+  if(fire){
+    const title = (spec.titleTpl||'{n}').replace('{n}', Math.round(v));
+    if(cur){
+      if(cur.title!==title){ cur.title = title; renderFindings(); }
+      if(spec.cluster) setClusterCount(cur, v);
+      if(selectedId===spec.target) select(selectedId);
+    }else{
+      addFinding({id:spec.id, severity:spec.severity||'amber', target:spec.target,
+        title, source:spec.source||'live watcher', action:spec.action||'',
+        cluster: spec.cluster ? v : 0});
+    }
+  }else if(cur && !cur.queued){
+    removeFindingById(spec.id);
+  }
+}
+const gqlDates = s => s.replace(/\{\{daysAgo:(\d+)\}\}/g,
+  (_,d)=> new Date(Date.now()-(+d)*864e5).toISOString().slice(0,10));
+async function runBinding(bd){
+  const r = await fetch(LIVE.endpoint, {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({query: gqlDates(bd.query)})});
+  const j = await r.json();
+  if(j.errors) throw new Error(j.errors[0].message);
+  const rows = (j.data && j.data[bd.root]) || [];
+  if(bd.matchPrefix){
+    rows.forEach(row=>{
+      const b = byId[bd.matchPrefix + slug(row[bd.rowKey])]; if(!b) return;
+      if(bd.size) setBuildingSize(b, (row[bd.size.field]||0)/bd.size.max);
+      if(bd.stat) setStat(b, bd.stat.label, fmtVal(row[bd.stat.field], bd.stat.format));
+      if(bd.weightField){
+        const d = W.districts.find(x=>x.id===b.district);
+        const sb = d && d.buildings.find(x=>x.id===b.id);
+        if(sb) sb.weight = row[bd.weightField]||1;
+      }
+    });
+  }else{
+    const v = rows.length ? (rows[0][bd.field]||0) : 0;
+    if(bd.target && bd.stat && byId[bd.target]) setStat(byId[bd.target], bd.stat.label, fmtVal(v, bd.stat.format));
+    if(bd.kpi!=null) setKpi(bd.kpi, fmtVal(v, bd.format||'int'));
+    if(bd.finding) upsertLiveFinding(bd, v);
+  }
+}
+let liveChip;
+function liveStatus(ok, msg){
+  if(!liveChip){
+    liveChip = document.createElement('div');
+    liveChip.className = 'chip'; liveChip.id = 'live-chip';
+    document.getElementById('chips').prepend(liveChip);
+  }
+  liveChip.innerHTML = ok
+    ? '<b style="color:#12A47B">● LIVE</b>'
+    : '<b style="color:#D6453D">● OFFLINE</b>';
+  liveChip.title = msg||'';
+}
+async function pollLive(){
+  try{
+    for(const bd of LIVE.bindings) await runBinding(bd);
+    liveStatus(true);
+  }catch(e){ liveStatus(false, String(e.message||e)); }
+  setTimeout(pollLive, LIVE.pollMs||5000);
+}
+if(LIVE) pollLive();
 
 engine.runRenderLoop(()=>scene.render());
 addEventListener('resize', ()=>engine.resize());

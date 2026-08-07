@@ -108,6 +108,57 @@ Approve/Dismiss drafted action.
   week-over-week), spikes (demand ×3). 2–5 findings make the twin feel alive;
   fabricate none — each needs a real query behind it.
 
+## Live mode (optional)
+
+Add a `live` block and the page becomes a synchronized twin instead of a
+snapshot: it re-runs bindings against a GraphQL endpoint on an interval and
+patches the world in place — heights tween, stats and KPIs update, findings
+(rings, badges, stuck-vehicle clusters) appear and dissolve as thresholds
+breach and clear. A LIVE/OFFLINE chip reports sync health. See
+`examples/adventureworks-live.json` for a complete working spec (pairs with
+the repo's AdventureWorks demo stack).
+
+```json
+"live": {
+  "endpoint": "http://localhost:8080/api/v1/graphql",
+  "pollMs": 5000,
+  "bindings": [ ... ]
+}
+```
+
+Two binding shapes:
+
+- **Row-matched** — one query updates a whole district. Each row maps to the
+  building whose id is `matchPrefix + slug(row[rowKey])` (slug: lowercase,
+  non-alphanumerics → `-`), so name building ids accordingly.
+  ```json
+  {"root": "salesterritory", "matchPrefix": "t-", "rowKey": "name",
+   "query": "query { salesterritory { name salesytd } }",
+   "size": {"field": "salesytd", "max": 11600000},
+   "stat": {"label": "Sales YTD", "field": "salesytd", "format": "$M"},
+   "weightField": "salesytd"}
+  ```
+- **Scalar** — first row, one field (aggregates like `count_x`/`sum_x` return
+  a single row). Can update a building stat (`target` + `stat`), a KPI chip
+  (`kpi` index + `format`), and drive a finding:
+  ```json
+  {"root": "salesorderheader", "field": "count_salesorderid",
+   "query": "query { salesorderheader(where:{and:[{status:{eq:1}},{shipdate:{is_null:true}},{orderdate:{lt:\"{{daysAgo:5}}\"}}]}) { count_salesorderid } }",
+   "target": "dock", "stat": {"label": "Breaching SLA", "format": "int"}, "kpi": 3,
+   "finding": {"id": "slowship", "severity": "amber", "target": "dock",
+     "titleTpl": "{n} orders pending > 5 days", "source": "Slow-Ship watcher · live",
+     "action": "Draft carrier follow-up.", "cluster": true}}
+  ```
+  Finding thresholds: fires when value ≥ `min` (default 1), or with `below`
+  set, when value < `below` (for stock-under-reorder shapes). `{n}` in
+  `titleTpl` is the value; `cluster: true` parks that many stalled vehicles
+  at the target. `{{daysAgo:N}}` anywhere in a query resolves to an ISO date
+  at fetch time.
+
+Formats: `$M`, `$k`, `int`. The endpoint must allow CORS from wherever the
+page is served (GraphJin: `cors_allowed_origins: ['*']`) — which also means
+a live twin is served over HTTP, not published as a CSP-locked artifact.
+
 ## Classification heuristics
 
 | In the schema | In the twin |
