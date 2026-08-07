@@ -54,8 +54,11 @@ A district is a named group of buildings. Two bands:
 Building fields:
 - `kind`: `tower` (offices/orgs), `block` (factory/process stage), `tank`
   (inventory/stock silo), `flat` (dock/warehouse/fulfillment), `gate`
-  (external boundary: vendors, partners, API). Back band should be towers;
-  front band any of the rest.
+  (external boundary: vendors, partners, API), `plot` (land: fields,
+  paddocks, parcels, zones — a wide flat slab whose subtle height still
+  encodes `size`). Back band defaults to towers but honors an explicit
+  `kind` — a farm's back band is `plot` paddocks (see
+  `examples/farm-static.json`); front band any of the rest.
 - `size`: 0..1, drives height. **Normalize within each district** — divide by
   the district max so the biggest entity is ~0.9 and differences are visible.
 - `weight`: relative spawn rate when a flow sources from this district

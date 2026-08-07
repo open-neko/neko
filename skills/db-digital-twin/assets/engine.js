@@ -19,6 +19,7 @@ const KIND = {
   tank: {w:1.8,  d:1.8,  roof:'#E4E8EB', h:s=>1.4+s*2.4},
   flat: {w:3.4,  d:3.0,  roof:'#F2F5F7', h:s=>1.35},
   gate: {w:2.4,  d:2.6,  roof:'#F2F5F7', h:s=>1.0},
+  plot: {w:3.2,  d:2.8,  roof:'#6E9C50', h:s=>0.16+s*0.3},
 };
 const buildings = [];               // enriched building records
 const byId = {};
@@ -38,7 +39,8 @@ function place(b, district, gx, gy){
     tiered: b.kind==='tower' && (b.size||0) > 0.55,
     color: b.color || (b.kind==='tower' ? TOWER_COLS[bi%TOWER_COLS.length]
           : b.kind==='block' ? BLOCK_COLS[bi%BLOCK_COLS.length]
-          : b.kind==='tank' ? '#C4CDD3' : b.kind==='gate' ? '#83AC6C' : '#8AA4B5'),
+          : b.kind==='tank' ? '#C4CDD3' : b.kind==='gate' ? '#83AC6C'
+          : b.kind==='plot' ? '#8FBE62' : '#8AA4B5'),
   });
   rec.cx = gx + rec.w/2; rec.cz = gy + rec.d/2;
   buildings.push(rec); byId[rec.id] = rec; bi++;
@@ -231,7 +233,7 @@ buildings.forEach(b=>{
     m = MeshBuilder.CreateBox('b'+b.id, {width:b.w, depth:b.d, height:b.h}, scene);
     m.position.set(b.cx, b.h/2, b.cz);
     cap(b.cx, b.h+0.05, b.cz, b.w+0.14, b.d+0.14, b.roof);
-    if(b.kind!=='flat' && b.kind!=='gate') addWindows(b);
+    if(b.kind!=='flat' && b.kind!=='gate' && b.kind!=='plot') addWindows(b);
   }
   m.material = mat(b.color);
   m.metadata = {bid:b.id};

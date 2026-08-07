@@ -1,0 +1,116 @@
+{
+  "title": "Willow Creek Farm",
+  "eyebrow": "OpenNeko · Digital Twin",
+  "note": "<b>A pure projection of farm.db.</b> Paddocks, silos, the herd, and deliveries — every object is a SQL query over the farm's own tables. Click anything to see it.",
+  "clock": {"dayLabel": "FRI", "start": "06:30", "loopStart": "05:30", "loopEnd": "19:30", "speed": 60},
+  "kpis": [
+    {"label": "Herd", "value": "184", "tone": ""},
+    {"label": "Milk 7d avg", "value": "2,446 L/d", "tone": ""},
+    {"label": "Grain stored", "value": "443 t", "tone": ""},
+    {"label": "Vet overdue", "value": "21", "tone": "red"}
+  ],
+  "legend": [
+    {"label": "milk + grain out", "color": "#2F6FED"},
+    {"label": "harvest loads", "color": "#C9862B"},
+    {"label": "feed in", "color": "#0E9F6E"}
+  ],
+  "districts": [
+    {"id": "paddocks", "label": "Paddocks", "band": "back", "cols": 3,
+     "buildings": [
+       {"id": "pk-long-paddock", "name": "Long Paddock", "label": "Long Paddock · barley", "kind": "plot", "size": 1.0,
+        "kindLabel": "Paddock · 52.3 ha",
+        "stats": [["Crop", "barley"], ["Status", ["ready", "teal"]], ["Expected yield", "390 t"], ["Planted", "2 Mar"]],
+        "query": "SELECT name, hectares, crop, status, expected_yield_t\nFROM paddocks WHERE name = 'Long Paddock';"},
+       {"id": "pk-north-40", "name": "North 40", "label": "North 40 · wheat", "kind": "plot", "size": 0.77,
+        "kindLabel": "Paddock · 40.5 ha",
+        "stats": [["Crop", "wheat"], ["Status", ["ready", "teal"]], ["Expected yield", "310 t"], ["Planted", "10 Mar"]],
+        "query": "SELECT name, hectares, crop, status, expected_yield_t\nFROM paddocks WHERE name = 'North 40';"},
+       {"id": "pk-river-bend", "name": "River Bend", "label": "River Bend · lucerne", "kind": "plot", "size": 0.64,
+        "kindLabel": "Paddock · 33.6 ha",
+        "stats": [["Crop", "lucerne"], ["Status", "growing"], ["Expected yield", "150 t"]],
+        "query": "SELECT name, hectares, crop, status FROM paddocks WHERE name = 'River Bend';"},
+       {"id": "pk-creek-flat", "name": "Creek Flat", "label": "Creek Flat · wheat", "kind": "plot", "size": 0.54,
+        "kindLabel": "Paddock · 28.0 ha",
+        "stats": [["Crop", "wheat"], ["Status", "growing"], ["Expected yield", "205 t"]],
+        "query": "SELECT name, hectares, crop, status FROM paddocks WHERE name = 'Creek Flat';"},
+       {"id": "pk-stony-rise", "name": "Stony Rise", "label": "Stony Rise · canola", "kind": "plot", "size": 0.36,
+        "kindLabel": "Paddock · 18.9 ha",
+        "stats": [["Crop", "canola"], ["Status", "growing"], ["Expected yield", "48 t"]],
+        "query": "SELECT name, hectares, crop, status FROM paddocks WHERE name = 'Stony Rise';"},
+       {"id": "pk-home-block", "name": "Home Block", "label": "Home Block · pasture", "kind": "plot", "size": 0.24,
+        "kindLabel": "Paddock · 12.4 ha",
+        "stats": [["Crop", "pasture"], ["Status", "fallow"]],
+        "query": "SELECT name, hectares, crop, status FROM paddocks WHERE name = 'Home Block';"}
+     ]},
+    {"id": "suppliers", "label": "Suppliers", "band": "front",
+     "buildings": [
+       {"id": "gate", "name": "Supplier Gate", "label": "Supplier Gate", "kind": "gate",
+        "kindLabel": "Inbound deliveries",
+        "stats": [["Feed inbound", "24 t"], ["From", "Riverina Stockfeed"], ["Due", "Sat 9 Aug"]],
+        "query": "SELECT counterparty, tonnes, due_on FROM deliveries\nWHERE kind = 'feed_in' AND dispatched_on IS NULL;"}
+     ]},
+    {"id": "dairy", "label": "Dairy", "band": "front",
+     "buildings": [
+       {"id": "parlour", "name": "Milking Parlour", "label": "Milking Parlour", "kind": "block", "size": 0.75, "color": "#B85C4A",
+        "kindLabel": "Dairy · herd of 184",
+        "stats": [["Milking", "159"], ["Dry", "23"], ["Sick", ["2", "amber"]],
+                  ["Milk 7d avg", "2,446 L/d"], ["vs prior 3wk", ["−1.8%", "amber"]]],
+        "query": "SELECT status, count(*) FROM herd GROUP BY status;\nSELECT round(avg(litres)) FROM milk_yields\nWHERE day > date('now','-7 days');"}
+     ]},
+    {"id": "grain", "label": "Grain handling", "band": "front",
+     "buildings": [
+       {"id": "dryer", "name": "Drying Shed", "label": "Drying Shed", "kind": "block", "size": 0.35,
+        "kindLabel": "Grain handling",
+        "stats": [["Loads this fortnight", "40"], ["Avg moisture in", "12.4%"]],
+        "query": "SELECT count(*), round(avg(tonnes),1) FROM harvest_loads\nWHERE loaded_at > date('now','-14 days');"},
+       {"id": "s-silo-a", "name": "Silo A — wheat", "label": "Silo A · wheat", "kind": "tank", "size": 0.3,
+        "kindLabel": "Grain silo · 400 t capacity",
+        "stats": [["Stored", ["118 t", "amber"]], ["Capacity", "400 t"], ["Moisture", "12.1%"]],
+        "query": "SELECT name, current_t, capacity_t, moisture_pct\nFROM silos WHERE name = 'Silo A';"},
+       {"id": "s-silo-b", "name": "Silo B — barley", "label": "Silo B · barley", "kind": "tank", "size": 0.83,
+        "kindLabel": "Grain silo · 350 t capacity",
+        "stats": [["Stored", "289 t"], ["Capacity", "350 t"], ["Moisture", "13.8%"]],
+        "query": "SELECT name, current_t, capacity_t, moisture_pct\nFROM silos WHERE name = 'Silo B';"},
+       {"id": "s-silo-c", "name": "Silo C — canola", "label": "Silo C · canola", "kind": "tank", "size": 0.18,
+        "kindLabel": "Grain silo · 120 t capacity",
+        "stats": [["Stored", "22 t"], ["Capacity", "120 t"], ["Moisture", "8.9%"]],
+        "query": "SELECT name, current_t, capacity_t, moisture_pct\nFROM silos WHERE name = 'Silo C';"},
+       {"id": "s-feed", "name": "Feed Silo", "label": "Feed Silo", "kind": "tank", "size": 0.18, "color": "#D9C9A3",
+        "kindLabel": "Feed storage · 80 t capacity",
+        "stats": [["Stored", ["14 t", "red"]], ["Capacity", "80 t"], ["Days left", ["~5", "red"]]],
+        "query": "SELECT current_t, capacity_t FROM silos WHERE name = 'Feed Silo';"}
+     ]},
+    {"id": "dispatch", "label": "Dispatch", "band": "front",
+     "buildings": [
+       {"id": "dock", "name": "Dispatch Shed", "label": "Dispatch", "kind": "flat",
+        "kindLabel": "Outbound contracts",
+        "stats": [["Open contracts", "3"], ["Overdue", ["1", "red"]], ["Next pickup", "Norco · Sat"]],
+        "query": "SELECT kind, counterparty, tonnes, due_on FROM deliveries\nWHERE dispatched_on IS NULL ORDER BY due_on;"}
+     ]}
+  ],
+  "flows": [
+    {"kind": "cart", "color": "#C9862B", "every": 1.6, "from": "paddocks", "to": "s-silo-a"},
+    {"kind": "van", "color": "#2F6FED", "every": 2.0, "from": "parlour", "to": "dock"},
+    {"kind": "truck", "color": "#0E9F6E", "every": 7, "from": "offmap-left", "to": "parlour"},
+    {"kind": "van", "color": "#2F6FED", "every": 2.6, "from": "dock", "to": "offmap-right"}
+  ],
+  "findings": [
+    {"id": "graincorp", "severity": "red", "target": "dock",
+     "title": "GrainCorp 120 t wheat overdue since 5 Aug — Silo A holds only 118 t",
+     "source": "deliveries × silos · nightly check",
+     "action": "Draft delay notice to GrainCorp; propose topping up from North 40 harvest (ready, 310 t expected).",
+     "cluster": 3},
+    {"id": "vet", "severity": "amber", "target": "parlour",
+     "title": "21 cows overdue 180-day vet check",
+     "source": "herd watcher · daily",
+     "action": "Draft vet booking for next week; list of tags attached."},
+    {"id": "feed", "severity": "red", "target": "s-feed",
+     "title": "Feed Silo at 14 t (~5 days left)",
+     "source": "feed watcher · daily",
+     "action": "Confirm Riverina Stockfeed delivery Saturday covers the gap; else draft top-up order."},
+    {"id": "harvest", "severity": "info", "target": "pk-long-paddock",
+     "title": "Long Paddock barley ready — 390 t expected",
+     "source": "agronomy watcher · daily",
+     "action": "Schedule header for next dry window; Silo B has 61 t headroom — plan overflow to GrainCorp direct."}
+  ]
+}
