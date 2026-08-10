@@ -1,5 +1,12 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { AgentEvent } from "@neko/llm";
 import {
   buildAuditViewerServer,
@@ -26,12 +33,13 @@ import { BrokerControlPlane, postAgentEvents } from "./broker-client";
 /**
  * Stdio MCP server for ACP backends (hermes). The agent process can't hand
  * its in-process SDK server instances across a process boundary, so hermes'
- * `session/new` mcpServers entries launch THIS script — one child per named
- * server — and it rebuilds that server bound to the broker control plane
- * (the same path claude's in-box tools use). Spawned by hermes inside the
- * sandbox; never runs on the host.
+ * `session/new` launches THIS script once for all named servers. The bridge
+ * rebuilds each logical server in-process and exposes a single multiplexed
+ * stdio endpoint bound to the broker control plane (the same path Claude's
+ * in-box tools use). Keeping one Node process instead of one per logical MCP
+ * server is material: a normal chat turn mounts roughly ten servers.
  *
- * argv[2] = server name (agent-core's mcpServers map key). Per-run context
+ * argv[2] = comma-separated server names (agent-core's mcpServers map keys). Per-run context
  * arrives via env (agent-core's mcpBridgeEnv); broker coords are copied into
  * this clean bridge-child env and are not exposed to the model process.
  */
@@ -42,21 +50,23 @@ function requireEnv(name: string): string {
   return value;
 }
 
+export type BridgeServerContext = {
+  orgId: string;
+  threadId: string;
+  runId: string;
+  skillsRoot: string;
+  pluginActions: PluginActionDescriptor[];
+  controlPlane: BrokerControlPlane;
+  brokerUrl?: string;
+  brokerToken?: string;
+  workflowRunId?: string;
+  triggeredByObservationId?: string | null;
+  recordScope?: { appId: string; objectApiName: string };
+};
+
 export function buildBridgeServer(
   name: string,
-  ctx: {
-    orgId: string;
-    threadId: string;
-    runId: string;
-    skillsRoot: string;
-    pluginActions: PluginActionDescriptor[];
-    controlPlane: BrokerControlPlane;
-    brokerUrl?: string;
-    brokerToken?: string;
-    workflowRunId?: string;
-    triggeredByObservationId?: string | null;
-    recordScope?: { appId: string; objectApiName: string };
-  },
+  ctx: BridgeServerContext,
 ): { instance: { connect: (t: Transport) => Promise<void> } } {
   const { orgId, threadId, runId, skillsRoot, pluginActions, controlPlane } = ctx;
   const emit =
@@ -154,6 +164,72 @@ export function buildBridgeServer(
 }
 
 /**
+ * Hermes exposes a tool as `mcp_<server>_<tool>`. Mounting one physical MCP
+ * server called `neko` and publishing `<logical-server>_<tool>` therefore
+ * preserves the exact model-facing names used before multiplexing:
+ *
+ *   neko_memory + search -> mcp_neko_memory_search
+ */
+export function multiplexedToolName(serverName: string, toolName: string): string {
+  if (!serverName.startsWith("neko_") || !toolName) {
+    throw new Error(`mcp-bridge: cannot multiplex ${serverName}/${toolName}`);
+  }
+  return `${serverName.slice("neko_".length)}_${toolName}`;
+}
+
+/** Build one public MCP server backed by multiple in-process logical servers. */
+export async function buildMultiplexedBridgeServer(
+  names: readonly string[],
+  ctx: BridgeServerContext,
+): Promise<{ instance: Server }> {
+  if (names.length === 0) throw new Error("mcp-bridge: no servers to multiplex");
+
+  const publicTools: Array<Record<string, unknown> & { name: string }> = [];
+  const routes = new Map<
+    string,
+    { client: Client; originalToolName: string }
+  >();
+
+  for (const name of names) {
+    const logical = buildBridgeServer(name, ctx);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await logical.instance.connect(serverTransport);
+
+    const client = new Client({
+      name: `openneko-mcp-multiplexer-${name}`,
+      version: "1.0.0",
+    });
+    await client.connect(clientTransport);
+    const listed = await client.listTools();
+    for (const tool of listed.tools) {
+      const publicName = multiplexedToolName(name, tool.name);
+      if (routes.has(publicName)) {
+        throw new Error(`mcp-bridge: duplicate multiplexed tool ${publicName}`);
+      }
+      routes.set(publicName, { client, originalToolName: tool.name });
+      publicTools.push({ ...tool, name: publicName });
+    }
+  }
+
+  const instance = new Server(
+    { name: "openneko-mcp-multiplexer", version: "1.0.0" },
+    { capabilities: { tools: {} } },
+  );
+  instance.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: publicTools,
+  }));
+  instance.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const route = routes.get(request.params.name);
+    if (!route) throw new Error(`mcp-bridge: unknown tool ${request.params.name}`);
+    return route.client.callTool({
+      name: route.originalToolName,
+      arguments: request.params.arguments,
+    });
+  });
+  return { instance };
+}
+
+/**
  * The egress proxy admits a freshly spawned process with a lag — its first
  * dials get ECONNREFUSED even with an allow rule in place. Poll until the
  * broker answers anything at all (any HTTP status counts) before serving, so
@@ -198,16 +274,16 @@ async function warmUpBroker(baseUrl: string, name: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const name = process.argv[2];
-  if (!name) throw new Error("mcp-bridge: missing server-name argument");
+  const names = [...new Set((process.argv[2] ?? "").split(",").filter(Boolean))];
+  if (names.length === 0) throw new Error("mcp-bridge: missing server-name argument");
   const brokerUrl = requireEnv("OPENNEKO_BROKER_URL");
   const brokerToken = requireEnv("OPENNEKO_BROKER_TOKEN");
-  await warmUpBroker(brokerUrl, name);
+  await warmUpBroker(brokerUrl, "multiplexed");
   const controlPlane = new BrokerControlPlane(
     brokerUrl,
     brokerToken,
   );
-  const server = buildBridgeServer(name, {
+  const server = await buildMultiplexedBridgeServer(names, {
     orgId: requireEnv("OPENNEKO_MCP_ORG_ID"),
     threadId: requireEnv("OPENNEKO_MCP_THREAD_ID"),
     runId: requireEnv("OPENNEKO_MCP_RUN_ID"),

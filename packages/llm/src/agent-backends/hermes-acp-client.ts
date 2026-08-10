@@ -1,7 +1,7 @@
 /**
  * Minimal JSON-RPC 2.0 client over a child process's stdio, scoped to the
  * subset of ACP (Agent Client Protocol) that Hermes' `acp` subcommand emits.
- * Frame schema validated against `hermes acp` v2026.5.16 (v0.14.0) —
+ * Frame schema validated against `hermes acp` v2026.8.3 (v0.20.0) —
  * notifications wrap their payload under `params.update` (NOT `params`
  * directly), and the discriminator is `params.update.sessionUpdate`.
  */
@@ -18,6 +18,10 @@ export type AcpSessionUpdate =
     }
   | {
       sessionUpdate: "agent_thought_chunk";
+      content: { type: "text"; text: string };
+    }
+  | {
+      sessionUpdate: "user_message_chunk";
       content: { type: "text"; text: string };
     }
   | {
@@ -40,7 +44,13 @@ export type AcpSessionUpdate =
       entries: Array<{ content: string; status: string }>;
     }
   | { sessionUpdate: "available_commands_update"; availableCommands: unknown }
-  | { sessionUpdate: "usage_update"; size: number; used: number };
+  | { sessionUpdate: "usage_update"; size: number; used: number }
+  | {
+      sessionUpdate: "session_info_update";
+      title?: string;
+      updatedAt?: string;
+      fieldMeta?: unknown;
+    };
 
 export type AcpNotification = {
   method: "session/update";

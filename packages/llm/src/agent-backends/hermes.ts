@@ -485,27 +485,30 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
         .map((k) => [k, process.env[k] ?? ""])
         .filter(([, v]) => v),
     ].map(([name, value]) => ({ name, value }));
+    const safeBridgeNames = mcpServerNames
+      // neko_ui has its own stub; names are our map keys — the regex guards
+      // the shell interpolation below.
+      .filter((n) => n !== "neko_ui" && /^neko_[a-z0-9_]+$/.test(n));
     const bridgeServers =
       bridgePath && mcpBridgeEnv
-        ? mcpServerNames
-            // neko_ui has its own stub; names are our map keys — the regex
-            // guards the shell interpolation below.
-            .filter((n) => n !== "neko_ui" && /^[a-z0-9_]+$/.test(n))
-            .map((name) => ({
-              name,
+        ? safeBridgeNames.length > 0
+          ? [{
+              // The bridge multiplexes all logical OpenNeko MCP servers in
+              // one Node process while preserving mcp_neko_* tool names.
+              name: "neko",
               // cd /app first: hermes spawns MCP children with the session
               // cwd (/sandbox/…), where `--import tsx/esm` cannot resolve.
-              // A plain-JS bundle skips the tsx loader entirely (~80MB vs
-              // ~300MB RSS per bridge process).
+              // A plain-JS bundle skips the tsx loader entirely.
               command: "/bin/sh",
               args: [
                 "-c",
                 bridgePath.endsWith(".ts")
-                  ? `cd /app && exec node --import tsx/esm ${bridgePath} ${name}`
-                  : `cd /app && exec node ${bridgePath} ${name}`,
+                  ? `cd /app && exec node --import tsx/esm ${bridgePath} ${safeBridgeNames.join(",")}`
+                  : `cd /app && exec node ${bridgePath} ${safeBridgeNames.join(",")}`,
               ],
               env: bridgeEnv,
-            }))
+            }]
+          : []
         : [];
     const mcpServers = [
       ...(wantsCards

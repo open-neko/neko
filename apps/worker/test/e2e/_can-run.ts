@@ -51,7 +51,7 @@ const PLAN_SPECS: PlanSpec[] = [
     id: "hermes+gemini",
     backend: "hermes",
     primaryProvider: "google-gemini",
-    primaryModel: "gemini-2.5-pro",
+    primaryModel: "gemini-3.6-flash",
     envVar: "GEMINI_API_KEY",
     binary: "hermes",
   },
