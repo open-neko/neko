@@ -369,4 +369,45 @@ describe("HermesBackend ACP behavior", () => {
     expect((sn?.params as { mcpServers?: unknown[] }).mcpServers).toEqual([]);
     expect(JSON.stringify(sn?.params)).not.toContain("neko_render");
   });
+
+  it("mounts all logical OpenNeko tools through one multiplexed MCP child", async () => {
+    const previousBridge = process.env.OPENNEKO_MCP_BRIDGE;
+    process.env.OPENNEKO_MCP_BRIDGE = "/app/mcp-bridge.js";
+    const cap = captureRequests();
+    controller.setScript({
+      responders: {
+        "session/new": (p) => {
+          cap.record("session/new", p);
+          return { sessionId: "s-multiplexed" };
+        },
+      },
+    });
+
+    try {
+      const backend = new HermesBackend();
+      await backend.run({
+        prompt: "p",
+        workspace: FAKE_WORKSPACE,
+        mcpServers: {
+          neko_memory: {} as never,
+          neko_records: {} as never,
+          neko_ui: {} as never,
+        },
+        mcpBridgeEnv: { OPENNEKO_MCP_ORG_ID: "org-1" },
+      });
+      const sn = cap.seen.find((s) => s.method === "session/new");
+      const mounted = (sn?.params as {
+        mcpServers?: Array<{ name: string; args: string[] }>;
+      }).mcpServers;
+      expect(mounted).toHaveLength(1);
+      expect(mounted?.[0]?.name).toBe("neko");
+      expect(mounted?.[0]?.args.join(" ")).toContain(
+        "/app/mcp-bridge.js neko_memory,neko_records",
+      );
+      expect(mounted?.[0]?.args.join(" ")).not.toContain("neko_ui");
+    } finally {
+      if (previousBridge === undefined) delete process.env.OPENNEKO_MCP_BRIDGE;
+      else process.env.OPENNEKO_MCP_BRIDGE = previousBridge;
+    }
+  });
 });

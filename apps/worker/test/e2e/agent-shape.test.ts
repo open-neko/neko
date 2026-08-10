@@ -27,6 +27,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import {
   provisionHostConfig,
   runMetricAgent,
@@ -129,6 +130,9 @@ describeIfRunnable("E2E: metric agent shape", () => {
         const start = Date.now();
         const result = await runMetricAgent({
           orgId: testOrgId,
+          // Production metric refreshes always carry a UUID processing-job ID.
+          // Mirror that here so audit writes exercise their real FK/UUID path.
+          jobId: randomUUID(),
           role: card.role,
           slug: card.slug,
           title: card.title,

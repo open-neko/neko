@@ -69,4 +69,39 @@ describe("createAcpClient inbound requests", () => {
     );
     await expect(p).resolves.toEqual({ sessionId: "s2" });
   });
+
+  it("delivers v0.20 session updates and tolerates future update kinds", async () => {
+    const { child, stdout } = makeFakeChild();
+    const client = createAcpClient(child);
+    const seen: string[] = [];
+    client.onNotification((notif) => seen.push(notif.update.sessionUpdate));
+
+    for (const update of [
+      {
+        sessionUpdate: "session_info_update",
+        title: "AdventureWorks analysis",
+        updatedAt: "2026-08-10T00:00:00Z",
+      },
+      {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: "question" },
+      },
+      { sessionUpdate: "future_update_kind", payload: { safeToIgnore: true } },
+    ]) {
+      stdout.write(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { sessionId: "s-v20", update },
+        }) + "\n",
+      );
+    }
+
+    await flush();
+    expect(seen).toEqual([
+      "session_info_update",
+      "user_message_chunk",
+      "future_update_kind",
+    ]);
+  });
 });

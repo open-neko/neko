@@ -62,7 +62,7 @@ CMD ["serve"]
 # and lives one layer up in `cli`.
 FROM base AS runtime-base
 ARG GRAPHJIN_VERSION=3.18.42
-ARG HERMES_AGENT_REF=a91a57fa5a13d516c38b07a141a9ce8a3daabeb0
+ARG HERMES_AGENT_REF=3c27eb6234bf91b8ceee9e9071591b31e9b148cb
 ARG OPENSHELL_VERSION=0.0.54
 # TARGETARCH is auto-supplied by buildx (amd64 or arm64).
 ARG TARGETARCH
@@ -80,26 +80,33 @@ RUN curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/graphjin.tgz
     && rm /tmp/graphjin.tgz \
     && graphjin version
 # hermes: default agent backend (any provider). claude: claude-agent backend.
-# Hermes' pinned MCP adapter still reads the JSON alias (`isError`) as a
-# Python attribute. Current mcp releases expose the field as `is_error`, so
-# patch that single adapter access until the upstream pin contains the fix.
+# v0.20+ deliberately refuses wheel builds: keep the exact source checkout and
+# use its hash-locked editable environment, matching Hermes' supported install
+# model. `--compile-bytecode` keeps fresh ACP subprocess startup off Python's
+# runtime compilation path (OpenNeko starts one process per run).
+# The immutable runtime cannot self-update. Removing git metadata after the
+# commit assertion keeps background update checks from probing upstream.
 RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv/install.sh \
-      | env UV_INSTALL_DIR=/usr/local/bin sh -s -- --no-modify-path \
-    && UV_TOOL_DIR=/usr/local/uv/tools \
-       UV_TOOL_BIN_DIR=/usr/local/bin \
+      | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh \
+    && mkdir -p /usr/local/lib/hermes-agent \
+    && git -C /usr/local/lib/hermes-agent init \
+    && git -C /usr/local/lib/hermes-agent remote add origin https://github.com/NousResearch/hermes-agent.git \
+    && git -C /usr/local/lib/hermes-agent fetch --depth 1 origin "${HERMES_AGENT_REF}" \
+    && git -C /usr/local/lib/hermes-agent checkout --detach FETCH_HEAD \
+    && test "$(git -C /usr/local/lib/hermes-agent rev-parse HEAD)" = "${HERMES_AGENT_REF}" \
+    && UV_PROJECT_ENVIRONMENT=/usr/local/uv/tools/hermes-agent \
        UV_PYTHON_INSTALL_DIR=/usr/local/uv/python \
        UV_CACHE_DIR=/tmp/uv-cache \
-       uv tool install --python 3.11 \
-         --with mcp --with websockets \
-         "hermes-agent[acp] @ git+https://github.com/NousResearch/hermes-agent.git@${HERMES_AGENT_REF}" \
+       uv sync --project /usr/local/lib/hermes-agent --python 3.11 \
+         --extra acp --extra mcp --no-dev --locked --compile-bytecode \
+    && ln -s /usr/local/uv/tools/hermes-agent/bin/hermes /usr/local/bin/hermes \
+    && ln -s /usr/local/uv/tools/hermes-agent/bin/hermes-acp /usr/local/bin/hermes-acp \
+    && ln -s /usr/local/uv/tools/hermes-agent/bin/hermes-agent /usr/local/bin/hermes-agent \
     && rm -rf /tmp/uv-cache /root/.cache/uv \
-    && sed -i 's/result\.isError/result.is_error/g' \
-         /usr/local/uv/tools/hermes-agent/lib/python3.11/site-packages/tools/mcp_tool.py \
-    && ! grep -q 'result\.isError' \
-         /usr/local/uv/tools/hermes-agent/lib/python3.11/site-packages/tools/mcp_tool.py \
     && hermes --version \
-    && /usr/local/uv/tools/hermes-agent/bin/python -c "import mcp, websockets" \
-    && echo "hermes MCP SDK present"
+    && /usr/local/uv/tools/hermes-agent/bin/python -c "from mcp.types import CallToolResult; import websockets; result = CallToolResult(content=[]); assert hasattr(result, 'isError')" \
+    && echo "hermes MCP SDK present" \
+    && rm -rf /usr/local/lib/hermes-agent/.git
 RUN npm install -g @anthropic-ai/claude-code
 # openshell: CLI to spawn + relay to agent sandboxes. Static musl, no deps.
 RUN OS_ARCH="$(case "${TARGETARCH}" in amd64) echo x86_64 ;; arm64) echo aarch64 ;; *) echo "${TARGETARCH}" ;; esac)" \
@@ -299,11 +306,11 @@ CMD ["node", "--import", "tsx/esm", "src/index.ts"]
 # apps' sources; keeps tsx, @neko/llm (with its assets), and the claude SDK.
 FROM build AS agent-deploy
 RUN pnpm --filter @neko/worker deploy --prod /out/agent-app
-# Each MCP bridge is its own process (12 per agent run); under tsx one
-# bridge costs ~300MB RSS (~3.5GiB per sandbox — real memory pressure on
-# small hosts). The same bridge as a plain-JS bundle runs at ~80MB.
-# entry.ts prefers the bundle when present. transformers/onnx stay
-# external: the bridge never embeds, so they must not load eagerly.
+# OpenNeko's logical MCP servers share one multiplexed bridge process per
+# agent run. Bundle it to plain JS as well: that avoids tsx startup/RSS and
+# lets entry.ts launch it from arbitrary sandbox working directories.
+# transformers/onnx stay external: the bridge never embeds, so they must not
+# load eagerly.
 RUN cd apps/worker && pnpm exec esbuild src/agent-sandbox/mcp-bridge.ts \
       --bundle --platform=node --format=esm \
       --external:onnxruntime-node --external:@huggingface/transformers \
@@ -312,6 +319,9 @@ RUN cd apps/worker && pnpm exec esbuild src/agent-sandbox/mcp-bridge.ts \
 
 FROM cli AS agent
 USER root
+# OpenNeko pre-installs the ACP/MCP feature set. Never let a sandbox spend its
+# startup budget trying (and, under egress policy, retrying) a PyPI lazy install.
+ENV HERMES_DISABLE_LAZY_INSTALLS=1
 # Supervisor egress-netns tools + a non-root `sandbox` user (high UID, OpenShell
 # convention). node/hermes/claude/graphjin/libreoffice already come from `cli`.
 RUN apt-get update && apt-get install -y --no-install-recommends iproute2 nftables \
