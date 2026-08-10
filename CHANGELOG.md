@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.24.0](https://github.com/open-neko/openneko/compare/v2.23.2...v2.24.0) (2026-08-10)
+
+
+### Features
+
+* **agent:** upgrade Hermes to v0.20 ([28223bc](https://github.com/open-neko/openneko/commit/28223bce589f91fcedeea94bf55f20f4760ac189))
+* **agent:** upgrade Hermes to v0.20 ([787ad69](https://github.com/open-neko/openneko/commit/787ad69932b420f275f4ff4fcd001b532161c106))
+
 ## [2.23.2](https://github.com/open-neko/openneko/compare/v2.23.1...v2.23.2) (2026-08-03)
 
 
