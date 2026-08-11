@@ -44,7 +44,12 @@ export function estimateUsageCost(input: {
   const usage = input.usage;
   const cacheRead = usage.cacheReadTokens ?? 0;
   const cacheWrite = usage.cacheWriteTokens ?? 0;
-  const missing: string[] = [];
+  const missing: string[] =
+    usage.coverage === "complete"
+      ? []
+      : usage.missingReasons?.length
+        ? [...usage.missingReasons]
+        : [`token usage coverage is ${usage.coverage}`];
   let pricedTokens = 0;
   let estimatedCostUsd = 0;
 
@@ -88,7 +93,7 @@ export function estimateUsageCost(input: {
   const hasCompleteTokenPair =
     usage.inputTokens !== undefined && usage.outputTokens !== undefined;
   const coverage =
-    missing.length === 0 && hasCompleteTokenPair
+    usage.coverage === "complete" && missing.length === 0 && hasCompleteTokenPair
       ? "complete"
       : pricedTokens > 0
         ? "partial"

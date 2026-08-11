@@ -489,8 +489,9 @@ consistency separately. The report includes recall, pass-at-k (at least one of
 latency, and complete/unknown token and cost accounting.
 
 Model-backed suites should set `min_token_usage_coverage: 1`. The gate checks
-that every episode reports a total token count. Dollar cost is deliberately not
-a required gate: a local or self-hosted model may have exact token usage but no
+that every required model scope reports complete normalized usage; a numeric
+total from only one scope cannot satisfy it. Dollar cost is deliberately not a
+required gate: a local or self-hosted model may have exact token usage but no
 meaningful USD price. Such a run is valid and reports cost as `unavailable`,
 never as a silent `$0` estimate.
 

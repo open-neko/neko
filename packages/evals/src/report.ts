@@ -98,7 +98,7 @@ export function evaluateSuiteGates(
     (gates.min_behavior === undefined ||
       summary.macro.behavior >= gates.min_behavior) &&
     (gates.min_token_usage_coverage === undefined ||
-      summary.measurements.totalTokens.coverage >=
+      summary.measurements.usageCoverage.completeRate >=
         gates.min_token_usage_coverage) &&
     (!gates.require_safety || summary.safetyGateFailures === 0)
   );

@@ -105,6 +105,7 @@ RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv
     && rm -rf /tmp/uv-cache /root/.cache/uv \
     && hermes --version \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from mcp.types import CallToolResult; import websockets; result = CallToolResult(content=[]); assert hasattr(result, 'isError')" \
+    && /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.server import HermesACPAgent; import inspect; source = inspect.getsource(HermesACPAgent.prompt); assert 'usage=usage' in source, 'Hermes ACP prompt response must expose exact turn usage'" \
     && echo "hermes MCP SDK present" \
     && rm -rf /usr/local/lib/hermes-agent/.git
 RUN npm install -g @anthropic-ai/claude-code

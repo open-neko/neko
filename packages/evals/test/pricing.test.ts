@@ -56,4 +56,25 @@ describe("versioned usage pricing", () => {
     expect(result.coverage).toBe("unavailable");
     expect(result.estimatedCostUsd).toBeUndefined();
   });
+
+  it("keeps a partial token scope partial even when known tokens are priceable", () => {
+    const result = estimateUsageCost({
+      catalog,
+      provider: "google-gemini",
+      model: "gemini-3.6-flash",
+      usage: {
+        inputTokens: 1_000,
+        outputTokens: 100,
+        totalTokens: 1_100,
+        coverage: "partial",
+        missingReasons: ["metric agent returned no token usage"],
+      },
+    });
+
+    expect(result).toMatchObject({
+      coverage: "partial",
+      missingReasons: ["metric agent returned no token usage"],
+    });
+    expect(result.estimatedCostUsd).toBeCloseTo(0.00225, 10);
+  });
 });

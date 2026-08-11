@@ -173,6 +173,8 @@ if ! $SKIP_HERMES && ! hermes_matches_ref; then
   fi
   "$HERMES_AGENT_INSTALL_DIR/venv/bin/python" -c \
     "from mcp.types import CallToolResult; result = CallToolResult(content=[]); assert hasattr(result, 'isError')"
+  "$HERMES_AGENT_INSTALL_DIR/venv/bin/python" -c \
+    "from acp_adapter.server import HermesACPAgent; import inspect; source = inspect.getsource(HermesACPAgent.prompt); assert 'usage=usage' in source, 'Hermes ACP prompt response must expose exact turn usage'"
 elif ! $SKIP_HERMES; then
   log "hermes already matches ${HERMES_AGENT_REF:0:8}"
 fi

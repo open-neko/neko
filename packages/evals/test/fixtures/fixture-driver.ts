@@ -15,6 +15,7 @@ export function createFixtureDriver(input: {
   counters?: { execute: number; score: number };
   estimatedCostUsd?: number;
   totalTokens?: number;
+  usageCoverage?: "complete" | "partial" | "unavailable";
 }): EvalDriver {
   return {
     id: "fixture",
@@ -61,7 +62,10 @@ export function createFixtureDriver(input: {
             ? { estimatedCostUsd: input.estimatedCostUsd }
             : {}),
           ...(input.totalTokens !== undefined
-            ? { totalTokens: input.totalTokens, usageCoverage: "complete" }
+            ? {
+                totalTokens: input.totalTokens,
+                usageCoverage: input.usageCoverage ?? "complete",
+              }
             : { usageCoverage: "unavailable" }),
         },
       };

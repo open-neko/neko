@@ -241,6 +241,29 @@ describe("durable eval execution", () => {
       gatesPassed: false,
     });
 
+    const partialPaths = await fixture({ minTokenUsageCoverage: 1 });
+    const partialLoaded = await loadEval(partialPaths.configPath);
+    const partialPlan = createEvalPlan(partialLoaded);
+    const withPartialTokens = await runEvaluation({
+      loaded: partialLoaded,
+      plan: partialPlan,
+      driver: createFixtureDriver({
+        loaded: partialLoaded,
+        plan: partialPlan,
+        callLog: partialPaths.callLog,
+        totalTokens: 42,
+        usageCoverage: "partial",
+      }),
+      cwd: process.cwd(),
+      stateRoot: partialPaths.stateRoot,
+      resultsRoot: partialPaths.resultsRoot,
+      promote: true,
+    });
+    expect(withPartialTokens.gatesPassed).toBe(false);
+    await expect(verifyResult(withPartialTokens.resultDir!)).resolves.toMatchObject({
+      gatesPassed: false,
+    });
+
     const tokenPaths = await fixture({ minTokenUsageCoverage: 1 });
     const tokenLoaded = await loadEval(tokenPaths.configPath);
     const tokenPlan = createEvalPlan(tokenLoaded);
