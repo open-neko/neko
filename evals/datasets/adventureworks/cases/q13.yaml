@@ -1,6 +1,6 @@
 schema_version: openneko.eval.case/v1
 id: q13
-version: 1.0.0
+version: 2.0.0
 family: read
 product_path: metric
 dataset: adventureworks
@@ -9,10 +9,7 @@ difficulty: join
 semantics: [CALC-SCALAR, CALC-TIME, CALC-JOIN, CALC-BUSINESS, CALC-EVIDENCE, METRIC-REFRESH]
 input:
   role: COO
-  slug: ttm-average-lines-per-order
-  title: "Average line items per sales order in the trailing 12 months"
-  why: "Join sales.salesorderdetail to sales.salesorderheader by salesorderid and anchor to the latest header orderdate. The single headline number must be detail-row count divided by distinct salesorderid count for the inclusive 365-day window ending on the anchor. Compare it with the preceding non-overlapping 365-day window."
-  chart_hint: kpi
+  question: What was the average number of line items per sales order over the latest 12 months in our data, compared with the preceding 12 months?
 oracle:
   kind: sql.metric
   ref: ../oracles/q13.sql
@@ -20,6 +17,11 @@ assertions:
   - id: headline-value
     dimension: ground_truth
     kind: numeric.relative-error
+    gate: true
+    params: { max_relative_error: 0.01 }
+  - id: baseline-value
+    dimension: ground_truth
+    kind: numeric.baseline-relative-error
     gate: true
     params: { max_relative_error: 0.01 }
   - id: exact-window

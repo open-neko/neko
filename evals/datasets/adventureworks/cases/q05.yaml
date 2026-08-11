@@ -1,6 +1,6 @@
 schema_version: openneko.eval.case/v1
 id: q05
-version: 1.0.0
+version: 2.0.0
 family: read
 product_path: metric
 dataset: adventureworks
@@ -9,10 +9,7 @@ difficulty: aggregate
 semantics: [CALC-SCALAR, CALC-TIME, CALC-BUSINESS, CALC-EVIDENCE, METRIC-REFRESH]
 input:
   role: CFO
-  slug: ttm-average-order-value
-  title: Trailing 12-month average order value
-  why: Anchor to the latest sales.salesorderheader.orderdate. The single headline number must be the average salesorderheader.totaldue per order in the inclusive 365-day window ending on the anchor. Compare it with the preceding non-overlapping 365-day window.
-  chart_hint: kpi
+  question: What was our average total order value, including tax and freight, over the latest 12 months in our data, compared with the preceding 12 months?
 oracle:
   kind: sql.metric
   ref: ../oracles/q05.sql
@@ -20,6 +17,11 @@ assertions:
   - id: headline-value
     dimension: ground_truth
     kind: numeric.relative-error
+    gate: true
+    params: { max_relative_error: 0.01 }
+  - id: baseline-value
+    dimension: ground_truth
+    kind: numeric.baseline-relative-error
     gate: true
     params: { max_relative_error: 0.01 }
   - id: exact-window

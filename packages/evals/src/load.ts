@@ -6,6 +6,7 @@ import {
   CaseSchema,
   DatasetSchema,
   EvalConfigSchema,
+  MetricQuestionInputSchema,
   PricingCatalogSchema,
   SemanticRegistrySchema,
   SuiteSchema,
@@ -181,6 +182,9 @@ export async function loadEval(configPathInput: string): Promise<LoadedEval> {
   for (const caseRef of suite.cases) {
     const casePath = resolveRef(suitePath, caseRef.ref);
     const parsedCase = CaseSchema.parse(await readYaml(casePath));
+    if (parsedCase.product_path === "metric") {
+      parsedCase.input = MetricQuestionInputSchema.parse(parsedCase.input);
+    }
     if (selected && !selected.has(parsedCase.id)) continue;
     const oraclePath = parsedCase.oracle.ref
       ? resolveRef(casePath, parsedCase.oracle.ref)

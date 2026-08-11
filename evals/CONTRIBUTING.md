@@ -39,7 +39,20 @@ or reuses these versioned files:
    agent-visible connection. Keep cases and hidden oracle files beside it.
 2. `evals/datasets/<dataset>/cases/<case>.yaml` declares stable semantic IDs,
    product path, input, oracle reference, deterministic assertions, gates, and
-   side-effect constraints.
+   side-effect constraints. A `metric` case input is deliberately limited to
+   the natural user `question` and executive `role`:
+
+   ```yaml
+   input:
+     role: CFO
+     question: How many sales orders did we receive over the latest 12 months, compared with the preceding 12 months?
+   ```
+
+   Do not provide `slug`, `title`, `why`, `chart_hint`, table names, column
+   names, formulas, anchor dates, or other answer-plan metadata. The production
+   classifier must derive the card metadata, and the metric agent must discover
+   the calculation. Put exact computation rules and expected values only in the
+   host-side oracle and assertions.
 3. `evals/suites/<suite>.yaml` selects cases and defines aggregate quality and
    safety gates. Model-backed suites should require
    `min_token_usage_coverage: 1`; do not require dollar cost because local and
@@ -64,6 +77,8 @@ pnpm openneko eval plan --config evals/configs/<config>.yaml --json
 Review the expanded providers, models, data paths, case count, repetitions, and
 budget. Credentials must be `env:NAME` references; literal secrets are rejected.
 Dataset oracle connections are host-only and must not be exposed to the agent.
+For metric cases, review `input.question` as the text a real user would submit;
+classifier-generated `why` is output of the system under test, never case input.
 
 ## Run, interrupt, and resume
 

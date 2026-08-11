@@ -1,6 +1,6 @@
 schema_version: openneko.eval.case/v1
 id: q01
-version: 1.0.0
+version: 2.0.0
 family: read
 product_path: metric
 dataset: adventureworks
@@ -9,10 +9,7 @@ difficulty: filter
 semantics: [CALC-SCALAR, CALC-FILTER, CALC-TIME, CALC-EVIDENCE, METRIC-REFRESH]
 input:
   role: CFO
-  slug: order-volume-trend
-  title: Trailing 12-month total order count
-  why: Anchor to the latest sales.salesorderheader.orderdate in live data. The single headline number must be the count of sales orders in the inclusive 365-calendar-day window ending on that date. Compare it with the immediately preceding non-overlapping 365-day window.
-  chart_hint: kpi
+  question: How many sales orders did we receive over the latest 12 months in our data, and how does that compare with the preceding 12 months?
 oracle:
   kind: sql.metric
   ref: ../oracles/q01.sql
@@ -20,6 +17,11 @@ assertions:
   - id: headline-value
     dimension: ground_truth
     kind: numeric.relative-error
+    gate: true
+    params: { max_relative_error: 0.01 }
+  - id: baseline-value
+    dimension: ground_truth
+    kind: numeric.baseline-relative-error
     gate: true
     params: { max_relative_error: 0.01 }
   - id: exact-window

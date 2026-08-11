@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createEvalPlan, loadEval } from "../src";
+import { MetricQuestionInputSchema, createEvalPlan, loadEval } from "../src";
 
 describe("eval config safety", () => {
   it("rejects literal secret-shaped values before schema parsing", async () => {
@@ -47,5 +47,29 @@ describe("execution ordering", () => {
         )!.variantId,
     );
     expect(new Set(leading).size).toBe(2);
+  });
+});
+
+describe("metric case input", () => {
+  it("loads AdventureWorks questions without precomputed card metadata", async () => {
+    const configPath = fileURLToPath(
+      new URL("../../../evals/configs/adventureworks-20q.yaml", import.meta.url),
+    );
+    const loaded = await loadEval(configPath);
+    expect(loaded.cases).toHaveLength(20);
+    for (const evalCase of loaded.cases) {
+      expect(Object.keys(evalCase.input).sort()).toEqual(["question", "role"]);
+      expect(evalCase.input.question).toEqual(expect.any(String));
+    }
+  });
+
+  it("rejects classifier-derived metadata in a metric case", () => {
+    expect(() =>
+      MetricQuestionInputSchema.parse({
+        role: "CFO",
+        question: "How many orders did we receive?",
+        why: "Count rows in sales.orders",
+      }),
+    ).toThrow(/unrecognized key/iu);
   });
 });

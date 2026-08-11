@@ -1,7 +1,7 @@
 schema_version: openneko.eval.suite/v1
 id: adventureworks-metric-smoke
-version: 1.0.0
-description: Five grounded metric cases spanning date filters and aggregates.
+version: 2.0.0
+description: Five natural-language, grounded metric cases spanning classification, date filters, and aggregates.
 
 cases:
   - ref: ../datasets/adventureworks/cases/q01.yaml

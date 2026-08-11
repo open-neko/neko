@@ -44,6 +44,8 @@ export type ExecRole = (typeof EXEC_ROLES)[number];
 
 export type MetricAgentInput = {
   orgId: string;
+  /** Original ad-hoc user question; absent for preconfigured bootstrap cards. */
+  question?: string;
   role: ExecRole;
   slug: string;
   title: string;

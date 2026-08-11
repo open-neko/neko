@@ -175,5 +175,50 @@
       ],
       "additionalProperties": false
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "product_path": {
+            "const": "metric"
+          }
+        },
+        "required": [
+          "product_path"
+        ]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": {
+              "question": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "CEO",
+                  "CFO",
+                  "COO",
+                  "CRO",
+                  "CMO",
+                  "CIO",
+                  "CPO"
+                ]
+              }
+            },
+            "required": [
+              "question",
+              "role"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  ]
 }

@@ -1,6 +1,6 @@
 schema_version: openneko.eval.case/v1
 id: q14
-version: 1.0.0
+version: 2.0.0
 family: read
 product_path: metric
 dataset: adventureworks
@@ -9,10 +9,7 @@ difficulty: join
 semantics: [CALC-SCALAR, CALC-TIME, CALC-JOIN, CALC-EVIDENCE, METRIC-REFRESH]
 input:
   role: CRO
-  slug: ttm-discounted-lines
-  title: "Discounted sales line items in the trailing 12 months"
-  why: "Join sales.salesorderdetail to sales.salesorderheader by salesorderid and anchor to the latest header orderdate. The single headline number must count detail rows with unitpricediscount greater than zero for orders in the inclusive 365-day window ending on the anchor. Compare it with the preceding non-overlapping 365-day window."
-  chart_hint: kpi
+  question: How many sales-order line items received a price discount over the latest 12 months in our data, compared with the preceding 12 months?
 oracle:
   kind: sql.metric
   ref: ../oracles/q14.sql
@@ -20,6 +17,11 @@ assertions:
   - id: headline-value
     dimension: ground_truth
     kind: numeric.relative-error
+    gate: true
+    params: { max_relative_error: 0.01 }
+  - id: baseline-value
+    dimension: ground_truth
+    kind: numeric.baseline-relative-error
     gate: true
     params: { max_relative_error: 0.01 }
   - id: exact-window

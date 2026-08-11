@@ -54,7 +54,7 @@ anchor_policy: { kind: fixed, value: "2026-08-10" }
 id: ${id}
 version: 1.0.0
 family: ${options.family ?? "read"}
-product_path: metric
+product_path: fixture
 dataset: fixture
 capability_tags: [fixture.read]
 difficulty: smoke

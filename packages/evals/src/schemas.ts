@@ -173,6 +173,13 @@ export const AssertionSchema = z
   })
   .strict();
 
+export const MetricQuestionInputSchema = z
+  .object({
+    question: z.string().trim().min(1).max(4096),
+    role: z.enum(["CEO", "CFO", "COO", "CRO", "CMO", "CIO", "CPO"]),
+  })
+  .strict();
+
 export const CaseSchema = z
   .object({
     schema_version: z.literal("openneko.eval.case/v1"),

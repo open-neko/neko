@@ -13,6 +13,7 @@ import {
 } from "./prompts/sections";
 
 export type MetricPromptInput = {
+  question?: string | null;
   title: string;
   why: string | null;
   role: string;
@@ -198,6 +199,7 @@ The card you must answer:
 
 ${JSON.stringify(
   {
+    ...(input.question ? { userQuestion: input.question } : {}),
     cardTitle: input.title,
     cardRationale: input.why,
     cardRole: input.role,

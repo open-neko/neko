@@ -10,6 +10,7 @@ import { updateProgress } from "../progress.js";
 import {
   resolveAgentBackendId,
   runMetricAgent,
+  type AgentTokenUsage,
   type MetricAgentInput,
   type MetricAgentResult,
 } from "@neko/llm";
@@ -46,6 +47,12 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
         why?: string;
         chartHint?: string;
         role?: string;
+        classification?: {
+          durationMs: number;
+          usage: AgentTokenUsage;
+          provider?: string;
+          model?: string;
+        };
       }
     | null
     | undefined;
@@ -141,7 +148,15 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
       metricRowId = newId;
     }
 
-    input = { orgId, role, slug, title, why, chartHint };
+    input = {
+      orgId,
+      question: payload.question,
+      role,
+      slug,
+      title,
+      why,
+      chartHint,
+    };
   } else {
     throw new Error(
       `metric_refresh job ${jobId} has neither metricId nor question in trigger_payload`,
@@ -165,6 +180,41 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
     let result: MetricAgentResult;
     try {
       runTelemetry = createWorkerHarnessObserver(jobId);
+      if (payload.classification) {
+        await observeSafely(runTelemetry.observer, {
+          kind: "model.request",
+          operationId: `metric:${jobId}:classification`,
+          parentOperationId: `metric:${jobId}`,
+          attributes: {
+            "openneko.model.scope": "classification",
+            ...(payload.classification.provider
+              ? { "gen_ai.provider.name": payload.classification.provider }
+              : {}),
+            ...(payload.classification.model
+              ? { "gen_ai.request.model": payload.classification.model }
+              : {}),
+          },
+        });
+        await observeSafely(runTelemetry.observer, {
+          kind: "model.response",
+          operationId: `metric:${jobId}:classification`,
+          parentOperationId: `metric:${jobId}`,
+          status: "ok",
+          attributes: {
+            "openneko.model.scope": "classification",
+            ...(payload.classification.provider
+              ? { "gen_ai.provider.name": payload.classification.provider }
+              : {}),
+            ...(payload.classification.model
+              ? { "gen_ai.response.model": payload.classification.model }
+              : {}),
+          },
+          measurements: {
+            ...payload.classification.usage,
+            durationMs: payload.classification.durationMs,
+          },
+        });
+      }
       result = await runMetricAgent({
         ...input,
         jobId,

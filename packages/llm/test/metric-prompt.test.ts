@@ -26,6 +26,7 @@ const fakeKnowledge: KnowledgePackContents = {
 };
 
 const fakeInput = {
+  question: "Which product sold the most units last quarter?",
   title: "Top Product",
   why: "CEO wants top revenue product",
   role: "CEO",
@@ -151,6 +152,10 @@ describe("buildMetricPrompt", () => {
       shellTool: "terminal",
     });
     expect(prompt).toContain('"cardTitle": "Top Product"');
+    expect(prompt).toContain(
+      '"userQuestion": "Which product sold the most units last quarter?"',
+    );
+    expect(prompt).toContain('"cardRationale": "CEO wants top revenue product"');
     expect(prompt).toContain('"cardRole": "CEO"');
     expect(prompt).toContain('"cardSlug": "top-product"');
     expect(prompt).toContain('"chartHint": "bar"');

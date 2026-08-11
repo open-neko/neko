@@ -25,12 +25,16 @@ import {
 } from "@neko/db/test-helpers";
 import { buildPoolConfig, reconnectPool } from "@neko/db";
 import {
+  classifyQuestion,
+  combineAgentTokenUsage,
   provisionHostConfig,
   getGraphjinAgentStatus,
   runMetricAgent,
   shutdownAgentBroker,
+  type AgentTokenUsage,
   type MetricAgentDiagnostics,
   type MetricAgentResult,
+  type QuestionClassificationDiagnostics,
 } from "@neko/llm";
 import { maybeEncryptSecret } from "@neko/llm/secrets";
 import pg from "pg";
@@ -52,20 +56,21 @@ type VariantRuntime = {
 function costMeasurements(input: {
   variant: EvalVariant;
   catalog: PricingCatalog | undefined;
-  diagnostics: MetricAgentDiagnostics | undefined;
+  outerUsage: AgentTokenUsage;
+  innerUsage?: AgentTokenUsage;
 }): Record<string, unknown> {
   const scopes = [
     {
       name: "outer",
       model: input.variant.outer_model,
-      usage: input.diagnostics?.outerUsage,
+      usage: input.outerUsage,
     },
     ...(input.variant.data_path === "graphjin-agent" && input.variant.inner_model
       ? [
           {
             name: "inner",
             model: input.variant.inner_model,
-            usage: input.diagnostics?.innerUsage,
+            usage: input.innerUsage,
           },
         ]
       : []),
@@ -310,9 +315,11 @@ export function createAdventureWorksMetricDriver(context: {
     id: "adventureworks.metric",
     scorer: {
       id: "adventureworks.metric",
-      version: "1.0.0",
+      version: "2.0.0",
       definition: {
+        classification: "natural question to card metadata via production classifier",
         numeric: "relative error against host SQL",
+        baseline: "prior-period chart target relative error against host SQL",
         timeWindow: "exact grain/start/end",
         contract: "OpenNeko metric result contract",
       },
@@ -499,18 +506,45 @@ export function createAdventureWorksMetricDriver(context: {
     async execute({ runId, slot, observer }) {
       const runtime = await prepareVariant(slot.variant);
       const input = slot.case.input as {
+        question?: unknown;
         role?: unknown;
-        slug?: unknown;
-        title?: unknown;
-        why?: unknown;
-        chart_hint?: unknown;
       };
+      const question = String(input.question ?? "").trim();
+      const role = String(input.role ?? "").trim();
+      if (!question) throw new Error(`${slot.caseId} has no natural-language question`);
+      if (!["CEO", "CFO", "COO", "CRO", "CMO", "CIO", "CPO"].includes(role)) {
+        throw new Error(`${slot.caseId} has an invalid executive role`);
+      }
       const started = Date.now();
       const jobId = randomUUID();
+      const operationId = `metric:${runId}-${slot.caseId}-${slot.repetition}`;
+      let classificationDiagnostics: QuestionClassificationDiagnostics | undefined;
       let diagnostics: MetricAgentDiagnostics | undefined;
+      const card = await classifyQuestion(question, role, runtime.orgId, {
+        observer,
+        operationId: `${operationId}:classification`,
+        parentOperationId: operationId,
+        observationAttributes: {
+          "openneko.run.kind": "eval",
+          "openneko.model.scope": "classification",
+          "gen_ai.provider.name": slot.variant.outer_model.provider,
+          "gen_ai.request.model": slot.variant.outer_model.model,
+          "openneko.eval.case.id": slot.caseId,
+          "openneko.eval.variant.id": slot.variantId,
+        },
+        onDiagnostics(value) {
+          classificationDiagnostics = value;
+        },
+      });
+      const chartHint = ["kpi", "line", "bar", "donut", "area"].includes(
+        card.chartHint,
+      )
+        ? card.chartHint
+        : "bar";
       const output = await runMetricAgent({
         orgId: runtime.orgId,
-        role: String(input.role) as
+        question,
+        role: role as
           | "CEO"
           | "CFO"
           | "COO"
@@ -518,10 +552,10 @@ export function createAdventureWorksMetricDriver(context: {
           | "CMO"
           | "CIO"
           | "CPO",
-        slug: String(input.slug),
-        title: String(input.title),
-        why: String(input.why),
-        chartHint: String(input.chart_hint) as
+        slug: card.slug || `chat-${slot.caseId}`,
+        title: card.title || question.slice(0, 80),
+        why: card.why || question,
+        chartHint: chartHint as
           | "kpi"
           | "line"
           | "bar"
@@ -544,53 +578,74 @@ export function createAdventureWorksMetricDriver(context: {
         },
       });
       const wallDurationMs = Date.now() - started;
-      const usage = diagnostics?.totalUsage;
+      const unavailableUsage = (reason: string): AgentTokenUsage => ({
+        coverage: "unavailable",
+        missingReasons: [reason],
+      });
+      const classifierUsage =
+        classificationDiagnostics?.usage ??
+        unavailableUsage("classification usage unavailable");
+      const metricOuterUsage =
+        diagnostics?.outerUsage ??
+        unavailableUsage("metric-agent outer usage unavailable");
+      const metricTotalUsage =
+        diagnostics?.totalUsage ??
+        unavailableUsage("metric-agent usage unavailable");
+      const outerUsage = combineAgentTokenUsage(
+        classifierUsage,
+        metricOuterUsage,
+      );
+      const usage = combineAgentTokenUsage(classifierUsage, metricTotalUsage);
       const cost = costMeasurements({
         variant: slot.variant,
         catalog: context.loaded.pricing,
-        diagnostics,
+        outerUsage,
+        ...(diagnostics?.innerUsage ? { innerUsage: diagnostics.innerUsage } : {}),
       });
       await observer.observe({
         kind: "output.contract",
-        operationId: `metric:${runId}-${slot.caseId}-${slot.repetition}:contract`,
-        parentOperationId: `metric:${runId}-${slot.caseId}-${slot.repetition}`,
+        operationId: `${operationId}:contract`,
+        parentOperationId: operationId,
         status: validateResult(output) ? "error" : "ok",
       });
       return {
         output,
         measurements: {
           wallDurationMs,
-          usageCoverage: usage?.coverage ?? "unavailable",
-          ...(usage?.missingReasons
+          ...(classificationDiagnostics
+            ? { classificationDurationMs: classificationDiagnostics.durationMs }
+            : {}),
+          usageCoverage: usage.coverage,
+          ...(usage.missingReasons
             ? { usageMissingReasons: usage.missingReasons }
             : {}),
-          ...(usage?.inputTokens !== undefined
+          ...(usage.inputTokens !== undefined
             ? { inputTokens: usage.inputTokens }
             : {}),
-          ...(usage?.outputTokens !== undefined
+          ...(usage.outputTokens !== undefined
             ? { outputTokens: usage.outputTokens }
             : {}),
-          ...(usage?.cacheReadTokens !== undefined
+          ...(usage.cacheReadTokens !== undefined
             ? { cacheReadTokens: usage.cacheReadTokens }
             : {}),
-          ...(usage?.cacheWriteTokens !== undefined
+          ...(usage.cacheWriteTokens !== undefined
             ? { cacheWriteTokens: usage.cacheWriteTokens }
             : {}),
-          ...(usage?.reasoningTokens !== undefined
+          ...(usage.reasoningTokens !== undefined
             ? { reasoningTokens: usage.reasoningTokens }
             : {}),
-          ...(usage?.totalTokens !== undefined
+          ...(usage.totalTokens !== undefined
             ? { totalTokens: usage.totalTokens }
             : {}),
           ...cost,
-          ...(usage?.estimatedCostUsd !== undefined
+          ...(usage.estimatedCostUsd !== undefined
             ? { estimatedCostUsd: usage.estimatedCostUsd }
             : {}),
-          ...(usage?.billedCostUsd !== undefined
+          ...(usage.billedCostUsd !== undefined
             ? { billedCostUsd: usage.billedCostUsd }
             : {}),
-          ...(usage?.currency ? { currency: usage.currency } : {}),
-          ...(usage?.pricingCatalogVersion
+          ...(usage.currency ? { currency: usage.currency } : {}),
+          ...(usage.pricingCatalogVersion
             ? { pricingCatalogVersion: usage.pricingCatalogVersion }
             : {}),
           ...(diagnostics
@@ -618,6 +673,27 @@ export function createAdventureWorksMetricDriver(context: {
               : oracle.expectedValue === 0
                 ? Math.abs(parsed)
                 : Math.abs(parsed - oracle.expectedValue) / Math.abs(oracle.expectedValue);
+          return {
+            assertionId: assertion.id,
+            dimension: assertion.dimension,
+            passed: relativeError <= tolerance,
+            score: Number.isFinite(relativeError)
+              ? Math.max(0, 1 - relativeError / Math.max(tolerance, 1e-9))
+              : 0,
+            gate: assertion.gate,
+            diagnostic: `relative_error=${Number.isFinite(relativeError) ? relativeError : "unavailable"}`,
+          };
+        }
+        if (assertion.kind === "numeric.baseline-relative-error") {
+          const tolerance = Number(assertion.params?.max_relative_error ?? 0.01);
+          const actual = output.chartData[0]?.t;
+          const relativeError =
+            actual == null
+              ? Number.POSITIVE_INFINITY
+              : oracle.baselineValue === 0
+                ? Math.abs(actual)
+                : Math.abs(actual - oracle.baselineValue) /
+                  Math.abs(oracle.baselineValue);
           return {
             assertionId: assertion.id,
             dimension: assertion.dimension,
@@ -682,9 +758,11 @@ export function createAdventureWorksMetricDriver(context: {
       });
       return createScore({
         scorerId: "adventureworks.metric",
-        scorerVersion: "1.0.0",
+        scorerVersion: "2.0.0",
         scorerDefinition: {
+          classification: "natural question to card metadata via production classifier",
           numeric: "relative error against host SQL",
+          baseline: "prior-period chart target relative error against host SQL",
           timeWindow: "exact grain/start/end",
           contract: "OpenNeko metric result contract",
         },

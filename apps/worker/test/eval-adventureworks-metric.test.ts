@@ -58,6 +58,20 @@ describe("AdventureWorks eval adapter", () => {
       },
     });
     expect(failing.verdict).toBe("fail");
+
+    const badBaseline = await driver.score({
+      case: evalCase,
+      variant,
+      oracle,
+      execution: {
+        ...execution,
+        output: {
+          ...(execution.output as Record<string, unknown>),
+          chartData: [{ d: "Orders", v: 100, t: 1 }],
+        },
+      },
+    });
+    expect(badBaseline.verdict).toBe("fail");
     await driver.close?.();
   });
 });

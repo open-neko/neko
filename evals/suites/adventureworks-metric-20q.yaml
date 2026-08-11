@@ -1,7 +1,7 @@
 schema_version: openneko.eval.suite/v1
 id: adventureworks-metric-20q
-version: 1.0.0
-description: Twenty grounded metric cases covering filters, aggregates, joins, ratios, and grouped rankings.
+version: 2.0.0
+description: Twenty natural-language, grounded metric cases covering classification, filters, aggregates, joins, ratios, and grouped rankings.
 
 cases:
   - ref: ../datasets/adventureworks/cases/q01.yaml

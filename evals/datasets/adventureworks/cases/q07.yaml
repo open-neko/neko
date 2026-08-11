@@ -1,6 +1,6 @@
 schema_version: openneko.eval.case/v1
 id: q07
-version: 1.0.0
+version: 2.0.0
 family: read
 product_path: metric
 dataset: adventureworks
@@ -9,10 +9,7 @@ difficulty: filter
 semantics: [CALC-SCALAR, CALC-FILTER, CALC-TIME, CALC-EVIDENCE, METRIC-REFRESH]
 input:
   role: CRO
-  slug: ttm-online-order-count
-  title: "Online orders in the trailing 12 months"
-  why: "Anchor to the latest sales.salesorderheader.orderdate. The single headline number must count rows where salesorderheader.onlineorderflag is true in the inclusive 365-day window ending on the anchor. Compare it with the preceding non-overlapping 365-day window."
-  chart_hint: kpi
+  question: How many online sales orders did we receive over the latest 12 months in our data, compared with the preceding 12 months?
 oracle:
   kind: sql.metric
   ref: ../oracles/q07.sql
@@ -20,6 +17,11 @@ assertions:
   - id: headline-value
     dimension: ground_truth
     kind: numeric.relative-error
+    gate: true
+    params: { max_relative_error: 0.01 }
+  - id: baseline-value
+    dimension: ground_truth
+    kind: numeric.baseline-relative-error
     gate: true
     params: { max_relative_error: 0.01 }
   - id: exact-window

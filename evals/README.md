@@ -64,6 +64,14 @@ executes watcher and approval-governed mutation state machines against isolated
 test organizations with deterministic clocks, query responses, and action
 effects.
 
+AdventureWorks metric episodes start at the same natural-language seam as an
+ad-hoc production request: a case supplies only `question` and `role`, the
+production classifier derives `slug`/`title`/`why`/`chartHint`, and the metric
+agent receives both the exact user question and that derived metadata. Tables,
+columns, formulas, anchor details, and expected current/baseline values remain
+in the host-only SQL oracle. Episode token, cost, and latency measurements
+include classification as well as metric-agent execution.
+
 ### Production OpenTelemetry
 
 The worker and Node.js web execution paths export metadata-only traces when an

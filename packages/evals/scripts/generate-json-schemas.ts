@@ -9,6 +9,7 @@ import {
   EvalConfigSchema,
   ManifestSchema,
   GeneratorSchema,
+  MetricQuestionInputSchema,
   OracleJournalSchema,
   PricingCatalogSchema,
   ResultLineSchema,
@@ -44,7 +45,25 @@ const schemas = {
 
 await mkdir(outputDirectory, { recursive: true });
 for (const [name, schema] of Object.entries(schemas)) {
-  const document = z.toJSONSchema(schema, { reused: "ref" });
+  const document = z.toJSONSchema(schema, { reused: "ref" }) as Record<
+    string,
+    unknown
+  >;
+  if (name === "case.v1.schema.json") {
+    const { $schema: _nestedSchema, ...metricInput } = z.toJSONSchema(
+      MetricQuestionInputSchema,
+      { reused: "ref" },
+    );
+    document.allOf = [
+      {
+        if: {
+          properties: { product_path: { const: "metric" } },
+          required: ["product_path"],
+        },
+        then: { properties: { input: metricInput } },
+      },
+    ];
+  }
   await writeFile(
     new URL(name, `file://${outputDirectory}/`),
     `${JSON.stringify(document, null, 2)}\n`,
