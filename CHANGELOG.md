@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.25.0](https://github.com/open-neko/openneko/compare/v2.24.0...v2.25.0) (2026-08-11)
+
+
+### Features
+
+* **evals:** add whole-harness evaluation and telemetry ([cd92d93](https://github.com/open-neko/openneko/commit/cd92d93d0ea0a5368dec483b88c13ab5fcf2c841))
+* **evals:** add whole-harness evaluation framework ([c4e9af1](https://github.com/open-neko/openneko/commit/c4e9af1eec6d6a4a958960fa56bf0c2204ad2696))
+
+
+### Bug Fixes
+
+* **evals:** evaluate metric questions without oracle leakage ([5514a8e](https://github.com/open-neko/openneko/commit/5514a8e10ce98ad1d29c154b8c1ccbab63c13ad9))
+* **evals:** require complete model usage accounting ([e2936e0](https://github.com/open-neko/openneko/commit/e2936e0407ec995787893ba5454df08ba30aa22e))
+
 ## [2.24.0](https://github.com/open-neko/openneko/compare/v2.23.2...v2.24.0) (2026-08-10)
 
 
