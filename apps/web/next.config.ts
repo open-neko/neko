@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
   transpilePackages: [
     "@neko/db",
     "@neko/llm",
+    "@neko/telemetry",
     "@neko/secret-crypt",
     "@open-neko/plugin-install",
   ],

@@ -156,6 +156,22 @@ async function handle(
           orgId: binding.orgId,
         }),
       );
+    case "/v1/graphjin/agent":
+      return send(
+        res,
+        200,
+        await cp.askGraphjinDataAgent({
+          orgId: binding.orgId,
+          runId: binding.runId,
+          instruction: String(body.instruction ?? ""),
+          ...(typeof body.dataSourceId === "string"
+            ? { dataSourceId: body.dataSourceId }
+            : {}),
+          ...(typeof body.maxSteps === "number"
+            ? { maxSteps: body.maxSteps }
+            : {}),
+        }),
+      );
     case "/v1/records/catalog":
       return send(
         res,
@@ -624,6 +640,23 @@ export function ensureAgentBroker(): Promise<AgentBrokerHandle | undefined> {
       });
   }
   return brokerStarting;
+}
+
+/**
+ * Stop and forget the process-wide broker.
+ *
+ * Long-lived web/worker hosts normally keep it for their full lifetime. Short-
+ * lived hosts such as the eval CLI must call this during teardown so the
+ * broker's listening socket does not keep the Node process alive.
+ */
+export async function shutdownAgentBroker(): Promise<void> {
+  const starting = brokerStarting;
+  const active =
+    brokerSingleton ??
+    (starting ? await starting.catch(() => undefined) : undefined);
+  brokerSingleton = undefined;
+  brokerStarting = undefined;
+  await active?.close();
 }
 
 async function routeBrokerEvents(

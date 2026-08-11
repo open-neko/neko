@@ -10,7 +10,10 @@ import {
   processing_job,
 } from "@neko/db";
 import { enqueue, QUEUE } from "@neko/db/jobs";
-import { classifyQuestion } from "@neko/llm";
+import {
+  classifyQuestion,
+  type QuestionClassificationDiagnostics,
+} from "@neko/llm";
 import { webProjection } from "@neko/channels";
 import { WEB_PROFILE } from "@neko/interaction";
 import { outputRowToInteractionEvent } from "@neko/llm/interaction";
@@ -380,8 +383,13 @@ export async function POST(request: NextRequest) {
   );
 
   let card;
+  let classification: QuestionClassificationDiagnostics | undefined;
   try {
-    card = await classifyQuestion(message, role, orgId);
+    card = await classifyQuestion(message, role, orgId, {
+      onDiagnostics(value) {
+        classification = value;
+      },
+    });
     console.log(
       `[chat] org=${orgId} classify -> slug=${card.slug} chartHint=${card.chartHint} title=${JSON.stringify(card.title).slice(0, 200)}`,
     );
@@ -406,6 +414,7 @@ export async function POST(request: NextRequest) {
         why: card.why,
         chartHint: card.chartHint,
         role,
+        ...(classification ? { classification } : {}),
       },
     })
     .returning({ id: processing_job.id });

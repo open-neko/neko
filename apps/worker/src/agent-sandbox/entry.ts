@@ -21,6 +21,7 @@ import {
 import { runWorkflowAgentBackend } from "@neko/llm/workflows";
 import {
   ensureGraphjinGuard,
+  buildGraphjinAgentServer,
   buildGraphjinReadServer,
   buildWorkMemoryServer,
   materializeBuiltinSkills,
@@ -71,6 +72,7 @@ interface SandboxJob {
   /** Explicit least-privilege envelope for non-interactive agent jobs. */
   agentAccess?: {
     graphjinRead?: boolean;
+    graphjinAgent?: boolean;
     memorySearch?: boolean;
   };
   agentRun?: Pick<
@@ -243,17 +245,27 @@ export async function main(): Promise<void> {
   let result: AgentRunResult;
   if (kind === "agent-job") {
     const graphjinRead = job.agentAccess?.graphjinRead === true;
+    const graphjinAgent = job.agentAccess?.graphjinAgent === true;
     const memorySearch = job.agentAccess?.memorySearch === true;
-    if ((graphjinRead || memorySearch) && !controlPlane) {
+    if ((graphjinRead || graphjinAgent || memorySearch) && !controlPlane) {
       throw new Error("agent-sandbox: brokered job capability missing broker");
     }
     const mcpServers =
-      graphjinRead || memorySearch
+      graphjinRead || graphjinAgent || memorySearch
         ? {
             ...(graphjinRead
               ? {
                   neko_graphjin: buildGraphjinReadServer({
                     orgId: job.orgId,
+                    controlPlane,
+                  }),
+                }
+              : {}),
+            ...(graphjinAgent
+              ? {
+                  neko_graphjin_agent: buildGraphjinAgentServer({
+                    orgId: job.orgId,
+                    runId: job.runId,
                     controlPlane,
                   }),
                 }
@@ -274,6 +286,9 @@ export async function main(): Promise<void> {
             ...(graphjinRead
               ? ["mcp__neko_graphjin__execute_graphql"]
               : []),
+            ...(graphjinAgent
+              ? ["mcp__neko_graphjin_agent__ask"]
+              : []),
             ...(memorySearch ? ["mcp__neko_memory__search"] : []),
           ]
         : undefined;
@@ -288,7 +303,7 @@ export async function main(): Promise<void> {
       allowedTools,
       wantsCards: false,
       mcpBridgeEnv:
-        graphjinRead || memorySearch
+        graphjinRead || graphjinAgent || memorySearch
           ? {
               OPENNEKO_MCP_ORG_ID: job.orgId,
               OPENNEKO_MCP_THREAD_ID: job.threadId,

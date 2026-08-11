@@ -35,6 +35,7 @@
     "@neko/interaction": "workspace:*",
     "@neko/records": "workspace:*",
     "@neko/secret-crypt": "workspace:*",
+    "@neko/telemetry": "workspace:*",
     "@open-neko/plugin-install": "workspace:*",
     "cron-parser": "^4.9.0",
     "google-auth-library": "^10.6.2",

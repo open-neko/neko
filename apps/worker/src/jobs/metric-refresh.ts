@@ -10,10 +10,16 @@ import { updateProgress } from "../progress.js";
 import {
   resolveAgentBackendId,
   runMetricAgent,
+  type AgentTokenUsage,
   type MetricAgentInput,
   type MetricAgentResult,
 } from "@neko/llm";
 import { acquireAgentSlot } from "../agent-concurrency.js";
+import {
+  createWorkerHarnessObserver,
+  persistProcessingJobTelemetry,
+} from "../telemetry.js";
+import { observeSafely } from "@neko/telemetry";
 
 /**
  * metric_refresh job — runs the metric agent for ONE card and writes the
@@ -41,6 +47,12 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
         why?: string;
         chartHint?: string;
         role?: string;
+        classification?: {
+          durationMs: number;
+          usage: AgentTokenUsage;
+          provider?: string;
+          model?: string;
+        };
       }
     | null
     | undefined;
@@ -136,7 +148,15 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
       metricRowId = newId;
     }
 
-    input = { orgId, role, slug, title, why, chartHint };
+    input = {
+      orgId,
+      question: payload.question,
+      role,
+      slug,
+      title,
+      why,
+      chartHint,
+    };
   } else {
     throw new Error(
       `metric_refresh job ${jobId} has neither metricId nor question in trigger_payload`,
@@ -150,16 +170,72 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
   // so the briefing API can render a Retry button without joining
   // processing_job (which only knows the job id, not the metric id). The
   // outer makeHandler still marks processing_job.status='failed' on rethrow.
+  let runTelemetry:
+    | ReturnType<typeof createWorkerHarnessObserver>
+    | undefined;
+  const telemetryStartedAt = Date.now();
+  let telemetryFailure: unknown;
   try {
     const release = await acquireAgentSlot(backendId);
     let result: MetricAgentResult;
     try {
-      result = await runMetricAgent({ ...input, jobId });
+      runTelemetry = createWorkerHarnessObserver(jobId);
+      if (payload.classification) {
+        await observeSafely(runTelemetry.observer, {
+          kind: "model.request",
+          operationId: `metric:${jobId}:classification`,
+          parentOperationId: `metric:${jobId}`,
+          attributes: {
+            "openneko.model.scope": "classification",
+            ...(payload.classification.provider
+              ? { "gen_ai.provider.name": payload.classification.provider }
+              : {}),
+            ...(payload.classification.model
+              ? { "gen_ai.request.model": payload.classification.model }
+              : {}),
+          },
+        });
+        await observeSafely(runTelemetry.observer, {
+          kind: "model.response",
+          operationId: `metric:${jobId}:classification`,
+          parentOperationId: `metric:${jobId}`,
+          status: "ok",
+          attributes: {
+            "openneko.model.scope": "classification",
+            ...(payload.classification.provider
+              ? { "gen_ai.provider.name": payload.classification.provider }
+              : {}),
+            ...(payload.classification.model
+              ? { "gen_ai.response.model": payload.classification.model }
+              : {}),
+          },
+          measurements: {
+            ...payload.classification.usage,
+            durationMs: payload.classification.durationMs,
+          },
+        });
+      }
+      result = await runMetricAgent({
+        ...input,
+        jobId,
+        observer: runTelemetry.observer,
+        observationAttributes: {
+          "openneko.job.kind": "metric_refresh",
+        },
+      });
     } finally {
       release();
     }
 
     const validationError = validateResult(result);
+    await observeSafely(runTelemetry.observer, {
+      kind: "validation.result",
+      operationId: `metric:${jobId}:persisted-contract`,
+      parentOperationId: `metric:${jobId}`,
+      status: validationError ? "error" : "ok",
+      ...(validationError ? { errorType: "metric_result_invalid" } : {}),
+      attributes: { "openneko.validation.contract": "metric-persistence" },
+    });
     if (validationError) {
       throw new Error(`metric agent output invalid: ${validationError}`);
     }
@@ -186,6 +262,16 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
       `[metric_refresh] org=${orgId} metric=${input.slug} mood=${result.mood} "${result.headlineMetric}"`,
     );
   } catch (e) {
+    telemetryFailure = e;
+    if (runTelemetry && runTelemetry.snapshot().status !== "failed") {
+      await observeSafely(runTelemetry.observer, {
+        kind: "error",
+        operationId: `metric:${jobId}:handler-error`,
+        parentOperationId: `metric:${jobId}`,
+        status: "error",
+        errorType: e instanceof Error ? e.name : "unknown",
+      });
+    }
     const msg = e instanceof Error ? e.message : String(e);
     await db()
       .update(metric)
@@ -197,6 +283,37 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
       })
       .where(eq(metric.id, metricRowId));
     throw e;
+  } finally {
+    if (runTelemetry) {
+      // Structured and content-free: safe for production logs and collectors.
+      if (!runTelemetry.snapshot().finishedAt) {
+        await observeSafely(runTelemetry.observer, {
+          kind: "run.end",
+          operationId: `metric:${jobId}`,
+          status: telemetryFailure ? "error" : "ok",
+          ...(telemetryFailure
+            ? {
+                errorType:
+                  telemetryFailure instanceof Error
+                    ? telemetryFailure.name
+                    : "unknown",
+              }
+            : {}),
+          attributes: {
+            "openneko.outcome": telemetryFailure ? "failed" : "completed",
+          },
+          measurements: {
+            durationMs: Date.now() - telemetryStartedAt,
+            coverage: "unavailable",
+          },
+        });
+      }
+      const summary = runTelemetry.snapshot();
+      await persistProcessingJobTelemetry(jobId, summary);
+      console.log(
+        `[metric_refresh.telemetry] ${JSON.stringify(summary)}`,
+      );
+    }
   }
 }
 

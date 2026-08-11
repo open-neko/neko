@@ -1010,6 +1010,57 @@ export function buildGraphjinReadServer(opts: {
 }
 
 /**
+ * Read-only delegation surface for GraphJin's built-in server agent. The
+ * sandbox supplies only a business instruction; the host owns source
+ * selection, readiness checks, and credentials.
+ */
+export function buildGraphjinAgentServer(opts: {
+  orgId: string;
+  runId?: string;
+  dataSourceId?: string;
+  controlPlane?: AgentControlPlane;
+}) {
+  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const ask = tool(
+    "ask",
+    [
+      "Delegate one read-only operational data question to GraphJin's",
+      "catalog-first server agent. Include the complete business question,",
+      "time window, aggregation, comparison baseline, and desired dimension",
+      "in one instruction. The trusted host verifies read-only mode and keeps",
+      "the source credential outside this sandbox.",
+    ].join(" "),
+    {
+      instruction: z.string().trim().min(1).max(8_000),
+      maxSteps: z.number().int().min(1).max(12).optional(),
+    },
+    async (args) => {
+      const result = await controlPlane.askGraphjinDataAgent({
+        orgId: opts.orgId,
+        runId: opts.runId ?? null,
+        ...(opts.dataSourceId ? { dataSourceId: opts.dataSourceId } : {}),
+        instruction: args.instruction,
+        ...(args.maxSteps ? { maxSteps: args.maxSteps } : {}),
+      });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(result),
+          },
+        ],
+      };
+    },
+  );
+
+  return createSdkMcpServer({
+    name: "neko_graphjin_agent",
+    version: "1.0.0",
+    tools: [ask],
+  });
+}
+
+/**
  * Native records read surface. Unlike neko_graphjin (customer sources), every
  * document here is generated from the records registry and executes with the
  * requesting run's current human identity. The sandbox never receives a raw

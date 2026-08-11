@@ -1,0 +1,620 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "openneko.eval.summary/v1"
+    },
+    "expectedEpisodes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "scoredEpisodes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "executionFailures": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "taskCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "passedTasks": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "taskPassRate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "meanConsistency": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "macro": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "micro": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "groundTruth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "method": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "behavior": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "safety": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "efficiency": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "groundTruth",
+        "method",
+        "behavior",
+        "safety",
+        "efficiency"
+      ],
+      "additionalProperties": false
+    },
+    "measurements": {
+      "type": "object",
+      "properties": {
+        "wallDurationMs": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "firstOutputMs": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "inputTokens": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "outputTokens": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "cacheReadTokens": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "cacheWriteTokens": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "reasoningTokens": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "totalTokens": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "estimatedCostUsd": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "billedCostUsd": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "usageCoverage": {
+          "type": "object",
+          "properties": {
+            "completeEpisodes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "partialEpisodes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "unavailableEpisodes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "completeRate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "availableRate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "completeEpisodes",
+            "partialEpisodes",
+            "unavailableEpisodes",
+            "completeRate",
+            "availableRate"
+          ],
+          "additionalProperties": false
+        },
+        "costCoverage": {
+          "type": "object",
+          "properties": {
+            "completeEpisodes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "partialEpisodes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "unavailableEpisodes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "completeRate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "availableRate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "completeEpisodes",
+            "partialEpisodes",
+            "unavailableEpisodes",
+            "completeRate",
+            "availableRate"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "wallDurationMs",
+        "firstOutputMs",
+        "inputTokens",
+        "outputTokens",
+        "cacheReadTokens",
+        "cacheWriteTokens",
+        "reasoningTokens",
+        "totalTokens",
+        "estimatedCostUsd",
+        "billedCostUsd",
+        "usageCoverage",
+        "costCoverage"
+      ],
+      "additionalProperties": false
+    },
+    "macroGroundTruth95CI": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      ]
+    },
+    "safetyGateFailures": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "behaviorGateFailures": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "variantId": {
+            "$ref": "#/$defs/__schema2"
+          },
+          "caseId": {
+            "$ref": "#/$defs/__schema2"
+          },
+          "datasetId": {
+            "$ref": "#/$defs/__schema2"
+          },
+          "phase": {
+            "$ref": "#/$defs/__schema2"
+          },
+          "family": {
+            "type": "string",
+            "enum": [
+              "read",
+              "watcher",
+              "mutation",
+              "resilience",
+              "contract"
+            ]
+          },
+          "productPath": {
+            "$ref": "#/$defs/__schema2"
+          },
+          "difficulty": {
+            "$ref": "#/$defs/__schema2"
+          },
+          "capabilityTags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/__schema2"
+            }
+          },
+          "semantics": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "repetitions": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "passes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "majorityPass": {
+            "type": "boolean"
+          },
+          "consistency": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "vector": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "passAtK": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "passPowerK": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "key",
+          "variantId",
+          "caseId",
+          "datasetId",
+          "phase",
+          "family",
+          "productPath",
+          "difficulty",
+          "capabilityTags",
+          "semantics",
+          "repetitions",
+          "passes",
+          "majorityPass",
+          "consistency",
+          "vector",
+          "passAtK",
+          "passPowerK"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "byDifficulty": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema3"
+      }
+    },
+    "byFamily": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema3"
+      }
+    },
+    "byCapability": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema3"
+      }
+    },
+    "bySemantic": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema3"
+      }
+    },
+    "byDataset": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema3"
+      }
+    },
+    "byProductPath": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema3"
+      }
+    },
+    "byVariant": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema3"
+      }
+    },
+    "failureTypes": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "expectedEpisodes",
+    "scoredEpisodes",
+    "executionFailures",
+    "taskCount",
+    "passedTasks",
+    "taskPassRate",
+    "meanConsistency",
+    "macro",
+    "micro",
+    "coverage",
+    "measurements",
+    "macroGroundTruth95CI",
+    "safetyGateFailures",
+    "behaviorGateFailures",
+    "tasks",
+    "byDifficulty",
+    "byFamily",
+    "byCapability",
+    "bySemantic",
+    "byDataset",
+    "byProductPath",
+    "byVariant",
+    "failureTypes"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "type": "object",
+      "properties": {
+        "groundTruth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "method": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "behavior": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "safety": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "efficiency": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "groundTruth",
+        "method",
+        "behavior",
+        "safety",
+        "efficiency"
+      ],
+      "additionalProperties": false
+    },
+    "__schema1": {
+      "type": "object",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "total": {
+          "type": "number",
+          "minimum": 0
+        },
+        "mean": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "p50": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "p95": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "count",
+        "coverage",
+        "total",
+        "mean",
+        "p50",
+        "p95",
+        "max"
+      ],
+      "additionalProperties": false
+    },
+    "__schema2": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "__schema3": {
+      "type": "object",
+      "properties": {
+        "tasks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "passRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "vector": {
+          "$ref": "#/$defs/__schema0"
+        }
+      },
+      "required": [
+        "tasks",
+        "passed",
+        "passRate",
+        "vector"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -88,6 +88,8 @@ type RunWorkflowCore = (input: RunWorkflowAgentBackendInput) => Promise<AgentRun
 export type AgentJobAccess = {
   /** Permit query-only GraphJin reads through the trusted host broker. */
   graphjinRead?: boolean;
+  /** Permit read-only delegation to GraphJin's built-in server agent. */
+  graphjinAgent?: boolean;
   /** Permit search-only access to the org's team memory layer via the broker. */
   memorySearch?: boolean;
 };
@@ -366,7 +368,8 @@ export async function sandboxAgentBackendForJob(opts: {
   access?: AgentJobAccess;
 }): Promise<AgentBackend> {
   const access = opts.access ?? {};
-  const needsBroker = access.graphjinRead || access.memorySearch;
+  const needsBroker =
+    access.graphjinRead || access.graphjinAgent || access.memorySearch;
   const broker = needsBroker
     ? await import("./broker").then(({ ensureAgentBroker }) =>
         ensureAgentBroker(),

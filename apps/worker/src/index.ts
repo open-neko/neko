@@ -151,6 +151,10 @@ import {
   publishRecordsAppCreationSummary,
   publishRecordsImportReport,
 } from "./jobs/records-lifecycle-finding.js";
+import {
+  initializeWorkerTelemetry,
+  shutdownWorkerTelemetry,
+} from "./telemetry.js";
 
 const PORT: number = 4100;
 const MAX_JOB_RETRIES: number = 2;
@@ -164,6 +168,10 @@ const RECONCILE_SWEEP_MIN_AGE_MS: number = Math.max(
   agentTurnTimeoutMs() + 240_000,
 );
 const SCHEDULED_REFRESH_HOURS: number = 24;
+
+if (initializeWorkerTelemetry()) {
+  console.log("[telemetry] OTLP trace export enabled");
+}
 
 const ADMIN_ORG_ID = await getOrgId();
 const recordsPool = new pg.Pool({
@@ -1376,6 +1384,7 @@ const shutdown = async (signal: string) => {
   } catch (e) {
     console.error("[worker] records pool shutdown error:", e);
   }
+  await shutdownWorkerTelemetry();
   process.exit(0);
 };
 process.on("SIGINT", () => shutdown("SIGINT"));

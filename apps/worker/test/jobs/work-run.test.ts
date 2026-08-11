@@ -41,6 +41,10 @@ import {
   type RunChatTurnDeps,
 } from "@neko/llm/work";
 import type { AgentEvent } from "@neko/llm";
+import {
+  MemoryObservationSink,
+  createHarnessObserver,
+} from "@neko/telemetry";
 
 const reachable = await dbReachable();
 const describeIfDb = reachable ? describe : describe.skip;
@@ -215,6 +219,124 @@ describeIfDb("runChatTurn", () => {
       .limit(1);
     expect(final[0]?.status).toBe("completed");
     expect(final[0]?.error).toBeNull();
+  });
+
+  it("emits content-free model, tool, latency, and normalized usage observations", async () => {
+    const thread = await insertWorkThread(orgId);
+    const run = await insertWorkRun({ orgId, threadId: thread.id });
+    const memory = new MemoryObservationSink();
+    const observer = createHarnessObserver({ runId: run.id, sinks: [memory] });
+    mockBackendRun.mockImplementation(async (opts: {
+      onEvent: (event: AgentEvent) => Promise<void>;
+    }) => {
+      await opts.onEvent({
+        type: "tool_start",
+        id: "tool-1",
+        name: "mcp__neko_graphjin_agent__ask",
+        input: { privateQuery: "must not escape" },
+      });
+      await opts.onEvent({
+        type: "tool_end",
+        id: "tool-1",
+        result: {
+          privateRows: ["must not escape"],
+          provider: "openai",
+          model: "gpt-inner",
+          usage: { input_tokens: 7, output_tokens: 3, total_tokens: 10 },
+        },
+      });
+      await opts.onEvent({
+        type: "usage",
+        source: "outer",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        usage: {
+          inputTokens: 12,
+          outputTokens: 4,
+          totalTokens: 16,
+          coverage: "complete",
+        },
+      });
+      await opts.onEvent({
+        type: "message",
+        role: "assistant",
+        content: "private answer",
+      });
+      return {
+        finalText: "private answer",
+        status: "completed",
+        backendState: {},
+      };
+    });
+    const emit = buildEmit({ orgId, threadId: thread.id, runId: run.id });
+    await runChatTurn(
+      {
+        orgId,
+        threadId: thread.id,
+        runId: run.id,
+        message: "private question",
+        emit,
+        observer,
+      },
+      makeDeps({
+        resolveAgentBackend: vi.fn(async () => ({
+          id: "hermes" as const,
+          model: "claude-sonnet-4-5",
+          capabilities: HERMES_CAPABILITIES,
+          run: mockBackendRun,
+        })),
+      }),
+    );
+
+    expect(memory.observations.map((item) => item.kind)).toEqual([
+      "stage.start",
+      "model.request",
+      "tool.start",
+      "delegation.start",
+      "model.request",
+      "tool.end",
+      "model.response",
+      "delegation.end",
+      "model.first_chunk",
+      "run.first_output",
+      "model.response",
+      "stage.end",
+    ]);
+    expect(
+      memory.observations.find(
+        (item) =>
+          item.kind === "model.response" &&
+          item.attributes["openneko.model.scope"] === "outer",
+      )
+        ?.measurements,
+    ).toMatchObject({
+      inputTokens: 12,
+      outputTokens: 4,
+      totalTokens: 16,
+      coverage: "complete",
+    });
+    expect(
+      memory.observations.find(
+        (item) =>
+          item.kind === "model.response" &&
+          item.attributes["openneko.model.scope"] === "inner",
+      ),
+    ).toMatchObject({
+      attributes: {
+        "gen_ai.provider.name": "openai",
+        "gen_ai.response.model": "gpt-inner",
+      },
+      measurements: {
+        inputTokens: 7,
+        outputTokens: 3,
+        totalTokens: 10,
+        coverage: "complete",
+      },
+    });
+    const serialized = JSON.stringify(memory.observations);
+    expect(serialized).not.toContain("private question");
+    expect(serialized).not.toContain("private answer");
+    expect(serialized).not.toContain("must not escape");
   });
 
   it("backend throws → work_run.status='failed' with the error message; error+done events written", async () => {

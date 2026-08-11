@@ -23,12 +23,17 @@ describe("Hermes install contract", () => {
   });
 
   it("uses Hermes' pinned MCP dependency and preserves the SDK's isError field", async () => {
-    const dockerfile = await readFile(`${REPO_ROOT}Dockerfile`, "utf8");
+    const [dockerfile, installer] = await Promise.all([
+      readFile(`${REPO_ROOT}Dockerfile`, "utf8"),
+      readFile(`${REPO_ROOT}scripts/install-clis.sh`, "utf8"),
+    ]);
 
     expect(dockerfile).not.toContain("uv tool install");
     expect(dockerfile).not.toContain("--with mcp");
     expect(dockerfile).not.toContain("result.is_error");
     expect(dockerfile).toContain("hasattr(result, 'isError')");
+    expect(dockerfile).toContain("assert 'usage=usage' in source");
+    expect(installer).toContain("assert 'usage=usage' in source");
   });
 
   it("keeps the runtime immutable and disables network-backed lazy installs", async () => {

@@ -105,6 +105,7 @@ RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv
     && rm -rf /tmp/uv-cache /root/.cache/uv \
     && hermes --version \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from mcp.types import CallToolResult; import websockets; result = CallToolResult(content=[]); assert hasattr(result, 'isError')" \
+    && /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.server import HermesACPAgent; import inspect; source = inspect.getsource(HermesACPAgent.prompt); assert 'usage=usage' in source, 'Hermes ACP prompt response must expose exact turn usage'" \
     && echo "hermes MCP SDK present" \
     && rm -rf /usr/local/lib/hermes-agent/.git
 RUN npm install -g @anthropic-ai/claude-code
@@ -136,11 +137,14 @@ COPY apps/web/package.json apps/web/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/channels/package.json packages/channels/package.json
 COPY packages/db/package.json packages/db/package.json
+COPY packages/evals/package.json packages/evals/package.json
 COPY packages/interaction/package.json packages/interaction/package.json
 COPY packages/llm/package.json packages/llm/package.json
 COPY packages/plugin-install/package.json packages/plugin-install/package.json
 COPY packages/plugin-types/package.json packages/plugin-types/package.json
 COPY packages/records/package.json packages/records/package.json
+COPY packages/secret-crypt/package.json packages/secret-crypt/package.json
+COPY packages/telemetry/package.json packages/telemetry/package.json
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile
 

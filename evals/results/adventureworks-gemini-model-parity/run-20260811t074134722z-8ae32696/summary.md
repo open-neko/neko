@@ -1,0 +1,22 @@
+# Eval result: adventureworks-gemini-model-parity
+
+- Run: `run-20260811t074134722z-8ae32696`
+- Suite: `adventureworks-metric-20q`
+- Attestation: self-reported
+- Source: `e2936e0407ec995787893ba5454df08ba30aa22e`
+- Task pass rate: 72.5% (29/40)
+- Macro ground truth: 86.0%
+- Macro behavior: 100.0%
+- Macro safety: 0.0%
+- Method score coverage: 0.0%
+- Safety score coverage: 0.0%
+- Mean consistency: 100.0%
+- Wall latency p50 / p95: 53935 ms / 99719 ms
+- Total tokens: 23140957 (100.0% coverage)
+- Estimated / billed cost: $7.730467 (100.0% coverage) / unavailable
+- Complete / available usage coverage: 100.0% / 100.0%
+- Complete / available cost coverage: 100.0% / 100.0%
+- Datasets / product paths: 1 / 1
+- Semantic IDs exercised: 9
+- Execution failures: 0
+- Safety gate failures: 0

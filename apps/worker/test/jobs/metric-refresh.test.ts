@@ -170,6 +170,17 @@ describeIfDb("runMetricRefresh", () => {
           jobId,
         }),
       );
+      const [job] = await db()
+        .select({ result: processing_job.result })
+        .from(processing_job)
+        .where(eq(processing_job.id, jobId));
+      expect(job?.result).toMatchObject({
+        telemetry: {
+          schemaVersion: "openneko.harness-run-summary/v1",
+          runId: jobId,
+          status: "completed",
+        },
+      });
     });
 
     it("throws when the metricId doesn't resolve to a row (no snapshot written)", async () => {
@@ -192,6 +203,17 @@ describeIfDb("runMetricRefresh", () => {
         why: "User asked",
         chartHint: "kpi",
         role: "CEO",
+        classification: {
+          durationMs: 25,
+          usage: {
+            inputTokens: 100,
+            outputTokens: 20,
+            totalTokens: 120,
+            coverage: "complete",
+          },
+          provider: "google-gemini",
+          model: "gemini-test",
+        },
       });
 
       await runMetricRefresh(jobId, orgId);
@@ -205,6 +227,28 @@ describeIfDb("runMetricRefresh", () => {
 
       const snaps = await snapshotsForOrg(orgId);
       expect(snaps).toHaveLength(1);
+      expect(mockRunMetricAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          question: "What's our revenue this month?",
+          title: "Revenue MTD",
+          why: "User asked",
+        }),
+      );
+      const [job] = await db()
+        .select({ result: processing_job.result })
+        .from(processing_job)
+        .where(eq(processing_job.id, jobId));
+      expect(job?.result).toMatchObject({
+        telemetry: {
+          counts: { inference: 1 },
+          usage: {
+            inputTokens: 100,
+            outputTokens: 20,
+            totalTokens: 120,
+            coverage: "complete",
+          },
+        },
+      });
     });
 
     it("re-running with same slug+role+org reuses the existing metric row", async () => {
@@ -272,6 +316,13 @@ describeIfDb("runMetricRefresh", () => {
       expect(rows[0].status).toBe("failed");
       expect(rows[0].err).toMatch(/invalid mood/);
       expect(rows[0].jobRef).toBe(jobId);
+      const [job] = await db()
+        .select({ result: processing_job.result })
+        .from(processing_job)
+        .where(eq(processing_job.id, jobId));
+      expect(job?.result).toMatchObject({
+        telemetry: { status: "failed", errorType: "metric_result_invalid" },
+      });
 
       // Snapshot should not exist on failure path.
       const snaps = await snapshotsForOrg(orgId);

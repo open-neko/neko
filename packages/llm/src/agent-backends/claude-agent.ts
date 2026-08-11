@@ -8,6 +8,7 @@ import {
   type AgentBackend,
   type AgentRunOptions,
   type AgentRunResult,
+  type AgentTokenUsage,
 } from "../agent-backend";
 import { registerAgentCanceller } from "../agent-shutdown";
 import { extractSurfaceMessages } from "./surface";
@@ -381,6 +382,16 @@ export class ClaudeAgentBackend implements AgentBackend {
         }
         if (record.type === "result") {
           if (typeof record.session_id === "string") sessionId = record.session_id;
+          const usage = normalizeClaudeAgentUsage(record);
+          if (onEvent && usage) {
+            await onEvent({
+              type: "usage",
+              source: "outer",
+              provider: "anthropic",
+              model: this.config.model,
+              usage,
+            });
+          }
           if (record.subtype === "success") {
             const raw = String(record.result ?? accumulatedText ?? "").trim();
             if (onEvent) {
@@ -408,6 +419,43 @@ export class ClaudeAgentBackend implements AgentBackend {
       unregister();
     }
   }
+}
+
+export function normalizeClaudeAgentUsage(
+  result: Record<string, unknown>,
+): AgentTokenUsage | undefined {
+  const raw = result.usage;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const usage = raw as Record<string, unknown>;
+  const read = (key: string): number | undefined => {
+    const parsed = Number(usage[key]);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+  };
+  const uncachedInput = read("input_tokens");
+  const outputTokens = read("output_tokens");
+  const cacheReadTokens = read("cache_read_input_tokens");
+  const cacheWriteTokens = read("cache_creation_input_tokens");
+  if (uncachedInput === undefined && outputTokens === undefined) return undefined;
+  const inputTokens =
+    uncachedInput === undefined
+      ? undefined
+      : uncachedInput + (cacheReadTokens ?? 0) + (cacheWriteTokens ?? 0);
+  const billedCost = Number(result.total_cost_usd);
+  const billedCostUsd =
+    Number.isFinite(billedCost) && billedCost >= 0 ? billedCost : undefined;
+  const complete = inputTokens !== undefined && outputTokens !== undefined;
+  return {
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+    ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+    ...(complete ? { totalTokens: inputTokens + outputTokens } : {}),
+    ...(billedCostUsd !== undefined ? { billedCostUsd, currency: "USD" } : {}),
+    coverage: complete ? "complete" : "partial",
+    ...(!complete
+      ? { missingReasons: ["Claude Agent usage omitted input or output token counts"] }
+      : {}),
+  };
 }
 
 function buildOrchestratorPrompt(): string {

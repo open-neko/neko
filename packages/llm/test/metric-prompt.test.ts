@@ -26,6 +26,7 @@ const fakeKnowledge: KnowledgePackContents = {
 };
 
 const fakeInput = {
+  question: "Which product sold the most units last quarter?",
   title: "Top Product",
   why: "CEO wants top revenue product",
   role: "CEO",
@@ -90,6 +91,33 @@ describe("buildMetricPrompt", () => {
     expect(prompt).not.toContain("graphjin cli execute_graphql");
   });
 
+  it("uses only the delegated GraphJin agent surface for the treatment path", () => {
+    const prompt = buildMetricPrompt({
+      input: fakeInput,
+      knowledge: fakeKnowledge,
+      workspace: fakeWorkspace,
+      shellTool: "terminal",
+      dataAgentTool: "mcp__neko_graphjin_agent__ask",
+    });
+    expect(prompt).toContain("`mcp__neko_graphjin_agent__ask`");
+    expect(prompt).toContain("globally read-only");
+    expect(prompt).not.toContain("mcp__neko_graphjin__execute_graphql");
+    expect(prompt).not.toContain("graphjin cli execute_graphql");
+  });
+
+  it("rejects ambiguous direct and delegated data surfaces", () => {
+    expect(() =>
+      buildMetricPrompt({
+        input: fakeInput,
+        knowledge: fakeKnowledge,
+        workspace: fakeWorkspace,
+        shellTool: "terminal",
+        queryTool: "mcp__neko_graphjin__execute_graphql",
+        dataAgentTool: "mcp__neko_graphjin_agent__ask",
+      }),
+    ).toThrow("choose either queryTool or agentTool");
+  });
+
   it("declares the JSON output contract with every required field name", () => {
     const prompt = buildMetricPrompt({
       input: fakeInput,
@@ -124,6 +152,10 @@ describe("buildMetricPrompt", () => {
       shellTool: "terminal",
     });
     expect(prompt).toContain('"cardTitle": "Top Product"');
+    expect(prompt).toContain(
+      '"userQuestion": "Which product sold the most units last quarter?"',
+    );
+    expect(prompt).toContain('"cardRationale": "CEO wants top revenue product"');
     expect(prompt).toContain('"cardRole": "CEO"');
     expect(prompt).toContain('"cardSlug": "top-product"');
     expect(prompt).toContain('"chartHint": "bar"');

@@ -165,7 +165,11 @@ function fakeWorkflowInput(
 
 function fakeJobInput(
   workspace: AgentWorkspace,
-  access: { graphjinRead?: boolean; memorySearch?: boolean } = {},
+  access: {
+    graphjinRead?: boolean;
+    graphjinAgent?: boolean;
+    memorySearch?: boolean;
+  } = {},
 ) {
   return {
     backend: {
@@ -632,6 +636,13 @@ describe("makeSandboxRunCore", () => {
     expect(job).not.toHaveProperty("graphjinWriteGrants");
     expect(job).not.toHaveProperty("graphjinServerUrl");
     expect(job).not.toHaveProperty("graphjinClientConfig");
+
+    await runCore(fakeJobInput(workspace, { graphjinAgent: true }));
+    expect(jobCapture.jobs.at(-1)).toMatchObject({
+      kind: "agent-job",
+      graphjinEnabled: false,
+      agentAccess: { graphjinAgent: true },
+    });
   });
 
   it("scopes broker egress to node, injects url+token, and releases on finish", async () => {
