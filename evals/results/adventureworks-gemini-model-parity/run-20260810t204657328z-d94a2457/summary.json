@@ -1,0 +1,2444 @@
+{
+  "schemaVersion": "openneko.eval.summary/v1",
+  "expectedEpisodes": 40,
+  "scoredEpisodes": 40,
+  "executionFailures": 0,
+  "taskCount": 40,
+  "passedTasks": 36,
+  "taskPassRate": 0.9,
+  "meanConsistency": 1,
+  "macro": {
+    "groundTruth": 0.9080552170326299,
+    "method": 0,
+    "behavior": 1,
+    "safety": 0,
+    "efficiency": 1
+  },
+  "micro": {
+    "groundTruth": 0.9080552170326299,
+    "method": 0,
+    "behavior": 1,
+    "safety": 0,
+    "efficiency": 1
+  },
+  "coverage": {
+    "groundTruth": 1,
+    "method": 0,
+    "behavior": 1,
+    "safety": 0,
+    "efficiency": 1
+  },
+  "measurements": {
+    "wallDurationMs": {
+      "count": 40,
+      "coverage": 1,
+      "total": 1891531,
+      "mean": 47288.275,
+      "p50": 37013.5,
+      "p95": 82268.64999999997,
+      "max": 188351
+    },
+    "firstOutputMs": {
+      "count": 0,
+      "coverage": 0,
+      "total": 0,
+      "mean": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "inputTokens": {
+      "count": 40,
+      "coverage": 1,
+      "total": 18978194,
+      "mean": 474454.85,
+      "p50": 418685.5,
+      "p95": 852527.5,
+      "max": 874587
+    },
+    "outputTokens": {
+      "count": 40,
+      "coverage": 1,
+      "total": 64759,
+      "mean": 1618.975,
+      "p50": 1334,
+      "p95": 3414.4499999999994,
+      "max": 3569
+    },
+    "cacheReadTokens": {
+      "count": 40,
+      "coverage": 1,
+      "total": 14379306,
+      "mean": 359482.65,
+      "p50": 293848,
+      "p95": 710424.7,
+      "max": 734044
+    },
+    "cacheWriteTokens": {
+      "count": 0,
+      "coverage": 0,
+      "total": 0,
+      "mean": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "reasoningTokens": {
+      "count": 40,
+      "coverage": 1,
+      "total": 0,
+      "mean": 0,
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "totalTokens": {
+      "count": 40,
+      "coverage": 1,
+      "total": 19042953,
+      "mean": 476073.825,
+      "p50": 419836.5,
+      "p95": 854915.95,
+      "max": 877994
+    },
+    "estimatedCostUsd": {
+      "count": 40,
+      "coverage": 1,
+      "total": 6.25911904,
+      "mean": 0.156477976,
+      "p50": 0.136795695,
+      "p95": 0.344509095,
+      "max": 0.34822245
+    },
+    "billedCostUsd": {
+      "count": 0,
+      "coverage": 0,
+      "total": 0,
+      "mean": null,
+      "p50": null,
+      "p95": null,
+      "max": null
+    },
+    "usageCoverage": {
+      "completeEpisodes": 40,
+      "partialEpisodes": 0,
+      "unavailableEpisodes": 0,
+      "completeRate": 1,
+      "availableRate": 1
+    },
+    "costCoverage": {
+      "completeEpisodes": 40,
+      "partialEpisodes": 0,
+      "unavailableEpisodes": 0,
+      "completeRate": 1,
+      "availableRate": 1
+    }
+  },
+  "macroGroundTruth95CI": [
+    0.828280806540681,
+    0.9719414741303056
+  ],
+  "safetyGateFailures": 0,
+  "behaviorGateFailures": 0,
+  "tasks": [
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q01/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q01",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "filter",
+      "capabilityTags": [
+        "aggregate.count",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-FILTER",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9608276879118853,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q02/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q02",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "filter",
+      "capabilityTags": [
+        "aggregate.count",
+        "date.anchor",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-FILTER",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q03/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q03",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "filter",
+      "capabilityTags": [
+        "aggregate.count",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-FILTER",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 0,
+      "majorityPass": false,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 0,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 0,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q04/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q04",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-BUSINESS",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9968147223153567,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q05/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q05",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.average",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-BUSINESS",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q06/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q06",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.distinct",
+        "date.anchor",
+        "date.window",
+        "sales.customers",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 0,
+      "majorityPass": false,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.5,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 0,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 0,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q07/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q07",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "filter",
+      "capabilityTags": [
+        "aggregate.count",
+        "filter.boolean",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-FILTER",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9578540261800872,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q08/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q08",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.ratio",
+        "filter.boolean",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-BUSINESS",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9700896449920606,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q09/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q09",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9009640252222899,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q10/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q10",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.8339276451079543,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q11/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q11",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "join",
+      "capabilityTags": [
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "sales.order-lines",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9909680775733753,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q12/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q12",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "join",
+      "capabilityTags": [
+        "aggregate.distinct",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "production.products",
+        "sales.order-lines",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 0,
+      "majorityPass": false,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.5,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 0,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 0,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q13/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q13",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "join",
+      "capabilityTags": [
+        "aggregate.average",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "sales.order-lines",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-BUSINESS",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9694580994211583,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q14/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q14",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "join",
+      "capabilityTags": [
+        "aggregate.count",
+        "filter.numeric",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "sales.order-lines",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q15/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q15",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "grouped-rank",
+      "capabilityTags": [
+        "aggregate.rank",
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "sales.orders",
+        "sales.territories"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-RANK",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.990333240464906,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q16/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q16",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "grouped-rank",
+      "capabilityTags": [
+        "aggregate.rank",
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "production.products",
+        "sales.order-lines",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-RANK",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 0,
+      "majorityPass": false,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 0,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 0,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q17/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q17",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "filter",
+      "capabilityTags": [
+        "aggregate.count",
+        "date.anchor",
+        "date.window",
+        "purchasing.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-FILTER",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q18/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q18",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "purchasing.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9966506501686672,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q19/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q19",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "join",
+      "capabilityTags": [
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "purchasing.order-lines",
+        "purchasing.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9986088311399237,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.5-flash-lite-direct/q20/initial",
+      "variantId": "hermes-gemini-3.5-flash-lite-direct",
+      "caseId": "q20",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "filter",
+      "capabilityTags": [
+        "aggregate.count",
+        "date.anchor",
+        "date.window",
+        "production.work-orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-FILTER",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q01/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q01",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "filter",
+      "capabilityTags": [
+        "aggregate.count",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-FILTER",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q02/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q02",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "filter",
+      "capabilityTags": [
+        "aggregate.count",
+        "date.anchor",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-FILTER",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q03/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q03",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "filter",
+      "capabilityTags": [
+        "aggregate.count",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-FILTER",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q04/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q04",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-BUSINESS",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9968147223153567,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q05/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q05",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.average",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-BUSINESS",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9949622607621438,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q06/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q06",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.distinct",
+        "date.anchor",
+        "date.window",
+        "sales.customers",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q07/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q07",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "filter",
+      "capabilityTags": [
+        "aggregate.count",
+        "filter.boolean",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-FILTER",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q08/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q08",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.ratio",
+        "filter.boolean",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-BUSINESS",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9761147524756758,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q09/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q09",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9974506600916662,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q10/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q10",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.8339276451079543,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q11/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q11",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "join",
+      "capabilityTags": [
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "sales.order-lines",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q12/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q12",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "join",
+      "capabilityTags": [
+        "aggregate.distinct",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "production.products",
+        "sales.order-lines",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q13/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q13",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "join",
+      "capabilityTags": [
+        "aggregate.average",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "sales.order-lines",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-BUSINESS",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9694580994211583,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q14/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q14",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "join",
+      "capabilityTags": [
+        "aggregate.count",
+        "filter.numeric",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "sales.order-lines",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q15/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q15",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "grouped-rank",
+      "capabilityTags": [
+        "aggregate.rank",
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "sales.orders",
+        "sales.territories"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-RANK",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.990333240464906,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q16/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q16",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "grouped-rank",
+      "capabilityTags": [
+        "aggregate.rank",
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "production.products",
+        "sales.order-lines",
+        "sales.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-RANK",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q17/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q17",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "filter",
+      "capabilityTags": [
+        "aggregate.count",
+        "date.anchor",
+        "date.window",
+        "purchasing.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-FILTER",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q18/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q18",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "aggregate",
+      "capabilityTags": [
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "purchasing.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 0.9966506501686672,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q19/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q19",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "join",
+      "capabilityTags": [
+        "aggregate.sum",
+        "date.anchor",
+        "date.window",
+        "relation.join",
+        "purchasing.order-lines",
+        "purchasing.orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-TIME",
+        "CALC-JOIN",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    },
+    {
+      "key": "hermes-gemini-3.6-flash-direct/q20/initial",
+      "variantId": "hermes-gemini-3.6-flash-direct",
+      "caseId": "q20",
+      "datasetId": "adventureworks",
+      "phase": "initial",
+      "family": "read",
+      "productPath": "metric",
+      "difficulty": "filter",
+      "capabilityTags": [
+        "aggregate.count",
+        "date.anchor",
+        "date.window",
+        "production.work-orders"
+      ],
+      "semantics": [
+        "CALC-SCALAR",
+        "CALC-FILTER",
+        "CALC-TIME",
+        "CALC-EVIDENCE",
+        "METRIC-REFRESH",
+        "DATA-DIRECT"
+      ],
+      "repetitions": 1,
+      "passes": 1,
+      "majorityPass": true,
+      "consistency": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      },
+      "passAtK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      },
+      "passPowerK": {
+        "1": 1,
+        "3": null,
+        "5": null
+      }
+    }
+  ],
+  "byDifficulty": {
+    "aggregate": {
+      "tasks": 14,
+      "passed": 13,
+      "passRate": 0.9285714285714286,
+      "vector": {
+        "groundTruth": 0.9281690984805565,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "filter": {
+      "tasks": 12,
+      "passed": 11,
+      "passRate": 0.9166666666666666,
+      "vector": {
+        "groundTruth": 0.9098901428409977,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "grouped-rank": {
+      "tasks": 4,
+      "passed": 3,
+      "passRate": 0.75,
+      "vector": {
+        "groundTruth": 0.745166620232453,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "join": {
+      "tasks": 10,
+      "passed": 9,
+      "passRate": 0.9,
+      "vector": {
+        "groundTruth": 0.9428493107555616,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    }
+  },
+  "byFamily": {
+    "read": {
+      "tasks": 40,
+      "passed": 36,
+      "passRate": 0.9,
+      "vector": {
+        "groundTruth": 0.9080552170326299,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    }
+  },
+  "byCapability": {
+    "aggregate.average": {
+      "tasks": 4,
+      "passed": 4,
+      "passRate": 1,
+      "vector": {
+        "groundTruth": 0.9834696149011152,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "aggregate.count": {
+      "tasks": 14,
+      "passed": 13,
+      "passRate": 0.9285714285714286,
+      "vector": {
+        "groundTruth": 0.922762979577998,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "aggregate.distinct": {
+      "tasks": 4,
+      "passed": 2,
+      "passRate": 0.5,
+      "vector": {
+        "groundTruth": 0.75,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "aggregate.rank": {
+      "tasks": 4,
+      "passed": 3,
+      "passRate": 0.75,
+      "vector": {
+        "groundTruth": 0.745166620232453,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "aggregate.ratio": {
+      "tasks": 2,
+      "passed": 2,
+      "passRate": 1,
+      "vector": {
+        "groundTruth": 0.9731021987338682,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "aggregate.sum": {
+      "tasks": 16,
+      "passed": 15,
+      "passRate": 0.9375,
+      "vector": {
+        "groundTruth": 0.907715256883814,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "date.anchor": {
+      "tasks": 40,
+      "passed": 36,
+      "passRate": 0.9,
+      "vector": {
+        "groundTruth": 0.9080552170326299,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "date.window": {
+      "tasks": 38,
+      "passed": 34,
+      "passRate": 0.8947368421052632,
+      "vector": {
+        "groundTruth": 0.9032160179290841,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "filter.boolean": {
+      "tasks": 4,
+      "passed": 4,
+      "passRate": 1,
+      "vector": {
+        "groundTruth": 0.976014605911956,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "filter.numeric": {
+      "tasks": 2,
+      "passed": 2,
+      "passRate": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "production.products": {
+      "tasks": 4,
+      "passed": 2,
+      "passRate": 0.5,
+      "vector": {
+        "groundTruth": 0.625,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "production.work-orders": {
+      "tasks": 2,
+      "passed": 2,
+      "passRate": 1,
+      "vector": {
+        "groundTruth": 1,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "purchasing.order-lines": {
+      "tasks": 2,
+      "passed": 2,
+      "passRate": 1,
+      "vector": {
+        "groundTruth": 0.9993044155699619,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "purchasing.orders": {
+      "tasks": 6,
+      "passed": 6,
+      "passRate": 1,
+      "vector": {
+        "groundTruth": 0.998651688579543,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "relation.join": {
+      "tasks": 14,
+      "passed": 12,
+      "passRate": 0.8571428571428571,
+      "vector": {
+        "groundTruth": 0.8863685420346734,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "sales.customers": {
+      "tasks": 2,
+      "passed": 1,
+      "passRate": 0.5,
+      "vector": {
+        "groundTruth": 0.75,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "sales.order-lines": {
+      "tasks": 10,
+      "passed": 8,
+      "passRate": 0.8,
+      "vector": {
+        "groundTruth": 0.8429884276415691,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "sales.orders": {
+      "tasks": 32,
+      "passed": 28,
+      "passRate": 0.875,
+      "vector": {
+        "groundTruth": 0.885321829682123,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "sales.territories": {
+      "tasks": 2,
+      "passed": 2,
+      "passRate": 1,
+      "vector": {
+        "groundTruth": 0.990333240464906,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    }
+  },
+  "bySemantic": {
+    "CALC-BUSINESS": {
+      "tasks": 8,
+      "passed": 8,
+      "passRate": 1,
+      "vector": {
+        "groundTruth": 0.9842140377128636,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "CALC-EVIDENCE": {
+      "tasks": 40,
+      "passed": 36,
+      "passRate": 0.9,
+      "vector": {
+        "groundTruth": 0.9080552170326299,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "CALC-FILTER": {
+      "tasks": 12,
+      "passed": 11,
+      "passRate": 0.9166666666666666,
+      "vector": {
+        "groundTruth": 0.9098901428409977,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "CALC-JOIN": {
+      "tasks": 14,
+      "passed": 12,
+      "passRate": 0.8571428571428571,
+      "vector": {
+        "groundTruth": 0.8863685420346734,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "CALC-RANK": {
+      "tasks": 4,
+      "passed": 3,
+      "passRate": 0.75,
+      "vector": {
+        "groundTruth": 0.745166620232453,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "CALC-SCALAR": {
+      "tasks": 40,
+      "passed": 36,
+      "passRate": 0.9,
+      "vector": {
+        "groundTruth": 0.9080552170326299,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "CALC-TIME": {
+      "tasks": 40,
+      "passed": 36,
+      "passRate": 0.9,
+      "vector": {
+        "groundTruth": 0.9080552170326299,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "DATA-DIRECT": {
+      "tasks": 40,
+      "passed": 36,
+      "passRate": 0.9,
+      "vector": {
+        "groundTruth": 0.9080552170326299,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "METRIC-REFRESH": {
+      "tasks": 40,
+      "passed": 36,
+      "passRate": 0.9,
+      "vector": {
+        "groundTruth": 0.9080552170326299,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    }
+  },
+  "byDataset": {
+    "adventureworks": {
+      "tasks": 40,
+      "passed": 36,
+      "passRate": 0.9,
+      "vector": {
+        "groundTruth": 0.9080552170326299,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    }
+  },
+  "byProductPath": {
+    "metric": {
+      "tasks": 40,
+      "passed": 36,
+      "passRate": 0.9,
+      "vector": {
+        "groundTruth": 0.9080552170326299,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    }
+  },
+  "byVariant": {
+    "hermes-gemini-3.5-flash-lite-direct": {
+      "tasks": 20,
+      "passed": 16,
+      "passRate": 0.8,
+      "vector": {
+        "groundTruth": 0.8283248325248834,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    },
+    "hermes-gemini-3.6-flash-direct": {
+      "tasks": 20,
+      "passed": 20,
+      "passRate": 1,
+      "vector": {
+        "groundTruth": 0.9877856015403765,
+        "method": 0,
+        "behavior": 1,
+        "safety": 0,
+        "efficiency": 1
+      }
+    }
+  },
+  "failureTypes": {}
+}

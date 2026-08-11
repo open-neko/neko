@@ -1,5 +1,11 @@
 import { data_source, db, desc, eq } from "@neko/db";
-import { shellToolName } from "./agent-backend";
+import { observeSafely, type HarnessObserver } from "@neko/telemetry";
+import {
+  shellToolName,
+  type AgentBackend,
+  type AgentEvent,
+  type AgentTokenUsage,
+} from "./agent-backend";
 import { resolveAgentBackend } from "./agent-backend-resolver";
 import { parseJsonFromOutput } from "./agent-backends/hermes";
 import { runValidatedAgentTurn } from "./agent-validate-loop";
@@ -21,6 +27,7 @@ import {
   ensureIsolatedJobWorkspace,
   ensureWorkWorkspace,
 } from "./work/workspace";
+import { normalizeGraphjinAgentUsage } from "./usage-normalization";
 
 // Keep in sync with ROLE_FOCUS (bootstrap-metrics-writer.ts) and the
 // onboarding ALL_SEATS list — every seat the product offers must be here.
@@ -44,6 +51,28 @@ export type MetricAgentInput = {
   chartHint: "kpi" | "line" | "bar" | "donut" | "area";
   jobId?: string;
   debug?: boolean;
+  /** Optional provider-neutral observation stream shared by production and evals. */
+  observer?: HarnessObserver;
+  /** Additional metadata; the observer drops content-bearing and unsafe values. */
+  observationAttributes?: Record<string, unknown>;
+  /** Direct host-brokered GraphQL or read-only GraphJin server-agent delegation. */
+  graphjinPath?: GraphjinDataPath;
+  /** Host-only diagnostics hook; never serialized into an agent sandbox. */
+  onDiagnostics?: (diagnostics: MetricAgentDiagnostics) => void;
+};
+
+export type GraphjinDataPath = "direct" | "agent";
+
+export type MetricAgentDiagnostics = {
+  graphjinPath: GraphjinDataPath;
+  promptChars: number;
+  durationMs: number;
+  attempts: number;
+  toolCalls: Record<string, number>;
+  toolOutputBytes: number;
+  outerUsage?: AgentTokenUsage;
+  innerUsage?: AgentTokenUsage;
+  totalUsage: AgentTokenUsage;
 };
 
 export const TIME_WINDOW_GRAINS = [
@@ -81,21 +110,27 @@ export type MetricAgentResult = {
 export async function runMetricAgent(
   input: MetricAgentInput,
 ): Promise<MetricAgentResult> {
+  const graphjinPath = input.graphjinPath ?? "direct";
   const sources = await db()
-    .select({ mcp_url: data_source.mcp_url })
+    .select({
+      graphql_url: data_source.graphql_url,
+      mcp_url: data_source.mcp_url,
+    })
     .from(data_source)
     .where(eq(data_source.org_id, input.orgId))
     .orderBy(desc(data_source.is_default), data_source.created_at)
     .limit(1);
-  const mcpUrl = sources[0]?.mcp_url;
-  if (!mcpUrl) {
+  const source = sources[0];
+  const requiredUrl =
+    graphjinPath === "agent" ? source?.graphql_url : source?.mcp_url;
+  if (!requiredUrl) {
     throw new Error(
-      `no mcp_url for org ${input.orgId} — set data_source.mcp_url`,
+      `no ${graphjinPath === "agent" ? "graphql_url" : "mcp_url"} for org ${input.orgId}`,
     );
   }
 
   console.log(
-    `[metric-agent] org=${input.orgId} role=${input.role} slug=${input.slug} mcp=${mcpUrl}`,
+    `[metric-agent] org=${input.orgId} role=${input.role} slug=${input.slug} graphjinPath=${graphjinPath}`,
   );
 
   const knowledgeWorkspace = await ensureWorkWorkspace(
@@ -126,6 +161,30 @@ export async function runMetricAgent(
   const isolated = await ensureIsolatedJobWorkspace(
     `metric-${input.jobId ?? input.slug}`,
   );
+  const operationId = `metric:${input.jobId ?? input.slug}`;
+  const observedStartedAt = Date.now();
+  const observe = async (
+    event: Parameters<HarnessObserver["observe"]>[0],
+  ): Promise<void> => observeSafely(input.observer, event);
+  let promptChars = 0;
+  let attempts = 0;
+  let toolOutputBytes = 0;
+  let outerUsage: AgentTokenUsage | undefined;
+  let innerUsage: AgentTokenUsage | undefined;
+  let innerUsageMissing = false;
+  const toolCalls: Record<string, number> = {};
+  await observe({
+    kind: "run.start",
+    operationId,
+    attributes: {
+      "openneko.run.kind": "production",
+      "openneko.product.path": "metric",
+      "openneko.backend": backend.id,
+      "openneko.data.path": `graphjin-${graphjinPath}`,
+      ...(backend.model ? { "gen_ai.request.model": backend.model } : {}),
+      ...input.observationAttributes,
+    },
+  });
   try {
     // Preload the top-5 global memories so pinned operator rules show up
     // verbatim. Anything narrower (per-card semantic match) is reachable
@@ -138,7 +197,8 @@ export async function runMetricAgent(
       runId: input.jobId ?? input.slug,
       workspace: isolated.workspace,
       access: {
-        graphjinRead: true,
+        graphjinRead: graphjinPath === "direct",
+        graphjinAgent: graphjinPath === "agent",
         memorySearch: supportsMemorySearch,
       },
     });
@@ -148,7 +208,12 @@ export async function runMetricAgent(
       knowledge,
       workspace: isolated.workspace,
       shellTool: shellToolName(backend.id),
-      queryTool: "mcp__neko_graphjin__execute_graphql",
+      queryTool:
+        graphjinPath === "direct"
+          ? "mcp__neko_graphjin__execute_graphql"
+          : undefined,
+      dataAgentTool:
+        graphjinPath === "agent" ? "mcp__neko_graphjin_agent__ask" : undefined,
       memoryContext,
       supportsMemorySearch,
     });
@@ -166,16 +231,190 @@ export async function runMetricAgent(
       : basePrompt;
 
     console.log(
-      `[metric-agent] org=${input.orgId} slug=${input.slug} backend=${backend.id} runtime=openshell`,
+      `[metric-agent] org=${input.orgId} slug=${input.slug} backend=${backend.id} graphjinPath=${graphjinPath} runtime=openshell`,
     );
 
+    promptChars = prompt.length;
     const startedAt = Date.now();
+    const toolNames = new Map<string, string>();
+    let firstOutputObserved = false;
+    const observeFirstOutput = async (modelOperationId: string): Promise<void> => {
+      if (firstOutputObserved) return;
+      firstOutputObserved = true;
+      const firstOutputMs = Date.now() - startedAt;
+      await observe({
+        kind: "model.first_chunk",
+        operationId: modelOperationId,
+        parentOperationId: `${operationId}:agent`,
+        measurements: { firstOutputMs, coverage: "unavailable" },
+      });
+      await observe({
+        kind: "run.first_output",
+        operationId,
+        measurements: { firstOutputMs, coverage: "unavailable" },
+      });
+    };
+    await observe({
+      kind: "stage.start",
+      operationId: `${operationId}:agent`,
+      parentOperationId: operationId,
+      attributes: { "openneko.stage": "agent" },
+    });
+    const observedBackend: AgentBackend = {
+      id: sandboxedBackend.id,
+      model: sandboxedBackend.model,
+      capabilities: sandboxedBackend.capabilities,
+      async run(runOptions) {
+        attempts += 1;
+        const modelOperationId = `${operationId}:model:${attempts}`;
+        if (attempts > 1) {
+          await observe({
+            kind: "retry",
+            operationId: `${modelOperationId}:retry`,
+            parentOperationId: `${operationId}:agent`,
+            attributes: { "openneko.retry.reason": "validation" },
+          });
+        }
+        await observe({
+          kind: "model.request",
+          operationId: modelOperationId,
+          parentOperationId: `${operationId}:agent`,
+          attributes: {
+            "openneko.model.scope": "outer",
+            "openneko.backend": backend.id,
+            ...(backend.model ? { "gen_ai.request.model": backend.model } : {}),
+          },
+        });
+        let sawOuterUsage = false;
+        const callerOnEvent = runOptions.onEvent;
+        const onEvent = async (event: AgentEvent): Promise<void> => {
+          if (event.type === "message" || event.type === "surface") {
+            await observeFirstOutput(modelOperationId);
+          }
+          if (event.type === "tool_start") {
+            toolNames.set(event.id, event.name);
+            toolCalls[event.name] = (toolCalls[event.name] ?? 0) + 1;
+            await observe({
+              kind: "tool.start",
+              operationId: `${operationId}:tool:${event.id}`,
+              parentOperationId: modelOperationId,
+              attributes: { "gen_ai.tool.name": event.name },
+              measurements: {
+                inputBytes: byteLength(event.input),
+                coverage: "unavailable",
+              },
+            });
+            if (isGraphjinAgentTool(event.name)) {
+              await observe({
+                kind: "delegation.start",
+                operationId: `${operationId}:delegation:${event.id}`,
+                parentOperationId: modelOperationId,
+                attributes: { "openneko.delegation.target": "graphjin-agent" },
+              });
+              await observe({
+                kind: "model.request",
+                operationId: `${operationId}:inner-model:${event.id}`,
+                parentOperationId: `${operationId}:delegation:${event.id}`,
+                attributes: { "openneko.model.scope": "inner" },
+              });
+            }
+          } else if (event.type === "tool_end") {
+            const toolName = toolNames.get(event.id) ?? "unknown";
+            const outputBytes = byteLength(event.result ?? event.error);
+            toolOutputBytes += outputBytes;
+            await observe({
+              kind: "tool.end",
+              operationId: `${operationId}:tool:${event.id}`,
+              parentOperationId: modelOperationId,
+              status: event.error ? "error" : "ok",
+              attributes: { "gen_ai.tool.name": toolName },
+              measurements: { outputBytes, coverage: "unavailable" },
+            });
+            if (isGraphjinAgentTool(toolName)) {
+              const parsedInner = findGraphjinUsage(event.result);
+              if (parsedInner) {
+                innerUsage = addUsage(innerUsage, parsedInner.usage);
+                await observe({
+                  kind: "model.response",
+                  operationId: `${operationId}:inner-model:${event.id}`,
+                  parentOperationId: `${operationId}:delegation:${event.id}`,
+                  status: event.error ? "error" : "ok",
+                  attributes: {
+                    "openneko.model.scope": "inner",
+                    ...(parsedInner.provider
+                      ? { "gen_ai.provider.name": parsedInner.provider }
+                      : {}),
+                    ...(parsedInner.model
+                      ? { "gen_ai.response.model": parsedInner.model }
+                      : {}),
+                  },
+                  measurements: parsedInner.usage,
+                });
+              } else {
+                innerUsageMissing = true;
+                await observe({
+                  kind: "model.response",
+                  operationId: `${operationId}:inner-model:${event.id}`,
+                  parentOperationId: `${operationId}:delegation:${event.id}`,
+                  status: event.error ? "error" : "ok",
+                  attributes: { "openneko.model.scope": "inner" },
+                  measurements: {
+                    coverage: "unavailable",
+                    missingReasons: ["GraphJin agent response omitted normalized usage"],
+                  },
+                });
+              }
+              await observe({
+                kind: "delegation.end",
+                operationId: `${operationId}:delegation:${event.id}`,
+                parentOperationId: modelOperationId,
+                status: event.error ? "error" : "ok",
+                attributes: { "openneko.delegation.target": "graphjin-agent" },
+              });
+            }
+          } else if (event.type === "usage" && event.source === "outer") {
+            sawOuterUsage = true;
+            outerUsage = addUsage(outerUsage, event.usage);
+            await observe({
+              kind: "model.response",
+              operationId: modelOperationId,
+              parentOperationId: `${operationId}:agent`,
+              status: "ok",
+              attributes: {
+                "openneko.model.scope": "outer",
+                ...(event.provider
+                  ? { "gen_ai.provider.name": event.provider }
+                  : {}),
+                ...(event.model ? { "gen_ai.response.model": event.model } : {}),
+              },
+              measurements: event.usage,
+            });
+          }
+          await callerOnEvent?.(event);
+        };
+        const result = await sandboxedBackend.run({ ...runOptions, onEvent });
+        if (!sawOuterUsage) {
+          await observe({
+            kind: "model.response",
+            operationId: modelOperationId,
+            parentOperationId: `${operationId}:agent`,
+            status: result.status === "completed" ? "ok" : "error",
+            attributes: { "openneko.model.scope": "outer" },
+            measurements: {
+              coverage: "unavailable",
+              missingReasons: ["agent backend returned no normalized usage"],
+            },
+          });
+        }
+        return result;
+      },
+    };
     // GJ2: iterative validation loop — a malformed reply is fed back to the
     // agent for a corrective turn instead of failing the whole job.
     const { value: parsed } = await runValidatedAgentTurn<
       Partial<MetricAgentResult>
     >({
-      backend: sandboxedBackend,
+      backend: observedBackend,
       run: {
         prompt,
         orgId: input.orgId,
@@ -183,6 +422,7 @@ export async function runMetricAgent(
         workspace: isolated.workspace,
         debug,
       },
+      maxAttempts: graphjinPath === "agent" ? 1 : undefined,
       label: `metric-agent org=${input.orgId} slug=${input.slug}`,
       validate: (finalText) => {
         const out = parseJsonFromOutput(
@@ -197,6 +437,25 @@ export async function runMetricAgent(
       },
     });
     const elapsedSec = ((Date.now() - startedAt) / 1000).toFixed(0);
+    const totalUsage = combinedUsage(
+      outerUsage,
+      innerUsage,
+      graphjinPath === "agent" && (innerUsageMissing || !innerUsage),
+    );
+    await observe({
+      kind: "stage.end",
+      operationId: `${operationId}:agent`,
+      parentOperationId: operationId,
+      status: "ok",
+      attributes: { "openneko.stage": "agent" },
+      measurements: {
+        durationMs: Date.now() - startedAt,
+        coverage: totalUsage.coverage,
+        ...(totalUsage.missingReasons
+          ? { missingReasons: totalUsage.missingReasons }
+          : {}),
+      },
+    });
 
     const tw = (parsed.timeWindow ?? {}) as Partial<TimeWindow>;
     const result: MetricAgentResult = {
@@ -222,8 +481,180 @@ export async function runMetricAgent(
       `[metric-agent] org=${input.orgId} slug=${input.slug} done in ${elapsedSec}s`,
     );
 
+    await observe({
+      kind: "validation.result",
+      operationId: `${operationId}:validation`,
+      parentOperationId: operationId,
+      status: "ok",
+      attributes: { "openneko.validation.contract": "metric-result" },
+    });
+    await observe({
+      kind: "run.end",
+      operationId,
+      status: "ok",
+      attributes: {
+        "openneko.outcome": "completed",
+        ...input.observationAttributes,
+      },
+      measurements: {
+        durationMs: Date.now() - observedStartedAt,
+        coverage: totalUsage.coverage,
+        ...(totalUsage.missingReasons
+          ? { missingReasons: totalUsage.missingReasons }
+          : {}),
+      },
+    });
+
     return result;
+  } catch (cause) {
+    const totalUsage = combinedUsage(
+      outerUsage,
+      innerUsage,
+      graphjinPath === "agent" && (innerUsageMissing || !innerUsage),
+    );
+    await observe({
+      kind: "error",
+      operationId: `${operationId}:error`,
+      parentOperationId: operationId,
+      status: "error",
+      errorType: cause instanceof Error ? cause.name : "unknown",
+    });
+    await observe({
+      kind: "run.end",
+      operationId,
+      status: "error",
+      errorType: cause instanceof Error ? cause.name : "unknown",
+      attributes: {
+        "openneko.outcome": "failed",
+        ...input.observationAttributes,
+      },
+      measurements: {
+        durationMs: Date.now() - observedStartedAt,
+        coverage: totalUsage.coverage,
+        missingReasons: [
+          ...(totalUsage.missingReasons ?? []),
+          "run failed before all telemetry was guaranteed complete",
+        ],
+      },
+    });
+    throw cause;
   } finally {
-    await isolated.cleanup();
+    try {
+      input.onDiagnostics?.({
+        graphjinPath,
+        promptChars,
+        durationMs: Date.now() - observedStartedAt,
+        attempts,
+        toolCalls: { ...toolCalls },
+        toolOutputBytes,
+        ...(outerUsage ? { outerUsage } : {}),
+        ...(innerUsage ? { innerUsage } : {}),
+        totalUsage: combinedUsage(
+          outerUsage,
+          innerUsage,
+          graphjinPath === "agent" && (innerUsageMissing || !innerUsage),
+        ),
+      });
+    } catch {
+      // Diagnostics must never change the metric result.
+    } finally {
+      await isolated.cleanup();
+    }
   }
 }
+
+function byteLength(value: unknown): number {
+  if (value === undefined) return 0;
+  try {
+    return Buffer.byteLength(
+      typeof value === "string" ? value : JSON.stringify(value),
+      "utf8",
+    );
+  } catch {
+    return 0;
+  }
+}
+
+function isGraphjinAgentTool(name: string): boolean {
+  return name.toLocaleLowerCase().includes("neko_graphjin_agent");
+}
+
+function addOptional(
+  left: number | undefined,
+  right: number | undefined,
+): number | undefined {
+  if (left === undefined && right === undefined) return undefined;
+  return (left ?? 0) + (right ?? 0);
+}
+
+function addUsage(
+  current: AgentTokenUsage | undefined,
+  next: AgentTokenUsage,
+): AgentTokenUsage {
+  const missingReasons = [
+    ...(current?.missingReasons ?? []),
+    ...(next.missingReasons ?? []),
+  ];
+  return {
+    inputTokens: addOptional(current?.inputTokens, next.inputTokens),
+    outputTokens: addOptional(current?.outputTokens, next.outputTokens),
+    cacheReadTokens: addOptional(current?.cacheReadTokens, next.cacheReadTokens),
+    cacheWriteTokens: addOptional(current?.cacheWriteTokens, next.cacheWriteTokens),
+    reasoningTokens: addOptional(current?.reasoningTokens, next.reasoningTokens),
+    totalTokens: addOptional(current?.totalTokens, next.totalTokens),
+    estimatedCostUsd: addOptional(
+      current?.estimatedCostUsd,
+      next.estimatedCostUsd,
+    ),
+    billedCostUsd: addOptional(current?.billedCostUsd, next.billedCostUsd),
+    ...(next.currency ?? current?.currency
+      ? { currency: next.currency ?? current?.currency }
+      : {}),
+    ...(next.pricingCatalogVersion ?? current?.pricingCatalogVersion
+      ? {
+          pricingCatalogVersion:
+            next.pricingCatalogVersion ?? current?.pricingCatalogVersion,
+        }
+      : {}),
+    coverage:
+      current?.coverage === "partial" ||
+      current?.coverage === "unavailable" ||
+      next.coverage !== "complete"
+        ? "partial"
+        : "complete",
+    ...(missingReasons.length > 0
+      ? { missingReasons: [...new Set(missingReasons)] }
+      : {}),
+  };
+}
+
+function combinedUsage(
+  outer: AgentTokenUsage | undefined,
+  inner: AgentTokenUsage | undefined,
+  innerMissing: boolean,
+): AgentTokenUsage {
+  let total = outer;
+  if (inner) total = addUsage(total, inner);
+  if (!total) {
+    return {
+      coverage: "unavailable",
+      missingReasons: [
+        "agent backend returned no normalized usage",
+        ...(innerMissing ? ["GraphJin agent usage is unavailable"] : []),
+      ],
+    };
+  }
+  if (!innerMissing) return total;
+  return {
+    ...total,
+    coverage: "partial",
+    missingReasons: [
+      ...new Set([
+        ...(total.missingReasons ?? []),
+        "GraphJin agent usage is unavailable",
+      ]),
+    ],
+  };
+}
+
+const findGraphjinUsage = normalizeGraphjinAgentUsage;

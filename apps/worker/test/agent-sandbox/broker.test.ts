@@ -51,6 +51,16 @@ function makeFakeControlPlane() {
       calls.push({ method: "graphjin-read", input: input as Record<string, unknown> });
       return { data: {} };
     },
+    async askGraphjinDataAgent(input) {
+      calls.push({ method: "graphjin-agent", input: input as Record<string, unknown> });
+      return {
+        response: {
+          status: "answered",
+          answer: "31,465 orders",
+          data: { count: 31_465 },
+        },
+      };
+    },
     async listRecordCatalog(input) {
       calls.push({ method: "records-catalog", input: input as Record<string, unknown> });
       return { apps: [] };
@@ -324,6 +334,24 @@ describe("agent broker", () => {
     expect(fake.calls.find((c) => c.method === "records-blueprints")?.input).toEqual({
       orgId: "o1",
       blueprintId: "crm",
+    });
+  });
+
+  it("binds GraphJin data-agent delegation to the authenticated org and run", async () => {
+    const cp = new BrokerControlPlane(baseUrl, "good");
+    const result = await cp.askGraphjinDataAgent({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      instruction: "Count all orders",
+      maxSteps: 6,
+    });
+
+    expect(result.response?.data).toEqual({ count: 31_465 });
+    expect(fake.calls.find((call) => call.method === "graphjin-agent")?.input).toEqual({
+      orgId: "o1",
+      runId: "r1",
+      instruction: "Count all orders",
+      maxSteps: 6,
     });
   });
 

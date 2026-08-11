@@ -88,6 +88,9 @@ openneko install @open-neko/plugin-parallel-search
 - [OPENSHELL.md](OPENSHELL.md) — preview: running the agent itself in an OpenShell policy sandbox (architecture, security, how to enable)
 - [SECRETS.md](SECRETS.md) — secrets at rest and the optional Infisical vault (enterprise)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup, repo layout, pre-PR checks
+- [evals/README.md](evals/README.md) — community-configurable harness evals,
+  AdventureWorks baselines, resumable runs, checked-in results, and production
+  OpenTelemetry
 - [CHANGELOG.md](CHANGELOG.md) — releases
 
 ## Issues

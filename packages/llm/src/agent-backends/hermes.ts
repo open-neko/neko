@@ -10,6 +10,7 @@ import {
   type AgentBackend,
   type AgentRunOptions,
   type AgentRunResult,
+  type AgentTokenUsage,
 } from "../agent-backend";
 import { registerAgentCanceller } from "../agent-shutdown";
 import { hermesHomeForOrg } from "../host-provision";
@@ -615,10 +616,14 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
 
     let promptError: string | undefined;
     try {
-      await client.request("session/prompt", {
+      const promptResponse = await client.request<{ usage?: unknown }>("session/prompt", {
         sessionId,
         prompt: [{ type: "text", text: prompt }],
       });
+      const usage = normalizeHermesUsage(promptResponse.usage);
+      if (onEvent && usage) {
+        await onEvent({ type: "usage", source: "outer", usage });
+      }
     } catch (e) {
       if (e instanceof AcpProtocolError) {
         promptError = `hermes: ${e.message}`;
@@ -701,6 +706,71 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
     }
     await cleanup();
   }
+}
+
+export function normalizeHermesUsage(value: unknown): AgentTokenUsage | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const usage = value as Record<string, unknown>;
+  const number = (...keys: string[]): number | undefined => {
+    for (const key of keys) {
+      const parsed = Number(usage[key]);
+      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+    return undefined;
+  };
+  const inputTokens = number("inputTokens", "input_tokens", "promptTokens", "prompt_tokens");
+  const outputTokens = number(
+    "outputTokens",
+    "output_tokens",
+    "completionTokens",
+    "completion_tokens",
+  );
+  const cacheReadTokens = number(
+    "cacheReadTokens",
+    "cache_read_tokens",
+    "cachedReadTokens",
+    "cached_read_tokens",
+  );
+  const cacheWriteTokens = number(
+    "cacheWriteTokens",
+    "cache_write_tokens",
+    "cachedWriteTokens",
+    "cached_write_tokens",
+  );
+  const reasoningTokens = number(
+    "reasoningTokens",
+    "reasoning_tokens",
+    "thoughtTokens",
+    "thought_tokens",
+  );
+  const reportedTotal = number("totalTokens", "total_tokens");
+  const billedCostUsd = number("costUsd", "cost_usd", "billedCostUsd", "billed_cost_usd");
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    reportedTotal === undefined &&
+    billedCostUsd === undefined
+  ) {
+    return undefined;
+  }
+  const complete = inputTokens !== undefined && outputTokens !== undefined;
+  return {
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+    ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+    ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+    ...(reportedTotal !== undefined
+      ? { totalTokens: reportedTotal }
+      : complete
+        ? { totalTokens: inputTokens + outputTokens }
+        : {}),
+    ...(billedCostUsd !== undefined ? { billedCostUsd, currency: "USD" } : {}),
+    coverage: complete ? "complete" : "partial",
+    ...(!complete
+      ? { missingReasons: ["Hermes ACP usage omitted input or output token counts"] }
+      : {}),
+  };
 }
 
 function extractErrorText(raw: unknown): string {

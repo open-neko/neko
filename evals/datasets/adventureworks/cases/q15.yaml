@@ -1,0 +1,41 @@
+schema_version: openneko.eval.case/v1
+id: q15
+version: 1.0.0
+family: read
+product_path: metric
+dataset: adventureworks
+capability_tags: [aggregate.rank, aggregate.sum, date.anchor, date.window, relation.join, sales.orders, sales.territories]
+difficulty: grouped-rank
+semantics: [CALC-SCALAR, CALC-TIME, CALC-JOIN, CALC-RANK, CALC-EVIDENCE, METRIC-REFRESH]
+input:
+  role: CRO
+  slug: top-territory-ttm-revenue
+  title: "Revenue from the top sales territory in the trailing 12 months"
+  why: "Anchor to the latest sales.salesorderheader.orderdate. Group orders in the inclusive 365-day window by territoryid, rank territories by sum(totaldue), and join sales.salesterritory for the name. The single headline number must be the winning territory's totaldue and the output must name that territory. Compare that same territory with its totaldue in the preceding non-overlapping 365-day window."
+  chart_hint: kpi
+oracle:
+  kind: sql.metric
+  ref: ../oracles/q15.sql
+assertions:
+  - id: headline-value
+    dimension: ground_truth
+    kind: numeric.relative-error
+    gate: true
+    params: { max_relative_error: 0.01 }
+  - id: exact-window
+    dimension: ground_truth
+    kind: time-window.exact
+    gate: true
+    params: { grain: year }
+  - id: winning-dimension
+    dimension: ground_truth
+    kind: dimension.contains
+    gate: true
+  - id: metric-output
+    dimension: behavior
+    kind: metric.contract
+    gate: true
+  - id: latency
+    dimension: efficiency
+    kind: duration.under
+    params: { max_ms: 600000 }

@@ -15,9 +15,14 @@ import {
 } from "../plugins/registry-instance.js";
 import { deliverChatReply } from "../channels/delivery.js";
 import { includeRecordActionDescriptors } from "../records/adapters.js";
+import {
+  createWorkerHarnessObserver,
+  persistProcessingJobTelemetry,
+} from "../telemetry.js";
+import { observeSafely } from "@neko/telemetry";
 
 export async function runWorkRun(
-  _jobId: string,
+  jobId: string,
   orgId: string,
   payload: {
     runId: string;
@@ -38,6 +43,19 @@ export async function runWorkRun(
     );
     return;
   }
+  const runTelemetry = createWorkerHarnessObserver(runId);
+  const operationId = `work:${runId}`;
+  const startedAt = Date.now();
+  await observeSafely(runTelemetry.observer, {
+    kind: "run.start",
+    operationId,
+    attributes: {
+      "openneko.run.kind": "production",
+      "openneko.product.path": "work",
+      "openneko.job.kind": "work_run",
+      "openneko.delivery.channel": channel ?? "web",
+    },
+  });
 
   // Snapshot the scrubber once per run. fs.watch on the secrets file
   // rebuilds the registry's scrubber, so a future run picks up rotated
@@ -80,12 +98,54 @@ export async function runWorkRun(
         channel,
         emit,
         pluginActions,
+        observer: runTelemetry.observer,
       },
       agentRuntimeDepsFromEnv(broker),
     );
+  } catch (cause) {
+    await observeSafely(runTelemetry.observer, {
+      kind: "run.end",
+      operationId,
+      status: "error",
+      errorType: cause instanceof Error ? cause.name : "unknown",
+      attributes: { "openneko.outcome": "failed" },
+      measurements: {
+        durationMs: Date.now() - startedAt,
+        coverage: "unavailable",
+      },
+    });
+    const summary = runTelemetry.snapshot();
+    try {
+      await emit({ type: "telemetry", summary });
+    } catch {
+      // Summary persistence must not replace the original run failure.
+    }
+    await persistProcessingJobTelemetry(jobId, summary);
+    console.log(`[work-run.telemetry] ${JSON.stringify(summary)}`);
+    throw cause;
   } finally {
     unregisterBrokerEvents();
   }
+
+  await observeSafely(runTelemetry.observer, {
+    kind: "run.end",
+    operationId,
+    status: result.status === "completed" ? "ok" : "error",
+    ...(result.error ? { errorType: "work_run_error" } : {}),
+    attributes: { "openneko.outcome": result.status },
+    measurements: {
+      durationMs: Date.now() - startedAt,
+      coverage: "unavailable",
+    },
+  });
+  const summary = runTelemetry.snapshot();
+  try {
+    await emit({ type: "telemetry", summary });
+  } catch {
+    // Telemetry must not change delivery or the work-run outcome.
+  }
+  await persistProcessingJobTelemetry(jobId, summary);
+  console.log(`[work-run.telemetry] ${JSON.stringify(summary)}`);
 
   // Channel-initiated runs have no other return path — send the reply back to
   // the sender. Web runs (no channelPlugin) stream over SSE instead.

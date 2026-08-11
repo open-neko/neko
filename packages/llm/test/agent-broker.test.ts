@@ -3,6 +3,7 @@ import type { AgentControlPlane } from "../src/work/control-plane";
 import {
   ensureAgentBroker,
   registerAgentBrokerEventSink,
+  shutdownAgentBroker,
   startAgentBroker,
 } from "../src/work/broker";
 
@@ -23,6 +24,8 @@ function stubControlPlane(): AgentControlPlane {
     searchWorkMemoryByContext:
       unused as AgentControlPlane["searchWorkMemoryByContext"],
     queryGraphjinRead: unused as AgentControlPlane["queryGraphjinRead"],
+    askGraphjinDataAgent:
+      unused as AgentControlPlane["askGraphjinDataAgent"],
     listRecordCatalog: unused as AgentControlPlane["listRecordCatalog"],
     findRecords: unused as AgentControlPlane["findRecords"],
     getRecord: unused as AgentControlPlane["getRecord"],
@@ -166,7 +169,7 @@ describe("ensureAgentBroker (SEC9: always on)", () => {
       expect((await postEvents(a!.port, token, [event])).status).toBe(200);
       expect(received).toEqual([event]);
       unregister();
-      await a?.close();
+      await shutdownAgentBroker();
     } finally {
       if (prevPort === undefined) delete process.env.OPENNEKO_BROKER_PORT;
       else process.env.OPENNEKO_BROKER_PORT = prevPort;

@@ -170,6 +170,17 @@ describeIfDb("runMetricRefresh", () => {
           jobId,
         }),
       );
+      const [job] = await db()
+        .select({ result: processing_job.result })
+        .from(processing_job)
+        .where(eq(processing_job.id, jobId));
+      expect(job?.result).toMatchObject({
+        telemetry: {
+          schemaVersion: "openneko.harness-run-summary/v1",
+          runId: jobId,
+          status: "completed",
+        },
+      });
     });
 
     it("throws when the metricId doesn't resolve to a row (no snapshot written)", async () => {
@@ -272,6 +283,13 @@ describeIfDb("runMetricRefresh", () => {
       expect(rows[0].status).toBe("failed");
       expect(rows[0].err).toMatch(/invalid mood/);
       expect(rows[0].jobRef).toBe(jobId);
+      const [job] = await db()
+        .select({ result: processing_job.result })
+        .from(processing_job)
+        .where(eq(processing_job.id, jobId));
+      expect(job?.result).toMatchObject({
+        telemetry: { status: "failed", errorType: "metric_result_invalid" },
+      });
 
       // Snapshot should not exist on failure path.
       const snaps = await snapshotsForOrg(orgId);

@@ -1,0 +1,47 @@
+schema_version: openneko.eval/v1
+id: adventureworks-backend-parity
+description: Matched Anthropic model comparison between Hermes and Claude Agent.
+adapter: adventureworks.metric
+semantics:
+  ref: ../semantics.yaml
+pricing:
+  ref: ../pricing/standard-2026-07-09.yaml
+
+suite:
+  ref: ../suites/adventureworks-metric-smoke.yaml
+
+datasets:
+  - ref: ../datasets/adventureworks/dataset.yaml
+    snapshot: full
+
+defaults:
+  repetitions: 3
+  timeout: 10m
+  execution_order: counterbalanced
+  concurrency: 1
+  cache_state: warm
+  content_capture: metadata
+  max_attempts: 2
+
+variants:
+  - id: hermes-anthropic-direct
+    backend: hermes
+    outer_model:
+      provider: anthropic
+      model: claude-opus-4-7
+      credential_ref: env:ANTHROPIC_API_KEY
+    data_path: graphjin-direct
+
+  - id: claude-agent-anthropic-direct
+    extends: hermes-anthropic-direct
+    backend: claude-agent
+
+budgets:
+  max_wall_time: 6h
+  max_estimated_cost_usd: 75
+
+artifacts:
+  check_in: scored
+  raw_dir: .openneko/evals/raw
+  state_dir: .openneko/evals/state
+  results_dir: evals/results

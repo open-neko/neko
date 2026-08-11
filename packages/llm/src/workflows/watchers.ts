@@ -120,6 +120,63 @@ export async function listWatchers(orgId: string): Promise<WatcherRecord[]> {
   return rows.map(toRecord);
 }
 
+export async function getWatcher(
+  orgId: string,
+  watcherId: string,
+): Promise<WatcherRecord | null> {
+  const [row] = await db()
+    .select()
+    .from(watcher)
+    .where(and(eq(watcher.org_id, orgId), eq(watcher.id, watcherId)))
+    .limit(1);
+  return row ? toRecord(row) : null;
+}
+
+/** Enable or disable a watcher without replacing its definition or history. */
+export async function setWatcherEnabled(
+  orgId: string,
+  watcherId: string,
+  enabled: boolean,
+): Promise<WatcherRecord | null> {
+  const [row] = await db()
+    .update(watcher)
+    .set({ enabled, updated_at: new Date() })
+    .where(and(eq(watcher.org_id, orgId), eq(watcher.id, watcherId)))
+    .returning();
+  return row ? toRecord(row) : null;
+}
+
+/** Clear evaluation history while preserving the watcher definition. */
+export async function resetWatcher(
+  orgId: string,
+  watcherId: string,
+): Promise<WatcherRecord | null> {
+  const [row] = await db()
+    .update(watcher)
+    .set({
+      last_checked_at: null,
+      last_fired_at: null,
+      last_value: null,
+      last_error: null,
+      updated_at: new Date(),
+    })
+    .where(and(eq(watcher.org_id, orgId), eq(watcher.id, watcherId)))
+    .returning();
+  return row ? toRecord(row) : null;
+}
+
+/** Delete a watcher within its organization boundary. */
+export async function deleteWatcher(
+  orgId: string,
+  watcherId: string,
+): Promise<boolean> {
+  const rows = await db()
+    .delete(watcher)
+    .where(and(eq(watcher.org_id, orgId), eq(watcher.id, watcherId)))
+    .returning({ id: watcher.id });
+  return rows.length > 0;
+}
+
 /** Walk a dotted path ("orders_aggregate.0.count") through the query result data. */
 export function extractValueAtPath(data: unknown, path: string): unknown {
   let current: unknown = data;

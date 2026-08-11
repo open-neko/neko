@@ -1,0 +1,37 @@
+schema_version: openneko.eval.case/v1
+id: q20
+version: 1.0.0
+family: read
+product_path: metric
+dataset: adventureworks
+capability_tags: [aggregate.count, date.anchor, date.window, production.work-orders]
+difficulty: filter
+semantics: [CALC-SCALAR, CALC-FILTER, CALC-TIME, CALC-EVIDENCE, METRIC-REFRESH]
+input:
+  role: COO
+  slug: ttm-work-order-count
+  title: "Manufacturing work orders started in the trailing 12 months"
+  why: "Anchor to the latest production.workorder.startdate. The single headline number must count work orders whose startdate is in the inclusive 365-day window ending on that date. Compare it with the preceding non-overlapping 365-day window."
+  chart_hint: kpi
+oracle:
+  kind: sql.metric
+  ref: ../oracles/q20.sql
+assertions:
+  - id: headline-value
+    dimension: ground_truth
+    kind: numeric.relative-error
+    gate: true
+    params: { max_relative_error: 0.01 }
+  - id: exact-window
+    dimension: ground_truth
+    kind: time-window.exact
+    gate: true
+    params: { grain: year }
+  - id: metric-output
+    dimension: behavior
+    kind: metric.contract
+    gate: true
+  - id: latency
+    dimension: efficiency
+    kind: duration.under
+    params: { max_ms: 600000 }

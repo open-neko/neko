@@ -13,6 +13,7 @@ export * from "./llm";
 export * from "./classifier";
 export * from "./summarize-briefing";
 export * from "./metric-agent";
+export * from "./usage-normalization";
 export * from "./discovery-pathways";
 export * from "./profiler";
 export * from "./bootstrap-metrics-writer";

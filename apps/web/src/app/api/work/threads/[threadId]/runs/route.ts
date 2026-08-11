@@ -34,6 +34,8 @@ import {
 } from "@/lib/app-chat-context";
 import { getAuthorizedWorkThread } from "@/lib/work-thread-auth";
 import { recordsApiError } from "@/lib/records-api";
+import { createWebHarnessObserver } from "@/lib/telemetry";
+import { observeSafely, type HarnessRunSummary } from "@neko/telemetry";
 
 type RouteContext = {
   params: Promise<{ threadId: string }>;
@@ -112,6 +114,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
   await ensureHostConfigProvisioned(orgId);
 
   const run = await createWorkRun(orgId, threadId, backend.id, actor);
+  const runTelemetry = createWebHarnessObserver(run.id);
+  const telemetryOperationId = `work:${run.id}`;
+  const telemetryStartedAt = Date.now();
+  await observeSafely(runTelemetry.observer, {
+    kind: "run.start",
+    operationId: telemetryOperationId,
+    attributes: {
+      "openneko.run.kind": "production",
+      "openneko.product.path": "work",
+      "openneko.job.kind": "work_run",
+      "openneko.delivery.channel": "web",
+      "openneko.backend": backend.id,
+    },
+  });
 
   if (!thread.title) {
     await touchWorkThread(threadId, { title: suggestWorkThreadTitle(message) });
@@ -157,10 +173,37 @@ export async function POST(request: NextRequest, context: RouteContext) {
       emit,
       signal: abortController.signal,
       pluginActions,
+      observer: runTelemetry.observer,
     },
     agentRuntimeDepsFromEnv(broker),
   )
+    .then(async (result) => {
+      await observeSafely(runTelemetry.observer, {
+        kind: "run.end",
+        operationId: telemetryOperationId,
+        status: result.status === "completed" ? "ok" : "error",
+        ...(result.error ? { errorType: "work_run_error" } : {}),
+        attributes: { "openneko.outcome": result.status },
+        measurements: {
+          durationMs: Date.now() - telemetryStartedAt,
+          coverage: "unavailable",
+        },
+      });
+      await emitTelemetrySafely(emit, runTelemetry.snapshot());
+    })
     .catch(async (err) => {
+      await observeSafely(runTelemetry.observer, {
+        kind: "run.end",
+        operationId: telemetryOperationId,
+        status: "error",
+        errorType: err instanceof Error ? err.name : "unknown",
+        attributes: { "openneko.outcome": "failed" },
+        measurements: {
+          durationMs: Date.now() - telemetryStartedAt,
+          coverage: "unavailable",
+        },
+      });
+      await emitTelemetrySafely(emit, runTelemetry.snapshot());
       console.error(`[work-run/inproc] run ${run.id} threw:`, err);
       try {
         const current = await getWorkRun(orgId, run.id);
@@ -182,6 +225,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
     })
     .finally(async () => {
+      console.log(
+        `[work-run.telemetry] ${JSON.stringify(runTelemetry.snapshot())}`,
+      );
       unregisterBrokerEvents();
       try {
         await finalize();
@@ -200,4 +246,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
     backend: backend.id,
     actorRole: actor.role,
   });
+}
+
+async function emitTelemetrySafely(
+  emit: ReturnType<typeof createCoalescingEmit>["emit"],
+  summary: HarnessRunSummary,
+): Promise<void> {
+  try {
+    await emit({ type: "telemetry", summary });
+  } catch {
+    // Summary persistence must not change the work-run outcome.
+  }
 }

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "openneko.eval.suite/v1"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "cases": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema0"
+      }
+    },
+    "gates": {
+      "default": {
+        "require_safety": true
+      },
+      "type": "object",
+      "properties": {
+        "min_macro_ground_truth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "min_behavior": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "min_token_usage_coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "require_safety": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "require_safety"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "cases",
+    "gates"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

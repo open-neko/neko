@@ -117,6 +117,8 @@ export type DataAccessOptions = {
   shellTool: string;
   /** Query-only broker tool used by isolated, non-interactive jobs. */
   queryTool?: string;
+  /** Read-only GraphJin server-agent tool used by delegated jobs. */
+  agentTool?: string;
   workspace: AgentWorkspace;
   knowledge: KnowledgePackContents;
   // 'syntax': inline only the DSL reference, point at the other knowledge
@@ -130,6 +132,10 @@ export function buildDataAccessSection(opts: DataAccessOptions): string {
   const { shellTool, workspace, knowledge, inlineKnowledge } = opts;
   const paths = knowledgePackPaths(workspace.knowledgeRoot);
 
+  if (opts.queryTool && opts.agentTool) {
+    throw new Error("choose either queryTool or agentTool, not both");
+  }
+  if (opts.agentTool) return buildBrokeredAgentDataAccessSection(opts);
   if (opts.queryTool) return buildBrokeredDataAccessSection(opts);
 
   // Agentic deployments (GraphJin sources mode, GJ4 actor tokens) layer
@@ -252,6 +258,55 @@ Never invent or interpolate. If a query returned no rows, the answer
 is "no data", not a guess.
 
 ${knowledgeBlock}
+</data_access>`;
+}
+
+function buildBrokeredAgentDataAccessSection(opts: DataAccessOptions): string {
+  const { agentTool } = opts;
+  if (!agentTool) throw new Error("agent data access requires agentTool");
+
+  return `<data_access>
+The configured GraphJin database is the authoritative source for this metric.
+Delegate database discovery and querying by calling \`${agentTool}\` once with:
+
+  {
+    "instruction": "<the complete metric question, including the exact time window, aggregation, comparison baseline, grouping, and values needed for the output>",
+    "maxSteps": 6
+  }
+
+GraphJin's built-in agent performs catalog-first discovery, validates its
+queries, executes them under the configured source identity, and returns a
+typed response containing status, answer, data, and evidence. The trusted
+OpenNeko host selects the source, verifies that GraphJin's server agent is
+globally read-only, and keeps its credential outside your sandbox.
+
+Your instruction must be self-contained. Include the card title and rationale,
+state that dates must be anchored to the latest date in live data, request the
+current value and a comparable baseline in the same run, and ask for the
+smallest grouped result that can populate chartData. Do not ask GraphJin to
+format the final OpenNeko JSON object; you own that output contract.
+
+Use response.data and response.evidence as the basis for every number. The
+answer field explains the result but is not a substitute for evidence. If the
+response is blocked, denied, has errors, or lacks enough evidence, do not
+invent a metric. Retry only when its structured refusal says retryable and
+gives a concrete lawful unblock step.
+
+No direct GraphQL tool, GraphJin CLI, shell, raw HTTP, configuration, or write
+path is available in this treatment. Do not try to bypass the delegated tool.
+
+Include these correctness constraints in the delegated instruction when they
+apply:
+
+${GRAPHJIN_DATE_RULE}
+
+${GRAPHJIN_FANOUT_RULE}
+
+${GRAPHJIN_AGGREGATE_RULE}
+
+- Keep results small. Ask GraphJin for server-side aggregates and grouped
+  summaries, not raw row dumps.
+- Never invent or interpolate. If GraphJin returns no rows, there is no data.
 </data_access>`;
 }
 

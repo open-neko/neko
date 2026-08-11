@@ -11,15 +11,18 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "eval": "tsx scripts/openneko-eval.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
     "@neko/channels": "workspace:*",
     "@neko/db": "workspace:*",
+    "@neko/evals": "workspace:*",
     "@neko/interaction": "workspace:*",
     "@neko/llm": "workspace:*",
     "@neko/records": "workspace:*",
+    "@neko/telemetry": "workspace:*",
     "@open-neko/plugin-install": "workspace:*",
     "@open-neko/plugin-parallel-search": "0.3.1",
     "@open-neko/plugin-types": "workspace:*",
