@@ -1,4 +1,5 @@
 name: openneko release binaries
+run-name: openneko release binaries (${{ github.event.inputs.tag || github.event.release.tag_name }})
 
 on:
   release:
@@ -28,8 +29,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      # The build downloads several GitHub-hosted release assets. Keeping the
-      # fan-out bounded avoids secondary-rate-limit and release-CDN 503s.
+      # Four concurrent builders keeps release throughput reasonable while
+      # bounding pressure on GHCR and the Actions cache service.
       max-parallel: 4
       matrix:
         include:
