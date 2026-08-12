@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.25.2](https://github.com/open-neko/openneko/compare/v2.25.1...v2.25.2) (2026-08-12)
+
+
+### Bug Fixes
+
+* **agent:** roll Hermes back to v0.14 ([0501770](https://github.com/open-neko/openneko/commit/0501770e4e97bc947d4fbcdf69035f051a5873fa))
+* **agent:** roll Hermes back to v0.14 ([2da36a1](https://github.com/open-neko/openneko/commit/2da36a172653aae7ad68a0ccb678510505b978b1))
+
 ## [2.25.1](https://github.com/open-neko/openneko/compare/v2.25.0...v2.25.1) (2026-08-12)
 
 
