@@ -62,7 +62,7 @@ CMD ["serve"]
 # and lives one layer up in `cli`.
 FROM base AS runtime-base
 ARG GRAPHJIN_VERSION=3.18.42
-ARG HERMES_AGENT_REF=3c27eb6234bf91b8ceee9e9071591b31e9b148cb
+ARG HERMES_AGENT_REF=a91a57fa5a13d516c38b07a141a9ce8a3daabeb0
 ARG OPENSHELL_VERSION=0.0.54
 # TARGETARCH is auto-supplied by buildx (amd64 or arm64).
 ARG TARGETARCH
@@ -80,34 +80,31 @@ RUN curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/graphjin.tgz
     && rm /tmp/graphjin.tgz \
     && graphjin version
 # hermes: default agent backend (any provider). claude: claude-agent backend.
-# v0.20+ deliberately refuses wheel builds: keep the exact source checkout and
-# use its hash-locked editable environment, matching Hermes' supported install
-# model. `--compile-bytecode` keeps fresh ACP subprocess startup off Python's
-# runtime compilation path (OpenNeko starts one process per run).
-# The immutable runtime cannot self-update. Removing git metadata after the
-# commit assertion keeps background update checks from probing upstream.
+# Temporarily pinned back to v0.14.0: v0.20's native Gemini adapter promotes
+# JSON tool-result strings to structured functionResponse objects, where
+# Gemini 3 interprets JSON-Schema `$ref` values as multimodal part references.
+# v0.14.0 still supports a normal uv tool install. Its MCP adapter uses the
+# Pydantic JSON alias (`isError`) as a Python attribute, so patch that access
+# to the SDK's snake_case field after installation.
 RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv/install.sh \
-      | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh \
-    && mkdir -p /usr/local/lib/hermes-agent \
-    && git -C /usr/local/lib/hermes-agent init \
-    && git -C /usr/local/lib/hermes-agent remote add origin https://github.com/NousResearch/hermes-agent.git \
-    && git -C /usr/local/lib/hermes-agent fetch --depth 1 origin "${HERMES_AGENT_REF}" \
-    && git -C /usr/local/lib/hermes-agent checkout --detach FETCH_HEAD \
-    && test "$(git -C /usr/local/lib/hermes-agent rev-parse HEAD)" = "${HERMES_AGENT_REF}" \
-    && UV_PROJECT_ENVIRONMENT=/usr/local/uv/tools/hermes-agent \
+      | env UV_INSTALL_DIR=/usr/local/bin sh -s -- --no-modify-path \
+    && UV_TOOL_DIR=/usr/local/uv/tools \
+       UV_TOOL_BIN_DIR=/usr/local/bin \
        UV_PYTHON_INSTALL_DIR=/usr/local/uv/python \
        UV_CACHE_DIR=/tmp/uv-cache \
-       uv sync --project /usr/local/lib/hermes-agent --python 3.11 \
-         --extra acp --extra mcp --no-dev --locked --compile-bytecode \
-    && ln -s /usr/local/uv/tools/hermes-agent/bin/hermes /usr/local/bin/hermes \
-    && ln -s /usr/local/uv/tools/hermes-agent/bin/hermes-acp /usr/local/bin/hermes-acp \
-    && ln -s /usr/local/uv/tools/hermes-agent/bin/hermes-agent /usr/local/bin/hermes-agent \
+       uv tool install --python 3.11 \
+         --with mcp --with websockets \
+         "hermes-agent[acp] @ git+https://github.com/NousResearch/hermes-agent.git@${HERMES_AGENT_REF}" \
     && rm -rf /tmp/uv-cache /root/.cache/uv \
+    && sed -i 's/result\.isError/result.is_error/g' \
+         /usr/local/uv/tools/hermes-agent/lib/python3.11/site-packages/tools/mcp_tool.py \
+    && ! grep -q 'result\.isError' \
+         /usr/local/uv/tools/hermes-agent/lib/python3.11/site-packages/tools/mcp_tool.py \
     && hermes --version \
-    && /usr/local/uv/tools/hermes-agent/bin/python -c "from mcp.types import CallToolResult; import websockets; result = CallToolResult(content=[]); assert hasattr(result, 'isError')" \
+    && /usr/local/uv/tools/hermes-agent/bin/python -c "import hermes_cli; assert hermes_cli.__version__ == '0.14.0'" \
+    && /usr/local/uv/tools/hermes-agent/bin/python -c "from mcp.types import CallToolResult; import websockets; result = CallToolResult(content=[]); assert hasattr(result, 'is_error')" \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.server import HermesACPAgent; import inspect; source = inspect.getsource(HermesACPAgent.prompt); assert 'usage=usage' in source, 'Hermes ACP prompt response must expose exact turn usage'" \
-    && echo "hermes MCP SDK present" \
-    && rm -rf /usr/local/lib/hermes-agent/.git
+    && echo "hermes v0.14 ACP/MCP runtime present"
 RUN npm install -g @anthropic-ai/claude-code
 # openshell: CLI to spawn + relay to agent sandboxes. Static musl, no deps.
 RUN OS_ARCH="$(case "${TARGETARCH}" in amd64) echo x86_64 ;; arm64) echo aarch64 ;; *) echo "${TARGETARCH}" ;; esac)" \
