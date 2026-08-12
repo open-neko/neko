@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       # The build downloads several GitHub-hosted release assets. Keeping the
       # fan-out bounded avoids secondary-rate-limit and release-CDN 503s.
-      max-parallel: 2
+      max-parallel: 4
       matrix:
         include:
           - image: neko-web
