@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.25.1](https://github.com/open-neko/openneko/compare/v2.25.0...v2.25.1) (2026-08-12)
+
+
+### Bug Fixes
+
+* **demo:** align GraphJin auth defaults ([c3bc6eb](https://github.com/open-neko/openneko/commit/c3bc6ebdae499b48c7e6779823ef5656895f0d82))
+
 ## [2.25.0](https://github.com/open-neko/openneko/compare/v2.24.0...v2.25.0) (2026-08-11)
 
 
