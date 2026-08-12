@@ -74,7 +74,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       git unzip postgresql-client openssh-client \
     && rm -rf /var/lib/apt/lists/*
 # graphjin: every in-process agent turn queries the data source via `graphjin cli`.
-RUN curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/graphjin.tgz \
+RUN curl -fsSL --retry 10 --retry-delay 5 --retry-all-errors -o /tmp/graphjin.tgz \
       "https://github.com/dosco/graphjin/releases/download/v${GRAPHJIN_VERSION}/graphjin_${GRAPHJIN_VERSION}_linux_${TARGETARCH}.tar.gz" \
     && tar -xzf /tmp/graphjin.tgz -C /usr/local/bin graphjin \
     && rm /tmp/graphjin.tgz \
@@ -108,7 +108,7 @@ RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv
 RUN npm install -g @anthropic-ai/claude-code
 # openshell: CLI to spawn + relay to agent sandboxes. Static musl, no deps.
 RUN OS_ARCH="$(case "${TARGETARCH}" in amd64) echo x86_64 ;; arm64) echo aarch64 ;; *) echo "${TARGETARCH}" ;; esac)" \
-    && curl -fsSL -o /tmp/openshell.tgz \
+    && curl -fsSL --retry 10 --retry-delay 5 --retry-all-errors -o /tmp/openshell.tgz \
       "https://github.com/NVIDIA/OpenShell/releases/download/v${OPENSHELL_VERSION}/openshell-${OS_ARCH}-unknown-linux-musl.tar.gz" \
     && tar -xzf /tmp/openshell.tgz -C /usr/local/bin openshell \
     && rm /tmp/openshell.tgz \

@@ -28,6 +28,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
+      # The build downloads several GitHub-hosted release assets. Keeping the
+      # fan-out bounded avoids secondary-rate-limit and release-CDN 503s.
+      max-parallel: 2
       matrix:
         include:
           - image: neko-web
@@ -117,7 +120,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+          # Manual recovery runs may contain CI hardening newer than the tag;
+          # release events continue to build the immutable tagged source.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.release.tag_name }}
 
       - name: Resolve release tag
         id: tag
@@ -147,7 +152,9 @@ jobs:
           platforms: ${{ matrix.platform }}
           outputs: type=image,name=ghcr.io/open-neko/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image }}-${{ steps.archkey.outputs.value }}
-          cache-to: type=gha,scope=${{ matrix.image }}-${{ steps.archkey.outputs.value }},mode=max
+          # Cache service outages must not invalidate an image already pushed
+          # successfully to GHCR.
+          cache-to: type=gha,scope=${{ matrix.image }}-${{ steps.archkey.outputs.value }},mode=max,ignore-error=true
 
       - name: Stash digest for the merge step
         run: |
