@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir, platform } from "node:os";
 import { join } from "node:path";
 import {
@@ -26,8 +26,10 @@ import {
   hermesHomeForOrg,
   patchGraphjinSourcesJwtSecret,
   provisionHostConfig,
+  shouldReconcileDemoSourceAuthMode,
 } from "../src/host-provision";
 import { ensureOpenShellProvider } from "../src/work/sandbox-launcher";
+import { graphjinSigningSecretB64 } from "../src/graphjin/token";
 
 vi.mock("../src/work/sandbox-launcher", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/work/sandbox-launcher")>();
@@ -122,6 +124,50 @@ describe("patchGraphjinSourcesJwtSecret", () => {
       changed: false,
       content: raw,
     });
+  });
+});
+
+describe("shouldReconcileDemoSourceAuthMode", () => {
+  const jwtConfig = `auth:
+  type: jwt
+  jwt:
+    secret: "demo-secret"
+`;
+
+  it("recognizes the mount used by older packaged demo compose files", () => {
+    expect(
+      shouldReconcileDemoSourceAuthMode(
+        "/graphjin-config/agentic.yml",
+        jwtConfig,
+        "",
+      ),
+    ).toBe(true);
+  });
+
+  it("recognizes an explicitly marked demo with a custom config path", () => {
+    expect(
+      shouldReconcileDemoSourceAuthMode("/custom/agentic.yml", jwtConfig, "demo"),
+    ).toBe(true);
+  });
+
+  it("does not reconcile the production GraphJin config", () => {
+    expect(
+      shouldReconcileDemoSourceAuthMode(
+        "/config/graphjin/agentic.yml",
+        jwtConfig,
+        "",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not trust a demo config that is not JWT-enabled", () => {
+    expect(
+      shouldReconcileDemoSourceAuthMode(
+        "/graphjin-config/agentic.yml",
+        "auth:\n  type: none\n",
+        "",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -327,6 +373,39 @@ describeIfDb("provisionHostConfig", () => {
 
   it("does not throw when no data source exists (graphjin write skipped)", async () => {
     await expect(provisionHostConfig(orgId)).resolves.toBeUndefined();
+  });
+
+  it("repairs an existing packaged-demo AdventureWorks source deterministically", async () => {
+    const configPath = join(tempHome, "agentic.yml");
+    await writeFile(
+      configPath,
+      `auth:
+  type: jwt
+  jwt:
+    secret: "${graphjinSigningSecretB64(orgId)}"
+`,
+      "utf8",
+    );
+    await seedDataSource(orgId, { label: "AdventureWorks" });
+
+    const previousPath = process.env.OPENNEKO_GRAPHJIN_CONFIG;
+    const previousMode = process.env.OPENNEKO_STACK_MODE;
+    process.env.OPENNEKO_GRAPHJIN_CONFIG = configPath;
+    process.env.OPENNEKO_STACK_MODE = "demo";
+    try {
+      await provisionHostConfig(orgId);
+    } finally {
+      if (previousPath === undefined) delete process.env.OPENNEKO_GRAPHJIN_CONFIG;
+      else process.env.OPENNEKO_GRAPHJIN_CONFIG = previousPath;
+      if (previousMode === undefined) delete process.env.OPENNEKO_STACK_MODE;
+      else process.env.OPENNEKO_STACK_MODE = previousMode;
+    }
+
+    const [source] = await db()
+      .select({ authMode: data_source.auth_mode })
+      .from(data_source)
+      .where(eq(data_source.org_id, orgId));
+    expect(source?.authMode).toBe("jwt");
   });
 
   it("writes hermes config under ~/.config/openneko/hermes/{orgId} when HERMES_HOME is unset", async () => {

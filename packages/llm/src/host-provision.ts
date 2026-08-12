@@ -104,6 +104,7 @@ async function provisionGraphJin(orgId: string): Promise<void> {
 const SOURCES_SECRET_PLACEHOLDER = "REPLACE_WITH_PER_ORG_SECRET_B64";
 const SOURCES_JWT_SECRET_RE =
   /(^auth:\s*\n\s+type:\s*jwt\s*\n\s+jwt:\s*\n(?:\s+#.*\n)*\s+secret:\s*")([^"]*)(")/m;
+const LEGACY_PACKAGED_DEMO_GRAPHJIN_CONFIG = "/graphjin-config/agentic.yml";
 
 export function patchGraphjinSourcesJwtSecret(
   raw: string,
@@ -120,6 +121,22 @@ export function patchGraphjinSourcesJwtSecret(
 }
 
 /**
+ * Existing v2.25 demo installs do not carry OPENNEKO_STACK_MODE because their
+ * compose file is embedded in the older host CLI. The dedicated demo mount is
+ * therefore retained as a backward-compatible discriminator. Production uses
+ * /config/graphjin/agentic.yml and must keep its capability-probe behavior.
+ */
+export function shouldReconcileDemoSourceAuthMode(
+  configPath: string | undefined,
+  configContent: string,
+  stackMode?: string,
+): boolean {
+  const isDemo =
+    stackMode === "demo" || configPath === LEGACY_PACKAGED_DEMO_GRAPHJIN_CONFIG;
+  return isDemo && SOURCES_JWT_SECRET_RE.test(configContent);
+}
+
+/**
  * Sources-mode (agentic) bootstrap. Two halves, both idempotent:
  *
  * 1. When the deployment mounts the GraphJin config into the worker
@@ -128,15 +145,16 @@ export function patchGraphjinSourcesJwtSecret(
  *    secret-key. Named local volumes can outlive a secret-key rotation,
  *    so this repairs stale concrete secrets as well as placeholders.
  *
- * 2. Probe the default data source with a minted service token: if the
- *    server answers a gj_catalog query, it runs agentic sources mode —
- *    flip data_source.auth_mode to 'jwt' so GJ4 actor tokens and the
- *    slim catalog knowledge layering switch on automatically. Legacy
- *    servers fail the probe (no gj_catalog root) and stay 'none'.
+ * 2. The packaged demo is known to run this JWT template, so reconcile its
+ *    AdventureWorks row directly (including upgrades driven by the older
+ *    v2.25 CLI). Other modes keep capability detection: probe the default
+ *    source with a service token and only flip auth_mode to 'jwt' when it
+ *    answers gj_catalog. Legacy servers remain 'none'.
  */
 async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
   const cfgPath = process.env.OPENNEKO_GRAPHJIN_CONFIG?.trim();
   let wroteSecret = false;
+  let reconcileDemoAuthMode = false;
   if (cfgPath) {
     const { readFile } = await import("node:fs/promises");
     try {
@@ -145,6 +163,11 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
       const patched = patchGraphjinSourcesJwtSecret(
         raw,
         graphjinSigningSecretB64(orgId),
+      );
+      reconcileDemoAuthMode = shouldReconcileDemoSourceAuthMode(
+        cfgPath,
+        patched.content,
+        process.env.OPENNEKO_STACK_MODE,
       );
       if (patched.changed) {
         await writeFile(cfgPath, patched.content, "utf8");
@@ -167,11 +190,29 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
       graphqlUrl: data_source.graphql_url,
     })
     .from(data_source)
-    .where(eq(data_source.org_id, orgId))
+    .where(
+      reconcileDemoAuthMode
+        ? and(
+            eq(data_source.org_id, orgId),
+            eq(data_source.label, "AdventureWorks"),
+          )
+        : eq(data_source.org_id, orgId),
+    )
     .orderBy(desc(data_source.is_default), data_source.created_at)
     .limit(1);
   if (!src?.graphqlUrl) return;
-  if (src.authMode === "jwt" && !wroteSecret) return;
+  let authMode = src.authMode;
+  if (reconcileDemoAuthMode && authMode !== "jwt") {
+    await db()
+      .update(data_source)
+      .set({ auth_mode: "jwt", updated_at: new Date() })
+      .where(eq(data_source.id, src.id));
+    authMode = "jwt";
+    console.log(
+      "[host-provision] reconciled packaged demo data source auth_mode=jwt",
+    );
+  }
+  if (authMode === "jwt" && !wroteSecret) return;
 
   const { mintGraphjinToken } = await import("./graphjin/token");
   const token = mintGraphjinToken({ orgId, userId: null, role: "service" });
@@ -202,7 +243,7 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
         const rows = body.data?.gj_catalog;
         const answered = Array.isArray(rows) ? rows.length > 0 : Boolean(rows);
         if (answered && !body.errors?.length) {
-          if (src.authMode !== "jwt") {
+          if (authMode !== "jwt") {
             await db()
               .update(data_source)
               .set({ auth_mode: "jwt", updated_at: new Date() })

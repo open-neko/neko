@@ -80,4 +80,20 @@ describe("runValidatedAgentTurn (GJ2)", () => {
     ).rejects.toThrow("boom");
     expect((backend.run as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
   });
+
+  it("reports GraphJin authorization failures as data-source errors", async () => {
+    const { backend } = fakeBackend([
+      "GraphJin query failed: unauthorized: table productcategory is blocked for role anon",
+    ]);
+
+    await expect(
+      runValidatedAgentTurn({
+        backend,
+        run: runOpts,
+        label: "t",
+        validate: (t) => JSON.parse(t),
+      }),
+    ).rejects.toThrow("Data source authorization failed");
+    expect((backend.run as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+  });
 });
