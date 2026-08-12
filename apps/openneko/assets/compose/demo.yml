@@ -113,6 +113,13 @@ services:
       NEKO_PG_PASSWORD: secret
       NEKO_PG_DATABASE: neko
       ADVENTUREWORKS_GRAPHJIN_ROOT: ${ADVENTUREWORKS_GRAPHJIN_ROOT:-http://graphjin:8080}
+      # This overlay always starts the JWT-protected sources config below, so
+      # seed the matching mode deterministically instead of relying on a
+      # post-start capability probe to discover it.
+      ADVENTUREWORKS_AUTH_MODE: jwt
+      # Reconcile installs whose demo source was seeded by an older release as
+      # anonymous. This only changes a source labelled AdventureWorks.
+      ADVENTUREWORKS_RECONCILE_AUTH_MODE: "1"
     volumes:
       - openneko-config:/config/openneko
     # --import tsx/esm so the seed's `import("@neko/secret-crypt")` (raw .ts
@@ -195,9 +202,14 @@ services:
     depends_on:
       graphjin:
         condition: service_started
+      # The worker patches GraphJin's per-org JWT secret during startup. Wait
+      # for its first provisioning pass before serving the demo UI.
+      worker:
+        condition: service_healthy
     environment:
       # The packaged demo overrides core's neutral config with its
       # AdventureWorks source-mode config in a dedicated volume.
+      OPENNEKO_STACK_MODE: demo
       OPENNEKO_GRAPHJIN_CONFIG: /graphjin-config/agentic.yml
       # Trial default: route every external action (e.g. send_webhook) to
       # the mock adapter so bundled workflows can propose Slack alerts
@@ -211,10 +223,15 @@ services:
     depends_on:
       graphjin:
         condition: service_started
+      # Ensure the known JWT mode is present before the worker provisions its
+      # actor-token config. This also repairs anonymous rows from older demos.
+      neko-adventureworks-seed:
+        condition: service_completed_successfully
     environment:
       NEKO_ACTIONS_DRY_RUN: ${NEKO_ACTIONS_DRY_RUN:-true}
       # Sources mode: the worker substitutes the per-org JWT secret into
       # the seeded GraphJin config at boot (host-provision).
+      OPENNEKO_STACK_MODE: demo
       OPENNEKO_GRAPHJIN_CONFIG: /graphjin-config/agentic.yml
     volumes:
       - graphjin-config:/graphjin-config

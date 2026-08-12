@@ -16,6 +16,13 @@ export class UpstreamProviderError extends Error {
   }
 }
 
+export class DataSourceAuthorizationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DataSourceAuthorizationError";
+  }
+}
+
 const PATTERNS: ReadonlyArray<{
   regex: RegExp;
   kind?: UpstreamProviderErrorKind;
@@ -24,7 +31,7 @@ const PATTERNS: ReadonlyArray<{
   { regex: /Authentication token has expired/i, kind: "auth" },
   { regex: /must authenticate again/i, kind: "auth" },
   { regex: /\bHTTP\s+401\b/i, kind: "auth" },
-  { regex: /\b(?:Unauthorized|invalid[_\s-]*api[_\s-]*key)\b/i, kind: "auth" },
+  { regex: /\binvalid[_\s-]*api[_\s-]*key\b/i, kind: "auth" },
 
   { regex: /Gemini\s+HTTP\s+(5\d{2})\b/i, kind: "5xx", provider: "google-gemini" },
   { regex: /Anthropic\s+HTTP\s+(5\d{2})\b/i, kind: "5xx", provider: "anthropic" },
@@ -39,6 +46,20 @@ function headingFor(kind: UpstreamProviderErrorKind, provider?: string): string 
     return `Provider authentication failed${providerLabel} — re-check the API key in /admin/settings/agent`;
   }
   return `Upstream provider unavailable${providerLabel}`;
+}
+
+export function detectDataSourceAuthorizationError(
+  stdout: string,
+): DataSourceAuthorizationError | null {
+  const head = stdout.slice(0, 1500).trim();
+  if (head.startsWith("{") || head.startsWith("```")) return null;
+  if (!/\b(?:blocked for role|graphjin\b[\s\S]*\bunauthorized)\b/i.test(head)) {
+    return null;
+  }
+  const detail = head.slice(0, 300).replace(/\s+/g, " ").trim();
+  return new DataSourceAuthorizationError(
+    `Data source authorization failed — verify the authentication mode in /admin/settings/data: ${detail}`,
+  );
 }
 
 export function detectUpstreamError(stdout: string): UpstreamProviderError | null {
@@ -57,4 +78,8 @@ export function detectUpstreamError(stdout: string): UpstreamProviderError | nul
     );
   }
   return null;
+}
+
+export function detectAgentExecutionError(stdout: string): Error | null {
+  return detectDataSourceAuthorizationError(stdout) ?? detectUpstreamError(stdout);
 }

@@ -202,3 +202,44 @@ func TestRecordsGraphJinEndpointsRemainPrivate(t *testing.T) {
 		}
 	}
 }
+
+func TestPackagedDemoBootstrapsJWTBeforeServingWeb(t *testing.T) {
+	raw, err := ComposeFS.ReadFile("compose/demo.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	demo := loadComposeParityDocument(t, raw)
+
+	seed := demo.Services["neko-adventureworks-seed"]
+	if got := seed.Environment["ADVENTUREWORKS_AUTH_MODE"]; got != "jwt" {
+		t.Fatalf("demo seed auth mode = %#v, want jwt", got)
+	}
+	if got := seed.Environment["ADVENTUREWORKS_RECONCILE_AUTH_MODE"]; got != "1" {
+		t.Fatalf("demo auth reconciliation = %#v, want 1", got)
+	}
+
+	worker := demo.Services["worker"]
+	if got := worker.DependsOn["neko-adventureworks-seed"].Condition; got != "service_completed_successfully" {
+		t.Fatalf("worker demo-seed dependency = %q, want service_completed_successfully", got)
+	}
+	web := demo.Services["web"]
+	if got := web.DependsOn["worker"].Condition; got != "service_healthy" {
+		t.Fatalf("web worker dependency = %q, want service_healthy", got)
+	}
+	for _, serviceName := range []string{"web", "worker"} {
+		if got := demo.Services[serviceName].Environment["OPENNEKO_STACK_MODE"]; got != "demo" {
+			t.Fatalf("%s stack mode = %#v, want demo", serviceName, got)
+		}
+	}
+
+	coreRaw, err := ComposeFS.ReadFile("compose/core.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prod := loadComposeParityDocument(t, coreRaw)
+	for _, serviceName := range []string{"web", "worker"} {
+		if got, exists := prod.Services[serviceName].Environment["OPENNEKO_STACK_MODE"]; exists {
+			t.Fatalf("production %s unexpectedly sets OPENNEKO_STACK_MODE=%#v", serviceName, got)
+		}
+	}
+}

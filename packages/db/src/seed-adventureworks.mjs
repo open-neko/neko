@@ -17,6 +17,9 @@ const DEFAULT_GRAPHJIN_ROOT =
   process.env.ADVENTUREWORKS_GRAPHJIN_ROOT?.trim() || "http://graphjin:8080";
 const GRAPHJIN_ROOT = DEFAULT_GRAPHJIN_ROOT.replace(/\/+$/, "");
 const UPDATE_DATA_SOURCE = process.env.ADVENTUREWORKS_UPDATE_DATA_SOURCE === "1";
+const RECONCILE_AUTH_MODE =
+  process.env.ADVENTUREWORKS_RECONCILE_AUTH_MODE === "1";
+const AUTH_MODE = process.env.ADVENTUREWORKS_AUTH_MODE === "jwt" ? "jwt" : "none";
 
 function configBase() {
   const xdg = process.env.XDG_CONFIG_HOME?.trim();
@@ -86,7 +89,11 @@ if (!orgId) {
 }
 
 const sourceRows = await client.query(
-  "select id from data_source where org_id = $1 order by created_at asc limit 1",
+  `select id, label
+     from data_source
+    where org_id = $1
+    order by (label = 'AdventureWorks') desc, created_at asc
+    limit 1`,
   [orgId],
 );
 const graphjinUrls = [
@@ -96,11 +103,14 @@ const graphjinUrls = [
 ];
 if (sourceRows.rowCount === 0) {
   await client.query(
-    `insert into data_source (org_id, kind, graphql_url, subscription_url, mcp_url, label)
-     values ($1, 'graphjin', $2, $3, $4, 'AdventureWorks')`,
-    [orgId, ...graphjinUrls],
+    `insert into data_source (
+       org_id, kind, graphql_url, subscription_url, mcp_url, label, auth_mode
+     ) values ($1, 'graphjin', $2, $3, $4, 'AdventureWorks', $5)`,
+    [orgId, ...graphjinUrls, AUTH_MODE],
   );
-  console.log("[seed-adventureworks] inserted GraphJin data source");
+  console.log(
+    `[seed-adventureworks] inserted GraphJin data source (auth_mode=${AUTH_MODE})`,
+  );
 } else if (UPDATE_DATA_SOURCE) {
   await client.query(
     `update data_source
@@ -108,11 +118,29 @@ if (sourceRows.rowCount === 0) {
            graphql_url = $2,
            subscription_url = $3,
            mcp_url = $4,
-           label = 'AdventureWorks'
+           label = 'AdventureWorks',
+           auth_mode = $5,
+           updated_at = now()
      where id = $1`,
-    [sourceRows.rows[0].id, ...graphjinUrls],
+    [sourceRows.rows[0].id, ...graphjinUrls, AUTH_MODE],
   );
-  console.log(`[seed-adventureworks] updated GraphJin data source to ${GRAPHJIN_ROOT}`);
+  console.log(
+    `[seed-adventureworks] updated GraphJin data source to ${GRAPHJIN_ROOT} (auth_mode=${AUTH_MODE})`,
+  );
+} else if (
+  RECONCILE_AUTH_MODE &&
+  sourceRows.rows[0]?.label === "AdventureWorks"
+) {
+  await client.query(
+    `update data_source
+        set auth_mode = $2,
+            updated_at = now()
+      where id = $1`,
+    [sourceRows.rows[0].id, AUTH_MODE],
+  );
+  console.log(
+    `[seed-adventureworks] reconciled GraphJin data source auth_mode=${AUTH_MODE}`,
+  );
 } else {
   console.log("[seed-adventureworks] data source already exists; leaving it unchanged");
 }

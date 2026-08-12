@@ -28,7 +28,10 @@ export {
 } from "./agent-backend-resolver";
 export { cancelAllAgents, registerAgentCanceller } from "./agent-shutdown";
 export {
+  DataSourceAuthorizationError,
   UpstreamProviderError,
+  detectAgentExecutionError,
+  detectDataSourceAuthorizationError,
   detectUpstreamError,
 } from "./agent-error";
 export {

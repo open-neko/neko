@@ -1,5 +1,5 @@
 import type { AgentBackend } from "./agent-backend";
-import { detectUpstreamError } from "./agent-error";
+import { detectAgentExecutionError } from "./agent-error";
 
 type AgentRunOptions = Parameters<AgentBackend["run"]>[0];
 
@@ -40,8 +40,8 @@ export async function runValidatedAgentTurn<T>(
         result.error ?? `${opts.backend.id} returned status=${result.status}`,
       );
     }
-    const upstream = detectUpstreamError(result.finalText);
-    if (upstream) throw upstream;
+    const executionError = detectAgentExecutionError(result.finalText);
+    if (executionError) throw executionError;
     try {
       return {
         value: opts.validate(result.finalText),
