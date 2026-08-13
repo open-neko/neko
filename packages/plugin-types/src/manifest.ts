@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { PluginActionDeclaration } from "./action.js";
 import { ChannelCapabilityDeclaration } from "./channel.js";
-import { ConnectScope } from "./connect.js";
+import {
+  ConnectCredentialScope,
+  ConnectFlow,
+  ConnectScope,
+} from "./connect.js";
 
 export const HostPattern = z
   .string()
@@ -37,10 +41,10 @@ export const PluginEnvRequirement = z.object({
   description: z.string().min(1).max(280),
   /**
    * How a secret reaches the plugin VM. "egress": held gateway-side and
-   * substituted by the proxy onto outbound requests — the box sees only a
-   * placeholder (for credentials sent to an external API, e.g. a bot token).
-   * "box" (default): the value lives in the VM, for secrets compared locally
-   * and never sent out (e.g. a webhook signing secret).
+   * substituted by the egress proxy onto outbound requests — the box sees only
+   * a placeholder (for credentials sent to an external API, e.g. a bot token).
+   * "box" (default): the value lives in the VM, for secrets the plugin compares
+   * locally and never sends out (e.g. a webhook signing secret).
    */
   inject: z.enum(["egress", "box"]).optional(),
 });
@@ -111,8 +115,19 @@ export const ConnectCapabilityDeclaration = z.object({
   providerLabel: z.string().min(1),
   /** OAuth scopes the connector will request at consent time. */
   scopes: z.array(ConnectScope).min(1),
-  /** Flow type the worker should drive. v1 supports oauth2-pkce only. */
-  flow: z.enum(["oauth2-pkce"]).default("oauth2-pkce"),
+  /**
+   * Flow type the worker should drive. oauth2-pkce (default): the core
+   * mints the code_verifier against a pre-registered client. mcp-oauth:
+   * the plugin does MCP-OAuth-2.1 discovery + DCR and bridges begin →
+   * complete via the oauthState echo.
+   */
+  flow: ConnectFlow.default("oauth2-pkce"),
+  /**
+   * "operator" (default): per-operator credentials. "deployment": one
+   * org-wide credential consented by an admin, injected on every
+   * action call and stored under a reserved secrets slot.
+   */
+  credentialScope: ConnectCredentialScope.default("operator"),
 });
 
 export type ConnectCapabilityDeclaration = z.infer<typeof ConnectCapabilityDeclaration>;

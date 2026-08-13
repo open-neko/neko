@@ -14,6 +14,8 @@ import {
   BeginConnectResult,
   CompleteConnectParams,
   CompleteConnectResult,
+  ConnectCredentialScope,
+  ConnectFlow,
   RefreshConnectParams,
   RefreshConnectResult,
 } from "./connect.js";
@@ -98,7 +100,8 @@ export interface AuthCapabilityImpl {
 export interface ConnectCapabilityImpl {
   providerLabel: string;
   scopes: string[];
-  flow?: "oauth2-pkce";
+  flow?: ConnectFlow;
+  credentialScope?: ConnectCredentialScope;
   begin: BeginConnectHandler;
   complete: CompleteConnectHandler;
   refresh?: RefreshConnectHandler;
