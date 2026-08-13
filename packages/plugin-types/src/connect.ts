@@ -18,6 +18,29 @@ import { z } from "zod";
 export const ConnectScope = z.string().min(1).max(256);
 
 /**
+ * OAuth flow type the worker should drive. v1 was oauth2-pkce only
+ * (pre-registered client, code_verifier minted by the core). v2 adds
+ * mcp-oauth for MCP-OAuth-2.1 endpoints (Scalekit workspace): the
+ * plugin does resource/AS discovery + dynamic client registration in
+ * `begin`, serializes its in-flight state into the returned
+ * `oauthState`, and the core echoes it back on `complete`.
+ */
+export const ConnectFlow = z.enum(["oauth2-pkce", "mcp-oauth"]);
+
+export type ConnectFlow = z.infer<typeof ConnectFlow>;
+
+/**
+ * Who the stored credential belongs to. "operator" (default): each
+ * operator authorizes their own account. "deployment": one admin
+ * consents once and the org-wide token backs every action call,
+ * regardless of which operator triggered it (stored under a reserved
+ * slot in the secrets file).
+ */
+export const ConnectCredentialScope = z.enum(["operator", "deployment"]);
+
+export type ConnectCredentialScope = z.infer<typeof ConnectCredentialScope>;
+
+/**
  * Opaque-from-OpenNeko's-perspective token blob produced by the
  * plugin's complete_connect handler. The plugin owns the shape
  * (access_token, refresh_token, expires_in, id_token vary by
@@ -70,6 +93,14 @@ export const BeginConnectResult = z.object({
    * response_type, state, redirect_uri, code_challenge, code_challenge_method, etc.).
    */
   authorizationUrl: z.string().min(1),
+  /**
+   * Opaque in-flight OAuth state (mcp-oauth flow): the plugin
+   * serializes its discovered endpoints + DCR client registration +
+   * PKCE verifier here because the runner is stateless between
+   * begin_connect and complete_connect. The core stores and echoes it
+   * back verbatim in CompleteConnectParams.
+   */
+  oauthState: z.string().max(65536).optional(),
 });
 
 export type BeginConnectResult = z.infer<typeof BeginConnectResult>;
@@ -86,6 +117,8 @@ export const CompleteConnectParams = z.object({
   codeVerifier: z.string().min(1).nullable().optional(),
   /** Scopes the operator originally requested (passed-through for binding). */
   scopes: z.array(ConnectScope).default([]),
+  /** Echo of the oauthState the plugin returned from begin_connect. */
+  oauthState: z.string().max(65536).optional(),
 });
 
 export type CompleteConnectParams = z.infer<typeof CompleteConnectParams>;

@@ -44,6 +44,10 @@ type ConnectCapability struct {
 	ProviderLabel string   `json:"providerLabel"`
 	Scopes        []string `json:"scopes"`
 	Flow          string   `json:"flow,omitempty"`
+	// Deployment-scoped connectors store one org-wide credential under a
+	// reserved secrets slot instead of per-operator. Introduced with the
+	// mcp-oauth flow (Scalekit workspace); default "operator" when absent.
+	CredentialScope string `json:"credentialScope,omitempty"`
 }
 
 // ChannelCapability — a frontend (Slack, Telegram, voice, …). Profile is

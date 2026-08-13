@@ -102,6 +102,7 @@ function buildRegisterResult(plugin: PluginDefinition): RegisterResult {
             providerLabel: caps.connect.providerLabel,
             scopes: caps.connect.scopes,
             flow: caps.connect.flow ?? "oauth2-pkce",
+            credentialScope: caps.connect.credentialScope ?? "operator",
           }
         : undefined,
       channel: caps.channel

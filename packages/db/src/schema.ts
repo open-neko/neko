@@ -122,6 +122,49 @@ export const sso_group_membership = pgTable(
   }),
 );
 
+// One-time SSO admin-setup state machine (portal link → poll → connected).
+export const sso_setup = pgTable(
+  "sso_setup",
+  {
+    org_id: text("org_id")
+      .primaryKey()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("not_started"),
+    portal_link: text("portal_link"),
+    portal_link_expires_at: ts("portal_link_expires_at"),
+    provider: text("provider"),
+    last_polled_at: ts("last_polled_at"),
+    last_error: text("last_error"),
+    setup_completed_at: ts("setup_completed_at"),
+    scalekit_environment_id: text("scalekit_environment_id"),
+    scalekit_organization_id: text("scalekit_organization_id"),
+    scalekit_environment_tier: text("scalekit_environment_tier"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+);
+
+// Configurable group → role/persona mapping (overrides the default heuristic).
+export const sso_group_mapping = pgTable(
+  "sso_group_mapping",
+  {
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    group_external_id: text("group_external_id").notNull(),
+    role: text("role").notNull(),
+    persona_role_template: text("persona_role_template"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({
+      columns: [t.org_id, t.provider, t.group_external_id],
+    }),
+  }),
+);
+
 // Availability mirror for the records-engine registry. The records database
 // remains authoritative for app definitions; metadata consumers use this
 // narrow projection for navigation, orchestration, and degraded-state checks.

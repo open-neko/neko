@@ -19,6 +19,8 @@ export interface ConnectProvider {
   pluginName: string;
   providerLabel: string;
   scopes: string[];
+  flow: string;
+  credentialScope: string;
 }
 
 export interface ConnectStatus {
@@ -80,6 +82,20 @@ export async function getOperatorConnectStatus(
   }
 }
 
+export async function getDeploymentConnectStatus(): Promise<ConnectStatus[]> {
+  try {
+    const res = await fetch(
+      `${workerAdminBase()}/admin/connect/deployment/status`,
+      { cache: "no-store", signal: AbortSignal.timeout(2000) },
+    );
+    if (!res.ok) return [];
+    const body = (await res.json()) as { connected?: ConnectStatus[] };
+    return body.connected ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export async function beginConnect(
   pluginName: string,
   params: {
@@ -89,12 +105,14 @@ export async function beginConnect(
     scopes: string[];
     codeVerifier: string;
   },
-): Promise<{ authorizationUrl: string }> {
+): Promise<{ authorizationUrl: string; oauthState?: string }> {
   const res = await fetch(`${workerAdminBase()}/admin/connect/begin`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ pluginName, params }),
-    signal: AbortSignal.timeout(15_000),
+    // First call after install pays the sandbox cold-start plus MCP-OAuth
+    // discovery + DCR round-trips — 15s is not enough on the first click.
+    signal: AbortSignal.timeout(60_000),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -102,7 +120,7 @@ export async function beginConnect(
       `connect plugin begin failed (${res.status}): ${text || res.statusText}`,
     );
   }
-  return (await res.json()) as { authorizationUrl: string };
+  return (await res.json()) as { authorizationUrl: string; oauthState?: string };
 }
 
 export async function completeConnect(
@@ -114,13 +132,14 @@ export async function completeConnect(
     state: string;
     codeVerifier: string;
     scopes: string[];
+    oauthState?: string;
   },
 ): Promise<ConnectorCredential> {
   const res = await fetch(`${workerAdminBase()}/admin/connect/complete`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ pluginName, params }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(60_000),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -147,6 +166,19 @@ export async function disconnectConnector(
   return Boolean(body.removed);
 }
 
+/**
+ * Deployment-scoped connect uses a reserved operator slot — every admin
+ * sees the same org-wide credential.
+ */
+export function disconnectDeploymentConnector(
+  pluginName: string,
+): Promise<boolean> {
+  return disconnectConnector(pluginName, DEPLOYMENT_CONNECT_OPERATOR_ID);
+}
+
+/** Reserved operator id for deployment-scoped connect flows. */
+export const DEPLOYMENT_CONNECT_OPERATOR_ID = "deployment";
+
 // ─── State cookie ──────────────────────────────────────────────────────
 
 /**
@@ -162,6 +194,8 @@ export interface ConnectStateCookiePayload {
   state: string;
   codeVerifier: string;
   returnPath: string;
+  /** mcp-oauth: opaque state the plugin returned from begin (DCR + PKCE + endpoints). */
+  oauthState?: string;
 }
 
 export function newStateToken(): string {
@@ -225,7 +259,8 @@ function isStatePayload(value: unknown): value is ConnectStateCookiePayload {
     typeof v.operatorId === "string" &&
     typeof v.state === "string" &&
     typeof v.codeVerifier === "string" &&
-    typeof v.returnPath === "string"
+    typeof v.returnPath === "string" &&
+    (v.oauthState === undefined || typeof v.oauthState === "string")
   );
 }
 

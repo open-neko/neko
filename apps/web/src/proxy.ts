@@ -137,10 +137,12 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  // Match everything except the SSO flow surfaces and static assets.
+  // Match everything except the SSO flow surfaces, the SSO setup
+  // surfaces (admin-gated internally — they must stay reachable before
+  // the first sign-in), and static assets.
   // Negative lookahead is a constant here so Next can statically
   // analyse it at build time (per the proxy.md API reference).
   matcher: [
-    "/((?!signin|api/auth/|_next/static/|_next/image/|favicon\\.ico).*)",
+    "/((?!signin|api/auth/|admin/settings/sso|api/sso/|integrations|api/integrations/|_next/static|_next/image|favicon\\.ico).*)",
   ],
 };

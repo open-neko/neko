@@ -29,12 +29,15 @@ import {
   app_user,
   db,
   eq,
+  inArray,
   isNull,
   sql,
   sso_group,
+  sso_group_mapping,
   sso_group_membership,
 } from "@neko/db";
 import { getOrgId } from "@/lib/db";
+import { upsertOperatorProfile } from "@neko/llm/work";
 
 export const SESSION_COOKIE_NAME = "openneko_session";
 export const STATE_COOKIE_NAME = "openneko_sso_state";
@@ -269,6 +272,8 @@ export async function upsertUserFromIdentity(
   identity: AuthIdentity,
 ): Promise<{ id: string; email: string; name: string | null }> {
   const orgId = await getOrgId();
+  const provider = (await getAuthProvider())?.pluginName ?? "oidc";
+  const mapped = await resolveGroupRole(orgId, provider, identity.groups ?? []);
   // Primary lookup: sub. Anything matching wins, regardless of email
   // changes (people get married, change addresses — sub doesn't).
   const bySub = await db()
@@ -276,21 +281,27 @@ export async function upsertUserFromIdentity(
       id: app_user.id,
       email: app_user.email,
       name: app_user.name,
+      role: app_user.role,
     })
     .from(app_user)
     .where(and(eq(app_user.org_id, orgId), eq(app_user.sub, identity.sub)))
     .limit(1);
   if (bySub[0]) {
+    // A configured group mapping is authoritative on every sign-in; when
+    // none is configured, leave the existing role untouched.
+    const role = mapped.role ?? bySub[0].role;
     await db()
       .update(app_user)
       .set({
         email: identity.email,
         name: identity.name ?? null,
+        role,
         last_login_at: new Date(),
         updated_at: new Date(),
       })
       .where(eq(app_user.id, bySub[0].id));
     await syncSsoGroups({ orgId, userId: bySub[0].id, identity });
+    await provisionPersona({ orgId, userId: bySub[0].id, identity, mapped });
     return {
       id: bySub[0].id,
       email: identity.email,
@@ -304,21 +315,25 @@ export async function upsertUserFromIdentity(
       email: app_user.email,
       name: app_user.name,
       sub: app_user.sub,
+      role: app_user.role,
     })
     .from(app_user)
     .where(and(eq(app_user.org_id, orgId), eq(app_user.email, identity.email)))
     .limit(1);
   if (byEmail[0] && !byEmail[0].sub) {
+    const role = mapped.role ?? byEmail[0].role;
     await db()
       .update(app_user)
       .set({
         sub: identity.sub,
         name: identity.name ?? byEmail[0].name ?? null,
+        role,
         last_login_at: new Date(),
         updated_at: new Date(),
       })
       .where(eq(app_user.id, byEmail[0].id));
     await syncSsoGroups({ orgId, userId: byEmail[0].id, identity });
+    await provisionPersona({ orgId, userId: byEmail[0].id, identity, mapped });
     return {
       id: byEmail[0].id,
       email: identity.email,
@@ -336,10 +351,10 @@ export async function upsertUserFromIdentity(
   // Brand new user. Bootstrap the first active admin so installing an SSO
   // plugin cannot leave an org with no administrator.
   const newId = `usr_${randomBytes(9).toString("base64url")}`;
-  const role =
-    (await orgHasActiveAdmin(orgId))
-      ? defaultRoleForGroups(identity.groups ?? [])
-      : "admin";
+  const fallbackRole = heuristicRoleForGroups(identity.groups ?? []);
+  const role = (await orgHasActiveAdmin(orgId))
+    ? (mapped.role ?? fallbackRole)
+    : "admin";
   await db()
     .insert(app_user)
     .values({
@@ -352,6 +367,7 @@ export async function upsertUserFromIdentity(
       last_login_at: new Date(),
     });
   await syncSsoGroups({ orgId, userId: newId, identity });
+  await provisionPersona({ orgId, userId: newId, identity, mapped });
   return {
     id: newId,
     email: identity.email,
@@ -375,12 +391,11 @@ async function orgHasActiveAdmin(orgId: string): Promise<boolean> {
 }
 
 /**
- * Coarse-grained role mapping. Anyone with an `admin` or
- * `owners` group becomes admin; everyone else is `member`. Operators
- * with richer requirements override `app_user.role` directly until
- * we ship a configurable mapping screen.
+ * Coarse-grained fallback role mapping used only when no sso_group_mapping
+ * row matches. Anyone with an `admin` or `owners` group becomes admin;
+ * everyone else is `member`.
  */
-function defaultRoleForGroups(
+function heuristicRoleForGroups(
   groups: Array<string | { id: string; name?: string | null }>,
 ): string {
   const lower = new Set(
@@ -396,6 +411,59 @@ function defaultRoleForGroups(
     return "admin";
   }
   return "member";
+}
+
+/**
+ * Resolve a configurable role + persona template from sso_group_mapping for
+ * the user's groups. `role`/`persona` are null when nothing maps — the caller
+ * falls back to the heuristic and the current role, respectively.
+ */
+async function resolveGroupRole(
+  orgId: string,
+  provider: string,
+  groups: Array<string | { id: string; name?: string | null }>,
+): Promise<{ role: string | null; persona: string | null }> {
+  const externalIds = groups
+    .map((group) => (typeof group === "string" ? group : group.id).trim())
+    .filter((id) => id.length > 0);
+  if (externalIds.length === 0) return { role: null, persona: null };
+  const rows = await db()
+    .select({
+      role: sso_group_mapping.role,
+      persona_role_template: sso_group_mapping.persona_role_template,
+      group_external_id: sso_group_mapping.group_external_id,
+    })
+    .from(sso_group_mapping)
+    .where(
+      and(
+        eq(sso_group_mapping.org_id, orgId),
+        eq(sso_group_mapping.provider, provider),
+        inArray(sso_group_mapping.group_external_id, externalIds),
+      ),
+    );
+  if (rows.length === 0) return { role: null, persona: null };
+  const role = rows.some((r) => r.role === "admin") ? "admin" : "member";
+  const personaRow = rows.find((r) => r.persona_role_template) ?? null;
+  return { role, persona: personaRow?.persona_role_template ?? null };
+}
+
+/** Provision the user's per-user persona from the group mapping (idempotent). */
+async function provisionPersona(input: {
+  orgId: string;
+  userId: string;
+  identity: AuthIdentity;
+  mapped: { role: string | null; persona: string | null };
+}): Promise<void> {
+  const roleTemplate =
+    input.mapped.persona ??
+    (input.mapped.role === "admin" ? "Administrator" : "");
+  if (!roleTemplate) return;
+  await upsertOperatorProfile({
+    orgId: input.orgId,
+    userId: input.userId,
+    displayName: input.identity.name ?? null,
+    roleTemplate,
+  });
 }
 
 function normalizedIdentityGroups(identity: AuthIdentity): Array<{
@@ -479,7 +547,11 @@ async function syncSsoGroups(input: {
         (org_id, user_id, provider, tenant_id, external_group_ids)
       values (
         ${input.orgId}, ${input.userId}, ${provider}, ${tenantId},
-        ${groups.map((group) => group.externalId)}::text[]
+        (ARRAY[${sql.raw(
+          groups
+            .map((group) => `'${group.externalId.replace(/'/g, "''")}'`)
+            .join(","),
+        )}])::text[]
       )
     `);
   });

@@ -1393,6 +1393,282 @@ describe("PluginRegistry — connect capability", () => {
   });
 });
 
+// ─── deployment-scoped connect (mcp-oauth) ─────────────────────────────
+
+const SCALEKIT_CONNECT_NAME = "@open-neko/plugin-scalekit";
+const SCALEKIT_CONNECT_SCOPES = [
+  "wks:read",
+  "wks:write",
+  "env:read",
+  "env:write",
+  "org:read",
+  "org:write",
+];
+
+function manifestWithDeploymentConnectEntry(extraCapabilities: Record<string, unknown> = {}) {
+  return {
+    schema: "https://open-neko.github.io/plugins/manifest.schema.json",
+    plugins: [
+      {
+        name: SCALEKIT_CONNECT_NAME,
+        version: "1.0.0",
+        integrity: FAKE_INTEGRITY,
+        permissions: {
+          network: ["*.scalekit.com", "*.scalekit.dev"],
+          env: [
+            {
+              key: "SCALEKIT_ENVIRONMENT_URL",
+              required: true,
+              secret: false,
+              description: "Environment URL.",
+            },
+            {
+              key: "SCALEKIT_CLIENT_ID",
+              required: true,
+              secret: false,
+              description: "Client id.",
+            },
+            {
+              key: "SCALEKIT_CLIENT_SECRET",
+              required: true,
+              secret: true,
+              description: "Client secret.",
+            },
+          ],
+        },
+        capabilities: {
+          connect: {
+            providerLabel: "Scalekit workspace",
+            scopes: SCALEKIT_CONNECT_SCOPES,
+            flow: "mcp-oauth",
+            credentialScope: "deployment",
+          },
+          ...extraCapabilities,
+        },
+      },
+    ],
+  };
+}
+
+function deploymentConnectRegisterResponse(): RpcResponse {
+  return rpcOk({
+    protocol: RPC_PROTOCOL_VERSION,
+    pluginName: SCALEKIT_CONNECT_NAME,
+    pluginVersion: "1.0.0",
+    capabilities: {
+      connect: {
+        providerLabel: "Scalekit workspace",
+        scopes: SCALEKIT_CONNECT_SCOPES,
+        flow: "mcp-oauth",
+        credentialScope: "deployment",
+      },
+      action: {
+        kinds: [{ kind: "list_environments", description: "List environments." }],
+      },
+    },
+  });
+}
+
+describe("PluginRegistry — deployment-scoped connect", () => {
+  let repoRoot: string;
+  let workRoot: string;
+  let secretsConfigDir: string;
+  let runnerPath: string;
+  let captured: Map<string, ActionAdapter>;
+
+  beforeEach(async () => {
+    repoRoot = await mkdtemp(path.join(tmpdir(), "openneko-repo-"));
+    workRoot = await mkdtemp(path.join(tmpdir(), "openneko-vmwork-"));
+    secretsConfigDir = await mkdtemp(path.join(tmpdir(), "openneko-secrets-"));
+    runnerPath = path.join(repoRoot, "fake-runner.js");
+    await writeFakeRunner(runnerPath);
+    captured = new Map();
+    setDefaultActionAdapter(mockActionAdapter);
+  });
+
+  afterEach(async () => {
+    await rm(repoRoot, { recursive: true, force: true });
+    await rm(workRoot, { recursive: true, force: true });
+    await rm(secretsConfigDir, { recursive: true, force: true });
+    setDefaultActionAdapter(mockActionAdapter);
+  });
+
+  function newRegistry(runtime: PluginRuntime) {
+    return new PluginRegistry({
+      repoRoot,
+      workRoot,
+      secretsConfigDir,
+      runtime,
+      resolveRunner: () => runnerPath,
+      onAdapter: (kind, adapter) => captured.set(kind, adapter),
+    });
+  }
+
+  async function writeDeploymentConnectManifest(): Promise<void> {
+    await writeFile(
+      path.join(repoRoot, "openneko.plugins.json"),
+      JSON.stringify(
+        manifestWithDeploymentConnectEntry({
+          action: {
+            kinds: [{ kind: "list_environments", description: "List environments." }],
+          },
+        }),
+      ),
+      "utf8",
+    );
+  }
+
+  it("beginConnect rewrites the operator id to the deployment slot", async () => {
+    await writeDeploymentConnectManifest();
+    const runtime = new FakeRuntime({
+      responses: {
+        register: deploymentConnectRegisterResponse(),
+        begin_connect: rpcOk({
+          result: { authorizationUrl: "https://mcp.scalekit.com/oauth?stub=1", oauthState: "st" },
+        }),
+      },
+    });
+    const reg = newRegistry(runtime);
+    await reg.start();
+    const out = await reg.beginConnect(SCALEKIT_CONNECT_NAME, {
+      operatorId: "usr_some-operator",
+      redirectUri: "https://app.example.com/integrations/callback",
+      state: "csrf-1",
+      scopes: [],
+      codeVerifier: "verifier-xyz",
+    });
+    expect(out.oauthState).toBe("st");
+    const beginRpc = runtime.rpcs.find((r) => r.method === "begin_connect");
+    expect(beginRpc?.paramsJson).toContain('"operatorId":"deployment"');
+    expect(beginRpc?.paramsJson).not.toContain("usr_some-operator");
+    await reg.stop();
+  });
+
+  it("completeConnect persists under the deployment slot", async () => {
+    await writeDeploymentConnectManifest();
+    const runtime = new FakeRuntime({
+      responses: {
+        register: deploymentConnectRegisterResponse(),
+        complete_connect: rpcOk({
+          result: {
+            credential: {
+              tokens: { access_token: "at-1", refresh_token: "rt-1" },
+              scopes: SCALEKIT_CONNECT_SCOPES,
+              connectedAt: "2026-08-13T10:00:00Z",
+            },
+          },
+        }),
+      },
+    });
+    const reg = newRegistry(runtime);
+    await reg.start();
+    await reg.completeConnect(SCALEKIT_CONNECT_NAME, {
+      operatorId: "usr_some-operator",
+      code: "c",
+      redirectUri: "https://x",
+      state: "x",
+      scopes: [],
+      oauthState: "st",
+    });
+    expect(reg.getDeploymentConnectStatus()).toEqual([
+      {
+        pluginName: SCALEKIT_CONNECT_NAME,
+        connectedAt: "2026-08-13T10:00:00Z",
+        scopes: SCALEKIT_CONNECT_SCOPES,
+      },
+    ]);
+    expect(reg.isOperatorConnected("usr_some-operator", SCALEKIT_CONNECT_NAME)).toBe(false);
+    await reg.stop();
+  });
+
+  it("injects the deployment credential on action calls regardless of actor", async () => {
+    await writeDeploymentConnectManifest();
+    const runtime = new FakeRuntime({
+      responses: {
+        register: deploymentConnectRegisterResponse(),
+        complete_connect: rpcOk({
+          result: {
+            credential: {
+              tokens: { access_token: "at-1", expires_at: String(Date.now() + 3_600_000) },
+              connectedAt: "2026-08-13T10:00:00Z",
+            },
+          },
+        }),
+        execute_action: rpcOk({ outcome: { result: { text: "ok" } } }),
+      },
+    });
+    const reg = newRegistry(runtime);
+    await reg.start();
+    await reg.completeConnect(SCALEKIT_CONNECT_NAME, {
+      operatorId: "usr_irrelevant",
+      code: "c",
+      redirectUri: "https://x",
+      state: "x",
+      scopes: [],
+      oauthState: "st",
+    });
+    const adapter = captured.get("list_environments");
+    expect(adapter).toBeDefined();
+    const rpcIndex = runtime.rpcs.length;
+    const result = await adapter!({
+      request: {
+        id: "req-1",
+        orgId: "org-1",
+        actorId: null,
+        scope: "internal",
+        kind: "list_environments",
+        target: null,
+        summary: null,
+        payload: {},
+        riskLevel: null,
+      },
+    });
+    expect(result.result).toEqual({ text: "ok" });
+    const execRpc = runtime.rpcs[rpcIndex];
+    expect(execRpc?.method).toBe("execute_action");
+    const env = (execRpc as { env?: Record<string, string> }).env ?? {};
+    const injected = JSON.parse(env.OPENNEKO_CONNECTOR_CREDENTIAL_TOKENS ?? "{}") as Record<string, unknown>;
+    expect(injected.access_token).toBe("at-1");
+    expect(env.OPENNEKO_OPERATOR_ID).toBe("deployment");
+    await reg.stop();
+  });
+
+  it("authSignInReady flips only once every required env var is set", async () => {
+    await writeFile(
+      path.join(repoRoot, "openneko.plugins.json"),
+      JSON.stringify({
+        schema: "https://open-neko.github.io/plugins/manifest.schema.json",
+        plugins: [
+          {
+            name: SCALEKIT_CONNECT_NAME,
+            version: "1.0.0",
+            integrity: FAKE_INTEGRITY,
+            permissions: {
+              network: ["*.scalekit.com", "*.scalekit.dev"],
+              env: [
+                { key: "SCALEKIT_ENVIRONMENT_URL", required: true, secret: false, description: "d" },
+                { key: "SCALEKIT_CLIENT_ID", required: true, secret: false, description: "d" },
+                { key: "SCALEKIT_CLIENT_SECRET", required: true, secret: true, description: "d" },
+              ],
+            },
+            capabilities: { auth: { providerLabel: "Scalekit" } },
+          },
+        ],
+      }),
+      "utf8",
+    );
+    const reg = newRegistry(new FakeRuntime());
+    await reg.start();
+    expect(reg.authSignInReady()).toBe(false);
+    await reg.setPluginSecret(SCALEKIT_CONNECT_NAME, "SCALEKIT_ENVIRONMENT_URL", "https://acme.scalekit.com");
+    await reg.setPluginSecret(SCALEKIT_CONNECT_NAME, "SCALEKIT_CLIENT_ID", "skc_1");
+    expect(reg.authSignInReady()).toBe(false);
+    await reg.setPluginSecret(SCALEKIT_CONNECT_NAME, "SCALEKIT_CLIENT_SECRET", "secret-1");
+    expect(reg.authSignInReady()).toBe(true);
+    await reg.stop();
+  });
+});
+
 // ─── Policy flagging (M4) ──────────────────────────────────────────────
 
 describe("PluginRegistry — install-policy flagging", () => {

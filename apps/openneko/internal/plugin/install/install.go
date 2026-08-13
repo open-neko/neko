@@ -546,9 +546,10 @@ func convertCapabilities(c marketplace.Capabilities) manifest.Capabilities {
 	}
 	if c.Connect != nil {
 		out.Connect = &manifest.ConnectCapability{
-			ProviderLabel: c.Connect.ProviderLabel,
-			Scopes:        c.Connect.Scopes,
-			Flow:          c.Connect.Flow,
+			ProviderLabel:   c.Connect.ProviderLabel,
+			Scopes:          c.Connect.Scopes,
+			Flow:            c.Connect.Flow,
+			CredentialScope: c.Connect.CredentialScope,
 		}
 	}
 	if c.Channel != nil {

@@ -46,6 +46,12 @@ export interface AuthHandlerSurface {
     pluginName: string;
     providerLabel: string;
   } | null;
+  /**
+   * Whether sign-in is actually usable (all required env vars set).
+   * The web proxy gates on this, NOT on mere plugin presence — so the
+   * admin isn't locked out of the setup UI before SSO is configured.
+   */
+  authSignInReady(): boolean;
   beginAuth(params: {
     redirectUri: string;
     state: string;
@@ -70,14 +76,21 @@ export interface ConnectHandlerSurface {
     pluginName: string;
     providerLabel: string;
     scopes: string[];
+    flow: string;
+    credentialScope: string;
   }>;
   getOperatorConnectStatus(
     operatorId: string,
   ): Array<{ pluginName: string; connectedAt: string; scopes?: string[] }>;
+  getDeploymentConnectStatus(): Array<{
+    pluginName: string;
+    connectedAt: string;
+    scopes?: string[];
+  }>;
   beginConnect(
     pluginName: string,
     params: BeginConnectParams,
-  ): Promise<{ authorizationUrl: string }>;
+  ): Promise<{ authorizationUrl: string; oauthState?: string }>;
   completeConnect(
     pluginName: string,
     params: CompleteConnectParams,
@@ -87,6 +100,57 @@ export interface ConnectHandlerSurface {
     operatorId: string,
   ): Promise<ConnectorCredential>;
   disconnect(pluginName: string, operatorId: string): Promise<boolean>;
+}
+
+/**
+ * SSO admin-setup surface — the web app drives portal-link generation and
+ * connection polling through this. Wired to the SsoSetupService in index.ts.
+ */
+export interface SsoSetupHandlerSurface {
+  getStatus(orgId: string): Promise<{
+    status: string;
+    portalLink: string | null;
+    portalLinkExpiresAt: string | null;
+    provider: string | null;
+    connection: { status: string; provider: string | null; enabled: boolean } | null;
+    lastError: string | null;
+    setupCompletedAt: string | null;
+    environmentId: string | null;
+    organizationId: string | null;
+    environmentTier: string | null;
+    signInConfigured: boolean;
+  }>;
+  setScalekitIds(
+    orgId: string,
+    input: { environmentId: string; organizationId: string; tier: string },
+  ): Promise<void>;
+  listEnvironments(orgId: string): Promise<Array<{
+    id: string;
+    name: string | null;
+    tier: string | null;
+    domain: string | null;
+  }>>;
+  listOrganizations(
+    orgId: string,
+    environmentId: string,
+  ): Promise<Array<{ id: string; name: string | null }>>;
+  getEnvironmentCredentials(
+    orgId: string,
+    environmentId: string,
+  ): Promise<{ environmentUrl: string; clientId: string }>;
+  setSignInCredentials(
+    orgId: string,
+    input: { environmentUrl: string; clientId: string; clientSecret: string },
+  ): Promise<void>;
+  generatePortalLink(
+    orgId: string,
+  ): Promise<{ portalLink: string; expiresAt: string | null }>;
+  checkConnection(orgId: string): Promise<{
+    status: string;
+    connection: { status: string; provider: string | null; enabled: boolean } | null;
+    lastError: string | null;
+    setupCompletedAt: string | null;
+  }>;
 }
 
 /**
@@ -207,6 +271,12 @@ export type AdminHandlerOptions = {
    */
   connect?: ConnectHandlerSurface | null;
   /**
+   * SSO admin-setup surface — typically wired to the SsoSetupService.
+   * Absent when the plugin subsystem is disabled, in which case
+   * /admin/sso/setup/* routes return 503.
+   */
+  ssoSetup?: SsoSetupHandlerSurface | null;
+  /**
    * Channel surface — typically wired to the PluginRegistry + channel
    * delivery module. Absent when the plugin subsystem is disabled, in which
    * case channel routes return 503 / empty.
@@ -281,6 +351,7 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
   const auth = opts.auth ?? null;
   const plugins = opts.plugins ?? null;
   const connect = opts.connect ?? null;
+  const ssoSetup = opts.ssoSetup ?? null;
   const channels = opts.channels ?? null;
   const installPolicy = opts.installPolicy ?? null;
   const events = opts.events ?? null;
@@ -321,6 +392,50 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
       void handleAuthComplete(req, res, auth);
       return;
     }
+    if (req.method === "GET" && req.url?.split("?")[0] === "/admin/sso/setup/status") {
+      void handleSsoSetupStatus(req, res, ssoSetup);
+      return;
+    }
+    if (
+      req.method === "GET" &&
+      req.url?.split("?")[0] === "/admin/sso/setup/environments"
+    ) {
+      void handleSsoSetupEnvironments(req, res, ssoSetup);
+      return;
+    }
+    if (
+      req.method === "GET" &&
+      req.url?.split("?")[0] === "/admin/sso/setup/organizations"
+    ) {
+      void handleSsoSetupOrganizations(req, res, ssoSetup);
+      return;
+    }
+    if (
+      req.method === "GET" &&
+      req.url?.split("?")[0] === "/admin/sso/setup/credentials-info"
+    ) {
+      void handleSsoSetupCredentialsInfo(req, res, ssoSetup);
+      return;
+    }
+    if (req.method === "POST" && req.url === "/admin/sso/setup/ids") {
+      void handleSsoSetupIds(req, res, ssoSetup);
+      return;
+    }
+    if (req.method === "POST" && req.url === "/admin/sso/setup/credentials") {
+      void handleSsoSetupCredentials(req, res, ssoSetup);
+      return;
+    }
+    if (
+      req.method === "POST" &&
+      req.url === "/admin/sso/setup/generate-portal-link"
+    ) {
+      void handleSsoSetupGeneratePortalLink(req, res, ssoSetup);
+      return;
+    }
+    if (req.method === "POST" && req.url === "/admin/sso/setup/check") {
+      void handleSsoSetupCheck(req, res, ssoSetup);
+      return;
+    }
     if (
       req.method === "GET" &&
       req.url === "/admin/plugins/action-descriptors"
@@ -334,6 +449,10 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
     }
     if (req.method === "GET" && req.url === "/admin/connect/providers") {
       handleConnectProviders(res, connect);
+      return;
+    }
+    if (req.method === "GET" && req.url === "/admin/connect/deployment/status") {
+      handleDeploymentConnectStatus(res, connect);
       return;
     }
     const statusMatch = req.method === "GET" && req.url?.startsWith("/admin/connect/status/");
@@ -569,7 +688,10 @@ function handleAuthStatus(res: ServerResponse, auth: AuthHandlerSurface | null) 
     json(res, 200, { provider: null });
     return;
   }
-  const provider = auth.getAuthProvider();
+  // Only surface the provider once sign-in is configured — before that
+  // the deployment stays in single-operator mode so the admin can reach
+  // the setup UI and configure credentials.
+  const provider = auth.authSignInReady() ? auth.getAuthProvider() : null;
   json(res, 200, {
     provider: provider
       ? {
@@ -786,6 +908,227 @@ async function handleAuthComplete(
   }
 }
 
+// ─── SSO admin setup ────────────────────────────────────────────────────
+
+function ssoSetupOrgId(body: unknown, res: ServerResponse): string | null {
+  const orgId = (body as Record<string, unknown> | null)?.orgId;
+  if (typeof orgId !== "string" || !orgId) {
+    json(res, 400, { error: "orgId (string) is required" });
+    return null;
+  }
+  return orgId;
+}
+
+async function handleSsoSetupStatus(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ssoSetup: SsoSetupHandlerSurface | null,
+) {
+  if (!ssoSetup) {
+    json(res, 503, { error: "plugin subsystem disabled" });
+    return;
+  }
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const orgId = url.searchParams.get("orgId") ?? "";
+  if (!orgId) {
+    json(res, 400, { error: "orgId query parameter is required" });
+    return;
+  }
+  try {
+    json(res, 200, await ssoSetup.getStatus(orgId));
+  } catch (err) {
+    json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleSsoSetupEnvironments(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ssoSetup: SsoSetupHandlerSurface | null,
+) {
+  if (!ssoSetup) {
+    json(res, 503, { error: "plugin subsystem disabled" });
+    return;
+  }
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const orgId = url.searchParams.get("orgId") ?? "";
+  if (!orgId) {
+    json(res, 400, { error: "orgId query parameter is required" });
+    return;
+  }
+  try {
+    json(res, 200, { environments: await ssoSetup.listEnvironments(orgId) });
+  } catch (err) {
+    json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleSsoSetupOrganizations(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ssoSetup: SsoSetupHandlerSurface | null,
+) {
+  if (!ssoSetup) {
+    json(res, 503, { error: "plugin subsystem disabled" });
+    return;
+  }
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const orgId = url.searchParams.get("orgId") ?? "";
+  const environmentId = url.searchParams.get("environmentId") ?? "";
+  if (!orgId || !environmentId) {
+    json(res, 400, {
+      error: "orgId and environmentId query parameters are required",
+    });
+    return;
+  }
+  try {
+    json(res, 200, {
+      organizations: await ssoSetup.listOrganizations(orgId, environmentId),
+    });
+  } catch (err) {
+    json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleSsoSetupCredentialsInfo(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ssoSetup: SsoSetupHandlerSurface | null,
+) {
+  if (!ssoSetup) {
+    json(res, 503, { error: "plugin subsystem disabled" });
+    return;
+  }
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const orgId = url.searchParams.get("orgId") ?? "";
+  const environmentId = url.searchParams.get("environmentId") ?? "";
+  if (!orgId || !environmentId) {
+    json(res, 400, {
+      error: "orgId and environmentId query parameters are required",
+    });
+    return;
+  }
+  try {
+    json(res, 200, await ssoSetup.getEnvironmentCredentials(orgId, environmentId));
+  } catch (err) {
+    json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleSsoSetupGeneratePortalLink(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ssoSetup: SsoSetupHandlerSurface | null,
+) {
+  if (!ssoSetup) {
+    json(res, 503, { error: "plugin subsystem disabled" });
+    return;
+  }
+  const body = await readJson(req).catch(() => null);
+  const orgId = ssoSetupOrgId(body, res);
+  if (!orgId) return;
+  try {
+    json(res, 200, await ssoSetup.generatePortalLink(orgId));
+  } catch (err) {
+    json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleSsoSetupIds(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ssoSetup: SsoSetupHandlerSurface | null,
+) {
+  if (!ssoSetup) {
+    json(res, 503, { error: "plugin subsystem disabled" });
+    return;
+  }
+  const body = (await readJson(req).catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  const orgId = ssoSetupOrgId(body, res);
+  if (!orgId) return;
+  const { environmentId, organizationId, tier } = body ?? {};
+  if (typeof environmentId !== "string" || !environmentId) {
+    json(res, 400, { error: "environmentId (string) is required" });
+    return;
+  }
+  if (typeof organizationId !== "string" || !organizationId) {
+    json(res, 400, { error: "organizationId (string) is required" });
+    return;
+  }
+  try {
+    await ssoSetup.setScalekitIds(orgId, {
+      environmentId,
+      organizationId,
+      tier: typeof tier === "string" && tier ? tier : "dev",
+    });
+    json(res, 200, { ok: true });
+  } catch (err) {
+    json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleSsoSetupCredentials(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ssoSetup: SsoSetupHandlerSurface | null,
+) {
+  if (!ssoSetup) {
+    json(res, 503, { error: "plugin subsystem disabled" });
+    return;
+  }
+  const body = (await readJson(req).catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  const orgId = ssoSetupOrgId(body, res);
+  if (!orgId) return;
+  const { environmentUrl, clientId, clientSecret } = body ?? {};
+  if (typeof environmentUrl !== "string" || !environmentUrl) {
+    json(res, 400, { error: "environmentUrl (string) is required" });
+    return;
+  }
+  if (typeof clientId !== "string" || !clientId) {
+    json(res, 400, { error: "clientId (string) is required" });
+    return;
+  }
+  if (typeof clientSecret !== "string" || !clientSecret) {
+    json(res, 400, { error: "clientSecret (string) is required" });
+    return;
+  }
+  try {
+    await ssoSetup.setSignInCredentials(orgId, {
+      environmentUrl,
+      clientId,
+      clientSecret,
+    });
+    json(res, 200, { ok: true });
+  } catch (err) {
+    json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleSsoSetupCheck(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ssoSetup: SsoSetupHandlerSurface | null,
+) {
+  if (!ssoSetup) {
+    json(res, 503, { error: "plugin subsystem disabled" });
+    return;
+  }
+  const body = await readJson(req).catch(() => null);
+  const orgId = ssoSetupOrgId(body, res);
+  if (!orgId) return;
+  try {
+    json(res, 200, await ssoSetup.checkConnection(orgId));
+  } catch (err) {
+    json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 // ─── Connect (per-operator OAuth) ──────────────────────────────────────
 
 function handleConnectProviders(
@@ -818,6 +1161,17 @@ function handleConnectStatus(
   json(res, 200, { connected: connect.getOperatorConnectStatus(operatorId) });
 }
 
+function handleDeploymentConnectStatus(
+  res: ServerResponse,
+  connect: ConnectHandlerSurface | null,
+) {
+  if (!connect) {
+    json(res, 200, { connected: [] });
+    return;
+  }
+  json(res, 200, { connected: connect.getDeploymentConnectStatus() });
+}
+
 async function handleConnectBegin(
   req: IncomingMessage,
   res: ServerResponse,
@@ -844,7 +1198,10 @@ async function handleConnectBegin(
   }
   try {
     const result = await connect.beginConnect(pluginName, params as BeginConnectParams);
-    json(res, 200, { authorizationUrl: result.authorizationUrl });
+    json(res, 200, {
+      authorizationUrl: result.authorizationUrl,
+      ...(result.oauthState ? { oauthState: result.oauthState } : {}),
+    });
   } catch (err) {
     json(res, 500, { error: err instanceof Error ? err.message : String(err) });
   }

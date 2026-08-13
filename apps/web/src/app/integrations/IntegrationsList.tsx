@@ -12,12 +12,17 @@ type Row = {
   pluginName: string;
   providerLabel: string;
   scopes: string[];
+  flow: string;
+  credentialScope: string;
   connected: boolean;
   connectedAt: string | null;
 };
 
-export default function IntegrationsList({ initial }: { initial: Row[] }) {
-  const [rows, setRows] = useState<Row[]>(initial);
+type InitialState = { workspace: Row[]; connectors: Row[] };
+
+export default function IntegrationsList({ initial }: { initial: InitialState }) {
+  const [workspace, setWorkspace] = useState<Row[]>(initial.workspace);
+  const [connectors, setConnectors] = useState<Row[]>(initial.connectors);
   const [busy, setBusy] = useState<string | null>(null);
   const params = useSearchParams();
 
@@ -28,7 +33,7 @@ export default function IntegrationsList({ initial }: { initial: Row[] }) {
     if (ok) toast.success(`Connected ${ok}`);
   }, [params]);
 
-  async function disconnect(pluginName: string) {
+  async function disconnect(pluginName: string, isDeployment: boolean) {
     setBusy(pluginName);
     try {
       const res = await fetch(
@@ -39,13 +44,14 @@ export default function IntegrationsList({ initial }: { initial: Row[] }) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? `HTTP ${res.status}`);
       }
-      setRows((prev) =>
+      const update = (prev: Row[]) =>
         prev.map((r) =>
           r.pluginName === pluginName
             ? { ...r, connected: false, connectedAt: null }
             : r,
-        ),
-      );
+        );
+      if (isDeployment) setWorkspace(update);
+      else setConnectors(update);
       toast.success(`Disconnected ${pluginName}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
@@ -54,59 +60,100 @@ export default function IntegrationsList({ initial }: { initial: Row[] }) {
     }
   }
 
+  function RowView({
+    row,
+    isDeployment,
+  }: {
+    row: Row;
+    isDeployment: boolean;
+  }) {
+    return (
+      <li
+        key={row.pluginName}
+        className="flex items-center gap-4 p-4 rounded-xl border border-border bg-bg max-[480px]:items-stretch max-[480px]:flex-col"
+      >
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-text">{row.providerLabel}</div>
+          <div className="text-[12px] text-text3 truncate">
+            {row.pluginName}
+          </div>
+          <div className="text-[12px] text-text3 mt-1 truncate">
+            Scopes: {row.scopes.join(", ")}
+          </div>
+          {row.connected && row.connectedAt && (
+            <div className="text-[12px] text-text2 mt-1">
+              Connected {new Date(row.connectedAt).toLocaleString()}
+            </div>
+          )}
+        </div>
+        {row.connected ? (
+          <Button
+            variant="secondary"
+            disabled={busy === row.pluginName}
+            onClick={() => disconnect(row.pluginName, isDeployment)}
+          >
+            {busy === row.pluginName ? "…" : "Disconnect"}
+          </Button>
+        ) : (
+          <a
+            href={`/api/integrations/connect/${encodeURIComponent(row.pluginName)}/start`}
+            className="inline-flex"
+          >
+            <Button>Connect</Button>
+          </a>
+        )}
+      </li>
+    );
+  }
+
   return (
     <div className="root">
       <AppHeader />
       <PageHeading
         eyebrow="Workspace connections"
         title="Integrations"
-        description="Connect external accounts for agent actions. Each operator authorizes independently, and credentials remain in this deployment."
+        description="Connect external accounts for agent actions. Credentials remain in this deployment."
       />
-      {rows.length === 0 ? (
+
+      {workspace.length > 0 && (
+        <>
+          <h2 className="mt-6 mb-2 text-[15px] font-semibold text-text">
+            Workspace connections
+          </h2>
+          <p className="text-[13px] text-text3 mb-2">
+            One org-wide authorization, consented once by an admin and shared
+            by every operator. Authorizing opens a browser consent screen that
+            names the scopes and the endpoint.
+          </p>
+          <ul className="flex flex-col gap-3">
+            {workspace.map((row) => (
+              <RowView key={row.pluginName} row={row} isDeployment />
+            ))}
+          </ul>
+        </>
+      )}
+
+      {connectors.length > 0 && (
+        <>
+          <h2 className="mt-6 mb-2 text-[15px] font-semibold text-text">
+            Per-operator connectors
+          </h2>
+          <p className="text-[13px] text-text3 mb-2">
+            Each operator authorizes independently with their own account.
+          </p>
+          <ul className="flex flex-col gap-3">
+            {connectors.map((row) => (
+              <RowView key={row.pluginName} row={row} isDeployment={false} />
+            ))}
+          </ul>
+        </>
+      )}
+
+      {workspace.length === 0 && connectors.length === 0 && (
         <p className="text-[14px] text-text3 mt-4">
           No connect-capable plugins installed. Install one with{" "}
           <code>openneko install &lt;name&gt;</code>.
         </p>
-      ) : (
-        <ul className="flex flex-col gap-3 mt-2">
-          {rows.map((row) => (
-            <li
-              key={row.pluginName}
-              className="flex items-center gap-4 p-4 rounded-xl border border-border bg-bg max-[480px]:items-stretch max-[480px]:flex-col"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-text">{row.providerLabel}</div>
-                <div className="text-[12px] text-text3 truncate">
-                  {row.pluginName}
-                </div>
-                <div className="text-[12px] text-text3 mt-1 truncate">
-                  Scopes: {row.scopes.join(", ")}
-                </div>
-                {row.connected && row.connectedAt && (
-                  <div className="text-[12px] text-text2 mt-1">
-                    Connected {new Date(row.connectedAt).toLocaleString()}
-                  </div>
-                )}
-              </div>
-              {row.connected ? (
-                <Button
-                  variant="secondary"
-                  disabled={busy === row.pluginName}
-                  onClick={() => disconnect(row.pluginName)}
-                >
-                  {busy === row.pluginName ? "…" : "Disconnect"}
-                </Button>
-              ) : (
-                <a
-                  href={`/api/integrations/connect/${encodeURIComponent(row.pluginName)}/start`}
-                  className="inline-flex"
-                >
-                  <Button>Connect</Button>
-                </a>
-              )}
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   );

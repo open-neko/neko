@@ -46,6 +46,9 @@ type ConnectCapability struct {
 	ProviderLabel string   `json:"providerLabel"`
 	Scopes        []string `json:"scopes"`
 	Flow          string   `json:"flow,omitempty"`
+	// Deployment-scoped connectors store one org-wide credential under a
+	// reserved secrets slot instead of per-operator (mcp-oauth connectors).
+	CredentialScope string `json:"credentialScope,omitempty"`
 }
 
 // ChannelCapability — the plugin is a frontend (Slack, Telegram, voice, …).
