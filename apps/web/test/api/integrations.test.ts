@@ -70,12 +70,16 @@ describe("/api/integrations/list", () => {
               pluginName: "@open-neko/connector-google-workspace",
               providerLabel: "Google Workspace",
               scopes: ["gmail.send"],
+              flow: "oauth2-pkce",
+              credentialScope: "operator",
             },
             {
-              pluginId: "open-neko-connector-github",
-              pluginName: "@open-neko/connector-github",
-              providerLabel: "GitHub",
-              scopes: ["repo:read"],
+              pluginId: "open-neko-plugin-scalekit",
+              pluginName: "@open-neko/plugin-scalekit",
+              providerLabel: "Scalekit workspace",
+              scopes: ["environment_read"],
+              flow: "mcp-oauth",
+              credentialScope: "deployment",
             },
           ],
         });
@@ -90,21 +94,33 @@ describe("/api/integrations/list", () => {
           ],
         });
       }
+      if (url.endsWith("/admin/connect/deployment/status")) {
+        return jsonResponse(200, {
+          connected: [
+            {
+              pluginName: "@open-neko/plugin-scalekit",
+              connectedAt: "2026-05-22T10:00:00Z",
+            },
+          ],
+        });
+      }
       throw new Error(`unexpected fetch: ${url}`);
     });
     const { GET } = await import("@/app/api/integrations/list/route");
     const res = await callRoute(GET);
     expect(res.status).toBe(200);
     const body = res.body as {
-      providers: Array<{ pluginName: string; connected: boolean; connectedAt: string | null }>;
+      workspace: Array<{ pluginName: string; connected: boolean }>;
+      connectors: Array<{ pluginName: string; connected: boolean }>;
     };
-    expect(body.providers).toHaveLength(2);
-    expect(body.providers.find((r) => r.pluginName === "@open-neko/connector-google-workspace")?.connected).toBe(
-      true,
+    expect(body.workspace).toHaveLength(1);
+    expect(body.workspace[0]!.pluginName).toBe("@open-neko/plugin-scalekit");
+    expect(body.workspace[0]!.connected).toBe(true);
+    expect(body.connectors).toHaveLength(1);
+    expect(body.connectors[0]!.pluginName).toBe(
+      "@open-neko/connector-google-workspace",
     );
-    expect(body.providers.find((r) => r.pluginName === "@open-neko/connector-github")?.connected).toBe(
-      false,
-    );
+    expect(body.connectors[0]!.connected).toBe(true);
   });
 });
 
