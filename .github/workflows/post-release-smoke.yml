@@ -33,6 +33,9 @@ jobs:
 
       - name: Resolve release tag + build outcome
         id: ctx
+        env:
+          UPSTREAM_EVENT: ${{ github.event.workflow_run.event }}
+          UPSTREAM_TITLE: ${{ github.event.workflow_run.display_title }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -41,11 +44,25 @@ jobs:
             echo "build_ok=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # The binaries workflow runs on tag push, so its head_branch IS the
-          # tag. Don't resolve via the releases API: release-please pins
+          # Manual release recoveries run from a fix branch, so head_branch is
+          # not the image tag. The release workflow carries its requested tag
+          # in run-name for this downstream workflow to recover explicitly.
+          if [ "$UPSTREAM_EVENT" = "workflow_dispatch" ]; then
+            run_title_pattern='^openneko release binaries \(([^)]+)\)$'
+            if [[ "$UPSTREAM_TITLE" =~ $run_title_pattern ]]; then
+              tag="${BASH_REMATCH[1]}"
+            else
+              echo "::error::unable to resolve release tag from upstream run title: $UPSTREAM_TITLE"
+              exit 1
+            fi
+          else
+            # Tag-triggered release runs expose their tag as head_branch.
+            tag="${{ github.event.workflow_run.head_branch }}"
+          fi
+          # Release-triggered binary runs expose the tag as head_branch. Don't
+          # resolve via the releases API: release-please pins
           # target_commitish to a SHA, so filtering on "main" matches only
           # stale hand-made prereleases (this froze the smoke on v1.18.0-openshell.4).
-          tag="${{ github.event.workflow_run.head_branch }}"
           echo "tag=${tag:-}" >> "$GITHUB_OUTPUT"
           # Only gate stable releases — a '-' marks a prerelease, which is never "Latest".
           case "${tag:-}" in *-* | "") echo "stable=false" ;; *) echo "stable=true" ;; esac >> "$GITHUB_OUTPUT"

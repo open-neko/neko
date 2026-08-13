@@ -62,8 +62,12 @@ CMD ["serve"]
 # and lives one layer up in `cli`.
 FROM base AS runtime-base
 ARG GRAPHJIN_VERSION=3.18.42
+ARG GRAPHJIN_ASSET_AMD64=470534811
+ARG GRAPHJIN_ASSET_ARM64=470534772
 ARG HERMES_AGENT_REF=a91a57fa5a13d516c38b07a141a9ce8a3daabeb0
 ARG OPENSHELL_VERSION=0.0.54
+ARG OPENSHELL_ASSET_AMD64=436365845
+ARG OPENSHELL_ASSET_ARM64=436365844
 # TARGETARCH is auto-supplied by buildx (amd64 or arm64).
 ARG TARGETARCH
 # unzip + postgresql-client: db/load-adventureworks-baked.sh (demo seed, runs in
@@ -74,8 +78,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       git unzip postgresql-client openssh-client \
     && rm -rf /var/lib/apt/lists/*
 # graphjin: every in-process agent turn queries the data source via `graphjin cli`.
-RUN curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/graphjin.tgz \
-      "https://github.com/dosco/graphjin/releases/download/v${GRAPHJIN_VERSION}/graphjin_${GRAPHJIN_VERSION}_linux_${TARGETARCH}.tar.gz" \
+# Asset IDs are the immutable v${GRAPHJIN_VERSION} linux tarballs; the API
+# endpoint avoids transient failures from GitHub's browser-download CDN.
+RUN GRAPHJIN_ASSET_ID="$(case "${TARGETARCH}" in amd64) echo "${GRAPHJIN_ASSET_AMD64}" ;; arm64) echo "${GRAPHJIN_ASSET_ARM64}" ;; *) exit 1 ;; esac)" \
+    && curl -fsSL --retry 10 --retry-delay 5 --retry-all-errors \
+      -H 'Accept: application/octet-stream' -o /tmp/graphjin.tgz \
+      "https://api.github.com/repos/dosco/graphjin/releases/assets/${GRAPHJIN_ASSET_ID}" \
     && tar -xzf /tmp/graphjin.tgz -C /usr/local/bin graphjin \
     && rm /tmp/graphjin.tgz \
     && graphjin version
@@ -107,9 +115,10 @@ RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv
     && echo "hermes v0.14 ACP/MCP runtime present"
 RUN npm install -g @anthropic-ai/claude-code
 # openshell: CLI to spawn + relay to agent sandboxes. Static musl, no deps.
-RUN OS_ARCH="$(case "${TARGETARCH}" in amd64) echo x86_64 ;; arm64) echo aarch64 ;; *) echo "${TARGETARCH}" ;; esac)" \
-    && curl -fsSL -o /tmp/openshell.tgz \
-      "https://github.com/NVIDIA/OpenShell/releases/download/v${OPENSHELL_VERSION}/openshell-${OS_ARCH}-unknown-linux-musl.tar.gz" \
+RUN OPENSHELL_ASSET_ID="$(case "${TARGETARCH}" in amd64) echo "${OPENSHELL_ASSET_AMD64}" ;; arm64) echo "${OPENSHELL_ASSET_ARM64}" ;; *) exit 1 ;; esac)" \
+    && curl -fsSL --retry 10 --retry-delay 5 --retry-all-errors -o /tmp/openshell.tgz \
+      -H 'Accept: application/octet-stream' \
+      "https://api.github.com/repos/NVIDIA/OpenShell/releases/assets/${OPENSHELL_ASSET_ID}" \
     && tar -xzf /tmp/openshell.tgz -C /usr/local/bin openshell \
     && rm /tmp/openshell.tgz \
     && openshell --version
