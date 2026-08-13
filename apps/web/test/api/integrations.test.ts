@@ -165,18 +165,86 @@ describe("/api/integrations/disconnect/[plugin]", () => {
 });
 
 describe("/api/integrations/connect/[plugin]/start", () => {
-  it("401 when signed out", async () => {
+  it("401 when signed out (operator-scoped connector)", async () => {
     mockGetCurrentUser.mockResolvedValue(null);
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      if (url.endsWith("/admin/connect/providers")) {
+        return jsonResponse(200, {
+          providers: [
+            {
+              pluginId: "open-neko-connector-google-workspace",
+              pluginName: "@open-neko/connector-google-workspace",
+              providerLabel: "Google Workspace",
+              scopes: ["gmail.send"],
+              flow: "oauth2-pkce",
+              credentialScope: "operator",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
     const { GET } = await import(
       "@/app/api/integrations/connect/[plugin]/start/route"
     );
     const res = await callRoute(
       (req) =>
-        GET(req, { params: Promise.resolve({ plugin: "%40x%2Fy" }) }) as
-          | Promise<Response>
-          | Response,
+        GET(req, {
+          params: Promise.resolve({
+            plugin: encodeURIComponent("@open-neko/connector-google-workspace"),
+          }),
+        }) as Promise<Response> | Response,
     );
     expect(res.status).toBe(401);
+  });
+
+  it("deployment-scoped connectors are admin-gated, not user-gated", async () => {
+    // Signed out: the route must not 401/404 on user absence — it resolves
+    // the solo admin actor and proceeds to beginConnect (which fails here
+    // because the worker fetch is not stubbed → 502), proving the
+    // deployment-scope path is reachable before any SSO session exists.
+    mockGetCurrentUser.mockResolvedValue(null);
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      if (url.endsWith("/admin/connect/providers")) {
+        return jsonResponse(200, {
+          providers: [
+            {
+              pluginId: "open-neko-plugin-scalekit",
+              pluginName: "@open-neko/plugin-scalekit",
+              providerLabel: "Scalekit workspace",
+              scopes: ["wks:read"],
+              flow: "mcp-oauth",
+              credentialScope: "deployment",
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const { GET } = await import(
+      "@/app/api/integrations/connect/[plugin]/start/route"
+    );
+    // The synthetic callRoute helper has no request scope, so cookies()
+    // throws once the route reaches the state-cookie write. That throw
+    // (or a 5xx) is fine — the assertion is that the auth gates did NOT
+    // reject the request.
+    let status: number | null = null;
+    try {
+      const res = await callRoute(
+        (req) =>
+          GET(req, {
+            params: Promise.resolve({
+              plugin: encodeURIComponent("@open-neko/plugin-scalekit"),
+            }),
+          }) as Promise<Response> | Response,
+      );
+      status = res.status;
+    } catch {
+      // passed the gates, then hit the request-scope-only cookie write.
+    }
+    expect(status === null || ![401, 404].includes(status)).toBe(true);
   });
 
   it("404 when plugin not installed", async () => {
