@@ -138,6 +138,11 @@ export default async function SettingsPage() {
     },
   ];
   cards.push({
+    href: "/admin/settings/sso",
+    title: "Single sign-on",
+    copy: "Connect your IdP (Okta, Entra ID, and others) through Scalekit and map groups to roles.",
+  });
+  cards.push({
     href: "/admin/settings/security",
     title: "Security",
     copy: "Trust floor for plugin and skill installs — which marketplaces are allowed, whether unverified or community installs are permitted.",

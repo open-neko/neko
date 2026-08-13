@@ -1,7 +1,8 @@
 import { connection } from "next/server";
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentActor } from "@/lib/actor";
 import {
+  getDeploymentConnectStatus,
   getOperatorConnectStatus,
   listConnectProviders,
 } from "@/lib/integrations";
@@ -9,22 +10,37 @@ import IntegrationsList from "./IntegrationsList";
 
 export default async function IntegrationsPage() {
   await connection();
-  const user = await getCurrentUser();
-  if (!user) {
+  const actor = await getCurrentActor();
+  if (actor.role !== "admin") {
     redirect("/signin?returnTo=/integrations");
   }
-  const [providers, status] = await Promise.all([
+  const [providers, status, deploymentStatus] = await Promise.all([
     listConnectProviders(),
-    getOperatorConnectStatus(user.id),
+    actor.userId ? getOperatorConnectStatus(actor.userId) : Promise.resolve([]),
+    getDeploymentConnectStatus(),
   ]);
   const connectedByPlugin = new Map(status.map((s) => [s.pluginName, s]));
-  const rows = providers.map((p) => ({
+  const deploymentConnectedByPlugin = new Map(
+    deploymentStatus.map((s) => [s.pluginName, s]),
+  );
+  const rowFor = (
+    p: (typeof providers)[number],
+    map: Map<string, { connectedAt: string; scopes?: string[] }>,
+  ) => ({
     pluginId: p.pluginId,
     pluginName: p.pluginName,
     providerLabel: p.providerLabel,
     scopes: p.scopes,
-    connected: connectedByPlugin.has(p.pluginName),
-    connectedAt: connectedByPlugin.get(p.pluginName)?.connectedAt ?? null,
-  }));
-  return <IntegrationsList initial={rows} />;
+    flow: p.flow,
+    credentialScope: p.credentialScope,
+    connected: map.has(p.pluginName),
+    connectedAt: map.get(p.pluginName)?.connectedAt ?? null,
+  });
+  const workspace = providers
+    .filter((p) => p.credentialScope === "deployment")
+    .map((p) => rowFor(p, deploymentConnectedByPlugin));
+  const connectors = providers
+    .filter((p) => p.credentialScope !== "deployment")
+    .map((p) => rowFor(p, connectedByPlugin));
+  return <IntegrationsList initial={{ workspace, connectors }} />;
 }

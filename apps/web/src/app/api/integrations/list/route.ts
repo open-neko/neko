@@ -1,32 +1,55 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import {
+  getDeploymentConnectStatus,
   getOperatorConnectStatus,
   listConnectProviders,
 } from "@/lib/integrations";
 
 /**
  * GET /api/integrations/list — combined view of installed connect
- * plugins + per-operator connection status. Used by the /integrations
- * page to render the table in one round-trip.
+ * plugins + connection status. Deployment-scoped connectors surface in
+ * a separate "workspace" section (one org-wide credential); the rest
+ * are per-operator. Used by the /integrations page in one round-trip.
  */
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "not signed in" }, { status: 401 });
   }
-  const [providers, status] = await Promise.all([
+  const [providers, status, deploymentStatus] = await Promise.all([
     listConnectProviders(),
     getOperatorConnectStatus(user.id),
+    getDeploymentConnectStatus(),
   ]);
   const connectedByPlugin = new Map(status.map((s) => [s.pluginName, s]));
-  const rows = providers.map((p) => ({
-    pluginId: p.pluginId,
-    pluginName: p.pluginName,
-    providerLabel: p.providerLabel,
-    scopes: p.scopes,
-    connected: connectedByPlugin.has(p.pluginName),
-    connectedAt: connectedByPlugin.get(p.pluginName)?.connectedAt ?? null,
-  }));
-  return NextResponse.json({ providers: rows });
+  const deploymentConnectedByPlugin = new Map(
+    deploymentStatus.map((s) => [s.pluginName, s]),
+  );
+  const workspace = providers
+    .filter((p) => p.credentialScope === "deployment")
+    .map((p) => ({
+      pluginId: p.pluginId,
+      pluginName: p.pluginName,
+      providerLabel: p.providerLabel,
+      scopes: p.scopes,
+      flow: p.flow,
+      credentialScope: p.credentialScope,
+      connected: deploymentConnectedByPlugin.has(p.pluginName),
+      connectedAt:
+        deploymentConnectedByPlugin.get(p.pluginName)?.connectedAt ?? null,
+    }));
+  const connectors = providers
+    .filter((p) => p.credentialScope !== "deployment")
+    .map((p) => ({
+      pluginId: p.pluginId,
+      pluginName: p.pluginName,
+      providerLabel: p.providerLabel,
+      scopes: p.scopes,
+      flow: p.flow,
+      credentialScope: p.credentialScope,
+      connected: connectedByPlugin.has(p.pluginName),
+      connectedAt: connectedByPlugin.get(p.pluginName)?.connectedAt ?? null,
+    }));
+  return NextResponse.json({ workspace, connectors });
 }

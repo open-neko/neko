@@ -302,7 +302,7 @@ export default function AppRail() {
   useEffect(() => {
     if (hidden || RECORDS_VISUAL_TEST) return;
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
         const res = await fetch("/api/auth/session", { cache: "no-store" });
         if (cancelled || !res.ok) return;
@@ -319,9 +319,15 @@ export default function AppRail() {
       } catch {
         // Keep admin-only navigation hidden when identity cannot be resolved.
       }
-    })();
+    };
+    void load();
+    // Re-check periodically: the identity fetch is one-shot otherwise, and a
+    // worker blip at page load would leave the profile/signout block missing
+    // until a full reload.
+    const id = setInterval(load, 30_000);
     return () => {
       cancelled = true;
+      clearInterval(id);
     };
   }, [hidden]);
 
@@ -543,14 +549,16 @@ export default function AppRail() {
             <Link
               href="/onboarding"
               className="app-rail-user-profile"
-              title="Edit personal setup"
+              title="Profile"
             >
               <span className="app-rail-avatar" aria-hidden="true">
                 {initials(user)}
               </span>
               <span className="app-rail-user-copy">
                 <span className="app-rail-user-name">{user.name || user.email}</span>
-                <span className="app-rail-user-email">Personal setup</span>
+                <span className="app-rail-user-email">
+                  {user.name ? user.email : "Profile"}
+                </span>
               </span>
             </Link>
             <button

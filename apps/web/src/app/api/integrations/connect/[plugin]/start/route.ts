@@ -10,9 +10,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { isDenied, requireAdminActor } from "@/lib/admin-auth";
 import {
   beginConnect,
   buildConnectCallbackUri,
+  DEPLOYMENT_CONNECT_OPERATOR_ID,
   listConnectProviders,
   newPkceVerifier,
   newStateToken,
@@ -23,10 +25,6 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ plugin: string }> },
 ) {
-  const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: "not signed in" }, { status: 401 });
-  }
   const { plugin } = await params;
   const pluginName = decodeURIComponent(plugin);
   if (!pluginName) {
@@ -42,27 +40,57 @@ export async function GET(
       { status: 404 },
     );
   }
+  // Deployment-scoped connectors are org-level: an admin can authorize
+  // them before any SSO session exists (solo mode). Per-operator
+  // connectors still require a signed-in user.
+  if (provider.credentialScope === "deployment") {
+    const actor = await requireAdminActor();
+    if (isDenied(actor)) return actor;
+  } else {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "not signed in" }, { status: 401 });
+    }
+  }
+  // Deployment-scoped connectors use a reserved slot — the worker ignores
+  // the operator id and stores one org-wide credential.
+  const operatorId =
+    provider.credentialScope === "deployment"
+      ? DEPLOYMENT_CONNECT_OPERATOR_ID
+      : (await getCurrentUser())!.id;
   const url = new URL(request.url);
   const returnTo = url.searchParams.get("returnTo") ?? "/integrations";
   const state = newStateToken();
   const codeVerifier = newPkceVerifier();
   await writeConnectStateCookie({
     pluginName,
-    operatorId: user.id,
+    operatorId,
     state,
     codeVerifier,
     returnPath: returnTo,
   });
   const redirectUri = buildConnectCallbackUri(request.url, pluginName);
   try {
-    const { authorizationUrl } = await beginConnect(pluginName, {
-      operatorId: user.id,
+    const result = await beginConnect(pluginName, {
+      operatorId,
       redirectUri,
       state,
       scopes: provider.scopes,
       codeVerifier,
     });
-    return NextResponse.redirect(authorizationUrl, { status: 302 });
+    if (result.oauthState) {
+      // mcp-oauth: the plugin's in-flight state must survive the browser
+      // round-trip — stash it in a second signed cookie for the callback.
+      await writeConnectStateCookie({
+        pluginName,
+        operatorId,
+        state,
+        codeVerifier,
+        returnPath: returnTo,
+        oauthState: result.oauthState,
+      });
+    }
+    return NextResponse.redirect(result.authorizationUrl, { status: 302 });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },

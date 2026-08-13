@@ -78,6 +78,7 @@ export async function GET(
       state,
       codeVerifier: stored.codeVerifier,
       scopes: provider.scopes,
+      ...(stored.oauthState ? { oauthState: stored.oauthState } : {}),
     });
     return NextResponse.redirect(
       new URL(`${stored.returnPath}?connected=${encodeURIComponent(pluginName)}`, request.url),
