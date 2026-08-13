@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.25.3](https://github.com/open-neko/openneko/compare/v2.25.2...v2.25.3) (2026-08-13)
+
+
+### Bug Fixes
+
+* **ci:** allow four concurrent release builds ([b89fdee](https://github.com/open-neko/openneko/commit/b89fdee6b682f776448f3c31b211ffa66a200a3b))
+* **ci:** fetch pinned tools through release assets API ([08fab93](https://github.com/open-neko/openneko/commit/08fab931620c8bf594dc9522c1819ebeb5099ca7))
+* **ci:** harden release builds against GitHub outages ([cec1c0b](https://github.com/open-neko/openneko/commit/cec1c0b00b2eb7a7f1cdf442f859754f0ad4a7df))
+* **ci:** harden release recovery builds ([7cd9680](https://github.com/open-neko/openneko/commit/7cd9680f8485bd8e78e5301269d4f9894eeae54c))
+* **ci:** propagate manual release tags to smoke ([dd15d18](https://github.com/open-neko/openneko/commit/dd15d18933b00d812401ac968ce54818be06c782))
+
 ## [2.25.2](https://github.com/open-neko/openneko/compare/v2.25.1...v2.25.2) (2026-08-12)
 
 
