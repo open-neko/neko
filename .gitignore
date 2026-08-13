@@ -52,3 +52,9 @@ design-preview/
 # the operator's installed plugins; not part of the source tree.
 openneko.plugins.json
 apps/*/openneko.plugins.json
+
+# Local dev bring-up artifacts (source checkout with a host worker):
+# plugin install dir, records-config bind mounts, and dev-only compose overrides
+.local/
+dev-volumes/
+compose.dev-overrides.yml
