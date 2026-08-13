@@ -9,8 +9,8 @@ Every plugin runs inside an OpenShell sandbox with outbound network limited to i
 Any combination of:
 
 - **`action`** — typed handlers the agent invokes (e.g. Slack's `send_slack_message`).
-- **`auth`** — singleton SSO provider for the deployment (e.g. Scalekit). Lights up "Sign in with X" on `/signin`.
-- **`connect`** — per-operator OAuth (e.g. Google Workspace). Operators authorise their own account at `/integrations`; the worker injects the right credential per invocation.
+- **`auth`** — singleton SSO provider for the deployment (e.g. Scalekit). Lights up "Sign in with X" on `/signin`. The login gate engages only once the plugin's sign-in credentials are configured — until then the deployment stays in single-operator mode.
+- **`connect`** — OAuth for account-level integrations. Two credential scopes: `operator` (e.g. Google Workspace — each operator authorises their own account at `/integrations`) and `deployment` (e.g. Scalekit workspace — one admin consents once and the org-wide token backs every call, stored under a reserved secrets slot). The `mcp-oauth` flow drives MCP-OAuth-2.1 endpoints (resource/AS discovery + dynamic client registration + PKCE) with the in-flight state bridged through an `oauthState` echo.
 
 ## Installing
 
@@ -79,7 +79,7 @@ Flipping a switch off flags pre-existing installs — not yanked — so the regi
 
 ## Per-operator integrations (`/integrations`)
 
-Plugins with `connect` (Google Workspace today) authorise per-operator OAuth. Each operator visits `/integrations`, clicks **Connect**, runs OAuth in their browser, and their tokens land in their secrets slot. The worker injects the right operator's credential per invocation. Disconnect wipes the credential. Refresh-token rotation happens inside the plugin sandbox and gets persisted by the worker.
+Plugins with `connect` authorise OAuth. Operator-scoped connectors (Google Workspace today): each operator visits `/integrations`, clicks **Connect**, runs OAuth in their browser, and their tokens land in their secrets slot. Deployment-scoped connectors (Scalekit workspace): an admin authorises once at `/integrations` or from the SSO setup page; the credential lands in the reserved deployment slot and is injected on every tool call, pre-refreshed near expiry. Disconnect wipes the credential. Refresh-token rotation happens inside the plugin sandbox and gets persisted by the worker.
 
 ## Host support
 
