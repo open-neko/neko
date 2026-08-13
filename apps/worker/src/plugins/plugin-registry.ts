@@ -27,6 +27,7 @@ import {
   watch as fsWatch,
 } from "node:fs";
 import { copyFile, mkdir, readFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import path from "node:path";
 import {
@@ -64,6 +65,7 @@ import {
   readFullSecretsFileSoft,
   type SecretsResolver,
   setOperatorCredential,
+  setSecret,
   unsetOperatorCredential,
   writeFullSecretsFile,
   type FullSecretsFile,
@@ -182,6 +184,13 @@ const EMPTY_STATE: ManifestState = {
 };
 
 const REFRESH_DEBOUNCE_MS = 200;
+
+/**
+ * Reserved secrets-store operator slot for deployment-scoped connect
+ * credentials. One org-wide credential consented by an admin, injected
+ * on every action call of a credentialScope:"deployment" connector.
+ */
+export const DEPLOYMENT_CONNECT_SLOT = "deployment";
 
 export class PluginRegistry {
   private runtime: PluginRuntime | null = null;
@@ -352,6 +361,27 @@ export class PluginRegistry {
   }
 
   /**
+   * Whether the auth plugin's sign-in flow is actually usable: every
+   * required env var declared by its manifest has a non-empty value.
+   * Until then the deployment stays in single-operator mode — the gate
+   * must not flip before the admin has configured sign-in, or they get
+   * locked out of the setup UI entirely.
+   */
+  authSignInReady(): boolean {
+    const provider = this.getAuthProvider();
+    if (!provider) return false;
+    const entry = this.state.entriesByPluginId.get(provider.pluginId);
+    if (!entry) return false;
+    const env = mergeEnv(entry, this.secrets);
+    for (const req of entry.permissions.env ?? []) {
+      if (req.required !== true) continue;
+      const value = env[req.key];
+      if (typeof value !== "string" || value.length === 0) return false;
+    }
+    return true;
+  }
+
+  /**
    * Drive the auth plugin's `begin_auth` over RPC. The web app calls
    * this through the worker admin endpoint; the registry handles VM
    * lifecycle + env injection exactly like an action call.
@@ -424,6 +454,76 @@ export class PluginRegistry {
     return { pluginId, entry };
   }
 
+  /**
+   * System-initiated action invocation — bypasses the agent's approval
+   * engine so core services (the SSO setup poller) can drive a plugin
+   * action directly. The plugin action handler sees a normal
+   * PluginActionRequest; `actorId` is null and `scope` is "internal".
+   * `orgId` is the caller's org for request bookkeeping.
+   */
+  async invokeAction(
+    pluginId: string,
+    kind: string,
+    payload: Record<string, unknown>,
+    orgId = "",
+  ): Promise<PluginActionOutcome> {
+    const entry = this.state.entriesByPluginId.get(pluginId);
+    if (!entry) {
+      throw new Error(
+        `plugin-registry: ${pluginId} not in current manifest (kind=${kind}) — has the plugin been removed?`,
+      );
+    }
+    if (!this.runtime) {
+      throw new Error("plugin-registry: runtime unavailable");
+    }
+    await this.ensureVm(pluginId, entry);
+    // Deployment-scoped connectors get the org-wide credential injected
+    // even for system-initiated calls (actorId null → operator scope is skipped).
+    const env = await this.injectConnectCredential(entry, null);
+    const params: PluginActionRequest = {
+      id: `sys_${randomBytes(9).toString("base64url")}`,
+      orgId,
+      actorId: null,
+      scope: "internal",
+      kind,
+      target: null,
+      summary: null,
+      payload,
+      riskLevel: null,
+    };
+    const response = await this.runtime.callRpc(
+      pluginId,
+      "execute_action",
+      JSON.stringify(ExecuteActionParams.parse({ request: params })),
+      { env },
+    );
+    if (!response.ok) {
+      throw new Error(
+        `plugin ${pluginId} action ${kind} failed: ${response.error.code} ${response.error.message}`,
+      );
+    }
+    return ExecuteActionResult.parse(response.result).outcome;
+  }
+
+  /**
+   * Admin-initiated write of one plugin env secret into the encrypted
+   * vault (the settings page's sign-in credential entry). Re-derives the
+   * scrubber so the new value is redacted from agent output immediately.
+   */
+  async setPluginSecret(
+    pluginName: string,
+    key: string,
+    value: string,
+  ): Promise<void> {
+    const before: FullSecretsFile = { env: this.secrets, operators: this.operators };
+    const nextEnv = setSecret(before.env, pluginName, key, value);
+    this.secrets = nextEnv;
+    await writeFullSecretsFile({ env: nextEnv, operators: before.operators }, this.options.secretsConfigDir);
+    this.scrubber = createScrubber(
+      allSecretValuesFull({ env: nextEnv, operators: before.operators }),
+    );
+  }
+
   // ─── connect capability (per-operator OAuth) ─────────────────────────
 
   /**
@@ -436,12 +536,16 @@ export class PluginRegistry {
     pluginName: string;
     providerLabel: string;
     scopes: string[];
+    flow: string;
+    credentialScope: string;
   }> {
     const out: Array<{
       pluginId: string;
       pluginName: string;
       providerLabel: string;
       scopes: string[];
+      flow: string;
+      credentialScope: string;
     }> = [];
     for (const [pluginId, entry] of this.state.entriesByPluginId) {
       const decl = entry.capabilities.connect;
@@ -451,6 +555,8 @@ export class PluginRegistry {
         pluginName: entry.name,
         providerLabel: decl.providerLabel,
         scopes: decl.scopes,
+        flow: decl.flow,
+        credentialScope: decl.credentialScope,
       });
     }
     return out;
@@ -663,6 +769,42 @@ export class PluginRegistry {
   }
 
   /**
+   * Deployment-scoped connect status — the reserved-slot credential for
+   * connectors declaring credentialScope "deployment". The web renders
+   * these as a single workspace-level row instead of per-operator rows.
+   */
+  getDeploymentConnectStatus(): Array<{
+    pluginName: string;
+    connectedAt: string;
+    scopes?: string[];
+  }> {
+    const byPlugin = this.operators[DEPLOYMENT_CONNECT_SLOT] ?? {};
+    return Object.entries(byPlugin)
+      .map(([pluginName, cred]) => ({
+        pluginName,
+        connectedAt: cred.connectedAt,
+        scopes: cred.scopes,
+      }))
+      .sort((a, b) => a.pluginName.localeCompare(b.pluginName));
+  }
+
+  isDeploymentConnected(pluginName: string): boolean {
+    return this.operators[DEPLOYMENT_CONNECT_SLOT]?.[pluginName] != null;
+  }
+
+  /**
+   * Resolve the secrets-store operator slot a connector's credential
+   * lives under: deployment-scoped connectors always use the reserved
+   * deployment slot (whatever operatorId the web passed is ignored);
+   * operator-scoped connectors use the passed operatorId.
+   */
+  private connectSlotFor(entry: PluginManifestEntry, operatorId: string): string {
+    return entry.capabilities.connect?.credentialScope === "deployment"
+      ? DEPLOYMENT_CONNECT_SLOT
+      : operatorId;
+  }
+
+  /**
    * Per-operator connect status across every installed connector. Lets
    * the web app render the integrations page in one query.
    */
@@ -688,8 +830,9 @@ export class PluginRegistry {
   async beginConnect(
     pluginName: string,
     params: BeginConnectParams,
-  ): Promise<{ authorizationUrl: string }> {
+  ): Promise<{ authorizationUrl: string; oauthState?: string }> {
     const { pluginId, entry } = this.requireConnectPluginEntry(pluginName);
+    const operatorId = this.connectSlotFor(entry, params.operatorId);
     await this.ensureVm(pluginId, entry);
     const env = mergeEnv(entry, this.secrets);
     if (!this.runtime) {
@@ -698,7 +841,9 @@ export class PluginRegistry {
     const response = await this.runtime.callRpc(
       pluginId,
       "begin_connect",
-      JSON.stringify(BeginConnectRpcParams.parse({ params })),
+      JSON.stringify(
+        BeginConnectRpcParams.parse({ params: { ...params, operatorId } }),
+      ),
       { env },
     );
     if (!response.ok) {
@@ -711,7 +856,8 @@ export class PluginRegistry {
 
   /**
    * Drive the connect plugin's `complete_connect` RPC, then persist
-   * the returned credential under the operator's slot in the secrets
+   * the returned credential under the operator's slot (or the
+   * deployment slot for deployment-scoped connectors) in the secrets
    * file. The worker remains the only writer to secrets.json — the
    * plugin never touches disk directly.
    */
@@ -720,6 +866,7 @@ export class PluginRegistry {
     params: CompleteConnectParams,
   ): Promise<ConnectorCredential> {
     const { pluginId, entry } = this.requireConnectPluginEntry(pluginName);
+    const operatorId = this.connectSlotFor(entry, params.operatorId);
     await this.ensureVm(pluginId, entry);
     const env = mergeEnv(entry, this.secrets);
     if (!this.runtime) {
@@ -728,7 +875,9 @@ export class PluginRegistry {
     const response = await this.runtime.callRpc(
       pluginId,
       "complete_connect",
-      JSON.stringify(CompleteConnectRpcParams.parse({ params })),
+      JSON.stringify(
+        CompleteConnectRpcParams.parse({ params: { ...params, operatorId } }),
+      ),
       { env },
     );
     if (!response.ok) {
@@ -737,7 +886,7 @@ export class PluginRegistry {
       );
     }
     const credential = CompleteConnectRpcResult.parse(response.result).result.credential;
-    await this.persistOperatorCredential(params.operatorId, entry.name, credential);
+    await this.persistOperatorCredential(operatorId, entry.name, credential);
     return credential;
   }
 
@@ -752,14 +901,15 @@ export class PluginRegistry {
     operatorId: string,
   ): Promise<ConnectorCredential> {
     const { pluginId, entry } = this.requireConnectPluginEntry(pluginName);
+    const slot = this.connectSlotFor(entry, operatorId);
     const current = getOperatorCredential(
       { env: this.secrets, operators: this.operators },
-      operatorId,
+      slot,
       entry.name,
     );
     if (!current) {
       throw new Error(
-        `connect plugin ${entry.name}: no credential to refresh for operator ${operatorId}`,
+        `connect plugin ${entry.name}: no credential to refresh for operator ${slot}`,
       );
     }
     await this.ensureVm(pluginId, entry);
@@ -770,7 +920,7 @@ export class PluginRegistry {
     const response = await this.runtime.callRpc(
       pluginId,
       "refresh_connect",
-      JSON.stringify(RefreshConnectRpcParams.parse({ params: { operatorId, current } })),
+      JSON.stringify(RefreshConnectRpcParams.parse({ params: { operatorId: slot, current } })),
       { env },
     );
     if (!response.ok) {
@@ -783,7 +933,7 @@ export class PluginRegistry {
       ...credential,
       refreshedAt: credential.refreshedAt ?? new Date().toISOString(),
     };
-    await this.persistOperatorCredential(operatorId, entry.name, stamped);
+    await this.persistOperatorCredential(slot, entry.name, stamped);
     return stamped;
   }
 
@@ -795,8 +945,12 @@ export class PluginRegistry {
   async disconnect(pluginName: string, operatorId: string): Promise<boolean> {
     // Don't require the plugin to still be installed — a removed
     // plugin's orphaned credentials should still be cleanable.
+    const entry = [...this.state.entriesByPluginId.values()].find(
+      (e) => e.name === pluginName,
+    );
+    const slot = entry ? this.connectSlotFor(entry, operatorId) : operatorId;
     const before: FullSecretsFile = { env: this.secrets, operators: this.operators };
-    const { store, removed } = unsetOperatorCredential(before, operatorId, pluginName);
+    const { store, removed } = unsetOperatorCredential(before, slot, pluginName);
     if (!removed) return false;
     this.operators = store.operators;
     await writeFullSecretsFile(store, this.options.secretsConfigDir);
@@ -1090,27 +1244,8 @@ export class PluginRegistry {
         );
       }
       await this.ensureVm(pluginId, entry);
-      let env = mergeEnv(entry, this.secrets);
-      // For connect-capable plugins, inject the calling operator's
-      // credential as OPENNEKO_CONNECTOR_CREDENTIAL_TOKENS. The plugin's
-      // action handler reads + parses this env var to make the API call.
-      // Absent operator → no credential → action handler errors clearly
-      // (the operator must Connect via /integrations first).
       const actorId = (request as { actorId?: string | null }).actorId ?? null;
-      if (entry.capabilities.connect && actorId) {
-        const credential = getOperatorCredential(
-          { env: this.secrets, operators: this.operators },
-          actorId,
-          entry.name,
-        );
-        if (credential) {
-          env = {
-            ...env,
-            OPENNEKO_CONNECTOR_CREDENTIAL_TOKENS: JSON.stringify(credential.tokens),
-            OPENNEKO_OPERATOR_ID: actorId,
-          };
-        }
-      }
+      const env = await this.injectConnectCredential(entry, actorId);
       const params: PluginActionRequest = {
         id: request.id,
         orgId: request.orgId,
@@ -1142,6 +1277,61 @@ export class PluginRegistry {
         result: outcome.result ?? null,
       };
     };
+  }
+
+  /**
+   * Build the env bag for a connect-capable plugin's action call. For
+   * operator-scoped connectors the calling operator's credential is
+   * injected (absent operator → no credential). For deployment-scoped
+   * connectors the org-wide credential is injected on EVERY call,
+   * regardless of actor, and pre-refreshed via the plugin's
+   * refresh_connect RPC when its tokens are near expiry (persisted
+   * writeback, so the next call sees the fresh token).
+   */
+  private async injectConnectCredential(
+    entry: PluginManifestEntry,
+    actorId: string | null,
+  ): Promise<Record<string, string>> {
+    let env = mergeEnv(entry, this.secrets);
+    const decl = entry.capabilities.connect;
+    if (!decl) return env;
+    const deploymentScoped = decl.credentialScope === "deployment";
+    const operatorId = deploymentScoped ? DEPLOYMENT_CONNECT_SLOT : actorId;
+    if (!operatorId) return env;
+    let credential = getOperatorCredential(
+      { env: this.secrets, operators: this.operators },
+      operatorId,
+      entry.name,
+    );
+    if (credential && deploymentScoped && this.credentialNearExpiry(credential)) {
+      try {
+        credential = await this.refreshConnect(entry.name, operatorId);
+      } catch (err) {
+        console.warn(
+          `[plugin-registry] deployment credential pre-refresh for ${entry.name} failed: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+    if (credential) {
+      env = {
+        ...env,
+        OPENNEKO_CONNECTOR_CREDENTIAL_TOKENS: JSON.stringify(credential.tokens),
+        OPENNEKO_OPERATOR_ID: operatorId,
+      };
+    }
+    return env;
+  }
+
+  /** Near-expiry check over the plugin-owned token blob (expires_at epoch ms). */
+  private credentialNearExpiry(credential: ConnectorCredential): boolean {
+    const tokens = credential.tokens as Record<string, unknown>;
+    const value = tokens.expires_at;
+    let epochMs: number | null = null;
+    if (typeof value === "number" && Number.isFinite(value)) epochMs = value;
+    else if (typeof value === "string" && /^\d+$/.test(value)) {
+      epochMs = Number(value);
+    }
+    return epochMs != null && epochMs < Date.now() + 60_000;
   }
 
   private async ensureVm(
@@ -1254,6 +1444,21 @@ export class PluginRegistry {
         await this.runtime.stop(pluginId).catch(() => {});
         throw new Error(
           `${entry.name}: manifest declares connect scopes [${[...declaredScopes].join(", ")}] but VM reports [${[...reportedScopes].join(", ")}]`,
+        );
+      }
+      if (registered.capabilities.connect.flow !== entry.capabilities.connect.flow) {
+        await this.runtime.stop(pluginId).catch(() => {});
+        throw new Error(
+          `${entry.name}: manifest declares connect flow ${entry.capabilities.connect.flow} but VM reports ${registered.capabilities.connect.flow}`,
+        );
+      }
+      if (
+        registered.capabilities.connect.credentialScope !==
+        entry.capabilities.connect.credentialScope
+      ) {
+        await this.runtime.stop(pluginId).catch(() => {});
+        throw new Error(
+          `${entry.name}: manifest declares connect credentialScope ${entry.capabilities.connect.credentialScope} but VM reports ${registered.capabilities.connect.credentialScope}`,
         );
       }
     }

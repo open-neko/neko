@@ -43,7 +43,12 @@ import {
 import {
   createAdminHandler,
   type RecordsImportHandlerSurface,
+  type SsoSetupHandlerSurface,
 } from "./admin-server.js";
+import {
+  SsoSetupService,
+  startSsoSetupPoller,
+} from "./sso/sso-setup-service.js";
 import {
   and,
   data_source,
@@ -392,6 +397,7 @@ async function runMetricRefreshSweep() {
 // without a server restart.
 let pluginRegistry: PluginRegistry | null = null;
 let recordsImportAdminSurface: RecordsImportHandlerSurface | null = null;
+let ssoSetupService: SsoSetupService | null = null;
 let actionRequestPreflightReady = false;
 function recordsImportSurface(): RecordsImportHandlerSurface {
   if (!recordsImportAdminSurface) {
@@ -399,10 +405,47 @@ function recordsImportSurface(): RecordsImportHandlerSurface {
   }
   return recordsImportAdminSurface;
 }
+function ssoSetupSurface(): SsoSetupHandlerSurface {
+  return {
+    getStatus: (orgId) => {
+      if (!ssoSetupService) throw new Error("SSO setup service not ready");
+      return ssoSetupService.getStatus(orgId);
+    },
+    setScalekitIds: (orgId, input) => {
+      if (!ssoSetupService) throw new Error("SSO setup service not ready");
+      return ssoSetupService.setScalekitIds(orgId, input);
+    },
+    listEnvironments: (orgId) => {
+      if (!ssoSetupService) throw new Error("SSO setup service not ready");
+      return ssoSetupService.listEnvironments(orgId);
+    },
+    listOrganizations: (orgId, environmentId) => {
+      if (!ssoSetupService) throw new Error("SSO setup service not ready");
+      return ssoSetupService.listOrganizations(orgId, environmentId);
+    },
+    getEnvironmentCredentials: (orgId, environmentId) => {
+      if (!ssoSetupService) throw new Error("SSO setup service not ready");
+      return ssoSetupService.getEnvironmentCredentials(orgId, environmentId);
+    },
+    setSignInCredentials: (orgId, input) => {
+      if (!ssoSetupService) throw new Error("SSO setup service not ready");
+      return ssoSetupService.setSignInCredentials(orgId, input);
+    },
+    generatePortalLink: (orgId) => {
+      if (!ssoSetupService) throw new Error("SSO setup service not ready");
+      return ssoSetupService.generatePortalLink(orgId);
+    },
+    checkConnection: (orgId) => {
+      if (!ssoSetupService) throw new Error("SSO setup service not ready");
+      return ssoSetupService.checkConnection(orgId);
+    },
+  };
+}
 const server = createServer(
   createAdminHandler({
     auth: {
       getAuthProvider: () => pluginRegistry?.getAuthProvider() ?? null,
+      authSignInReady: () => pluginRegistry?.authSignInReady() ?? false,
       beginAuth: (params) => {
         if (!pluginRegistry) {
           throw new Error("plugin registry not initialised");
@@ -476,6 +519,8 @@ const server = createServer(
       getConnectProviders: () => pluginRegistry?.getConnectProviders() ?? [],
       getOperatorConnectStatus: (operatorId) =>
         pluginRegistry?.getOperatorConnectStatus(operatorId) ?? [],
+      getDeploymentConnectStatus: () =>
+        pluginRegistry?.getDeploymentConnectStatus() ?? [],
       beginConnect: (pluginName, params) => {
         if (!pluginRegistry) throw new Error("plugin registry not initialised");
         return pluginRegistry.beginConnect(pluginName, params);
@@ -493,6 +538,7 @@ const server = createServer(
         return pluginRegistry.disconnect(pluginName, operatorId);
       },
     },
+    ssoSetup: ssoSetupSurface(),
     channels: {
       getChannelProviders: () => pluginRegistry?.getChannelProviders() ?? [],
       deliver: (pluginName, recipient, events) => {
@@ -689,6 +735,8 @@ pluginRegistry = new PluginRegistry({
 });
 await pluginRegistry.start();
 setPluginRegistryInstance(pluginRegistry);
+ssoSetupService = new SsoSetupService(() => pluginRegistry);
+startSsoSetupPoller({ service: ssoSetupService, orgId: ADMIN_ORG_ID });
 registerChannelOutputDelivery();
 await seedOpenNekoOpsWorkflow(ADMIN_ORG_ID);
 {
