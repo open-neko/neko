@@ -111,10 +111,13 @@ denied policy is not bypassed) are first-class phases, not afterthoughts.
 ### 2.1 Per-phase oracle bundles, not per-combination oracles
 
 There is no oracle that exists only for a combination such as
-"observe+understand+decide". A case carries a **phase-keyed oracle bundle** —
-`observe:`, `understand:`, `decide:`, `act:` — each entry drawn from the
-family that fits that phase. The episode is the composition; the oracle is
-not. This buys:
+"observe+understand+decide". A case carries a **phase-keyed oracle bundle**
+(implemented: the case schema accepts `oracles: {<phase>: <spec>}` in place
+of the single `oracle`, assertions accept a `phase:` binding, and drivers
+score each phase slot against its own bundle entry — see
+`openneko-work-memory-smoke` for a live consumer). Each entry is drawn from
+the family that fits its phase. The episode is the composition; the oracle
+is not. This buys:
 
 - **Attribution**: a full-loop failure names its phase — wrong catalog
   (observe), wrong number (understand), wrong threshold/policy path
@@ -186,7 +189,8 @@ variants.
 | `adventureworks-metric-40q` (shipped) | observe+understand: grounded metrics | none | `sql.metric` |
 | `metric-series-cards` | dashboards: series + card contract | extend metric adapter with `sql.series` resolution and card-contract scoring | `sql.series`, contract |
 | `bootstrap-dashboard` | propose a grounded exec dashboard | run bootstrap product path; re-resolve each proposed metric | contract + value re-resolution |
-| `work-memory-skills` | complex `/work` tasks using seeded memory and skills | `/work` adapter with seeded memory corpus, skill catalog, artifact capture | value, artifact, method |
+| `openneko-work-memory-smoke` (shipped) | deterministic seeded-memory retrieval/isolation, memory ablation twin, skill install round-trip | none — first phase-keyed bundle consumer | inline.expected per phase |
+| `work-memory-skills` | model-driven `/work` tasks using the same seeded memory corpus and skill catalog | `/work` adapter with model in the loop, artifact capture | value, artifact, method |
 | `flow-build-exec` | NL workflow/watcher/rule build, then deterministic execution | lifecycle adapter gains a model-driven build phase before its existing executable matrix | state-machine |
 | `event-driven-actions` | watcher→workflow→action chains with negative controls and approval governance | compose lifecycle scenarios; fake adapters and receipts | state-machine + audit |
 | `ouda-tiers` | one scenario at depths O / O+U / O+U+D / O+U+D+A with paired tier deltas | phase-keyed oracle bundles in the case schema | all four |

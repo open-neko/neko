@@ -60,6 +60,9 @@ export interface EvalDriver {
     variant: EvalVariant;
     oracle: unknown;
     execution: EvalExecution;
+    /** Phase of the scored slot; binds phase-keyed oracle bundles and phase-bound assertions. */
+    phase: string;
+    repetition: number;
   }): Promise<EvalScore> | EvalScore;
   close?(): Promise<void>;
 }
@@ -452,6 +455,8 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
               variant: slot.variant,
               oracle,
               execution,
+              phase: slot.phase,
+              repetition: slot.repetition,
             });
             const finishedAt = new Date().toISOString();
             await store.writeAttempt({
@@ -631,6 +636,8 @@ export async function rescoreEvaluation(input: {
         variant: slot.variant,
         oracle: oracles[slot.caseId],
         execution,
+        phase: slot.phase,
+        repetition: slot.repetition,
       });
       rescored.push({ ...episode, score });
     }

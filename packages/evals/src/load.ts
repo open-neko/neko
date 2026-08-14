@@ -45,8 +45,36 @@ function rejectLiteralCredentials(value: unknown, path: string): void {
 export type LoadedCase = EvalCase & {
   sourcePath: string;
   oraclePath?: string;
+  oraclePaths?: Readonly<Record<string, string>>;
   contentId: string;
 };
+
+export type LoadedOracleSpec = NonNullable<EvalCase["oracle"]> & {
+  path?: string;
+};
+
+/**
+ * The oracle spec governing one phase of a case: the phase-keyed bundle
+ * entry when the case declares `oracles`, otherwise the whole-episode
+ * `oracle`. Returns undefined when a bundle case has no entry for the
+ * phase (a phase that only carries method/behavior assertions).
+ */
+export function oracleSpecForPhase(
+  evalCase: LoadedCase,
+  phase: string,
+): LoadedOracleSpec | undefined {
+  if (evalCase.oracles) {
+    const spec = evalCase.oracles[phase];
+    if (!spec) return undefined;
+    const path = evalCase.oraclePaths?.[phase];
+    return { ...spec, ...(path ? { path } : {}) };
+  }
+  if (!evalCase.oracle) return undefined;
+  return {
+    ...evalCase.oracle,
+    ...(evalCase.oraclePath ? { path: evalCase.oraclePath } : {}),
+  };
+}
 
 export type LoadedEval = {
   configPath: string;
@@ -186,17 +214,30 @@ export async function loadEval(configPathInput: string): Promise<LoadedEval> {
       parsedCase.input = MetricQuestionInputSchema.parse(parsedCase.input);
     }
     if (selected && !selected.has(parsedCase.id)) continue;
-    const oraclePath = parsedCase.oracle.ref
+    const oraclePath = parsedCase.oracle?.ref
       ? resolveRef(casePath, parsedCase.oracle.ref)
       : undefined;
     const oracleDigest = oraclePath
       ? textDigest(await readFile(oraclePath, "utf8"))
       : null;
+    let oraclePaths: Record<string, string> | undefined;
+    let oracleDigests: Record<string, string> | undefined;
+    for (const [phase, spec] of Object.entries(parsedCase.oracles ?? {})) {
+      if (!spec.ref) continue;
+      const path = resolveRef(casePath, spec.ref);
+      (oraclePaths ??= {})[phase] = path;
+      (oracleDigests ??= {})[phase] = textDigest(await readFile(path, "utf8"));
+    }
     cases.push({
       ...parsedCase,
       sourcePath: casePath,
       ...(oraclePath ? { oraclePath } : {}),
-      contentId: contentDigest({ case: parsedCase, oracleDigest }),
+      ...(oraclePaths ? { oraclePaths } : {}),
+      contentId: contentDigest({
+        case: parsedCase,
+        oracleDigest,
+        ...(oracleDigests ? { oracleDigests } : {}),
+      }),
     });
   }
   ensureUnique(cases.map((item) => item.id), "suite cases");

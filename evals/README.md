@@ -56,6 +56,11 @@ pnpm openneko eval rescore --config evals/configs/adventureworks-smoke.yaml --ru
 # Product lifecycle coverage needs only the migrated OpenNeko test database;
 # it makes no provider/model calls.
 pnpm openneko eval run --config evals/configs/openneko-lifecycle-smoke.yaml --no-promote
+
+# Seeded-memory retrieval/isolation, the memory ablation twin, and the skill
+# install round-trip — the first phase-keyed oracle-bundle suite; also
+# provider-free.
+pnpm openneko eval run --config evals/configs/openneko-work-memory-smoke.yaml --no-promote
 ```
 
 The local journal and raw material stay under ignored `.openneko/evals/` paths.

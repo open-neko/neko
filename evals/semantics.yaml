@@ -468,7 +468,7 @@ entries:
     description: Semantic memory retrieves relevant allowed memories and reports
       misses honestly
     verification: seeded retrieval eval
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/work
   - id: WORK-MEMORY-WRITE
@@ -476,7 +476,7 @@ entries:
     description: Agent/fence-driven memory writes validate scope, attribution,
       confidence, and dedupe
     verification: state oracle
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/work
   - id: WORK-MEMORY-LAYERS
@@ -515,7 +515,7 @@ entries:
     description: Skill discovery, dependency aggregation, install/use, and
       allowed-tool implications are correct
     verification: trace + artifact contract
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/work
   - id: WORK-CONFIG-VCS
@@ -1025,7 +1025,7 @@ entries:
     description: Org boundaries hold across data, records, threads, memory, files,
       actions, channels, and telemetry
     verification: cross-tenant adversarial
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/work
       - packages/records/src/policy

@@ -24,6 +24,19 @@ function mean(values: readonly number[], fallback: number): number {
     : fallback;
 }
 
+/**
+ * The assertions that apply to one phase of a case: assertions bound to the
+ * phase via `phase:` plus unbound assertions, which apply to every phase.
+ */
+export function assertionsForPhase<T extends { phase?: string }>(
+  assertions: readonly T[],
+  phase: string,
+): T[] {
+  return assertions.filter(
+    (assertion) => !assertion.phase || assertion.phase === phase,
+  );
+}
+
 export function createScore(input: {
   scorerId: string;
   scorerVersion: string;

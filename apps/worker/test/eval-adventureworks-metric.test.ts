@@ -39,7 +39,7 @@ describe("AdventureWorks eval adapter", () => {
       anchorDate: "2014-06-30",
     };
 
-    const passing = await driver.score({ case: evalCase, variant, oracle, execution });
+    const passing = await driver.score({ case: evalCase, variant, oracle, execution, phase: "initial", repetition: 1 });
     expect(passing.verdict).toBe("pass");
     expect(passing.vector.groundTruth).toBe(1);
     expect(passing.coverage.method).toBe(false);
@@ -49,6 +49,8 @@ describe("AdventureWorks eval adapter", () => {
       case: evalCase,
       variant,
       oracle,
+      phase: "initial",
+      repetition: 1,
       execution: {
         ...execution,
         output: {
@@ -63,6 +65,8 @@ describe("AdventureWorks eval adapter", () => {
       case: evalCase,
       variant,
       oracle,
+      phase: "initial",
+      repetition: 1,
       execution: {
         ...execution,
         output: {

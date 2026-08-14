@@ -169,6 +169,17 @@ export const AssertionSchema = z
     dimension: z.enum(["ground_truth", "method", "behavior", "safety", "efficiency"]),
     kind: Id,
     gate: z.boolean().default(false),
+    // Binds the assertion to one phase of a multi-phase case. Absent =
+    // the assertion applies to every phase.
+    phase: Id.optional(),
+    params: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+
+export const OracleSpecSchema = z
+  .object({
+    kind: Id,
+    ref: z.string().min(1).optional(),
     params: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
@@ -200,19 +211,44 @@ export const CaseSchema = z
       )
       .min(1),
     input: z.record(z.string(), z.unknown()),
-    oracle: z
-      .object({
-        kind: Id,
-        ref: z.string().min(1).optional(),
-        params: z.record(z.string(), z.unknown()).optional(),
-      })
-      .strict(),
+    // Exactly one of `oracle` (whole-episode ground truth) or `oracles`
+    // (a phase-keyed bundle for multi-phase cases) must be present.
+    oracle: OracleSpecSchema.optional(),
+    oracles: z.record(Id, OracleSpecSchema).optional(),
     phases: z.array(Id).min(1).default(["initial"]),
     timeout: Duration.optional(),
     allowed_side_effects: z.array(Id).default([]),
     assertions: z.array(AssertionSchema).min(1),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (Boolean(value.oracle) === Boolean(value.oracles)) {
+      context.addIssue({
+        code: "custom",
+        path: ["oracle"],
+        message: "declare exactly one of oracle or oracles",
+      });
+    }
+    const phases = new Set(value.phases);
+    for (const phase of Object.keys(value.oracles ?? {})) {
+      if (!phases.has(phase)) {
+        context.addIssue({
+          code: "custom",
+          path: ["oracles", phase],
+          message: `oracle phase ${phase} is not in phases`,
+        });
+      }
+    }
+    for (const [index, assertion] of value.assertions.entries()) {
+      if (assertion.phase && !phases.has(assertion.phase)) {
+        context.addIssue({
+          code: "custom",
+          path: ["assertions", index, "phase"],
+          message: `assertion phase ${assertion.phase} is not in phases`,
+        });
+      }
+    }
+  });
 
 export const SuiteSchema = z
   .object({

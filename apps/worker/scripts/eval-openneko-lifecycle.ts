@@ -483,7 +483,7 @@ export function createOpenNekoLifecycleDriver(context: {
       };
     },
     async resolveOracle(evalCase) {
-      if (evalCase.oracle.kind !== "inline.expected") {
+      if (evalCase.oracle?.kind !== "inline.expected") {
         throw new EvalEnvironmentError(
           `${evalCase.id} requires inline.expected oracle`,
           "oracle_invalid",

@@ -54,6 +54,17 @@ export {
 } from "./secret-scrubber";
 export { KNOWN_SKILL_DEPS, aggregateSkillDeps, type SkillDeps } from "./skill-deps";
 export {
+  normalizeSkillName,
+  upsertWorkSkill,
+  writeWorkSkill,
+  type WorkSkillDraft,
+} from "./skills";
+export {
+  extractFrontmatterBlock,
+  parseSkillFrontmatter,
+  type SkillFrontmatter,
+} from "./skill-frontmatter";
+export {
   COLUMNAR_MARKER,
   TOOL_OUTPUT_METRICS_ENABLED,
   compactJson,
