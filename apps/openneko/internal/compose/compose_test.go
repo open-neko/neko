@@ -88,6 +88,35 @@ func TestMaterializeUnknownMode(t *testing.T) {
 	}
 }
 
+func TestRuntimeDirUsesWorkspaceRoot(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv("OPENNEKO_WORKSPACE_ROOT", workspaceRoot)
+
+	s := &Supervisor{}
+	got, err := s.runtimeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(workspaceRoot, ".openneko", "runtime")
+	if got != want {
+		t.Fatalf("runtime dir = %q, want %q", got, want)
+	}
+}
+
+func TestExplicitRuntimeDirOverridesWorkspaceRoot(t *testing.T) {
+	t.Setenv("OPENNEKO_WORKSPACE_ROOT", t.TempDir())
+	explicit := t.TempDir()
+
+	s := &Supervisor{RuntimeDir: explicit}
+	got, err := s.runtimeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != explicit {
+		t.Fatalf("runtime dir = %q, want explicit %q", got, explicit)
+	}
+}
+
 func TestProjectNameModeRoundTrip(t *testing.T) {
 	isolateConfig(t)
 	dir := t.TempDir()

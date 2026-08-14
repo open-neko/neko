@@ -15,7 +15,7 @@ import type { RunWorkflowAgentBackendInput } from "../workflows/agent-core";
 import type { RunWorkflowTurnDeps } from "../workflows/run-workflow-turn";
 import type { RunAgentBackendInput } from "./agent-core";
 import type { RunChatTurnDeps } from "./run-chat-turn";
-import { isHostLocalName, SANDBOX_HOST_ALIAS } from "./sandbox-net";
+import { resolveSandboxReachableUrl } from "./sandbox-net";
 import { copySkillOverrides } from "./workspace";
 
 // Wire protocol shared with the in-image entrypoint. The agent runs in a
@@ -497,9 +497,13 @@ function makeSandboxCore(
           })(),
         )
       : { rules: [] };
-    const graphjinClientConfig = graphjinEnabled
+    const storedGraphjinClientConfig = graphjinEnabled
       ? await readRunGraphjinClientConfig(input.workspace.runRoot)
       : null;
+    const graphjinClientConfig =
+      storedGraphjinClientConfig && dataEgress.serverUrl
+        ? { ...storedGraphjinClientConfig, server: dataEgress.serverUrl }
+        : storedGraphjinClientConfig;
 
     const threadId = isJob
       ? `agent-job:${input.runId}`
@@ -738,16 +742,16 @@ async function resolveDataSourceEgress(
       .orderBy(desc(data_source.is_default), data_source.created_at)
       .limit(1);
     if (!src?.mcpUrl) return { rules: [] };
-    const u = new URL(src.mcpUrl);
+    const sandboxUrl = await resolveSandboxReachableUrl(src.mcpUrl);
+    const u = new URL(sandboxUrl);
     const port = Number(u.port) || (u.protocol === "https:" ? 443 : 80);
-    // A host-local server (localhost or a compose-internal name like
-    // `graphjin`) is only reachable from the box via the gateway's host
-    // alias — the proxy refuses loopback endpoint rules outright and its
-    // SSRF check rejects names resolving to private compose IPs.
-    const host = isHostLocalName(u.hostname) ? SANDBOX_HOST_ALIAS : u.hostname;
     return {
-      rules: graphjinBinaries.map((binary) => ({ host, port, binary })),
-      serverUrl: src.mcpUrl,
+      rules: graphjinBinaries.map((binary) => ({
+        host: u.hostname,
+        port,
+        binary,
+      })),
+      serverUrl: sandboxUrl,
     };
   } catch (err) {
     console.warn(

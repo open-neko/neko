@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   isHostLocalName,
   isLoopbackHost,
+  resolveSandboxReachableUrl,
   SANDBOX_HOST_ALIAS,
+  sandboxBrokerHost,
   sandboxReachableUrl,
 } from "../../src/work/sandbox-net";
 
@@ -45,5 +47,38 @@ describe("sandbox-net", () => {
     expect(sandboxReachableUrl("http://graphjin:8080/api/v1/mcp")).toBe(
       `http://${SANDBOX_HOST_ALIAS}:8080/api/v1/mcp`,
     );
+  });
+
+  it("resolves compose services to a private IP before policy creation", async () => {
+    await expect(
+      resolveSandboxReachableUrl(
+        "http://graphjin:8080/api/v1/mcp",
+        true,
+        async (host) => {
+          expect(host).toBe("graphjin");
+          return "172.20.0.8";
+        },
+      ),
+    ).resolves.toBe("http://172.20.0.8:8080/api/v1/mcp");
+    await expect(
+      resolveSandboxReachableUrl("http://localhost:8080/api", true),
+    ).resolves.toBe(`http://${SANDBOX_HOST_ALIAS}:8080/api`);
+  });
+
+  it("uses the container IPv4 for a Docker-only broker", () => {
+    expect(
+      sandboxBrokerHost(undefined, true, {
+        lo: [{ address: "127.0.0.1", family: "IPv4", internal: true } as never],
+        eth0: [
+          {
+            address: "172.20.0.12",
+            family: "IPv4",
+            internal: false,
+          } as never,
+        ],
+      }),
+    ).toBe("172.20.0.12");
+    expect(sandboxBrokerHost("broker.example", true, {})).toBe("broker.example");
+    expect(sandboxBrokerHost(undefined, false, {})).toBeUndefined();
   });
 });

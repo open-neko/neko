@@ -37,10 +37,13 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { get as httpGet } from "node:http";
+import { get as httpsGet } from "node:https";
 
 const SESSION_COOKIE_NAME = "openneko_session";
 const PROVIDER_CACHE_TTL_MS = 1_000;
 const WORKER_STATUS_TIMEOUT_MS = 1_500;
+const WORKER_STATUS_MAX_BYTES = 64 * 1024;
 
 interface ProviderProbe {
   installed: boolean;
@@ -48,6 +51,54 @@ interface ProviderProbe {
 }
 
 let providerCache: ProviderProbe | null = null;
+
+type ProviderStatusRequest = (url: string) => Promise<Response>;
+
+/**
+ * Proxy runs before every matched route, so it must not use Next's
+ * request-scoped fetch wrapper for Docker-internal service names. A failed
+ * wrapper request becomes a framework BubbledError that escapes userland
+ * try/catch and produces Next's blank 500. Use Node HTTP directly so ordinary
+ * network failures remain catchable and the proxy can fail open as designed.
+ */
+function requestWorkerStatus(url: string): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const get = target.protocol === "https:" ? httpsGet : httpGet;
+    const req = get(target, { headers: { accept: "application/json" } }, (res) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      res.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > WORKER_STATUS_MAX_BYTES) {
+          req.destroy(new Error("worker auth status response is too large"));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on("end", () => {
+        resolve(
+          new Response(Buffer.concat(chunks), {
+            status: res.statusCode ?? 502,
+          }),
+        );
+      });
+    });
+    req.setTimeout(WORKER_STATUS_TIMEOUT_MS, () => {
+      req.destroy(new Error("worker auth status request timed out"));
+    });
+    req.on("error", reject);
+  });
+}
+
+let providerStatusRequest: ProviderStatusRequest = requestWorkerStatus;
+
+/** Test seam for deterministic provider responses. Passing null restores IO. */
+export function _setProviderStatusRequestForTest(
+  requester: ProviderStatusRequest | null,
+): void {
+  providerStatusRequest = requester ?? requestWorkerStatus;
+}
 
 function workerAdminBase(): string {
   return (process.env.WORKER_ADMIN_URL ?? "http://127.0.0.1:4100").replace(
@@ -72,10 +123,9 @@ export async function isAuthPluginInstalled(): Promise<boolean> {
     return providerCache.installed;
   }
   try {
-    const res = await fetch(`${workerAdminBase()}/admin/auth/status`, {
-      method: "GET",
-      signal: AbortSignal.timeout(WORKER_STATUS_TIMEOUT_MS),
-    });
+    const res = await providerStatusRequest(
+      `${workerAdminBase()}/admin/auth/status`,
+    );
     if (!res.ok) {
       providerCache = { installed: false, at: now };
       return false;

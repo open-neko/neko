@@ -1,6 +1,7 @@
 // Package compose is a thin wrapper around `docker compose`. It materializes
-// the embedded compose files to <cwd>/.openneko/runtime/ on first use, picks
-// the right overlay per mode, and forwards I/O + signals to the child.
+// the embedded compose files under OPENNEKO_WORKSPACE_ROOT when set, otherwise
+// under the current directory, picks the right overlay per mode, and forwards
+// I/O + signals to the child.
 package compose
 
 import (
@@ -42,7 +43,8 @@ type Supervisor struct {
 	//   compose/plugins.linux.yml
 	AssetsFS fs.FS
 	// RuntimeDir is where compose files are written. Defaults to
-	// <cwd>/.openneko/runtime/.
+	// $OPENNEKO_WORKSPACE_ROOT/.openneko/runtime/ when that variable is set,
+	// otherwise <cwd>/.openneko/runtime/.
 	RuntimeDir string
 	// GOOS lets tests stub the platform.
 	GOOS string
@@ -58,6 +60,13 @@ func New(assets fs.FS) *Supervisor {
 func (s *Supervisor) runtimeDir() (string, error) {
 	if s.RuntimeDir != "" {
 		return s.RuntimeDir, nil
+	}
+	if workspaceRoot := strings.TrimSpace(os.Getenv("OPENNEKO_WORKSPACE_ROOT")); workspaceRoot != "" {
+		root, err := filepath.Abs(workspaceRoot)
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(root, ".openneko", "runtime"), nil
 	}
 	cwd, err := os.Getwd()
 	if err != nil {

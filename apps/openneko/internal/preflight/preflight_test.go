@@ -6,6 +6,14 @@ import (
 	"testing"
 )
 
+func TestDefaultPortsIncludeWebAndLoopbackGateway(t *testing.T) {
+	if len(DefaultPorts) != 2 ||
+		DefaultPorts[0].Label != "web" || DefaultPorts[0].Def != 3000 ||
+		DefaultPorts[1].EnvVar != "OPENSHELL_PORT" || DefaultPorts[1].Def != 18080 {
+		t.Fatalf("packaged host ports = %+v, want web and loopback OpenShell gateway", DefaultPorts)
+	}
+}
+
 func TestPortsFreeWhenUnbound(t *testing.T) {
 	// Grab a free port from the OS, then release it so the spec sees it free.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

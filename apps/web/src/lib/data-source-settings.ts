@@ -27,6 +27,15 @@ export type DataSourceDraft = {
 
 const DEFAULT_KIND = "graphjin";
 
+// These probes run from a Route Handler and target operator-configured services,
+// including Docker DNS names. Next's request-scoped fetch wrapper can reject
+// those names even when the Node runtime and container network can resolve them.
+// Marking the calls as internal bypasses that wrapper's cache/instrumentation
+// path while retaining the platform fetch implementation.
+const INTERNAL_FETCH = {
+  next: { internal: true },
+} as RequestInit;
+
 async function loadRow(orgId: string): Promise<DataSourceRow | null> {
   const rows = await db()
     .select({
@@ -162,6 +171,7 @@ export async function testDataSourceDraft(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query: "{ __typename }" }),
     cache: "no-store",
+    ...INTERNAL_FETCH,
   }).catch((e) => {
     throw new Error(`GraphQL URL unreachable: ${e instanceof Error ? e.message : String(e)}`);
   });
@@ -190,6 +200,7 @@ export async function testDataSourceDraft(
       method: "tools/list",
     }),
     cache: "no-store",
+    ...INTERNAL_FETCH,
   }).catch(() => null);
   return { graphqlOk: true, mcpOk: !!mcpRes && mcpRes.ok };
 }

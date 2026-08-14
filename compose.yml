@@ -36,7 +36,7 @@ services:
       OPENNEKO_PGBACKREST_STANZA: openneko-metadata
       PGBACKREST_REPO1_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
     ports:
-      - "${OPENNEKO_DB_PORT:-5432}:5432"
+      - "127.0.0.1:${OPENNEKO_DB_PORT:-5432}:5432"
     volumes:
       - neko-db-data:/var/lib/postgresql/neko
       - neko-db-socket:/var/run/postgresql
@@ -77,7 +77,7 @@ services:
       OPENNEKO_PGBACKREST_STANZA: openneko-records
       PGBACKREST_REPO1_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
     ports:
-      - "${OPENNEKO_RECORDS_DB_PORT:-5434}:5432"
+      - "127.0.0.1:${OPENNEKO_RECORDS_DB_PORT:-5434}:5432"
     volumes:
       - records-db-data:/var/lib/postgresql/records
       - records-db-socket:/var/run/postgresql
@@ -270,7 +270,7 @@ services:
       graphjin-config-init:
         condition: service_completed_successfully
     ports:
-      - "${GRAPHJIN_PORT:-8080}:8080"
+      - "127.0.0.1:${GRAPHJIN_PORT:-8080}:8080"
     environment:
       GO_ENV: agentic
       GRAPHJIN_AGENT_API_KEY: ${GRAPHJIN_AGENT_API_KEY:-}
@@ -302,9 +302,11 @@ services:
       NEKO_PG_USER: neko
       NEKO_PG_PASSWORD: ${NEKO_PG_PASSWORD:-secret}
       NEKO_PG_DATABASE: neko
+      OPENNEKO_OPENSHELL_DB_PASSWORD: ${OPENNEKO_OPENSHELL_DB_PASSWORD:-}
+      OPENNEKO_SKIP_MIGRATE: ${OPENNEKO_SKIP_MIGRATE:-}
       XDG_CONFIG_HOME: /config
     volumes:
-      - ${OPENNEKO_CONFIG_VOLUME:-openneko-config}:/config/openneko:ro
+      - ${OPENNEKO_CONFIG_VOLUME:-openneko-config}:/config/openneko
 
   neko-graphjin:
     build:
@@ -337,7 +339,7 @@ services:
     volumes:
       - ${OPENNEKO_CONFIG_VOLUME:-openneko-config}:/openneko-config:ro
     ports:
-      - "${OPENNEKO_GRAPHJIN_PORT:-8089}:8089"
+      - "127.0.0.1:${OPENNEKO_GRAPHJIN_PORT:-8089}:8089"
     healthcheck:
       # graphjin serves no /health route (it 500s); the GraphQL endpoint
       # answering is the honest readiness signal.
@@ -358,6 +360,10 @@ services:
         condition: service_started
       graphjin:
         condition: service_started
+      # Web is the user-facing readiness boundary. Do not serve the temporary
+      # recovery screen while the control plane is still starting.
+      worker:
+        condition: service_healthy
     environment:
       <<: *neko-app-env
       WORKER_ADMIN_URL: http://worker:4100
@@ -365,7 +371,7 @@ services:
       OPENNEKO_GRAPHJIN_URL: http://neko-graphjin:8089
       OPENNEKO_GRAPHJIN_CONFIG: /config/graphjin/agentic.yml
     ports:
-      - "${OPENNEKO_PORT:-3000}:8080"
+      - "${OPENNEKO_WEB_BIND_ADDRESS:-0.0.0.0}:${OPENNEKO_PORT:-3000}:8080"
     volumes:
       - openneko-config:/config/openneko
       - openneko-graphjin-cli:/config/graphjin

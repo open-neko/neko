@@ -37,6 +37,7 @@ func TestOpenShellStateDirOverride(t *testing.T) {
 func TestConfigureOpenShellDBURL(t *testing.T) {
 	// Operator-set URL always wins.
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv(openShellDBPasswordEnv, "")
 	t.Setenv("OPENSHELL_DB_URL", "postgres://op:set@elsewhere:5432/db")
 	configureOpenShellDBURL()
 	if got := os.Getenv("OPENSHELL_DB_URL"); got != "postgres://op:set@elsewhere:5432/db" {
@@ -48,6 +49,7 @@ func TestConfigureOpenShellDBURL(t *testing.T) {
 	// pinned to the compose network, database defaulting to neko.
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(openShellDBPasswordEnv, "")
 	t.Setenv("OPENSHELL_DB_URL", "")
 	configureOpenShellDBURL()
 	got := os.Getenv("OPENSHELL_DB_URL")
@@ -71,6 +73,7 @@ func TestConfigureOpenShellDBURL(t *testing.T) {
 	// (the role is decoupled), and a custom database name is honored.
 	dir2 := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir2)
+	t.Setenv(openShellDBPasswordEnv, "")
 	if err := os.MkdirAll(filepath.Join(dir2, "openneko"), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { createHmac } from "node:crypto";
+import { createServer } from "node:http";
 import {
   _resetProviderCache,
+  _setProviderStatusRequestForTest,
   isAuthPluginInstalled,
   proxy,
   verifySessionCookie,
@@ -12,8 +14,8 @@ const SECRET = "a".repeat(64);
 
 function freshFetch(
   impl: (url: string) => Response | Promise<Response>,
-): typeof fetch {
-  return ((url: string) => Promise.resolve(impl(url))) as unknown as typeof fetch;
+): (url: string) => Promise<Response> {
+  return (url: string) => Promise.resolve(impl(url));
 }
 
 function mintCookie(opts: {
@@ -39,11 +41,14 @@ function request(url: string, cookie?: string): NextRequest {
 beforeEach(() => {
   process.env.OPENNEKO_SESSION_SECRET = SECRET;
   _resetProviderCache();
+  _setProviderStatusRequestForTest(null);
 });
 
 afterEach(() => {
   delete process.env.OPENNEKO_SESSION_SECRET;
+  delete process.env.WORKER_ADMIN_URL;
   _resetProviderCache();
+  _setProviderStatusRequestForTest(null);
   vi.restoreAllMocks();
 });
 
@@ -83,9 +88,32 @@ describe("verifySessionCookie", () => {
 });
 
 describe("isAuthPluginInstalled", () => {
+  it("uses Node HTTP rather than Next's request fetch wrapper", async () => {
+    const server = createServer((_req, res) => {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ provider: null }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("missing address");
+    process.env.WORKER_ADMIN_URL = `http://127.0.0.1:${address.port}`;
+    const fetchMock = vi.fn(async () => {
+      throw new Error("Next fetch wrapper must not run in proxy");
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    try {
+      expect(await isAuthPluginInstalled()).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
   it("returns true when the worker reports a provider", async () => {
-    vi.stubGlobal(
-      "fetch",
+    _setProviderStatusRequestForTest(
       freshFetch(() =>
         Response.json({ provider: { pluginName: "@x/y", providerLabel: "X" } }),
       ),
@@ -94,25 +122,22 @@ describe("isAuthPluginInstalled", () => {
   });
 
   it("returns false when the worker reports no provider", async () => {
-    vi.stubGlobal(
-      "fetch",
+    _setProviderStatusRequestForTest(
       freshFetch(() => Response.json({ provider: null })),
     );
     expect(await isAuthPluginInstalled()).toBe(false);
   });
 
   it("fails open (false) when the worker is unreachable", async () => {
-    vi.stubGlobal(
-      "fetch",
-      (() => Promise.reject(new Error("ECONNREFUSED"))) as unknown as typeof fetch,
+    _setProviderStatusRequestForTest(
+      () => Promise.reject(new Error("ECONNREFUSED")),
     );
     expect(await isAuthPluginInstalled()).toBe(false);
   });
 
   it("caches the result for the TTL window", async () => {
     let calls = 0;
-    vi.stubGlobal(
-      "fetch",
+    _setProviderStatusRequestForTest(
       freshFetch(() => {
         calls++;
         return Response.json({ provider: { pluginName: "@x/y", providerLabel: "X" } });
@@ -127,8 +152,7 @@ describe("isAuthPluginInstalled", () => {
 
 describe("proxy", () => {
   it("lets every request through when no SSO plugin is installed", async () => {
-    vi.stubGlobal(
-      "fetch",
+    _setProviderStatusRequestForTest(
       freshFetch(() => Response.json({ provider: null })),
     );
     const res = await proxy(request("https://app.example.com/dashboard"));
@@ -138,8 +162,7 @@ describe("proxy", () => {
   });
 
   it("lets a signed-in user through when the SSO plugin is installed", async () => {
-    vi.stubGlobal(
-      "fetch",
+    _setProviderStatusRequestForTest(
       freshFetch(() =>
         Response.json({ provider: { pluginName: "@x/y", providerLabel: "X" } }),
       ),
@@ -151,8 +174,7 @@ describe("proxy", () => {
   });
 
   it("redirects to /signin with returnTo when no session cookie is present", async () => {
-    vi.stubGlobal(
-      "fetch",
+    _setProviderStatusRequestForTest(
       freshFetch(() =>
         Response.json({ provider: { pluginName: "@x/y", providerLabel: "X" } }),
       ),
@@ -169,8 +191,7 @@ describe("proxy", () => {
   });
 
   it("redirects when the session cookie has been tampered with", async () => {
-    vi.stubGlobal(
-      "fetch",
+    _setProviderStatusRequestForTest(
       freshFetch(() =>
         Response.json({ provider: { pluginName: "@x/y", providerLabel: "X" } }),
       ),
@@ -184,8 +205,7 @@ describe("proxy", () => {
   });
 
   it("redirects when the session cookie has expired", async () => {
-    vi.stubGlobal(
-      "fetch",
+    _setProviderStatusRequestForTest(
       freshFetch(() =>
         Response.json({ provider: { pluginName: "@x/y", providerLabel: "X" } }),
       ),

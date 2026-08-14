@@ -18,9 +18,12 @@
 #     must exist at an IDENTICAL host:container path. One matched mount of the
 #     whole state dir covers them; XDG_DATA_HOME / OPENSHELL_LOCAL_TLS_DIR / HOME
 #     all point inside it.
-#  3. Sandboxes dial the gateway at host.openshell.internal:<port> (= the host).
-#     The gateway publishes that exact port; the server cert carries a
-#     host.openshell.internal SAN (certgen adds it).
+#  3. The Docker driver attaches sandboxes to this Compose project's default
+#     network. The control plane resolves service names to private container
+#     IPs before creating sandbox policies. OpenShell itself always rewrites
+#     the supervisor callback to host.openshell.internal, so the gateway alone
+#     also needs a loopback-only host mapping. It is unreachable from the LAN;
+#     data services and brokers remain Docker-only.
 #  4. HOME MUST be a matched host-shared path (NOT /tmp). The gateway writes the
 #     per-sandbox JWT under $HOME/.local/state/openshell/... and the driver
 #     bind-mounts it to /etc/openshell/auth/sandbox.jwt in the sandbox — so the
@@ -54,8 +57,9 @@ services:
     volumes:
       - ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}:${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}
 
-  # Write the worker's CLI gateway registration (client cert + metadata). Split
-  # out of certgen because the gateway image has no shell (requirement #5).
+  # Write the worker's CLI gateway registration and the gateway's Docker-driver
+  # config. Split out of certgen because the gateway image has no shell
+  # (requirement #5).
   openshell-reg:
     image: busybox:latest
     restart: "no"
@@ -79,7 +83,14 @@ services:
         printf '{"name":"openneko","gateway_endpoint":"https://openshell-gateway:%s","is_remote":false,"gateway_port":0,"auth_mode":"mtls"}\n' "${OPENSHELL_PORT:-18080}" \
           > "$$REG/metadata.json"
         printf 'openneko' > /config/openshell/active_gateway
+        printf '[openshell]\nversion = 1\n\n[openshell.drivers.docker]\nnetwork_name = "%s"\ngrpc_endpoint = "https://host.openshell.internal:%s"\n' \
+          "$$OPENNEKO_COMPOSE_NETWORK" "${OPENSHELL_PORT:-18080}" \
+          > /config/openshell/gateway.toml
         chmod -R a+rX /config/openshell
+    environment:
+      # `docker compose -p ...` supplies COMPOSE_PROJECT_NAME during
+      # interpolation; the default network is named <project>_default.
+      OPENNEKO_COMPOSE_NETWORK: "${COMPOSE_PROJECT_NAME}_default"
     volumes:
       - ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/pki:${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/pki:ro
       - openshell-config:/config/openshell
@@ -89,12 +100,17 @@ services:
     restart: unless-stopped
     user: "0:0"                       # needs the host docker.sock (use a socket-proxy in prod)
     command:
+      - "--config"
+      - "/config/openshell/gateway.toml"
       - "--bind-address"
       - "0.0.0.0"
       - "--port"
       - "${OPENSHELL_PORT:-18080}"
     depends_on:
       openshell-reg:
+        condition: service_completed_successfully
+      # This private one-shot also provisions the gateway's dedicated DB role.
+      neko-migrate:
         condition: service_completed_successfully
     environment:
       OPENSHELL_DRIVERS: docker
@@ -103,10 +119,13 @@ services:
       XDG_DATA_HOME: ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/cache
       # Matched, host-shared HOME (requirement #4) — NOT /tmp.
       HOME: ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/home
+    # The OpenShell Docker driver hard-codes supervisor callbacks through its
+    # host alias. Bind only loopback: sandboxes can connect, LAN clients cannot.
     ports:
-      - "${OPENSHELL_PORT:-18080}:${OPENSHELL_PORT:-18080}"
+      - "127.0.0.1:${OPENSHELL_PORT:-18080}:${OPENSHELL_PORT:-18080}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - openshell-config:/config/openshell:ro
       # One matched mount of the whole state dir (pki + cache + home) so every
       # path the gateway hands the daemon resolves identically on the host.
       - ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}:${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}
@@ -119,13 +138,12 @@ services:
       # provider / egress host / connecting binary / key-env are derived from the
       # org's model config by provisionHostConfig — no per-deploy egress wiring.
       OPENSHELL_GATEWAY: openneko
-      # claude tool-turns reach the control plane via this broker. It listens
-      # inside the container but the sandbox dials it at host.openshell.internal,
-      # so the port is published to the host (requirement #3). Worker + web run
-      # on the same host → distinct ports.
+      # The sandbox shares this Compose network and receives the broker's
+      # private container IP, without crossing the host network.
+      OPENNEKO_SANDBOX_SHARED_NETWORK: "1"
       OPENNEKO_BROKER_PORT: ${OPENNEKO_WORKER_BROKER_PORT:-4199}
-    ports:
-      - "${OPENNEKO_WORKER_BROKER_PORT:-4199}:${OPENNEKO_WORKER_BROKER_PORT:-4199}"
+    expose:
+      - "${OPENNEKO_WORKER_BROKER_PORT:-4199}"
     volumes:
       - openshell-config:/config/openshell
     depends_on:
@@ -139,9 +157,10 @@ services:
     environment:
       OPENNEKO_AGENT_IMAGE: ${OPENNEKO_AGENT_IMAGE:-ghcr.io/open-neko/agent:${OPENNEKO_VERSION:-latest}}
       OPENSHELL_GATEWAY: openneko
+      OPENNEKO_SANDBOX_SHARED_NETWORK: "1"
       OPENNEKO_BROKER_PORT: ${OPENNEKO_WEB_BROKER_PORT:-4198}
-    ports:
-      - "${OPENNEKO_WEB_BROKER_PORT:-4198}:${OPENNEKO_WEB_BROKER_PORT:-4198}"
+    expose:
+      - "${OPENNEKO_WEB_BROKER_PORT:-4198}"
     volumes:
       - openshell-config:/config/openshell
     depends_on:

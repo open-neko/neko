@@ -2,8 +2,9 @@
 # instead of starting the Linux-only containerised gateway from
 # compose.openshell.yml.
 #
-# Prerequisite:
-#   openshell gateway start
+# Prerequisite: configure the host gateway's Docker driver with
+# `network_name = "openneko-agentic_default"`, then start it. That attaches
+# sandboxes to this Compose network instead of publishing broker ports.
 #
 # Usage (alongside the agentic GraphJin overlay):
 #   OPENNEKO_PORT=3000 GRAPHJIN_AGENT_API_KEY=... \
@@ -48,9 +49,10 @@ services:
       OPENNEKO_PLUGIN_BASE_IMAGE: ${OPENNEKO_PLUGIN_BASE_IMAGE:-ghcr.io/open-neko/plugin-base:${OPENNEKO_VERSION:-latest}}
       OPENNEKO_AGENT_IMAGE: ${OPENNEKO_AGENT_IMAGE:-ghcr.io/open-neko/agent:${OPENNEKO_VERSION:-latest}}
       OPENSHELL_GATEWAY: openneko-host
+      OPENNEKO_SANDBOX_SHARED_NETWORK: "1"
       OPENNEKO_BROKER_PORT: ${OPENNEKO_WORKER_BROKER_PORT:-4199}
-    ports:
-      - "${OPENNEKO_WORKER_BROKER_PORT:-4199}:${OPENNEKO_WORKER_BROKER_PORT:-4199}"
+    expose:
+      - "${OPENNEKO_WORKER_BROKER_PORT:-4199}"
     volumes:
       - openshell-host-config:/config/openshell
     extra_hosts:
@@ -63,9 +65,10 @@ services:
     environment:
       OPENNEKO_AGENT_IMAGE: ${OPENNEKO_AGENT_IMAGE:-ghcr.io/open-neko/agent:${OPENNEKO_VERSION:-latest}}
       OPENSHELL_GATEWAY: openneko-host
+      OPENNEKO_SANDBOX_SHARED_NETWORK: "1"
       OPENNEKO_BROKER_PORT: ${OPENNEKO_WEB_BROKER_PORT:-4198}
-    ports:
-      - "${OPENNEKO_WEB_BROKER_PORT:-4198}:${OPENNEKO_WEB_BROKER_PORT:-4198}"
+    expose:
+      - "${OPENNEKO_WEB_BROKER_PORT:-4198}"
     volumes:
       - openshell-host-config:/config/openshell
     extra_hosts:

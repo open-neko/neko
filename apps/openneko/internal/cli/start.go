@@ -2,13 +2,11 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/spf13/cobra"
@@ -63,7 +61,7 @@ type bringUpOptions struct {
 }
 
 // bringUpStack runs the staged bring-up shared by `start` and `setup`:
-// neko-db → wait healthy → migrate → pre-pull the agent image → compose up the
+// private neko-migrate container → pre-pull the agent image → compose up the
 // rest. Extracted from newStartCmd so setup reuses the exact same path.
 func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, opts bringUpOptions) error {
 	if err := configureBackupEnvironment(); err != nil {
@@ -107,6 +105,23 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 		return err
 	}
 
+	// Derive both the gateway URL and the dedicated role password before
+	// compose interpolates the one-shot migration service's environment.
+	configureOpenShellDBURL()
+	previousSkipMigrate, hadSkipMigrate := os.LookupEnv("OPENNEKO_SKIP_MIGRATE")
+	if opts.skipMigrate {
+		_ = os.Setenv("OPENNEKO_SKIP_MIGRATE", "1")
+	} else {
+		_ = os.Unsetenv("OPENNEKO_SKIP_MIGRATE")
+	}
+	defer func() {
+		if hadSkipMigrate {
+			_ = os.Setenv("OPENNEKO_SKIP_MIGRATE", previousSkipMigrate)
+		} else {
+			_ = os.Unsetenv("OPENNEKO_SKIP_MIGRATE")
+		}
+	}()
+
 	pullFlag := []string{}
 	if opts.pullPolicy != "" {
 		switch opts.pullPolicy {
@@ -121,31 +136,24 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 		quietPull = []string{"--quiet-pull"}
 	}
 
-	// Stage 1: bring up neko-db, wait healthy, migrate, then provision the
-	// gateway's dedicated DB role. neko-db comes up regardless of
-	// --skip-migrate because the role provisioning + OPENSHELL_DB_URL
-	// derivation below need a reachable DB before stage 2 starts the gateway.
+	// Stage 1: run the existing one-shot migration service inside Docker. Its
+	// dependency waits for neko-db's healthcheck, and `compose wait` propagates
+	// its exit code. The same command provisions the gateway's dedicated DB role
+	// even when --skip-migrate asks it to skip schema changes. No database port
+	// needs to cross the Docker network boundary.
 	up1 := append([]string{"up", "-d"}, pullFlag...)
 	up1 = append(up1, quietPull...)
-	up1 = append(up1, "neko-db")
-	if _, err := sup.Run(ctx, project, files, up1, os.Stdout, os.Stderr); err != nil {
+	up1 = append(up1, "neko-migrate")
+	if code, err := sup.Run(ctx, project, files, up1, os.Stdout, os.Stderr); err != nil {
 		return err
+	} else if code != 0 {
+		return WithExit(code, nil)
 	}
-	if err := waitDBHealthy(ctx, time.Minute); err != nil {
+	if code, err := sup.Run(ctx, project, files, []string{"wait", "neko-migrate"}, os.Stdout, os.Stderr); err != nil {
 		return err
+	} else if code != 0 {
+		return WithExit(code, fmt.Errorf("database preparation failed"))
 	}
-	if !opts.skipMigrate {
-		if err := runMigrations(ctx, cmd); err != nil {
-			return err
-		}
-	}
-	// The gateway dials neko-db with its OWN role, not the rotatable `neko`
-	// admin role — so a later password rotation never strands it. Ensure the
-	// role exists, then point OPENSHELL_DB_URL at it for stage 2.
-	if err := ensureOpenShellGatewayRole(ctx); err != nil {
-		return err
-	}
-	configureOpenShellDBURL()
 
 	// Pre-pull the agent sandbox image at install time so the gateway's first
 	// sandbox-create (the user's first chat) never blocks on a large pull.
@@ -229,7 +237,14 @@ func configureOpenShellStateDir() error {
 // gateway, so it needs no restart.
 const openShellDBRole = "openshell"
 
+const openShellDBPasswordEnv = "OPENNEKO_OPENSHELL_DB_PASSWORD"
+
 func configureOpenShellDBURL() {
+	if os.Getenv(openShellDBPasswordEnv) == "" {
+		if pw, err := config.OpenShellDBPassword(""); err == nil {
+			_ = os.Setenv(openShellDBPasswordEnv, pw)
+		}
+	}
 	if os.Getenv("OPENSHELL_DB_URL") != "" {
 		return
 	}
@@ -243,7 +258,7 @@ func configureOpenShellDBURL() {
 // false only if that derivation fails (then the caller leaves the compose
 // default in place).
 func deriveOpenShellDBURL() (string, bool) {
-	pw, err := config.OpenShellDBPassword("")
+	pw, err := openShellDBPassword()
 	if err != nil {
 		return "", false
 	}
@@ -271,7 +286,7 @@ func deriveOpenShellDBURL() (string, bool) {
 // secret-key. Runs as the app superuser over the same connection migrations
 // use — which is reachable by the time this is called (stage 1 waited on it).
 func ensureOpenShellGatewayRole(ctx context.Context) error {
-	pw, err := config.OpenShellDBPassword("")
+	pw, err := openShellDBPassword()
 	if err != nil {
 		return fmt.Errorf("derive gateway DB password: %w", err)
 	}
@@ -301,40 +316,11 @@ func ensureOpenShellGatewayRole(ctx context.Context) error {
 	return nil
 }
 
-func waitDBHealthy(ctx context.Context, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for {
-		conn, err := pgx.Connect(ctx, defaultConn().DSN())
-		if err == nil {
-			_ = conn.Close(ctx)
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("neko-db did not become reachable within %s: %w", timeout, err)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Second):
-		}
+func openShellDBPassword() (string, error) {
+	if pw := os.Getenv(openShellDBPasswordEnv); pw != "" {
+		return pw, nil
 	}
-}
-
-func runMigrations(ctx context.Context, cmd *cobra.Command) error {
-	conn, err := pgx.Connect(ctx, defaultConn().DSN())
-	if err != nil {
-		return err
-	}
-	defer conn.Close(ctx)
-	mig := &db.Migrator{FS: assets.MigrationsFS, Dir: "migrations"}
-	out := cmd.OutOrStdout()
-	_, err = mig.Apply(ctx, conn, func(format string, args ...any) {
-		fmt.Fprintf(out, format+"\n", args...)
-	})
-	if err != nil && !errors.Is(err, ctx.Err()) {
-		return err
-	}
-	return err
+	return config.OpenShellDBPassword("")
 }
 
 // defaultConn resolves the metadata-DB connection. Precedence: the local

@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ${CUSTOMER_PGPASSWORD:-postgres}
       POSTGRES_DB: postgres
     ports:
-      - "${CUSTOMER_PGPORT:-5433}:5432"
+      - "127.0.0.1:${CUSTOMER_PGPORT:-5433}:5432"
     volumes:
       - adventureworks-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -66,7 +66,7 @@ services:
       graphjin-config-init:
         condition: service_completed_successfully
     ports:
-      - "${GRAPHJIN_PORT:-8080}:8080"
+      - "127.0.0.1:${GRAPHJIN_PORT:-8080}:8080"
     environment:
       # Override core's agentic default so GraphJin selects /config/dev.yml.
       GO_ENV: dev

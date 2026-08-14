@@ -86,14 +86,12 @@ type PortSpec struct {
 	Def    int
 }
 
-// DefaultPorts are the host ports a fresh bring-up needs free. The demo's
-// AdventureWorks Postgres is internal-only, so it adds no additional host
-// port beyond the customer-data GraphJin shipped by every mode.
+// DefaultPorts are the only host ports a packaged bring-up publishes. Web is
+// the intentional server boundary. OpenShell's Docker driver requires a
+// loopback-only callback port; databases, GraphJin, and brokers stay private.
 var DefaultPorts = []PortSpec{
 	{"web", "OPENNEKO_PORT", 3000},
-	{"metadata Postgres", "OPENNEKO_DB_PORT", 5432},
-	{"customer GraphJin", "GRAPHJIN_PORT", 8080},
-	{"metadata GraphJin", "OPENNEKO_GRAPHJIN_PORT", 8089},
+	{"OpenShell gateway (loopback only)", "OPENSHELL_PORT", 18080},
 }
 
 // Port resolves a spec's effective port from its env override.

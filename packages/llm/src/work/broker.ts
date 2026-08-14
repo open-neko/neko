@@ -7,6 +7,7 @@ import {
 import { randomUUID } from "node:crypto";
 import type { AgentEvent } from "../agent-backend";
 import { inProcessControlPlane, type AgentControlPlane } from "./control-plane";
+import { sandboxBrokerHost } from "./sandbox-net";
 
 /** What a per-run bearer token resolves to — the trust binding. */
 export interface RunBinding {
@@ -518,7 +519,7 @@ function optionalDate(value: unknown, field: string): Date | null | undefined {
 
 /** A running broker + its per-run token registry. */
 export interface AgentBrokerHandle {
-  /** URL the sandboxed agent reaches the broker at (host alias + port). */
+  /** URL the sandboxed agent reaches the broker at. */
   readonly url: string;
   /** Actual listening port (resolved when port 0 / ephemeral is requested). */
   readonly port: number;
@@ -534,11 +535,11 @@ export interface StartAgentBrokerOptions {
   /** Host-side scrub + persist of events posted to /v1/events. Default no-op
    *  (agent events normally stream over the launcher's stdout channel). */
   onEvents?: (binding: RunBinding, events: AgentEvent[]) => Promise<void>;
-  /** Host alias the sandbox uses to reach this broker. Default
-   *  host.openshell.internal (the OpenShell sandbox's view of the host). */
+  /** Host or address the sandbox uses to reach this broker. Packaged Compose
+   *  uses its private container IP; host mode defaults to the gateway alias. */
   hostAlias?: string;
-  /** Port to listen on; must match the port published to the host in compose
-   *  so the sandbox can reach host.openshell.internal:<port>. */
+  /** Port to listen on. It is exposed only within the packaged Compose
+   *  network; host-mode setups may publish it explicitly. */
   port: number;
 }
 
@@ -602,10 +603,10 @@ let brokerStarting: Promise<AgentBrokerHandle | undefined> | undefined;
 /**
  * Lazily start the per-process agent broker, bound to the in-process control
  * plane. SEC9: OpenShell is the only agent runtime, so every control-plane
- * host runs a broker. The listen port (OPENNEKO_BROKER_PORT, default 4199)
- * MUST be published to the host in compose so the sandbox can reach it at
- * host.openshell.internal:<port>. Idempotent — one broker per process,
- * shared by runWorkRun (channel runs) and the web chat route.
+ * host runs a broker. Packaged sandboxes dial the container's private Compose
+ * IP; host-mode setups use host.openshell.internal.
+ * Idempotent — one broker per process, shared by runWorkRun (channel runs)
+ * and the web chat route.
  */
 export function ensureAgentBroker(): Promise<AgentBrokerHandle | undefined> {
   if (brokerSingleton) return Promise.resolve(brokerSingleton);
@@ -613,19 +614,19 @@ export function ensureAgentBroker(): Promise<AgentBrokerHandle | undefined> {
     const pinned = Number(process.env.OPENNEKO_BROKER_PORT) || 0;
     brokerStarting = startAgentBroker({
       controlPlane: inProcessControlPlane,
-      hostAlias: process.env.OPENNEKO_BROKER_HOST_ALIAS || undefined,
+      hostAlias: sandboxBrokerHost(),
       port: pinned || 4199,
       onEvents: routeBrokerEvents,
     })
       .catch((e: NodeJS.ErrnoException) => {
         // Unpinned default only: web + worker on one host (dev) both reach
         // for 4199 — fall back to an ephemeral port; sandboxes get the real
-        // port via the handle URL. A pinned port must fail loudly: compose
-        // publishes exactly that port to the host.
+        // port via the handle URL. A pinned port must fail loudly because the
+        // sandbox policy and Compose exposure both expect that exact port.
         if (pinned || e.code !== "EADDRINUSE") throw e;
         return startAgentBroker({
           controlPlane: inProcessControlPlane,
-          hostAlias: process.env.OPENNEKO_BROKER_HOST_ALIAS || undefined,
+          hostAlias: sandboxBrokerHost(),
           port: 0,
           onEvents: routeBrokerEvents,
         });

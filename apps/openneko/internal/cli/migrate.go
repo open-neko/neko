@@ -1,8 +1,9 @@
 package cli
 
 import (
-	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/spf13/cobra"
@@ -12,28 +13,48 @@ import (
 )
 
 func newMigrateCmd() *cobra.Command {
-	return &cobra.Command{
+	var skipSchema bool
+	cmd := &cobra.Command{
 		Use:   "migrate",
-		Short: "Apply pending SQL migrations to neko-db",
+		Short: "Prepare neko-db schema and the OpenShell gateway role",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
-			conn, err := pgx.Connect(ctx, defaultConn().DSN())
-			if err != nil {
-				return err
-			}
-			defer conn.Close(ctx)
-			mig := &db.Migrator{FS: assets.MigrationsFS, Dir: "migrations"}
 			out := cmd.OutOrStdout()
-			ran, err := mig.Apply(ctx, conn, func(format string, args ...any) {
-				fmt.Fprintf(out, format+"\n", args...)
-			})
-			if err != nil {
+			skip := skipSchema || envTruthy("OPENNEKO_SKIP_MIGRATE")
+			if !skip {
+				conn, err := pgx.Connect(ctx, defaultConn().DSN())
+				if err != nil {
+					return err
+				}
+				mig := &db.Migrator{FS: assets.MigrationsFS, Dir: "migrations"}
+				ran, migrateErr := mig.Apply(ctx, conn, func(format string, args ...any) {
+					fmt.Fprintf(out, format+"\n", args...)
+				})
+				_ = conn.Close(ctx)
+				if migrateErr != nil {
+					return migrateErr
+				}
+				fmt.Fprintf(out, "%d migration(s) applied\n", ran)
+			} else {
+				fmt.Fprintln(out, "schema migrations skipped")
+			}
+			if err := ensureOpenShellGatewayRole(ctx); err != nil {
 				return err
 			}
-			fmt.Fprintf(out, "%d migration(s) applied\n", ran)
-			_ = context.Canceled
+			fmt.Fprintln(out, "OpenShell database role ready")
 			return nil
 		},
+	}
+	cmd.Flags().BoolVar(&skipSchema, "skip-schema", false, "Skip schema migrations but still prepare runtime database roles")
+	return cmd
+}
+
+func envTruthy(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
