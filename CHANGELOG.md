@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.25.5](https://github.com/open-neko/openneko/compare/v2.25.4...v2.25.5) (2026-08-14)
+
+
+### Bug Fixes
+
+* **backup:** persist encryption identity across reinstalls ([d2143a7](https://github.com/open-neko/openneko/commit/d2143a733b010b17d67eafcac90e4305337f857f))
+
 ## [2.25.4](https://github.com/open-neko/openneko/compare/v2.25.3...v2.25.4) (2026-08-14)
 
 
