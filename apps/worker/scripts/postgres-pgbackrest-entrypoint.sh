@@ -2,6 +2,20 @@
 set -eu
 
 : "${OPENNEKO_PGBACKREST_STANZA:?OPENNEKO_PGBACKREST_STANZA is required}"
+if [ -n "${PGBACKREST_REPO1_CIPHER_PASS_FILE:-}" ]; then
+  if [ ! -r "$PGBACKREST_REPO1_CIPHER_PASS_FILE" ]; then
+    echo "pgBackRest cipher key file is not readable" >&2
+    exit 1
+  fi
+  file_cipher_pass=$(cat "$PGBACKREST_REPO1_CIPHER_PASS_FILE")
+  if [ -n "${PGBACKREST_REPO1_CIPHER_PASS:-}" ] && [ "$PGBACKREST_REPO1_CIPHER_PASS" != "$file_cipher_pass" ]; then
+    echo "pgBackRest cipher key file and environment value disagree" >&2
+    exit 1
+  fi
+  PGBACKREST_REPO1_CIPHER_PASS=$file_cipher_pass
+  export PGBACKREST_REPO1_CIPHER_PASS
+  unset PGBACKREST_REPO1_CIPHER_PASS_FILE
+fi
 : "${PGBACKREST_REPO1_CIPHER_PASS:?PGBACKREST_REPO1_CIPHER_PASS is required}"
 
 case "$OPENNEKO_PGBACKREST_STANZA" in

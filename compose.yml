@@ -28,18 +28,28 @@ services:
       context: .
       target: neko-db
     restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -ceu
+      - |
+        PGBACKREST_REPO1_CIPHER_PASS=$$(cat "$${PGBACKREST_REPO1_CIPHER_PASS_FILE}")
+        export PGBACKREST_REPO1_CIPHER_PASS
+        unset PGBACKREST_REPO1_CIPHER_PASS_FILE
+        exec /usr/local/bin/openneko-postgres-entrypoint "$$@"
+      - --
     environment:
       POSTGRES_USER: neko
       POSTGRES_PASSWORD: secret
       POSTGRES_DB: neko
       PGDATA: /var/lib/postgresql/neko
       OPENNEKO_PGBACKREST_STANZA: openneko-metadata
-      PGBACKREST_REPO1_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
+      PGBACKREST_REPO1_CIPHER_PASS_FILE: /run/secrets/openneko-backup-key
     ports:
       - "127.0.0.1:${OPENNEKO_DB_PORT:-5432}:5432"
     volumes:
       - neko-db-data:/var/lib/postgresql/neko
       - neko-db-socket:/var/run/postgresql
+      - ${OPENNEKO_BACKUP_KEY_FILE:-./.openneko/development-backup-key}:/run/secrets/openneko-backup-key:ro
       - ${OPENNEKO_BACKUP_REPOSITORY:-./.openneko/backups}:/var/lib/pgbackrest
     command:
       - postgres
@@ -69,18 +79,28 @@ services:
       context: .
       target: records-db
     restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -ceu
+      - |
+        PGBACKREST_REPO1_CIPHER_PASS=$$(cat "$${PGBACKREST_REPO1_CIPHER_PASS_FILE}")
+        export PGBACKREST_REPO1_CIPHER_PASS
+        unset PGBACKREST_REPO1_CIPHER_PASS_FILE
+        exec /usr/local/bin/openneko-postgres-entrypoint "$$@"
+      - --
     environment:
       POSTGRES_USER: ${OPENNEKO_RECORDS_PG_USER:-records}
       POSTGRES_PASSWORD: ${OPENNEKO_RECORDS_PG_PASSWORD:-records-secret}
       POSTGRES_DB: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
       PGDATA: /var/lib/postgresql/records
       OPENNEKO_PGBACKREST_STANZA: openneko-records
-      PGBACKREST_REPO1_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
+      PGBACKREST_REPO1_CIPHER_PASS_FILE: /run/secrets/openneko-backup-key
     ports:
       - "127.0.0.1:${OPENNEKO_RECORDS_DB_PORT:-5434}:5432"
     volumes:
       - records-db-data:/var/lib/postgresql/records
       - records-db-socket:/var/run/postgresql
+      - ${OPENNEKO_BACKUP_KEY_FILE:-./.openneko/development-backup-key}:/run/secrets/openneko-backup-key:ro
       - ${OPENNEKO_BACKUP_REPOSITORY:-./.openneko/backups}:/var/lib/pgbackrest
     command:
       - postgres
@@ -110,13 +130,23 @@ services:
       context: .
       target: neko-backup
     restart: unless-stopped
+    command: ["serve"]
+    entrypoint:
+      - /bin/sh
+      - -ceu
+      - |
+        PGBACKREST_REPO1_CIPHER_PASS=$$(cat "$${PGBACKREST_REPO1_CIPHER_PASS_FILE}")
+        export PGBACKREST_REPO1_CIPHER_PASS
+        unset PGBACKREST_REPO1_CIPHER_PASS_FILE
+        exec /usr/local/bin/openneko-backup-entrypoint "$$@"
+      - --
     depends_on:
       neko-db:
         condition: service_healthy
       records-db:
         condition: service_healthy
     environment:
-      PGBACKREST_REPO1_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
+      PGBACKREST_REPO1_CIPHER_PASS_FILE: /run/secrets/openneko-backup-key
       NEKO_PG_USER: neko
       NEKO_PG_DATABASE: neko
       RECORDS_PG_USER: ${OPENNEKO_RECORDS_PG_USER:-records}
@@ -135,6 +165,7 @@ services:
       - openneko-plugins:/snapshots/plugins:ro
       - openneko-agent-home:/volumes/staging:ro
       - ${OPENNEKO_HOST_CONFIG_DIR:-./.openneko/host-config}:/snapshots/host-config:ro
+      - ${OPENNEKO_BACKUP_KEY_FILE:-./.openneko/development-backup-key}:/run/secrets/openneko-backup-key:ro
       - ${OPENNEKO_BACKUP_REPOSITORY:-./.openneko/backups}:/var/lib/pgbackrest
     expose:
       - "9470"
@@ -151,8 +182,17 @@ services:
     build:
       context: .
       target: neko-backup
+    entrypoint:
+      - /bin/sh
+      - -ceu
+      - |
+        PGBACKREST_REPO1_CIPHER_PASS=$$(cat "$${PGBACKREST_REPO1_CIPHER_PASS_FILE}")
+        export PGBACKREST_REPO1_CIPHER_PASS
+        unset PGBACKREST_REPO1_CIPHER_PASS_FILE
+        exec /usr/local/bin/openneko-backup-entrypoint "$$@"
+      - --
     environment:
-      PGBACKREST_REPO1_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
+      PGBACKREST_REPO1_CIPHER_PASS_FILE: /run/secrets/openneko-backup-key
       OPENNEKO_BACKUP_RESTORE_MODE: "1"
     volumes:
       - neko-db-data:/restore/neko
@@ -162,6 +202,7 @@ services:
       - openneko-records-graphjin:/restore/records-graphjin
       - openneko-plugins:/restore/plugins
       - ${OPENNEKO_HOST_CONFIG_DIR:-./.openneko/host-config}:/restore/host-config
+      - ${OPENNEKO_BACKUP_KEY_FILE:-./.openneko/development-backup-key}:/run/secrets/openneko-backup-key:ro
       - ${OPENNEKO_BACKUP_REPOSITORY:-./.openneko/backups}:/var/lib/pgbackrest
 
   # One-shot ownership repair for the generated records config volume. Docker

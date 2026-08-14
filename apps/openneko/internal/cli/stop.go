@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -42,6 +43,14 @@ func newStopCmd() *cobra.Command {
 			}
 			if code != 0 {
 				return WithExit(code, nil)
+			}
+			if volumes {
+				oldRepository := os.Getenv("OPENNEKO_BACKUP_REPOSITORY")
+				_, newID, err := sup.RotateInstallationID()
+				if err != nil {
+					return fmt.Errorf("data volumes were removed but backup namespace rotation failed: %w", err)
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "data volumes removed; backups preserved at %s; next start will use installation %s\n", oldRepository, newID)
 			}
 			return nil
 		},

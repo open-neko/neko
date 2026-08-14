@@ -13,6 +13,31 @@ type composeServiceForTest struct {
 	Expose      []string                     `yaml:"expose"`
 	Environment map[string]string            `yaml:"environment"`
 	DependsOn   map[string]composeDepForTest `yaml:"depends_on"`
+	Volumes     []string                     `yaml:"volumes"`
+}
+
+func TestPackagedComposeUsesReadOnlyBackupKeyFiles(t *testing.T) {
+	core, raw := readComposeForTest(t, "core.yml")
+	if strings.Contains(raw, "OPENNEKO_BACKUP_CIPHER_PASS") {
+		t.Fatal("packaged Compose must not interpolate the backup key into container environment metadata")
+	}
+	for _, name := range []string{"neko-db", "records-db", "neko-backup", "neko-restore"} {
+		service := core.Services[name]
+		if got := service.Environment["PGBACKREST_REPO1_CIPHER_PASS_FILE"]; got != "/run/secrets/openneko-backup-key" {
+			t.Fatalf("%s backup key file = %q", name, got)
+		}
+		wantMount := "${OPENNEKO_BACKUP_KEY_FILE:?OPENNEKO_BACKUP_KEY_FILE is required}:/run/secrets/openneko-backup-key:ro"
+		found := false
+		for _, mount := range service.Volumes {
+			if mount == wantMount {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s is missing read-only backup key mount", name)
+		}
+	}
 }
 
 type composeDepForTest struct {

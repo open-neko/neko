@@ -64,17 +64,21 @@ type bringUpOptions struct {
 // private neko-migrate container → pre-pull the agent image → compose up the
 // rest. Extracted from newStartCmd so setup reuses the exact same path.
 func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, opts bringUpOptions) error {
-	if err := configureBackupEnvironment(); err != nil {
-		return fmt.Errorf("configure backup repository: %w", err)
-	}
-	if warning := backupFailureDomainWarning(); warning != "" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
-	}
 	m := mode
 	if m == "" {
 		m = compose.ModeProd
 	}
 	sup := compose.New(assets.ComposeFS)
+	project, err := sup.ProjectName(m)
+	if err != nil {
+		return err
+	}
+	if err := configureBackupEnvironment(project); err != nil {
+		return fmt.Errorf("configure backup repository: %w", err)
+	}
+	if warning := backupFailureDomainWarning(); warning != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
+	}
 	// Pin compose's image tags to this binary's version unless the caller has
 	// already set OPENNEKO_VERSION or an install-level image version marker.
 	// That lets the smoke workflow (which builds openneko fresh from source, so
@@ -97,10 +101,6 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 	}
 
 	files, err := sup.Materialize(m)
-	if err != nil {
-		return err
-	}
-	project, err := sup.ProjectName(m)
 	if err != nil {
 		return err
 	}

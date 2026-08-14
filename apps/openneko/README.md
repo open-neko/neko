@@ -38,6 +38,8 @@ openneko status
 openneko logs [service…] [-f]
 openneko migrate
 openneko seed adventureworks
+openneko backup {status,now,verify}
+openneko backup key {export,adopt}
 openneko reset [--all]
 ```
 
@@ -57,6 +59,46 @@ images, recreates the recorded stack mode, runs migrations, prunes old
 OpenNeko image tags, and persists the selected image tag for later starts.
 Older installs without a recorded mode are inferred from existing Docker
 Compose projects; pass `--mode` only when multiple OpenNeko stacks exist.
+
+### Backup encryption keys
+
+Each backup repository has its own identity and encryption key. The repository
+mapping and key fingerprint are kept in host state outside the bind-mounted
+repository; the key itself is stored separately there and mounted read-only
+into the database and backup containers. This also avoids rootful Docker
+changing ownership of metadata the rootless host CLI must read.
+
+Default repositories are isolated by Compose project and a persistent
+installation ID under `~/.local/share/openneko/repositories/`. Two demo
+stacks launched from different working directories therefore cannot attach
+their PostgreSQL clusters to each other's pgBackRest stanzas. Reinstalling in
+the same working directory reuses the installation ID; a fresh directory gets
+a new repository and leaves the old one untouched. `stop --volumes` and
+`reset` also rotate the installation ID after deleting database volumes, so a
+new PostgreSQL cluster is never pointed at the previous cluster's stanzas.
+
+- Rootless Linux and macOS default to
+  `${XDG_STATE_HOME:-$HOME/.local/state}/openneko/backup-keys/`.
+- A system service can set `OPENNEKO_BACKUP_STATE_DIR=/var/lib/openneko`.
+- Set `OPENNEKO_BACKUP_REPOSITORY` to put encrypted backups on a NAS or another
+  failure domain. Do not put the key directory inside that repository.
+
+Export a recovery copy before moving or rebuilding the host:
+
+```bash
+openneko backup key export --to /secure/off-host/openneko-backup.key
+```
+
+Adopt that key after attaching an existing repository to a reinstall:
+
+```bash
+OPENNEKO_BACKUP_REPOSITORY=/mnt/openneko-backups \
+  openneko backup key adopt --from /secure/off-host/openneko-backup.key
+```
+
+Adoption asks pgBackRest to validate legacy repositories before writing their
+new identity marker. A missing or mismatched key fails closed and never causes
+the CLI to generate a replacement key against existing encrypted backups.
 
 ### Plugin + skill management
 

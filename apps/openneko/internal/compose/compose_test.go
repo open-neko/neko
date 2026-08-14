@@ -142,6 +142,52 @@ func TestProjectNameModeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestInstallationIDIsStableAndRuntimeScoped(t *testing.T) {
+	firstRuntime := t.TempDir()
+	first := &Supervisor{RuntimeDir: firstRuntime}
+	firstID, err := first.InstallationID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readBack, err := first.InstallationID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstID != readBack || len(firstID) != 32 {
+		t.Fatalf("installation identity is not stable: first=%q second=%q", firstID, readBack)
+	}
+	second := &Supervisor{RuntimeDir: t.TempDir()}
+	secondID, err := second.InstallationID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondID == firstID {
+		t.Fatal("different runtime directories shared an installation identity")
+	}
+}
+
+func TestRotateInstallationIDPreservesOldIdentityAndPersistsNewOne(t *testing.T) {
+	s := &Supervisor{RuntimeDir: t.TempDir()}
+	first, err := s.InstallationID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldID, newID, err := s.RotateInstallationID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldID != first || newID == first {
+		t.Fatalf("rotation old=%q new=%q first=%q", oldID, newID, first)
+	}
+	readBack, err := s.InstallationID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if readBack != newID {
+		t.Fatalf("rotated identity was not persisted: got %q want %q", readBack, newID)
+	}
+}
+
 func TestImageVersionMarker(t *testing.T) {
 	isolateConfig(t)
 	dir := t.TempDir()

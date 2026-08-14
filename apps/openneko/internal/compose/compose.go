@@ -6,6 +6,8 @@ package compose
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -29,8 +31,9 @@ const (
 )
 
 const (
-	projectNameMarker  = ".project-name"
-	imageVersionMarker = ".image-version"
+	projectNameMarker    = ".project-name"
+	imageVersionMarker   = ".image-version"
+	installationIDMarker = ".installation-id"
 )
 
 // Supervisor is the host-side controller; assets are the embedded files the
@@ -144,6 +147,102 @@ func (s *Supervisor) ProjectName(modeIfStarting Mode) (string, error) {
 		}
 	}
 	return "openneko", nil
+}
+
+// InstallationID returns a random identity tied to this runtime directory.
+// It separates two OpenNeko stacks that use the same mode/project name from
+// different working directories. Reinstalling in the same directory reuses
+// it; a genuinely new installation gets a new backup repository by default.
+func (s *Supervisor) InstallationID() (string, error) {
+	rt, err := s.runtimeDir()
+	if err != nil {
+		return "", err
+	}
+	marker := filepath.Join(rt, installationIDMarker)
+	if raw, err := os.ReadFile(marker); err == nil {
+		value := strings.TrimSpace(string(raw))
+		decoded, decodeErr := hex.DecodeString(value)
+		if decodeErr != nil || len(decoded) != 16 {
+			return "", fmt.Errorf("compose: invalid installation identity %s", marker)
+		}
+		return value, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	if err := os.MkdirAll(rt, 0o755); err != nil {
+		return "", err
+	}
+	value, err := generateInstallationID()
+	if err != nil {
+		return "", err
+	}
+	file, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return s.InstallationID()
+	}
+	if err != nil {
+		return "", err
+	}
+	if _, err := file.WriteString(value + "\n"); err != nil {
+		_ = file.Close()
+		_ = os.Remove(marker)
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(marker)
+		return "", err
+	}
+	return value, nil
+}
+
+// RotateInstallationID gives the next set of newly created database volumes a
+// fresh backup namespace. The previous repository is deliberately retained so
+// it can still be restored with its exported key.
+func (s *Supervisor) RotateInstallationID() (string, string, error) {
+	rt, err := s.runtimeDir()
+	if err != nil {
+		return "", "", err
+	}
+	oldID, err := s.InstallationID()
+	if err != nil {
+		return "", "", err
+	}
+	newID, err := generateInstallationID()
+	if err != nil {
+		return "", "", err
+	}
+	staging, err := os.CreateTemp(rt, ".installation-id-*")
+	if err != nil {
+		return "", "", err
+	}
+	stagingPath := staging.Name()
+	if err := staging.Chmod(0o600); err != nil {
+		_ = staging.Close()
+		_ = os.Remove(stagingPath)
+		return "", "", err
+	}
+	if _, err := staging.WriteString(newID + "\n"); err != nil {
+		_ = staging.Close()
+		_ = os.Remove(stagingPath)
+		return "", "", err
+	}
+	if err := staging.Close(); err != nil {
+		_ = os.Remove(stagingPath)
+		return "", "", err
+	}
+	if err := os.Rename(stagingPath, filepath.Join(rt, installationIDMarker)); err != nil {
+		_ = os.Remove(stagingPath)
+		return "", "", err
+	}
+	return oldID, newID, nil
+}
+
+func generateInstallationID() (string, error) {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
 }
 
 // ProjectNameForMode is the canonical compose project name for a stack mode.

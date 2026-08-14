@@ -18,9 +18,6 @@ func newSeedCmd() *cobra.Command {
 		Short: "Load demo data (currently only adventureworks)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := configureBackupEnvironment(); err != nil {
-				return err
-			}
 			target := "adventureworks"
 			if len(args) == 1 {
 				target = args[0]
@@ -29,16 +26,19 @@ func newSeedCmd() *cobra.Command {
 				return WithExit(2, fmt.Errorf("seed: unknown target %q (want: adventureworks)", target))
 			}
 			sup := compose.New(assets.ComposeFS)
+			project, err := sup.ProjectName(compose.ModeDemo)
+			if err != nil {
+				return err
+			}
+			if err := configureBackupEnvironment(project); err != nil {
+				return err
+			}
 			files, err := sup.Materialize(compose.ModeDemo)
 			if err != nil {
 				return err
 			}
 			// Seed always lives under the demo project, regardless of what
 			// other mode the operator may be running in this dir.
-			project, err := sup.ProjectName(compose.ModeDemo)
-			if err != nil {
-				return err
-			}
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
 

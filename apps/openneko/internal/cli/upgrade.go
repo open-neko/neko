@@ -54,9 +54,6 @@ type upgradeOptions struct {
 }
 
 func runUpgrade(ctx context.Context, cmd *cobra.Command, opts upgradeOptions) error {
-	if err := configureBackupEnvironment(); err != nil {
-		return fmt.Errorf("configure backup repository: %w", err)
-	}
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 	target := normalizeUpgradeImageVersion(opts.imageVersion)
@@ -68,6 +65,13 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command, opts upgradeOptions) er
 	}
 	if defaulted {
 		fmt.Fprintln(errOut, "warning: no saved stack mode or existing OpenNeko Docker stack found; assuming prod. Re-run with --mode dev or --mode demo if this install used another mode.")
+	}
+	project, err := sup.ProjectName(m)
+	if err != nil {
+		return err
+	}
+	if err := configureBackupEnvironment(project); err != nil {
+		return fmt.Errorf("configure backup repository: %w", err)
 	}
 
 	previous, hadPrevious := os.LookupEnv("OPENNEKO_VERSION")
@@ -86,11 +90,6 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command, opts upgradeOptions) er
 	if err != nil {
 		return err
 	}
-	project, err := sup.ProjectName(m)
-	if err != nil {
-		return err
-	}
-
 	fmt.Fprintf(out, "Upgrading OpenNeko %s stack to image tag %s\n", m, target)
 	fmt.Fprintln(out, "Pulling stack images...")
 	if code, err := sup.Run(ctx, project, files, []string{"pull"}, os.Stdout, os.Stderr); err != nil {

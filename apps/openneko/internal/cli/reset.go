@@ -36,6 +36,11 @@ func newResetCmd() *cobra.Command {
 			for _, m := range []compose.Mode{compose.ModeProd, compose.ModeDev, compose.ModeDemo} {
 				_, _ = sup.Run(context.Background(), "openneko-"+string(m), files, []string{"down", "-v"}, os.Stdout, os.Stderr)
 			}
+			oldRepository := os.Getenv("OPENNEKO_BACKUP_REPOSITORY")
+			_, newID, err := sup.RotateInstallationID()
+			if err != nil {
+				return fmt.Errorf("data volumes were removed but backup namespace rotation failed: %w", err)
+			}
 
 			cfgFile := filepath.Join(config.Dir(""), "config.json")
 			if err := removeIfExists(cfgFile); err != nil {
@@ -50,7 +55,7 @@ func newResetCmd() *cobra.Command {
 			} else if !keepSecrets {
 				// Default: keep secrets + marketplaces; only config.json is wiped.
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "reset complete")
+			fmt.Fprintf(cmd.OutOrStdout(), "reset complete; backups preserved at %s; next start will use installation %s\n", oldRepository, newID)
 			return nil
 		},
 	}

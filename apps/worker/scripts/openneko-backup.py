@@ -270,6 +270,7 @@ def snapshot_configs(directory: pathlib.Path) -> dict:
                 "--numeric-owner",
                 "--sort=name",
                 "--mtime=UTC 1970-01-01",
+                "--exclude=host-config/backup-key",
                 "-C",
                 str(SNAPSHOT_SOURCES),
                 "-cf",
@@ -373,6 +374,7 @@ def create_backup_set(reason: str = "scheduled") -> dict:
             operation=None,
             last_backup_at=iso(completed),
             last_backup_set=set_id,
+            failed_at=None,
             error=None,
         )
         return manifest
