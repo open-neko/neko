@@ -1,5 +1,6 @@
-import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { contentDigest } from "./canonical";
 import { loadEval, type LoadedEval } from "./load";
 import { createEvalPlan, type EvalPlan } from "./plan";
 import { renderStoredReport, verifyResult } from "./report";
@@ -41,6 +42,7 @@ function usage(): string {
     `Commands:\n` +
     `  validate --config <path>\n` +
     `  plan --config <path> [--json]\n` +
+    `  oracles --config <path> [--json] [--out <path>]\n` +
     `  run --config <path> [--resume <run-id> | --restart] [--promote | --no-promote]\n` +
     `  resume --config <path> --run <run-id>\n` +
     `  rescore --config <path> --run <run-id>\n` +
@@ -262,6 +264,57 @@ export async function runEvalCli(
       }
     }
     return 0;
+  }
+  if (command === "oracles") {
+    const { loaded, plan } = await loadContext(args, cwd);
+    const factory = options.adapters[loaded.config.adapter];
+    if (!factory) throw new Error(`unknown eval adapter ${loaded.config.adapter}`);
+    const driver = await factory({ loaded, plan });
+    try {
+      const values: Record<string, unknown> = {};
+      for (const evalCase of loaded.cases) {
+        values[evalCase.id] = await driver.resolveOracle(evalCase, {
+          loaded,
+          plan,
+        });
+      }
+      const document = {
+        schemaVersion: "openneko.eval.oracles/v1",
+        configId: plan.configId,
+        suiteId: plan.suiteId,
+        adapter: plan.adapter,
+        datasetDigest: loaded.digests.datasets,
+        digest: contentDigest(values),
+        values,
+      };
+      const outPath = flag(args, "--out");
+      if (outPath) {
+        const target = resolve(cwd, outPath);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, `${JSON.stringify(document, null, 2)}\n`);
+      }
+      if (has(args, "--json") || !outPath) {
+        if (has(args, "--json")) {
+          stdout.write(`${JSON.stringify(document, null, 2)}\n`);
+        } else {
+          stdout.write(
+            `${plan.configId}: resolved ${loaded.cases.length} oracles (digest ${document.digest})\n`,
+          );
+          for (const evalCase of loaded.cases) {
+            stdout.write(
+              `  ${evalCase.id}: ${JSON.stringify(values[evalCase.id])}\n`,
+            );
+          }
+        }
+      } else {
+        stdout.write(
+          `${plan.configId}: resolved ${loaded.cases.length} oracles (digest ${document.digest}) -> ${outPath}\n`,
+        );
+      }
+      return 0;
+    } finally {
+      await driver.close?.();
+    }
   }
   if (command === "run" || command === "resume" || command === "rescore") {
     const { loaded, plan } = await loadContext(args, cwd);

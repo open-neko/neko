@@ -409,6 +409,38 @@ describe("durable eval execution", () => {
     expect((await readFile(paths.callLog, "utf8")).trim().split("\n")).toHaveLength(1);
   });
 
+  it("extracts ground truth through the oracles command without provider traffic", async () => {
+    const paths = await fixture();
+    let output = "";
+    const oraclesPath = join(paths.root, "oracles.json");
+    const code = await runEvalCli(
+      ["oracles", "--config", paths.configPath, "--out", oraclesPath],
+      {
+        adapters: {
+          fixture: ({ loaded, plan }) =>
+            createFixtureDriver({ loaded, plan, callLog: paths.callLog }),
+        },
+        stdout: { write: (value) => (output += String(value)) },
+      },
+    );
+    expect(code).toBe(0);
+    expect(output).toContain("resolved 3 oracles");
+    const document = JSON.parse(await readFile(oraclesPath, "utf8")) as {
+      schemaVersion: string;
+      digest: string;
+      values: Record<string, { expected: number }>;
+    };
+    expect(document.schemaVersion).toBe("openneko.eval.oracles/v1");
+    expect(document.values).toEqual({
+      one: { expected: 1 },
+      two: { expected: 2 },
+      three: { expected: 3 },
+    });
+    expect(document.digest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    // No execute() call may happen during ground-truth extraction.
+    await expect(readFile(paths.callLog, "utf8")).rejects.toThrow();
+  });
+
   it("compares compatible cohorts with paired task deltas", async () => {
     const paths = await fixture();
     const loaded = await loadEval(paths.configPath);

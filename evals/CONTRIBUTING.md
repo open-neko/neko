@@ -74,6 +74,18 @@ pnpm openneko eval validate --config evals/configs/<config>.yaml
 pnpm openneko eval plan --config evals/configs/<config>.yaml --json
 ```
 
+When authoring or reviewing oracles, resolve every case's ground truth
+against the host-only oracle connection without any provider traffic:
+
+```sh
+pnpm openneko eval oracles --config evals/configs/<config>.yaml
+pnpm openneko eval oracles --config evals/configs/<config>.yaml --out /tmp/oracles.json
+```
+
+Values are anchored to the live snapshot, so treat the output as an authoring
+sanity check, never as a stored answer key — the runner re-resolves oracles at
+run time (see `evals/GROUND-TRUTH.md`).
+
 Review the expanded providers, models, data paths, case count, repetitions, and
 budget. Credentials must be `env:NAME` references; literal secrets are rejected.
 Dataset oracle connections are host-only and must not be exposed to the agent.

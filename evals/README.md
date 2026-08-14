@@ -1,15 +1,18 @@
 # OpenNeko harness evaluation and telemetry plan
 
-> **IMPLEMENTATION STATUS — 2026-08-10.** The reusable eval core, typed
+> **IMPLEMENTATION STATUS — 2026-08-14.** The reusable eval core, typed
 > observation contract, durable resume journal, deterministic rescoring,
-> PR-safe result verifier, CLI, semantic registry, all 20 ported
-> AdventureWorks cases, direct and delegated GraphJin paths, optional OTLP
-> tracing in worker and web execution, persisted production summaries,
-> latency/token/cost aggregates, and the first executable watcher/action
-> lifecycle pack are
-> implemented on `feat/openneko-harness-evals`. Corpus generation toward
-> hundreds of queries and the remaining whole-product suites in section 14 are
-> still roadmap work.
+> PR-safe result verifier, CLI (including the `oracles` ground-truth
+> extraction command), semantic registry, a 40-case authored AdventureWorks
+> corpus (`adventureworks-40q`), direct and delegated GraphJin paths,
+> optional OTLP tracing in worker and web execution, persisted production
+> summaries, latency/token/cost aggregates, and the first executable
+> watcher/action lifecycle pack are implemented. Corpus generation toward
+> hundreds of queries and the remaining whole-product suites in section 14
+> are still roadmap work; `GROUND-TRUTH.md` defines how ground truth is
+> established for the harness-level suites (dashboards, memory/skills work,
+> workflow builds, event-driven actions, and composed
+> observe→understand→decide→act episodes).
 
 ## 0. Try the implemented slice
 
@@ -24,6 +27,13 @@ Validation and planning make no provider calls and need no credentials:
 pnpm openneko eval validate --config evals/configs/adventureworks-smoke.yaml
 pnpm openneko eval plan --config evals/configs/adventureworks-smoke.yaml
 pnpm openneko eval plan --config evals/configs/adventureworks-harness-factorial.yaml
+```
+
+With only the seeded oracle database available, `oracles` resolves and prints
+every case's ground truth without any provider call:
+
+```sh
+pnpm openneko eval oracles --config evals/configs/adventureworks-40q.yaml
 ```
 
 To run it, start and seed the AdventureWorks demo, provide the credential named
@@ -401,6 +411,7 @@ Community-facing commands:
 ```sh
 pnpm openneko eval validate --config evals/configs/adventureworks-smoke.yaml
 pnpm openneko eval plan --config evals/configs/adventureworks-smoke.yaml
+pnpm openneko eval oracles --config evals/configs/adventureworks-smoke.yaml
 pnpm openneko eval run --config evals/configs/adventureworks-smoke.yaml
 pnpm openneko eval resume --config evals/configs/adventureworks-smoke.yaml --run <run-id>
 pnpm openneko eval rescore --config evals/configs/adventureworks-smoke.yaml --run <run-id>
