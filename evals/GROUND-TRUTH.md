@@ -108,6 +108,77 @@ a correct number obtained with a wrong action (or vice versa) can never
 average into a pass. Negative controls (non-matching change does not fire; a
 denied policy is not bypassed) are first-class phases, not afterthoughts.
 
+### 2.1 Per-phase oracle bundles, not per-combination oracles
+
+There is no oracle that exists only for a combination such as
+"observe+understand+decide". A case carries a **phase-keyed oracle bundle** —
+`observe:`, `understand:`, `decide:`, `act:` — each entry drawn from the
+family that fits that phase. The episode is the composition; the oracle is
+not. This buys:
+
+- **Attribution**: a full-loop failure names its phase — wrong catalog
+  (observe), wrong number (understand), wrong threshold/policy path
+  (decide), duplicate side effect (act) — instead of one collapsed "fail".
+- **Reuse**: the same observe oracle and the same understand SQL serve every
+  tier and every composed scenario that includes them; each is authored once.
+- **Gate integrity**: safety and behavior gates ratchet per phase and can
+  never be averaged away inside a combined verdict.
+
+### 2.2 Cumulative depth tiers
+
+Suites *do* ship the four cumulative tiers — `O`, `O+U`, `O+U+D`,
+`O+U+D+A` — as cases over one shared scenario fixture with shared per-phase
+oracles. Because only depth varies, paired deltas across tiers isolate the
+marginal capability: passing `O+U` while failing `O+U+D` localizes the
+regression to deciding at no extra authoring cost. Isolated tiers do not
+replace per-phase results recorded inside the full-loop episode: a model may
+observe differently under the context pressure of a bigger task, so both
+in-situ and isolated measurements are kept (decision #2 in `README.md`).
+
+### 2.3 Conditional scoring for cascades
+
+Inside a composed episode, downstream phases are scored twice: against
+absolute ground truth, and *conditionally* given the model's own upstream
+output. A correct decision built on a wrong understanding is a cascade
+failure, not a deciding failure — the score pair separates a model that
+cannot decide from one that decided correctly on bad data. Only the absolute
+score gates; the conditional score is diagnostic.
+
+### 2.4 Harness capabilities: the second axis
+
+Memory, skills, workflows, watchers, actions/policy, channels, records,
+delegation, and compaction are not phases — they are **capabilities any
+phase can engage**. A case is therefore scenario × depth tier × capability
+configuration, and each engaged capability contributes oracles through the
+same four families:
+
+| Capability | Fixture (truth by construction) | Oracles it adds | Typical phase |
+|---|---|---|---|
+| memory | seeded corpus with planted facts and decoys; known relevant/irrelevant partition | method (searched before answering), value (answer used the planted fact, not the decoy), state (writes carry scope/attribution/dedupe), safety (isolation across org/user) | observe, understand, act |
+| skills | installed catalog including a decoy skill that must not fire | method (discovered and invoked the required skill), artifact/value (skill effect present and correct), safety (allowed-tool implications hold) | understand, act |
+| workflows + watchers | pre-built or NL-built definitions; deterministic clock and injected changes | state-machine (build validity via behavioral equivalence, fire/dedupe/debounce, run post-state, output dedupe/mute/TTL) | decide, act |
+| actions + policy | fake adapters, receipts, seeded approval rules | state-machine (propose/approve/execute/idempotency), safety (policy precedence, no bypass), audit chain | decide, act |
+| channels | fake channel transcripts | contract (delivery/degradation projection), method (single delivery) | act |
+| records | seeded app/object registry | value + state (reads/writes honor schema and policy) | understand, act |
+| delegation (GraphJin agent) | already a config variant (`data_path`) | method + usage coverage (inner/outer attribution) | understand |
+| compaction / resume | long-thread fixture replayed with and without compaction | differential (phase outcomes must not change), method (retained decisions/figures) | all |
+
+Capability engagement lives in two places, matching the framework: harness
+configuration (memory on/off, skill catalog, backend, data path) belongs to
+config **variants**; planted content (the corpus, the decoys, the seeded
+rules) belongs to the dataset **fixture**.
+
+The strongest capability measurement is the **ablation twin**: the same
+scenario and depth run with the capability enabled and disabled. With the
+planted memory absent, the correct behavior changes (ask, or use the
+declared default) — and the paired delta *is* the capability's measured
+contribution, exactly like the parity track for backends. Each capability
+ships three case shapes: an isolated lifecycle case (its own `WORK-MEMORY-*`,
+`WORK-SKILLS`, `FLOW-*`, `ACTION-*` semantics), one composed OUDA scenario
+that engages it, and an ablation twin. The full capability × depth grid is
+deliberately not crossed; curation over Cartesian products, as with
+variants.
+
 ## 3. Suite roadmap
 
 | Suite | Capability under test | Adapter work | Oracle kinds |
@@ -118,11 +189,14 @@ denied policy is not bypassed) are first-class phases, not afterthoughts.
 | `work-memory-skills` | complex `/work` tasks using seeded memory and skills | `/work` adapter with seeded memory corpus, skill catalog, artifact capture | value, artifact, method |
 | `flow-build-exec` | NL workflow/watcher/rule build, then deterministic execution | lifecycle adapter gains a model-driven build phase before its existing executable matrix | state-machine |
 | `event-driven-actions` | watcher→workflow→action chains with negative controls and approval governance | compose lifecycle scenarios; fake adapters and receipts | state-machine + audit |
-| `ouda-e2e` | full loop on one business scenario | orchestration of the above | all four |
+| `ouda-tiers` | one scenario at depths O / O+U / O+U+D / O+U+D+A with paired tier deltas | phase-keyed oracle bundles in the case schema | all four |
+| `ouda-e2e` | full loop on one business scenario, engaging memory + skills + workflow + action, with ablation twins | orchestration of the above | all four |
 
 Sequencing follows the same rule that got the metric suite shipped: each
 suite lands only with a host-resolvable oracle, a `plan`/`oracles` path that
-needs no credentials, and gates that cannot be averaged away.
+needs no credentials, and gates that cannot be averaged away. Capability
+suites additionally land with their ablation twin and at least one negative
+control (decoy memory, decoy skill, non-matching change) from day one.
 
 ## 4. What this means for demo/VM-extracted truth
 
