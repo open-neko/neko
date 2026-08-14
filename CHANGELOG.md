@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.25.4](https://github.com/open-neko/openneko/compare/v2.25.3...v2.25.4) (2026-08-14)
+
+
+### Bug Fixes
+
+* harden stack startup and internal networking ([7c3181d](https://github.com/open-neko/openneko/commit/7c3181ddedcd84c7c82998403a8c6faa0cf2c054))
+
 ## [2.25.3](https://github.com/open-neko/openneko/compare/v2.25.2...v2.25.3) (2026-08-13)
 
 
