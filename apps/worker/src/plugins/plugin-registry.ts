@@ -168,6 +168,10 @@ export interface AuthProviderInfo {
   pluginId: string;
   pluginName: string;
   providerLabel: string;
+  /** "manual": self-asserted identity — the core must not auto-create users. */
+  provisioning: "automatic" | "manual";
+  /** Sign-in cannot start without an email/hint (e.g. magic link). */
+  loginHintRequired: boolean;
 }
 
 interface ManifestState {
@@ -353,10 +357,13 @@ export class PluginRegistry {
     const entry = this.state.entriesByPluginId.get(pluginId);
     if (!entry) return null;
     const reported = this.authProviderLabels.get(pluginId);
+    const declared = entry.capabilities.auth;
     return {
       pluginId,
       pluginName: entry.name,
       providerLabel: reported ?? defaultProviderLabel(entry.name),
+      provisioning: declared?.provisioning ?? "automatic",
+      loginHintRequired: declared?.loginHintRequired ?? false,
     };
   }
 

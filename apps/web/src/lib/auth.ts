@@ -50,6 +50,15 @@ const STATE_TTL_SECONDS = 10 * 60;
 export interface AuthProviderInfo {
   pluginName: string;
   providerLabel: string;
+  /**
+   * "manual": the plugin's identity is self-asserted (magic link proves
+   * mailbox possession only), so sign-in is restricted to users an admin
+   * pre-provisioned. "automatic": IdP-attested — first sign-in may create
+   * the app_user. Older workers omit the field; treat as "automatic".
+   */
+  provisioning?: "automatic" | "manual";
+  /** Sign-in cannot start without an email (e.g. magic link). */
+  loginHintRequired?: boolean;
 }
 
 export interface AuthIdentity {
@@ -266,13 +275,16 @@ export function newStateToken(): string {
  *   2. existing row with the same `email` (initial migration when an
  *      operator first turns SSO on against a pre-existing email-only
  *      user) — `sub` is then attached for future logins.
- * Otherwise insert a new row in the only org.
+ * Otherwise insert a new row in the only org — unless the provider
+ * declares manual provisioning, in which case an unmatched identity is
+ * rejected: possession of a mailbox must never mint an account.
  */
 export async function upsertUserFromIdentity(
   identity: AuthIdentity,
 ): Promise<{ id: string; email: string; name: string | null }> {
   const orgId = await getOrgId();
-  const provider = (await getAuthProvider())?.pluginName ?? "oidc";
+  const providerInfo = await getAuthProvider();
+  const provider = providerInfo?.pluginName ?? "oidc";
   const mapped = await resolveGroupRole(orgId, provider, identity.groups ?? []);
   // Primary lookup: sub. Anything matching wins, regardless of email
   // changes (people get married, change addresses — sub doesn't).
@@ -346,6 +358,14 @@ export async function upsertUserFromIdentity(
     // (likely two IdP accounts pointing at the same mailbox).
     throw new Error(
       `app_user.email ${identity.email} is already bound to a different SSO subject; remove the row or update sub manually before re-attempting`,
+    );
+  }
+  if (providerInfo?.provisioning === "manual") {
+    // Self-asserted identity (e.g. magic link) with no pre-provisioned
+    // user. The begin route already drops unknown emails silently; this
+    // is the defense-in-depth backstop.
+    throw new Error(
+      `no user is provisioned for ${identity.email} — ask an administrator to add you`,
     );
   }
   // Brand new user. Bootstrap the first active admin so installing an SSO
