@@ -84,8 +84,16 @@ echo "Seeding the representative Salesforce restore fixture..."
   < "$recovery_repo_root/packages/records/test/fixtures/salesforce-golden-restore.sql"
 
 echo "Creating and verifying a backup set with every recovery volume..."
+# No curl -f here: on failure the daemon's JSON body carries the actual
+# error (backup_operation_failed + message), which -f would discard.
 recovery_manifest="$("${recovery_compose[@]}" exec -T neko-backup \
-  curl -fsS -X POST http://127.0.0.1:9470/v1/backups/now)"
+  curl -sS -X POST http://127.0.0.1:9470/v1/backups/now)"
+if [[ "$recovery_manifest" == *'"error"'* || "$recovery_manifest" != *'"set_id"'* ]]; then
+  echo "Backup creation failed: $recovery_manifest" >&2
+  echo "--- neko-backup logs ---" >&2
+  "${recovery_compose[@]}" logs --no-color --tail 100 neko-backup >&2 || true
+  exit 1
+fi
 for required in \
   '"openneko-metadata"' \
   '"openneko-records"' \

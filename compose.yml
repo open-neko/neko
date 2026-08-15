@@ -38,12 +38,16 @@ services:
           # Plain `docker compose up` from a fresh checkout: the key file is
           # provisioned by `openneko start`, so it does not exist yet and
           # Docker mounts an empty directory in its place. Fall back to the
-          # development cipher pass instead of dying on cat.
-          echo "openneko: $${PGBACKREST_REPO1_CIPHER_PASS_FILE} is not a readable key file; using OPENNEKO_BACKUP_CIPHER_PASS (development fallback)" >&2
-          PGBACKREST_REPO1_CIPHER_PASS="$${OPENNEKO_BACKUP_CIPHER_PASS}"
+          # well-known development cipher pass instead of dying on cat.
+          # (A literal, not an env var: the packaged compose's security test
+          # forbids the pass in container environment metadata, and the
+          # parity test keeps both files' environment lists identical.
+          # Real deployments override by providing OPENNEKO_BACKUP_KEY_FILE.)
+          echo "openneko: $${PGBACKREST_REPO1_CIPHER_PASS_FILE} is not a readable key file; using the development cipher pass" >&2
+          PGBACKREST_REPO1_CIPHER_PASS="openneko-development-backup-key-change-me"
         fi
         export PGBACKREST_REPO1_CIPHER_PASS
-        unset PGBACKREST_REPO1_CIPHER_PASS_FILE OPENNEKO_BACKUP_CIPHER_PASS
+        unset PGBACKREST_REPO1_CIPHER_PASS_FILE
         exec /usr/local/bin/openneko-postgres-entrypoint "$$@"
       - --
     environment:
@@ -53,7 +57,6 @@ services:
       PGDATA: /var/lib/postgresql/neko
       OPENNEKO_PGBACKREST_STANZA: openneko-metadata
       PGBACKREST_REPO1_CIPHER_PASS_FILE: /run/secrets/openneko-backup-key
-      OPENNEKO_BACKUP_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
     ports:
       - "127.0.0.1:${OPENNEKO_DB_PORT:-5432}:5432"
     volumes:
@@ -99,12 +102,16 @@ services:
           # Plain `docker compose up` from a fresh checkout: the key file is
           # provisioned by `openneko start`, so it does not exist yet and
           # Docker mounts an empty directory in its place. Fall back to the
-          # development cipher pass instead of dying on cat.
-          echo "openneko: $${PGBACKREST_REPO1_CIPHER_PASS_FILE} is not a readable key file; using OPENNEKO_BACKUP_CIPHER_PASS (development fallback)" >&2
-          PGBACKREST_REPO1_CIPHER_PASS="$${OPENNEKO_BACKUP_CIPHER_PASS}"
+          # well-known development cipher pass instead of dying on cat.
+          # (A literal, not an env var: the packaged compose's security test
+          # forbids the pass in container environment metadata, and the
+          # parity test keeps both files' environment lists identical.
+          # Real deployments override by providing OPENNEKO_BACKUP_KEY_FILE.)
+          echo "openneko: $${PGBACKREST_REPO1_CIPHER_PASS_FILE} is not a readable key file; using the development cipher pass" >&2
+          PGBACKREST_REPO1_CIPHER_PASS="openneko-development-backup-key-change-me"
         fi
         export PGBACKREST_REPO1_CIPHER_PASS
-        unset PGBACKREST_REPO1_CIPHER_PASS_FILE OPENNEKO_BACKUP_CIPHER_PASS
+        unset PGBACKREST_REPO1_CIPHER_PASS_FILE
         exec /usr/local/bin/openneko-postgres-entrypoint "$$@"
       - --
     environment:
@@ -114,7 +121,6 @@ services:
       PGDATA: /var/lib/postgresql/records
       OPENNEKO_PGBACKREST_STANZA: openneko-records
       PGBACKREST_REPO1_CIPHER_PASS_FILE: /run/secrets/openneko-backup-key
-      OPENNEKO_BACKUP_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
     ports:
       - "127.0.0.1:${OPENNEKO_RECORDS_DB_PORT:-5434}:5432"
     volumes:
@@ -161,12 +167,16 @@ services:
           # Plain `docker compose up` from a fresh checkout: the key file is
           # provisioned by `openneko start`, so it does not exist yet and
           # Docker mounts an empty directory in its place. Fall back to the
-          # development cipher pass instead of dying on cat.
-          echo "openneko: $${PGBACKREST_REPO1_CIPHER_PASS_FILE} is not a readable key file; using OPENNEKO_BACKUP_CIPHER_PASS (development fallback)" >&2
-          PGBACKREST_REPO1_CIPHER_PASS="$${OPENNEKO_BACKUP_CIPHER_PASS}"
+          # well-known development cipher pass instead of dying on cat.
+          # (A literal, not an env var: the packaged compose's security test
+          # forbids the pass in container environment metadata, and the
+          # parity test keeps both files' environment lists identical.
+          # Real deployments override by providing OPENNEKO_BACKUP_KEY_FILE.)
+          echo "openneko: $${PGBACKREST_REPO1_CIPHER_PASS_FILE} is not a readable key file; using the development cipher pass" >&2
+          PGBACKREST_REPO1_CIPHER_PASS="openneko-development-backup-key-change-me"
         fi
         export PGBACKREST_REPO1_CIPHER_PASS
-        unset PGBACKREST_REPO1_CIPHER_PASS_FILE OPENNEKO_BACKUP_CIPHER_PASS
+        unset PGBACKREST_REPO1_CIPHER_PASS_FILE
         exec /usr/local/bin/openneko-backup-entrypoint "$$@"
       - --
     depends_on:
@@ -176,7 +186,6 @@ services:
         condition: service_healthy
     environment:
       PGBACKREST_REPO1_CIPHER_PASS_FILE: /run/secrets/openneko-backup-key
-      OPENNEKO_BACKUP_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
       NEKO_PG_USER: neko
       NEKO_PG_DATABASE: neko
       RECORDS_PG_USER: ${OPENNEKO_RECORDS_PG_USER:-records}
@@ -222,17 +231,20 @@ services:
           # Plain `docker compose up` from a fresh checkout: the key file is
           # provisioned by `openneko start`, so it does not exist yet and
           # Docker mounts an empty directory in its place. Fall back to the
-          # development cipher pass instead of dying on cat.
-          echo "openneko: $${PGBACKREST_REPO1_CIPHER_PASS_FILE} is not a readable key file; using OPENNEKO_BACKUP_CIPHER_PASS (development fallback)" >&2
-          PGBACKREST_REPO1_CIPHER_PASS="$${OPENNEKO_BACKUP_CIPHER_PASS}"
+          # well-known development cipher pass instead of dying on cat.
+          # (A literal, not an env var: the packaged compose's security test
+          # forbids the pass in container environment metadata, and the
+          # parity test keeps both files' environment lists identical.
+          # Real deployments override by providing OPENNEKO_BACKUP_KEY_FILE.)
+          echo "openneko: $${PGBACKREST_REPO1_CIPHER_PASS_FILE} is not a readable key file; using the development cipher pass" >&2
+          PGBACKREST_REPO1_CIPHER_PASS="openneko-development-backup-key-change-me"
         fi
         export PGBACKREST_REPO1_CIPHER_PASS
-        unset PGBACKREST_REPO1_CIPHER_PASS_FILE OPENNEKO_BACKUP_CIPHER_PASS
+        unset PGBACKREST_REPO1_CIPHER_PASS_FILE
         exec /usr/local/bin/openneko-backup-entrypoint "$$@"
       - --
     environment:
       PGBACKREST_REPO1_CIPHER_PASS_FILE: /run/secrets/openneko-backup-key
-      OPENNEKO_BACKUP_CIPHER_PASS: ${OPENNEKO_BACKUP_CIPHER_PASS:-openneko-development-backup-key-change-me}
       OPENNEKO_BACKUP_RESTORE_MODE: "1"
     volumes:
       - neko-db-data:/restore/neko
