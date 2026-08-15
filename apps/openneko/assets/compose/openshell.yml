@@ -20,9 +20,10 @@
 #     all point inside it.
 #  3. The Docker driver attaches sandboxes to this Compose project's default
 #     network. The control plane resolves service names to private container
-#     IPs before creating sandbox policies. OpenShell itself always rewrites
-#     the supervisor callback to host.openshell.internal, so the gateway alone
-#     also needs a loopback-only host mapping. It is unreachable from the LAN;
+#     IPs before creating sandbox policies. Sandboxes reach the gateway by its
+#     Compose service name (openshell-gateway) over that network — the server
+#     cert carries it as a SAN — so the driver's grpc_endpoint uses it too. The
+#     gateway's host publish stays loopback-only: unreachable from the LAN;
 #     data services and brokers remain Docker-only.
 #  4. HOME MUST be a matched host-shared path (NOT /tmp). The gateway writes the
 #     per-sandbox JWT under $HOME/.local/state/openshell/... and the driver
@@ -119,8 +120,8 @@ services:
       XDG_DATA_HOME: ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/cache
       # Matched, host-shared HOME (requirement #4) — NOT /tmp.
       HOME: ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/home
-    # The OpenShell Docker driver hard-codes supervisor callbacks through its
-    # host alias. Bind only loopback: sandboxes can connect, LAN clients cannot.
+    # Sandboxes reach the gateway over the shared Compose network by service
+    # name; this host publish is loopback-only so LAN clients cannot reach it.
     ports:
       - "127.0.0.1:${OPENSHELL_PORT:-18080}:${OPENSHELL_PORT:-18080}"
     volumes:
