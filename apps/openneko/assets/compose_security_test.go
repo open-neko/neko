@@ -2,6 +2,8 @@ package assets
 
 import (
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -59,6 +61,73 @@ func readComposeForTest(t *testing.T, name string) (composeFileForTest, string) 
 		t.Fatalf("parse %s: %v", name, err)
 	}
 	return doc, string(raw)
+}
+
+// repoRootForTest walks up from the test's working directory until it finds the
+// directory holding the top-level compose.yml.
+func repoRootForTest(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "compose.yml")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("could not locate repo root: no compose.yml found walking up from the test directory")
+		}
+		dir = parent
+	}
+}
+
+// TestDevComposeExposesOnlyWebToHost guards the top-level (development) Compose
+// files that run on the Linux host. web is the only service allowed to publish
+// on all interfaces (0.0.0.0); every other host-published port must stay bound
+// to the 127.0.0.1 loopback, so only web is reachable from the LAN. Globbing
+// compose*.yml means any new overlay is covered automatically.
+func TestDevComposeExposesOnlyWebToHost(t *testing.T) {
+	const webPublish = "${OPENNEKO_WEB_BIND_ADDRESS:-0.0.0.0}:${OPENNEKO_PORT:-3000}:8080"
+
+	files, err := filepath.Glob(filepath.Join(repoRootForTest(t), "compose*.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no top-level compose*.yml files found")
+	}
+
+	sawWeb := false
+	for _, path := range files {
+		name := filepath.Base(path)
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc composeFileForTest
+		if err := yaml.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for service, spec := range doc.Services {
+			for _, entry := range spec.Ports {
+				if service == "web" {
+					if entry != webPublish {
+						t.Fatalf("%s: web publishes %q, want only %q", name, entry, webPublish)
+					}
+					sawWeb = true
+					continue
+				}
+				if !strings.HasPrefix(entry, "127.0.0.1:") {
+					t.Fatalf("%s: service %q publishes host port %q on a non-loopback interface; only web may bind the LAN", name, service, entry)
+				}
+			}
+		}
+	}
+	if !sawWeb {
+		t.Fatal("expected the web service to publish its host port in the top-level compose files")
+	}
 }
 
 func TestPackagedComposeExposesOnlyWebToLAN(t *testing.T) {
