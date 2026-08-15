@@ -14,6 +14,13 @@ export OPENNEKO_BACKUP_REPOSITORY="$recovery_workspace/backups"
 export OPENNEKO_HOST_CONFIG_DIR="$recovery_workspace/host-config"
 export OPENNEKO_DB_PORT="$recovery_metadata_port"
 export OPENNEKO_RECORDS_DB_PORT="$recovery_records_port"
+# The db/backup entrypoints read the cipher pass from a mounted key file
+# (compose.yml defaults it to ./.openneko/development-backup-key, which
+# `openneko start` provisions but a bare CI checkout does not have —
+# Docker would mount an empty directory and the entrypoints die on cat).
+export OPENNEKO_BACKUP_KEY_FILE="$recovery_workspace/backup-key"
+printf '%s' "$OPENNEKO_BACKUP_CIPHER_PASS" > "$OPENNEKO_BACKUP_KEY_FILE"
+chmod 0600 "$OPENNEKO_BACKUP_KEY_FILE"
 mkdir -p "$OPENNEKO_BACKUP_REPOSITORY" "$OPENNEKO_HOST_CONFIG_DIR"
 
 recovery_compose=(
