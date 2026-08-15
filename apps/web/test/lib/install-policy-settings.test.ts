@@ -22,7 +22,6 @@ describe("install-policy-settings: pure helpers", () => {
   it("DEFAULT_POLICY is secure-by-default + ships the official marketplace", () => {
     expect(DEFAULT_POLICY.allowUnverified).toBe(false);
     expect(DEFAULT_POLICY.allowGitUrlInstalls).toBe(false);
-    expect(DEFAULT_POLICY.allowSandboxedSkillEscape).toBe(false);
     expect(DEFAULT_POLICY.allowedMarketplaces).toEqual([OFFICIAL_MARKETPLACE_URL]);
   });
 
@@ -152,11 +151,15 @@ describeIfDb("install-policy-settings: persistence", () => {
       allowUnverified: true,
       allowGitUrlInstalls: true,
     });
-    await saveInstallPolicyDraft(orgId, { allowSandboxedSkillEscape: true });
+    await saveInstallPolicyDraft(orgId, {
+      allowedMarketplaces: ["https://example.com/marketplace.json"],
+    });
     const policy = await getInstallPolicy(orgId);
     expect(policy.allowUnverified).toBe(true);
     expect(policy.allowGitUrlInstalls).toBe(true);
-    expect(policy.allowSandboxedSkillEscape).toBe(true);
+    expect(policy.allowedMarketplaces).toContain(
+      "https://example.com/marketplace.json",
+    );
   });
 
   it("saveInstallPolicyDraft adds operator marketplaces but always preserves official", async () => {

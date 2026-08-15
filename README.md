@@ -64,7 +64,7 @@ Apache-2.0 core, self-hosted, single Postgres. Take a backup, take it with you.
 
 Add new action kinds with sandboxed plugins — web search, Slack, Gmail, Shopify, Sheets, Telegram, and more. Enterprise SSO comes from the Scalekit plugin: install it, authorize the workspace from **Admin → Settings → Single sign-on** (a guided checklist), and every Scalekit-backed IdP (Okta, Entra ID, Google Workspace…) lights up — plus the agent gains 35 workspace-management tools.
 
-- **Every plugin runs in an isolated microVM**, with outbound network limited to what its manifest declares.
+- **Every plugin runs in an isolated OpenShell sandbox**, with outbound network limited to what its manifest declares.
 - **Secrets are scoped per plugin** and never reach the model context.
 
 Browse the [marketplace](https://open-neko.github.io/plugins/) · capability model, install policy, and host support in **[PLUGINS.md](PLUGINS.md)**.

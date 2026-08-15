@@ -469,7 +469,6 @@ describe("runInstall", () => {
       policySnapshot: {
         allowUnverified: false,
         allowGitUrlInstalls: false,
-        allowSandboxedSkillEscape: false,
         allowedMarketplaces: [OFFICIAL_MARKETPLACE_URL],
       },
     });
@@ -489,7 +488,6 @@ describe("runInstall", () => {
     expect(entry.policySnapshot).toEqual({
       allowUnverified: false,
       allowGitUrlInstalls: false,
-      allowSandboxedSkillEscape: false,
       allowedMarketplaces: [OFFICIAL_MARKETPLACE_URL],
     });
   });
@@ -524,7 +522,6 @@ describe("runInstall", () => {
       policySnapshot: {
         allowUnverified: true, // operator opted in
         allowGitUrlInstalls: false,
-        allowSandboxedSkillEscape: false,
         allowedMarketplaces: [OFFICIAL_MARKETPLACE_URL],
       },
     });

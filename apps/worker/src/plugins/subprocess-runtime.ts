@@ -13,18 +13,18 @@ import type {
  *
  * Used by:
  * - Integration tests in this repo, to exercise the full loader path
- *   without spinning up a microVM.
+ *   without spinning up an OpenShell sandbox.
  * - The `openneko plugin dev` developer command (future) for hot-reload
  *   loops during plugin authoring.
  *
- * Has the same `PluginRuntime` interface as MicrosandboxRuntime so the
+ * Has the same `PluginRuntime` interface as OpenShellRuntime so the
  * loader doesn't care which one it gets.
  */
 export interface SubprocessRuntimeOptions {
   /**
-   * Env vars to inject into every plugin subprocess. The future
-   * microsandbox runtime will gain a parallel mechanism via the
-   * manifest's `env` field; matching it here keeps tests fair.
+   * Env vars to inject into every plugin subprocess. The OpenShell
+   * runtime injects env via the manifest's `env` field; matching it
+   * here keeps tests fair.
    */
   env?: Record<string, string>;
   onLog?: (line: string) => void;

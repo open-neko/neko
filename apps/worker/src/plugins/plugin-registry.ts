@@ -9,8 +9,8 @@
 //   - Maps action kind → plugin id from the manifest entries'
 //     `capabilities.action.kinds` field (populated at install time
 //     from the marketplace entry)
-//   - Spawns each plugin's microVM LAZILY — first execute_action for
-//     that kind triggers the VM spawn; cold-start cost only paid once
+//   - Spawns each plugin's OpenShell sandbox LAZILY — first execute_action
+//     for that kind triggers the sandbox spawn; cold-start cost only paid once
 //   - Owns the env-value scrubber, rebuilt on every secrets file
 //     change so accidentally-leaked secrets stay redacted even when
 //     the operator rotates a key mid-run

@@ -84,7 +84,6 @@ export interface ManifestCapabilities {
 export interface ManifestPolicySnapshot {
   allowUnverified: boolean;
   allowGitUrlInstalls: boolean;
-  allowSandboxedSkillEscape: boolean;
   allowedMarketplaces: string[];
 }
 

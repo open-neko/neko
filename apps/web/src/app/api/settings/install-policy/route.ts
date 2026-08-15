@@ -28,10 +28,6 @@ export async function PATCH(request: NextRequest) {
       allowedMarketplaces: Array.isArray(body.allowedMarketplaces)
         ? body.allowedMarketplaces
         : undefined,
-      allowSandboxedSkillEscape:
-        typeof body.allowSandboxedSkillEscape === "boolean"
-          ? body.allowSandboxedSkillEscape
-          : undefined,
     });
     return NextResponse.json({ policy: saved, source: "org" });
   } catch (e) {

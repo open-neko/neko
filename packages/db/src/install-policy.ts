@@ -20,14 +20,12 @@ export type InstallPolicy = {
   allowUnverified: boolean;
   allowGitUrlInstalls: boolean;
   allowedMarketplaces: string[];
-  allowSandboxedSkillEscape: boolean;
 };
 
 export const DEFAULT_INSTALL_POLICY: InstallPolicy = {
   allowUnverified: false,
   allowGitUrlInstalls: false,
   allowedMarketplaces: [OFFICIAL_MARKETPLACE_URL],
-  allowSandboxedSkillEscape: false,
 };
 
 function readBool(value: unknown, fallback: boolean): boolean {
@@ -68,10 +66,6 @@ export function policyFromConfig(
       DEFAULT_INSTALL_POLICY.allowGitUrlInstalls,
     ),
     allowedMarketplaces: readMarketplaceList(config.allowedMarketplaces),
-    allowSandboxedSkillEscape: readBool(
-      config.allowSandboxedSkillEscape,
-      DEFAULT_INSTALL_POLICY.allowSandboxedSkillEscape,
-    ),
   };
 }
 

@@ -386,7 +386,7 @@ function runProcessOnce(
       clearTimeout(timer);
       // exec exits with the remote command's code: a plugin that returns an
       // RpcErr exits non-zero but still prints JSON, so only treat an empty
-      // stdout as a hard failure (matches MicrosandboxRuntime).
+      // stdout as a hard failure.
       if (code !== 0 && !stdout.trim()) {
         // Redact any `--credential <slot>=<value>` so a failed provider command
         // can't leak the secret into console logs.

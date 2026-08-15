@@ -208,7 +208,6 @@ export interface InstallPolicyHandlerSurface {
     allowUnverified: boolean;
     allowGitUrlInstalls: boolean;
     allowedMarketplaces: string[];
-    allowSandboxedSkillEscape: boolean;
   }>;
 }
 
@@ -677,7 +676,6 @@ async function handleInstallPolicy(
         allowedMarketplaces: [
           "https://open-neko.github.io/plugins/marketplace.json",
         ],
-        allowSandboxedSkillEscape: false,
       },
       source: "default",
     });

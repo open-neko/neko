@@ -12,7 +12,6 @@ type InstallPolicy = {
   allowUnverified: boolean;
   allowGitUrlInstalls: boolean;
   allowedMarketplaces: string[];
-  allowSandboxedSkillEscape: boolean;
 };
 
 type InstallPolicyPayload = {
@@ -119,18 +118,11 @@ export default function SecurityForm({ initial }: { initial: InstallPolicyPayloa
   
           <Toggle
             label="Allow community-skill installs from git URLs"
-            help="Lets operators run `openneko install <git-url>` to pull a skill directly from GitHub / GitLab / Codeberg. Skills run in-process with the worker by default — combine with the sandbox-escape switch below for untrusted sources."
+            help="Lets operators run `openneko install <git-url>` to pull a skill directly from GitHub / GitLab / Codeberg. Skills are procedural knowledge the agent follows; any shell blocks run inside the agent's OpenShell sandbox."
             checked={policy.allowGitUrlInstalls}
             onChange={(v) => toggle("allowGitUrlInstalls", v)}
           />
-  
-          <Toggle
-            label="Sandbox shell blocks of untrusted skills"
-            help="When installing a skill from a non-trusted source, run any shell blocks in its body inside a one-shot microVM. Slower but contained. Recommended when allowing git-URL installs."
-            checked={policy.allowSandboxedSkillEscape}
-            onChange={(v) => toggle("allowSandboxedSkillEscape", v)}
-          />
-  
+
           <div className={FIELD_CLS}>
             <label className={LABEL_CLS}>Allowed marketplaces</label>
             <p className={HELP_CLS}>

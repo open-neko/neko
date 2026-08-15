@@ -913,7 +913,6 @@ describe("worker admin /admin/auth/*", () => {
             allowUnverified: true,
             allowGitUrlInstalls: false,
             allowedMarketplaces: ["https://x"],
-            allowSandboxedSkillEscape: false,
           }),
         },
       }),

@@ -5,7 +5,7 @@
 //   1. Top-level keys → deployment-wide env-var bags keyed by plugin
 //      npm name. Used for static API keys (Slack bot tokens, Parallel
 //      API keys) shared by every operator on this install. The worker
-//      injects these into each plugin's microVM at exec time.
+//      injects these into each plugin's OpenShell sandbox at exec time.
 //
 //   2. `_operators` → per-operator credentials produced by the
 //      `connect` capability OAuth dance. Keyed by operator id, then by

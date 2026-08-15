@@ -36,7 +36,7 @@ const MANIFEST_JSON = JSON.stringify({
 
 /**
  * End-to-end through the registry using the actual built plugin
- * bundle but with a subprocess runtime instead of a microVM. Proves:
+ * bundle but with a subprocess runtime instead of an OpenShell sandbox. Proves:
  *   - The registry maps kind → plugin from the manifest alone
  *   - Lazy spawn fires on first execute_action
  *   - The bundled plugin's register() RPC is verified against the

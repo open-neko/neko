@@ -1871,7 +1871,6 @@ describe("PluginRegistry — install-policy flagging", () => {
     policySnapshot: {
       allowUnverified: true,
       allowGitUrlInstalls: false,
-      allowSandboxedSkillEscape: false,
       allowedMarketplaces: ["https://open-neko.github.io/plugins/marketplace.json"],
     },
   };
