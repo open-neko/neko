@@ -139,7 +139,7 @@ func TestPackagedComposeKeepsRuntimeTrafficOnDockerNetwork(t *testing.T) {
 	}
 	for _, required := range []string{
 		`network_name = "%s"`,
-		`grpc_endpoint = "https://host.openshell.internal:%s"`,
+		`grpc_endpoint = "https://openshell-gateway:%s"`,
 		`OPENNEKO_COMPOSE_NETWORK: "${COMPOSE_PROJECT_NAME}_default"`,
 	} {
 		if !strings.Contains(raw, required) {
