@@ -136,20 +136,22 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 		quietPull = []string{"--quiet-pull"}
 	}
 
-	// Stage 1: run the existing one-shot migration service inside Docker. Its
-	// dependency waits for neko-db's healthcheck, and `compose wait` propagates
-	// its exit code. The same command provisions the gateway's dedicated DB role
-	// even when --skip-migrate asks it to skip schema changes. No database port
-	// needs to cross the Docker network boundary.
-	up1 := append([]string{"up", "-d"}, pullFlag...)
-	up1 = append(up1, quietPull...)
-	up1 = append(up1, "neko-migrate")
-	if code, err := sup.Run(ctx, project, files, up1, os.Stdout, os.Stderr); err != nil {
-		return err
-	} else if code != 0 {
-		return WithExit(code, nil)
-	}
-	if code, err := sup.Run(ctx, project, files, []string{"wait", "neko-migrate"}, os.Stdout, os.Stderr); err != nil {
+	// Stage 1: run the one-shot migration to completion and capture its exit
+	// code directly. `run --rm` starts neko-db (its healthcheck dependency),
+	// runs the migrate command in the foreground, and returns its exit status.
+	//
+	// We deliberately do NOT use `up -d neko-migrate` + a separate
+	// `compose wait`: on a re-deploy against an already-migrated database the
+	// migration is a fast no-op that exits before the separate `wait` can
+	// observe it, so `compose wait` reports "no containers for project" and
+	// exits non-zero — surfacing as a spurious "database preparation failed".
+	// A foreground `run` has no such race. The same command provisions the
+	// gateway's dedicated DB role even when --skip-migrate skips schema changes.
+	// No database port needs to cross the Docker network boundary.
+	migrateArgs := append([]string{"run", "--rm", "-T"}, pullFlag...)
+	migrateArgs = append(migrateArgs, quietPull...)
+	migrateArgs = append(migrateArgs, "neko-migrate")
+	if code, err := sup.Run(ctx, project, files, migrateArgs, os.Stdout, os.Stderr); err != nil {
 		return err
 	} else if code != 0 {
 		return WithExit(code, fmt.Errorf("database preparation failed"))
