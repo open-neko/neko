@@ -10,7 +10,7 @@
  * outcome inline without waiting for the worker.
  *
  * The web process never executes the plugin adapter directly: only
- * the worker has the registry + microVMs. Approval is a fast DB
+ * the worker has the registry + sandboxes. Approval is a fast DB
  * update + a queue insert; the user sees "approved — running" until
  * the worker's job lands the action_request_result event in this
  * thread's run.

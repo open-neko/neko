@@ -30,8 +30,8 @@ export const EnvVarName = z
  * in the marketplace entry and installed manifest; the openneko CLI
  * prompts the operator for any required ones during `openneko install`
  * and stores values in ~/.config/openneko/secrets.json. The worker
- * reads that file and injects values into the plugin's microVM at exec
- * time.
+ * reads that file and injects values into the plugin's OpenShell
+ * sandbox at exec time.
  */
 export const PluginEnvRequirement = z.object({
   key: EnvVarName,
