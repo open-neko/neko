@@ -83,7 +83,7 @@ services:
         printf '{"name":"openneko","gateway_endpoint":"https://openshell-gateway:%s","is_remote":false,"gateway_port":0,"auth_mode":"mtls"}\n' "${OPENSHELL_PORT:-18080}" \
           > "$$REG/metadata.json"
         printf 'openneko' > /config/openshell/active_gateway
-        printf '[openshell]\nversion = 1\n\n[openshell.drivers.docker]\nnetwork_name = "%s"\ngrpc_endpoint = "https://host.openshell.internal:%s"\n' \
+        printf '[openshell]\nversion = 1\n\n[openshell.drivers.docker]\nnetwork_name = "%s"\ngrpc_endpoint = "https://openshell-gateway:%s"\n' \
           "$$OPENNEKO_COMPOSE_NETWORK" "${OPENSHELL_PORT:-18080}" \
           > /config/openshell/gateway.toml
         chmod -R a+rX /config/openshell
