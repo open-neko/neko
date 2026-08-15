@@ -89,7 +89,6 @@ export function registerPluginManagementAdapters(opts: {
   getInstallPolicy: () => Promise<{
     allowUnverified: boolean;
     allowGitUrlInstalls: boolean;
-    allowSandboxedSkillEscape: boolean;
     allowedMarketplaces: string[];
   }>;
 }): void {

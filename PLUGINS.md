@@ -73,7 +73,6 @@ The CLI shallow-clones, validates `SKILL.md`, and drops the folder under `~/.ope
 | `allowUnverified` | `openneko install <pkg> --unverified` |
 | `allowGitUrlInstalls` | `openneko install <git-url>` |
 | `allowedMarketplaces` | Which `marketplace.json` URLs the install path trusts (official is always on) |
-| `allowSandboxedSkillEscape` | Wrap untrusted community skill shell blocks in a one-shot microVM |
 
 Flipping a switch off flags pre-existing installs — not yanked — so the registry surfaces them for manual `openneko remove`. Every install records `installSource` + `installedAt` + `policySnapshot`.
 

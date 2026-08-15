@@ -83,7 +83,6 @@ export interface InstallOptions {
   policySnapshot?: {
     allowUnverified: boolean;
     allowGitUrlInstalls: boolean;
-    allowSandboxedSkillEscape: boolean;
     allowedMarketplaces: string[];
   };
 }

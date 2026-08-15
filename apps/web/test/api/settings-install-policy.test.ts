@@ -99,13 +99,11 @@ describeIfDb("/api/settings/install-policy", () => {
         allowUnverified: boolean;
         allowGitUrlInstalls: boolean;
         allowedMarketplaces: string[];
-        allowSandboxedSkillEscape: boolean;
       };
     };
     expect(body.source).toBe("default");
     expect(body.policy.allowUnverified).toBe(false);
     expect(body.policy.allowGitUrlInstalls).toBe(false);
-    expect(body.policy.allowSandboxedSkillEscape).toBe(false);
     expect(body.policy.allowedMarketplaces).toEqual([OFFICIAL]);
   });
 
@@ -172,14 +170,14 @@ describeIfDb("/api/settings/install-policy", () => {
     });
     await callRoute(PATCH, {
       method: "PATCH",
-      body: { allowSandboxedSkillEscape: true },
+      body: { allowGitUrlInstalls: true },
     });
     const res = await callRoute(GET);
     const body = res.body as {
-      policy: { allowUnverified: boolean; allowSandboxedSkillEscape: boolean };
+      policy: { allowUnverified: boolean; allowGitUrlInstalls: boolean };
     };
     expect(body.policy.allowUnverified).toBe(true);
-    expect(body.policy.allowSandboxedSkillEscape).toBe(true);
+    expect(body.policy.allowGitUrlInstalls).toBe(true);
   });
 
   it("PATCH rejects http: marketplace URLs with 400", async () => {

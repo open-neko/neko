@@ -195,7 +195,6 @@ export type PluginCapabilitiesDeclaration = z.infer<
 export const PluginManifestPolicySnapshot = z.object({
   allowUnverified: z.boolean(),
   allowGitUrlInstalls: z.boolean(),
-  allowSandboxedSkillEscape: z.boolean(),
   allowedMarketplaces: z.array(z.string()),
 });
 

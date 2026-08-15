@@ -22,13 +22,6 @@ export type InstallPolicy = {
   allowGitUrlInstalls: boolean;
   /** Marketplaces operators have opted into. The official one is always included. */
   allowedMarketplaces: string[];
-  /**
-   * When installing an untrusted skill, run its shell blocks in a
-   * one-shot microVM. Slower but contained — the safety net for
-   * "install this skill someone tweeted about" without trusting it
-   * with the worker's full process boundary.
-   */
-  allowSandboxedSkillEscape: boolean;
 };
 
 /** Returned to the settings UI alongside the policy itself. */
@@ -54,7 +47,6 @@ export const DEFAULT_POLICY: InstallPolicy = {
   allowUnverified: false,
   allowGitUrlInstalls: false,
   allowedMarketplaces: [OFFICIAL_MARKETPLACE_URL],
-  allowSandboxedSkillEscape: false,
 };
 
 async function loadRow(orgId: string): Promise<{
@@ -119,10 +111,6 @@ function policyFromConfig(config: Record<string, unknown> | null): InstallPolicy
       DEFAULT_POLICY.allowGitUrlInstalls,
     ),
     allowedMarketplaces: readMarketplaceList(config.allowedMarketplaces),
-    allowSandboxedSkillEscape: readBool(
-      config.allowSandboxedSkillEscape,
-      DEFAULT_POLICY.allowSandboxedSkillEscape,
-    ),
   };
 }
 
@@ -146,7 +134,6 @@ export type InstallPolicyDraft = {
   allowUnverified?: boolean;
   allowGitUrlInstalls?: boolean;
   allowedMarketplaces?: string[];
-  allowSandboxedSkillEscape?: boolean;
 };
 
 /**
@@ -193,10 +180,6 @@ export async function saveInstallPolicyDraft(
       draft.allowedMarketplaces !== undefined
         ? readMarketplaceList(draft.allowedMarketplaces)
         : current.allowedMarketplaces,
-    allowSandboxedSkillEscape:
-      draft.allowSandboxedSkillEscape !== undefined
-        ? draft.allowSandboxedSkillEscape
-        : current.allowSandboxedSkillEscape,
   };
 
   if (existing) {
