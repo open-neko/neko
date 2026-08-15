@@ -14,6 +14,13 @@ export OPENNEKO_BACKUP_REPOSITORY="$recovery_workspace/backups"
 export OPENNEKO_HOST_CONFIG_DIR="$recovery_workspace/host-config"
 export OPENNEKO_DB_PORT="$recovery_metadata_port"
 export OPENNEKO_RECORDS_DB_PORT="$recovery_records_port"
+# The db/backup entrypoints read the cipher pass from a mounted key file
+# (compose.yml defaults it to ./.openneko/development-backup-key, which
+# `openneko start` provisions but a bare CI checkout does not have —
+# Docker would mount an empty directory and the entrypoints die on cat).
+export OPENNEKO_BACKUP_KEY_FILE="$recovery_workspace/backup-key"
+printf '%s' "$OPENNEKO_BACKUP_CIPHER_PASS" > "$OPENNEKO_BACKUP_KEY_FILE"
+chmod 0600 "$OPENNEKO_BACKUP_KEY_FILE"
 mkdir -p "$OPENNEKO_BACKUP_REPOSITORY" "$OPENNEKO_HOST_CONFIG_DIR"
 
 recovery_compose=(
@@ -77,8 +84,16 @@ echo "Seeding the representative Salesforce restore fixture..."
   < "$recovery_repo_root/packages/records/test/fixtures/salesforce-golden-restore.sql"
 
 echo "Creating and verifying a backup set with every recovery volume..."
+# No curl -f here: on failure the daemon's JSON body carries the actual
+# error (backup_operation_failed + message), which -f would discard.
 recovery_manifest="$("${recovery_compose[@]}" exec -T neko-backup \
-  curl -fsS -X POST http://127.0.0.1:9470/v1/backups/now)"
+  curl -sS -X POST http://127.0.0.1:9470/v1/backups/now)"
+if [[ "$recovery_manifest" == *'"error"'* || "$recovery_manifest" != *'"set_id"'* ]]; then
+  echo "Backup creation failed: $recovery_manifest" >&2
+  echo "--- neko-backup logs ---" >&2
+  "${recovery_compose[@]}" logs --no-color --tail 100 neko-backup >&2 || true
+  exit 1
+fi
 for required in \
   '"openneko-metadata"' \
   '"openneko-records"' \

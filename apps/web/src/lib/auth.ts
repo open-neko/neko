@@ -50,6 +50,33 @@ const STATE_TTL_SECONDS = 10 * 60;
 export interface AuthProviderInfo {
   pluginName: string;
   providerLabel: string;
+  /**
+   * "manual": the plugin's identity is self-asserted (magic link proves
+   * mailbox possession only), so sign-in is restricted to users an admin
+   * pre-provisioned. "automatic": IdP-attested — first sign-in may create
+   * the app_user. Older workers omit the field; treat as "automatic".
+   */
+  provisioning?: "automatic" | "manual";
+  /** Sign-in cannot start without an email (e.g. magic link). */
+  loginHintRequired?: boolean;
+}
+
+/**
+ * An installed auth plugin that is not live yet, and why. Admin-only
+ * surface (setup UI); the public status route reduces it to a label.
+ */
+export interface PendingAuthProviderInfo extends AuthProviderInfo {
+  /** Required env keys still unset — names only, never values. */
+  missingEnv: string[];
+  /** Manual provisioning with zero active admin users provisioned. */
+  needsAdminUser: boolean;
+  /** Declared env keys that currently hold a value — names only. */
+  configuredEnv: string[];
+}
+
+export interface AuthGateStatus {
+  provider: AuthProviderInfo | null;
+  pending: PendingAuthProviderInfo | null;
 }
 
 export interface AuthIdentity {
@@ -91,10 +118,18 @@ function sessionSecret(): string {
  * second to keep the sign-in page snappy under concurrent loads —
  * the worker's hot-reload window is in seconds anyway.
  */
-let providerCache: { value: AuthProviderInfo | null; at: number } | null = null;
+let providerCache: { value: AuthGateStatus; at: number } | null = null;
 const PROVIDER_CACHE_TTL_MS = 1000;
 
-export async function getAuthProvider(): Promise<AuthProviderInfo | null> {
+const NO_GATE: AuthGateStatus = { provider: null, pending: null };
+
+/**
+ * Full sign-in gate status: the live provider (null while setup is
+ * incomplete) plus the pending provider with its missing pieces. Admin
+ * surfaces consume `pending`; everything else should keep using
+ * getAuthProvider().
+ */
+export async function getAuthGateStatus(): Promise<AuthGateStatus> {
   const now = Date.now();
   if (providerCache && now - providerCache.at < PROVIDER_CACHE_TTL_MS) {
     return providerCache.value;
@@ -106,23 +141,57 @@ export async function getAuthProvider(): Promise<AuthProviderInfo | null> {
       signal: AbortSignal.timeout(2000),
     });
     if (!res.ok) {
-      providerCache = { value: null, at: now };
-      return null;
+      providerCache = { value: NO_GATE, at: now };
+      return NO_GATE;
     }
-    const body = (await res.json()) as { provider: AuthProviderInfo | null };
-    providerCache = { value: body.provider ?? null, at: now };
+    const body = (await res.json()) as AuthGateStatus;
+    providerCache = {
+      value: { provider: body.provider ?? null, pending: body.pending ?? null },
+      at: now,
+    };
     return providerCache.value;
   } catch {
     // Worker unreachable — treat as "no provider". The dashboard
     // gracefully degrades to local auth in that case.
-    providerCache = { value: null, at: now };
-    return null;
+    providerCache = { value: NO_GATE, at: now };
+    return NO_GATE;
   }
+}
+
+export async function getAuthProvider(): Promise<AuthProviderInfo | null> {
+  return (await getAuthGateStatus()).provider;
 }
 
 /** Test seam — clears the provider cache between tests. */
 export function _resetAuthProviderCache() {
   providerCache = null;
+}
+
+/**
+ * Write (string) or delete (null) env values for the installed auth
+ * plugin, restricted worker-side to its declared keys. Admin routes
+ * only — callers must already be behind requireAdminActor.
+ */
+export async function setAuthPluginSecrets(
+  values: Record<string, string | null>,
+): Promise<void> {
+  const res = await fetch(`${workerAdminBase()}/admin/auth/secrets`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ values }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(
+      body?.error ?? `auth secrets write failed (${res.status})`,
+    );
+  }
+  // The gate may have just flipped — drop the 1s cache so the next
+  // status read reflects it immediately.
+  _resetAuthProviderCache();
 }
 
 export async function beginAuth(params: {
@@ -266,13 +335,19 @@ export function newStateToken(): string {
  *   2. existing row with the same `email` (initial migration when an
  *      operator first turns SSO on against a pre-existing email-only
  *      user) — `sub` is then attached for future logins.
- * Otherwise insert a new row in the only org.
+ * Otherwise insert a new row in the only org — unless the provider
+ * declares manual provisioning, in which case an unmatched identity is
+ * rejected: possession of a mailbox must never mint an account.
  */
 export async function upsertUserFromIdentity(
   identity: AuthIdentity,
 ): Promise<{ id: string; email: string; name: string | null }> {
   const orgId = await getOrgId();
-  const provider = (await getAuthProvider())?.pluginName ?? "oidc";
+  // Use the full gate status so the manual-provisioning backstop holds
+  // even while the provider is still pending (not yet live).
+  const gate = await getAuthGateStatus();
+  const providerInfo = gate.provider ?? gate.pending;
+  const provider = providerInfo?.pluginName ?? "oidc";
   const mapped = await resolveGroupRole(orgId, provider, identity.groups ?? []);
   // Primary lookup: sub. Anything matching wins, regardless of email
   // changes (people get married, change addresses — sub doesn't).
@@ -346,6 +421,14 @@ export async function upsertUserFromIdentity(
     // (likely two IdP accounts pointing at the same mailbox).
     throw new Error(
       `app_user.email ${identity.email} is already bound to a different SSO subject; remove the row or update sub manually before re-attempting`,
+    );
+  }
+  if (providerInfo?.provisioning === "manual") {
+    // Self-asserted identity (e.g. magic link) with no pre-provisioned
+    // user. The begin route already drops unknown emails silently; this
+    // is the defense-in-depth backstop.
+    throw new Error(
+      `no user is provisioned for ${identity.email} — ask an administrator to add you`,
     );
   }
   // Brand new user. Bootstrap the first active admin so installing an SSO

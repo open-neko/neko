@@ -7,12 +7,20 @@
  * /api/auth/callback with `code` + `state`, where the cookie's state
  * is checked against the IdP-echoed state to defeat login-CSRF.
  *
+ * Providers with `provisioning: "manual"` (magic link) get an extra
+ * gate here: the flow only reaches the plugin when the typed email
+ * belongs to a pre-provisioned, non-disabled user. Unknown emails get
+ * the exact same "link sent" redirect without any plugin call, so the
+ * endpoint can't be used to enumerate accounts or spam mailboxes.
+ *
  * Query params:
  *   ?returnTo=/some/internal/path  — optional, defaults to "/"
  *   ?loginHint=user@example.com    — forwarded to the IdP as login_hint
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, app_user, db, eq, isNull, sql } from "@neko/db";
+import { getOrgId } from "@/lib/db";
 import {
   beginAuth,
   buildRedirectUri,
@@ -20,6 +28,30 @@ import {
   newStateToken,
   writeStateCookie,
 } from "@/lib/auth";
+
+/** The neutral outcome both known and unknown emails resolve to. */
+function linkSentRedirect(requestUrl: string): NextResponse {
+  return NextResponse.redirect(
+    new URL("/signin?notice=link-sent", requestUrl),
+    { status: 302 },
+  );
+}
+
+async function isProvisionedUser(email: string): Promise<boolean> {
+  const orgId = await getOrgId();
+  const [row] = await db()
+    .select({ id: app_user.id })
+    .from(app_user)
+    .where(
+      and(
+        eq(app_user.org_id, orgId),
+        sql`lower(${app_user.email}) = ${email.toLowerCase()}`,
+        isNull(app_user.disabled_at),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
 
 export async function GET(request: NextRequest) {
   const provider = await getAuthProvider();
@@ -31,7 +63,24 @@ export async function GET(request: NextRequest) {
   }
   const url = new URL(request.url);
   const returnTo = url.searchParams.get("returnTo") ?? "/";
-  const loginHint = url.searchParams.get("loginHint");
+  const loginHint = url.searchParams.get("loginHint")?.trim() ?? "";
+
+  if (provider.loginHintRequired && !loginHint) {
+    return NextResponse.redirect(
+      new URL(
+        "/signin?error=enter+your+email+address+to+sign+in",
+        request.url,
+      ),
+      { status: 302 },
+    );
+  }
+
+  const manual = provider.provisioning === "manual";
+  if (manual && !(await isProvisionedUser(loginHint))) {
+    // Same response as the happy path — reveal nothing, send nothing.
+    return linkSentRedirect(request.url);
+  }
+
   const state = newStateToken();
   await writeStateCookie(state, returnTo);
 
@@ -40,10 +89,18 @@ export async function GET(request: NextRequest) {
     const { authorizationUrl } = await beginAuth({
       redirectUri,
       state,
-      loginHint: loginHint && loginHint.length > 0 ? loginHint : null,
+      loginHint: loginHint.length > 0 ? loginHint : null,
     });
     return NextResponse.redirect(authorizationUrl, { status: 302 });
   } catch (err) {
+    if (manual) {
+      // A failed send must stay indistinguishable from an unknown email
+      // to the visitor; the operator diagnoses via server logs.
+      console.error(
+        `[auth] magic-link begin failed: ${err instanceof Error ? err.message : err}`,
+      );
+      return linkSentRedirect(request.url);
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },
       { status: 502 },

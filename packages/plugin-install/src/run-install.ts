@@ -12,6 +12,7 @@
 // the CLI's per-user marketplace-trust file, which the worker
 // doesn't need.
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { cp, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -249,7 +250,11 @@ async function resolveRequiredEnv(
   let updated = store;
   const saved: string[] = [];
   for (const req of missing) {
-    const value = await options.envPrompt(pluginName, req);
+    // Host-minted secrets (HMAC keys etc.) are generated, not prompted —
+    // the operator never needs to see them.
+    const value = req.autogenerate
+      ? randomBytes(48).toString("base64url")
+      : await options.envPrompt(pluginName, req);
     if (!value) {
       throw new Error(
         `install: required env "${req.key}" not supplied for ${pluginName}`,

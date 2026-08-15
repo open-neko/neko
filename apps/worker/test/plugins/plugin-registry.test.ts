@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -567,6 +567,50 @@ function manifestWithAuthEntry() {
   };
 }
 
+function manifestWithMagicLinkEntry() {
+  return {
+    schema: "https://open-neko.github.io/plugins/manifest.schema.json",
+    plugins: [
+      {
+        name: "@open-neko/plugin-magic-link",
+        version: "0.1.0",
+        integrity: FAKE_INTEGRITY,
+        permissions: {
+          network: ["api.resend.com"],
+          env: [
+            {
+              key: "MAGIC_LINK_SIGNING_SECRET",
+              required: true,
+              secret: true,
+              autogenerate: true,
+              description: "HMAC key — host-minted.",
+            },
+            {
+              key: "MAGIC_LINK_FROM",
+              required: true,
+              secret: false,
+              description: "From address.",
+            },
+            {
+              key: "RESEND_API_KEY",
+              required: false,
+              secret: true,
+              description: "Resend API key.",
+            },
+          ],
+        },
+        capabilities: {
+          auth: {
+            providerLabel: "Email link",
+            provisioning: "manual",
+            loginHintRequired: true,
+          },
+        },
+      },
+    ],
+  };
+}
+
 function authRegisterResponse(providerLabel = "Scalekit"): RpcResponse {
   return rpcOk({
     protocol: RPC_PROTOCOL_VERSION,
@@ -613,6 +657,94 @@ describe("PluginRegistry — auth provider", () => {
     await reg.start();
     expect(reg.getAuthProvider()).toBeNull();
     expect(reg.status().authProvider).toBeNull();
+    await reg.stop();
+  });
+
+  it("exposes provisioning + loginHintRequired from the manifest declaration", async () => {
+    await writeFile(
+      path.join(repoRoot, "openneko.plugins.json"),
+      JSON.stringify(manifestWithMagicLinkEntry()),
+      "utf8",
+    );
+    const reg = newRegistry(new FakeRuntime());
+    await reg.start();
+    const provider = reg.getAuthProvider();
+    expect(provider?.provisioning).toBe("manual");
+    expect(provider?.loginHintRequired).toBe(true);
+    await reg.stop();
+  });
+
+  it("backfills autogenerate secrets at load and reports env gaps by name", async () => {
+    await writeFile(
+      path.join(repoRoot, "openneko.plugins.json"),
+      JSON.stringify(manifestWithMagicLinkEntry()),
+      "utf8",
+    );
+    const reg = newRegistry(new FakeRuntime());
+    await reg.start();
+
+    // The signing secret was minted by the host, so the only remaining
+    // gap is the human-supplied From address.
+    expect(reg.getAuthEnvGaps()).toEqual(["MAGIC_LINK_FROM"]);
+    expect(reg.authSignInReady()).toBe(false);
+    const secretsFile = JSON.parse(
+      await readFile(path.join(secretsConfigDir, "secrets.json"), "utf8"),
+    );
+    const generated =
+      secretsFile["@open-neko/plugin-magic-link"]?.MAGIC_LINK_SIGNING_SECRET;
+    expect(typeof generated).toBe("string");
+    expect(generated.length).toBeGreaterThanOrEqual(32);
+
+    // A second refresh must keep the minted value, not re-generate it.
+    await reg.refresh();
+    const after = JSON.parse(
+      await readFile(path.join(secretsConfigDir, "secrets.json"), "utf8"),
+    );
+    expect(
+      after["@open-neko/plugin-magic-link"]?.MAGIC_LINK_SIGNING_SECRET,
+    ).toBe(generated);
+
+    // Filling the last gap flips readiness.
+    await reg.setPluginSecret(
+      "@open-neko/plugin-magic-link",
+      "MAGIC_LINK_FROM",
+      "OpenNeko <signin@c.co>",
+    );
+    await reg.refresh();
+    expect(reg.getAuthEnvGaps()).toEqual([]);
+    expect(reg.authSignInReady()).toBe(true);
+    expect(reg.getAuthConfiguredEnvKeys()).toEqual(
+      expect.arrayContaining(["MAGIC_LINK_SIGNING_SECRET", "MAGIC_LINK_FROM"]),
+    );
+    expect(reg.getAuthDeclaredEnvKeys()).toEqual([
+      "MAGIC_LINK_SIGNING_SECRET",
+      "MAGIC_LINK_FROM",
+      "RESEND_API_KEY",
+    ]);
+    await reg.stop();
+  });
+
+  it("deletePluginSecret removes a stored value and reopens the gap", async () => {
+    await writeFile(
+      path.join(repoRoot, "openneko.plugins.json"),
+      JSON.stringify(manifestWithMagicLinkEntry()),
+      "utf8",
+    );
+    const reg = newRegistry(new FakeRuntime());
+    await reg.start();
+    await reg.setPluginSecret(
+      "@open-neko/plugin-magic-link",
+      "MAGIC_LINK_FROM",
+      "a <b@c.co>",
+    );
+    await reg.refresh();
+    expect(reg.getAuthEnvGaps()).toEqual([]);
+    await reg.deletePluginSecret(
+      "@open-neko/plugin-magic-link",
+      "MAGIC_LINK_FROM",
+    );
+    await reg.refresh();
+    expect(reg.getAuthEnvGaps()).toEqual(["MAGIC_LINK_FROM"]);
     await reg.stop();
   });
 

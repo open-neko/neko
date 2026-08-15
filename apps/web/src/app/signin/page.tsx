@@ -7,13 +7,17 @@ import EntryShell from "@/components/EntryShell";
 interface ProviderInfo {
   pluginName: string;
   providerLabel: string;
+  provisioning?: "automatic" | "manual";
+  loginHintRequired?: boolean;
 }
 
 function SignInBody() {
   const params = useSearchParams();
   const error = params.get("error");
+  const notice = params.get("notice");
   const returnTo = params.get("returnTo") ?? "/";
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
+  const [pendingLabel, setPendingLabel] = useState<string | null>(null);
   const [providerLoaded, setProviderLoaded] = useState(false);
   const [loginHint, setLoginHint] = useState("");
 
@@ -22,9 +26,13 @@ function SignInBody() {
     (async () => {
       try {
         const res = await fetch("/api/auth/status", { cache: "no-store" });
-        const body = (await res.json()) as { provider: ProviderInfo | null };
+        const body = (await res.json()) as {
+          provider: ProviderInfo | null;
+          pending?: { providerLabel: string } | null;
+        };
         if (cancelled) return;
         setProvider(body.provider ?? null);
+        setPendingLabel(body.pending?.providerLabel ?? null);
       } catch {
         if (cancelled) return;
         setProvider(null);
@@ -55,6 +63,13 @@ function SignInBody() {
         </div>
       ) : null}
 
+      {notice === "link-sent" ? (
+        <div className="entry-system-state" role="status">
+          If that email belongs to a provisioned user, a sign-in link is on
+          its way. Open it in this browser within 10 minutes.
+        </div>
+      ) : null}
+
       {!providerLoaded ? (
         <div className="entry-system-state" role="status">
           <span className="entry-system-pulse" aria-hidden="true" />
@@ -65,7 +80,10 @@ function SignInBody() {
           <input type="hidden" name="returnTo" value={returnTo} />
           <label className="entry-field">
             <span>
-              Email <span className="entry-optional">(optional)</span>
+              Email{" "}
+              {provider.loginHintRequired ? null : (
+                <span className="entry-optional">(optional)</span>
+              )}
             </span>
             <input
               type="email"
@@ -74,19 +92,33 @@ function SignInBody() {
               onChange={(event) => setLoginHint(event.target.value)}
               placeholder="you@company.com"
               autoComplete="email"
+              required={Boolean(provider.loginHintRequired)}
               className="entry-control"
             />
             <span className="entry-field-help">
-              Helps {provider.providerLabel} route you to the correct identity provider.
+              {provider.loginHintRequired
+                ? `${provider.providerLabel} emails a single-use sign-in link to provisioned users.`
+                : `Helps ${provider.providerLabel} route you to the correct identity provider.`}
             </span>
           </label>
           <button type="submit" className="entry-button is-primary is-wide">
-            Sign in with {provider.providerLabel}
+            {provider.loginHintRequired
+              ? "Email me a sign-in link"
+              : `Sign in with ${provider.providerLabel}`}
           </button>
           <p className="entry-provider-note">
             Provided by <code>{provider.pluginName}</code>
           </p>
         </form>
+      ) : pendingLabel ? (
+        <div className="entry-empty">
+          <p className="entry-section-kicker">Setup in progress</p>
+          <h3>{pendingLabel} sign-in is being set up</h3>
+          <p>
+            An administrator is still configuring sign-in for this
+            deployment. Try again shortly.
+          </p>
+        </div>
       ) : (
         <div className="entry-empty">
           <p className="entry-section-kicker">Single-operator mode</p>

@@ -14,9 +14,14 @@
  */
 
 import { NextResponse } from "next/server";
-import { getAuthProvider } from "@/lib/auth";
+import { getAuthGateStatus } from "@/lib/auth";
 
 export async function GET() {
-  const provider = await getAuthProvider();
-  return NextResponse.json({ provider });
+  const { provider, pending } = await getAuthGateStatus();
+  // Public route: expose the live provider, and of a pending one only
+  // its label — which env vars are missing is admin-only information.
+  return NextResponse.json({
+    provider,
+    pending: pending ? { providerLabel: pending.providerLabel } : null,
+  });
 }

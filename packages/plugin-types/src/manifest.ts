@@ -47,6 +47,15 @@ export const PluginEnvRequirement = z.object({
    * locally and never sends out (e.g. a webhook signing secret).
    */
   inject: z.enum(["egress", "box"]).optional(),
+  /**
+   * The host mints this value itself (48 random bytes, base64url) and
+   * stores it in the secrets file — the operator is never prompted and
+   * never needs to know it. For purely internal secrets like HMAC
+   * signing keys. The CLI fills it at install; the worker backfills it
+   * at registry load for plugins installed before the flag existed.
+   * Rotation = delete the stored value and restart.
+   */
+  autogenerate: z.boolean().default(false),
 });
 
 export type PluginEnvRequirement = z.infer<typeof PluginEnvRequirement>;
@@ -97,6 +106,26 @@ export const AuthCapabilityDeclaration = z.object({
    * to a name-derived label when this is absent.
    */
   providerLabel: z.string().min(1).optional(),
+  /**
+   * How app users come to exist for this provider.
+   *
+   * "automatic" (default): the identity is attested by an external IdP,
+   * so the core may create an app_user on first sign-in.
+   *
+   * "manual": the identity is self-asserted by the plugin (e.g. a
+   * magic-link flow proves mailbox possession, nothing more). The core
+   * MUST NOT auto-create users — sign-in succeeds only for users an
+   * admin pre-provisioned, and unknown emails are silently dropped at
+   * begin-auth so the flow can't be used to enumerate accounts.
+   */
+  provisioning: z.enum(["automatic", "manual"]).default("automatic"),
+  /**
+   * Whether begin_auth is unusable without a loginHint (e.g. magic
+   * link needs the email to send anything). The sign-in page renders
+   * the email field as required and the begin route rejects
+   * hint-less requests before reaching the plugin.
+   */
+  loginHintRequired: z.boolean().default(false),
 });
 
 export type AuthCapabilityDeclaration = z.infer<typeof AuthCapabilityDeclaration>;

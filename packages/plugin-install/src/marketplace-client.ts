@@ -20,6 +20,8 @@ export interface MarketplaceEnvRequirement {
   /** "egress" → proxy-injected onto outbound requests (box sees a placeholder);
    *  "box" (default) → value lives in the VM for local comparison. */
   inject?: "egress" | "box";
+  /** Host-minted at install/load (48 random bytes, base64url) — never prompted. */
+  autogenerate?: boolean;
 }
 
 export interface MarketplacePermissions {

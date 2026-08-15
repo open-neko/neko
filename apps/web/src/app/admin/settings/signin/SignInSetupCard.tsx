@@ -1,0 +1,513 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+
+const MAGIC_LINK_PLUGIN = "@open-neko/plugin-magic-link";
+
+const PROVIDERS = [
+  { id: "resend", label: "Resend", key: "RESEND_API_KEY" },
+  { id: "postmark", label: "Postmark", key: "POSTMARK_SERVER_TOKEN" },
+  { id: "sendgrid", label: "SendGrid", key: "SENDGRID_API_KEY" },
+] as const;
+
+type ProviderId = (typeof PROVIDERS)[number]["id"];
+
+interface GateInfo {
+  pluginName: string;
+  providerLabel: string;
+  provisioning: string;
+  loginHintRequired: boolean;
+}
+
+interface Status {
+  provider: GateInfo | null;
+  pending:
+    | (GateInfo & {
+        missingEnv: string[];
+        needsAdminUser: boolean;
+        configuredEnv: string[];
+      })
+    | null;
+  users: { total: number; activeAdmins: number };
+  selfEmail: string | null;
+}
+
+/**
+ * One-page magic-link setup: live/pending status with the exact
+ * blockers, email delivery config, first users, and a delivery test.
+ * Every write re-fetches status, so the "Sign-in is live" banner flips
+ * the moment the last blocker clears.
+ */
+export default function SignInSetupCard() {
+  const [status, setStatus] = useState<Status | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/signin/status", { cache: "no-store" });
+      if (!res.ok) throw new Error(`status read failed (${res.status})`);
+      setStatus((await res.json()) as Status);
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  if (loadError) {
+    return (
+      <section className="settings-card">
+        <p className="text-sm text-danger" role="alert">
+          {loadError}
+        </p>
+      </section>
+    );
+  }
+  if (!status) {
+    return (
+      <section className="settings-card">
+        <p className="text-sm text-text2" role="status">
+          Loading sign-in status…
+        </p>
+      </section>
+    );
+  }
+
+  const gate = status.provider ?? status.pending;
+  if (!gate) {
+    return (
+      <section className="settings-card">
+        <div className="settings-card-head">
+          <div>
+            <h2 className="settings-card-title">No auth plugin installed</h2>
+            <p className="settings-card-copy">
+              Install the magic-link plugin from a shell on the deployment
+              host, then return here — everything else happens on this page.
+            </p>
+          </div>
+        </div>
+        <code className="block rounded-md bg-neutral px-3 py-2 text-sm">
+          openneko install {MAGIC_LINK_PLUGIN}
+        </code>
+      </section>
+    );
+  }
+
+  if (gate.pluginName !== MAGIC_LINK_PLUGIN) {
+    return (
+      <section className="settings-card">
+        <div className="settings-card-head">
+          <div>
+            <h2 className="settings-card-title">
+              {gate.providerLabel} is the sign-in provider
+            </h2>
+            <p className="settings-card-copy">
+              This deployment uses {gate.pluginName}. Configure it on the{" "}
+              <a href="/admin/settings/sso" className="underline">
+                Single sign-on
+              </a>{" "}
+              page instead.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <>
+      <StatusBanner status={status} />
+      <DeliverySection status={status} onSaved={reload} />
+      <UsersSection status={status} onSaved={reload} />
+      <TestSection status={status} />
+    </>
+  );
+}
+
+function StatusBanner({ status }: { status: Status }) {
+  if (status.provider) {
+    return (
+      <section className="settings-card">
+        <div className="settings-card-head">
+          <div>
+            <h2 className="settings-card-title">Sign-in is live</h2>
+            <p className="settings-card-copy">
+              Provisioned users can sign in at <code>/signin</code> with an
+              emailed link. Manage who gets in on the{" "}
+              <a href="/admin/users" className="underline">
+                Users
+              </a>{" "}
+              page.
+            </p>
+          </div>
+          <div className="settings-source">
+            <strong className="is-ok">Live</strong>
+          </div>
+        </div>
+      </section>
+    );
+  }
+  const pending = status.pending!;
+  const blockers: string[] = [];
+  const missing = new Set(pending.missingEnv);
+  const providerConfigured = PROVIDERS.some((p) =>
+    pending.configuredEnv.includes(p.key),
+  );
+  if (!providerConfigured) blockers.push("choose an email provider below");
+  if (missing.has("MAGIC_LINK_FROM")) blockers.push("set the From address");
+  if (pending.needsAdminUser) blockers.push("add at least one admin user");
+  for (const key of pending.missingEnv) {
+    if (key !== "MAGIC_LINK_FROM" && key !== "MAGIC_LINK_SIGNING_SECRET") {
+      blockers.push(`set ${key}`);
+    }
+  }
+  return (
+    <section className="settings-card">
+      <div className="settings-card-head">
+        <div>
+          <h2 className="settings-card-title">Sign-in is not live yet</h2>
+          <p className="settings-card-copy">
+            The deployment stays in single-operator mode until setup is
+            complete — nobody can be locked out by a half-finished
+            configuration. Remaining:{" "}
+            {blockers.length > 0 ? blockers.join(" · ") : "finishing up…"}
+          </p>
+        </div>
+        <div className="settings-source">
+          <strong className="is-warn">Setup</strong>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function DeliverySection({
+  status,
+  onSaved,
+}: {
+  status: Status;
+  onSaved: () => Promise<void>;
+}) {
+  const configured = status.pending?.configuredEnv ?? [];
+  const active = PROVIDERS.find((p) => configured.includes(p.key));
+  const [provider, setProvider] = useState<ProviderId>(active?.id ?? "resend");
+  const [apiKey, setApiKey] = useState("");
+  const [from, setFrom] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const keyStored =
+    configured.includes(PROVIDERS.find((p) => p.id === provider)!.key) ||
+    (Boolean(status.provider) && active?.id === provider);
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const res = await fetch("/api/admin/signin/email-provider", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider,
+          apiKey: apiKey || undefined,
+          from,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error ?? `save failed (${res.status})`);
+      }
+      setApiKey("");
+      setSaved(true);
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="settings-card !mt-5">
+      <div className="settings-card-head">
+        <div>
+          <h2 className="settings-card-title">Email delivery</h2>
+          <p className="settings-card-copy">
+            The sign-in link is emailed through one provider. The signing
+            secret is generated and stored automatically — you never handle
+            it.
+          </p>
+        </div>
+        {active ? (
+          <div className="settings-source">
+            <strong className="is-ok">{active.label} configured</strong>
+          </div>
+        ) : null}
+      </div>
+
+      {error ? (
+        <div className="mb-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger" role="alert">
+          {error}
+        </div>
+      ) : null}
+      {saved ? (
+        <div className="mb-3 rounded-md bg-success-soft px-3 py-2 text-sm text-success-ink" role="status">
+          Delivery settings saved.
+        </div>
+      ) : null}
+
+      <form onSubmit={save} className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
+          Provider
+          <select
+            value={provider}
+            onChange={(event) => setProvider(event.target.value as ProviderId)}
+            className="rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
+          >
+            {PROVIDERS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
+          API key
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder={keyStored ? "(stored — paste to replace)" : "paste the API key"}
+            autoComplete="off"
+            className="rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
+          From address
+          <input
+            type="text"
+            required
+            value={from}
+            onChange={(event) => setFrom(event.target.value)}
+            placeholder='OpenNeko <signin@company.com>'
+            className="w-72 rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-ink disabled:opacity-50"
+        >
+          {busy ? "Saving…" : "Save delivery settings"}
+        </button>
+      </form>
+      <p className="mt-2 text-xs text-text3">
+        The From address must be a sender verified with the provider you
+        pick.
+      </p>
+    </section>
+  );
+}
+
+function UsersSection({
+  status,
+  onSaved,
+}: {
+  status: Status;
+  onSaved: () => Promise<void>;
+}) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<"admin" | "member">(
+    status.users.activeAdmins === 0 ? "admin" : "member",
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function addUser(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, role }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error ?? `create failed (${res.status})`);
+      }
+      setEmail("");
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="settings-card !mt-5">
+      <div className="settings-card-head">
+        <div>
+          <h2 className="settings-card-title">Who can sign in</h2>
+          <p className="settings-card-copy">
+            Only users listed here can request a link — everyone else gets
+            silently ignored. {status.users.total} provisioned,{" "}
+            {status.users.activeAdmins} active admin
+            {status.users.activeAdmins === 1 ? "" : "s"}. Full management on
+            the{" "}
+            <a href="/admin/users" className="underline">
+              Users
+            </a>{" "}
+            page.
+          </p>
+        </div>
+      </div>
+
+      {status.users.activeAdmins === 0 ? (
+        <div
+          className="mb-3 rounded-md px-3 py-2 text-sm"
+          style={{ background: "var(--warn-soft)", color: "var(--warn-ink)" }}
+          role="alert"
+        >
+          Add <strong>your own email as admin first</strong> — sign-in stays
+          off until an admin exists, so you cannot lock yourself out.
+        </div>
+      ) : null}
+      {error ? (
+        <div className="mb-3 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger" role="alert">
+          {error}
+        </div>
+      ) : null}
+
+      <form onSubmit={addUser} className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
+          Email
+          <input
+            type="email"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="person@company.com"
+            className="w-72 rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
+          Role
+          <select
+            value={role}
+            onChange={(event) =>
+              setRole(event.target.value === "admin" ? "admin" : "member")
+            }
+            className="rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
+          >
+            <option value="admin">admin</option>
+            <option value="member">member</option>
+          </select>
+        </label>
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-ink disabled:opacity-50"
+        >
+          {busy ? "Adding…" : "Add user"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function TestSection({ status }: { status: Status }) {
+  const [email, setEmail] = useState(status.selfEmail ?? "");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
+
+  async function sendTest(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/admin/signin/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      if (!res.ok) throw new Error(body?.error ?? `test failed (${res.status})`);
+      setResult({
+        ok: true,
+        text: `Test email sent to ${email} — check the inbox. Its link is deliberately unusable; real sign-in happens at /signin.`,
+      });
+    } catch (err) {
+      setResult({
+        ok: false,
+        text: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="settings-card !mt-5">
+      <div className="settings-card-head">
+        <div>
+          <h2 className="settings-card-title">Delivery test</h2>
+          <p className="settings-card-copy">
+            Sends a real email through the configured provider so you can
+            confirm delivery before anyone needs to sign in.
+          </p>
+        </div>
+      </div>
+
+      {result ? (
+        <div
+          className={`mb-3 rounded-md px-3 py-2 text-sm ${
+            result.ok
+              ? "bg-success-soft text-success-ink"
+              : "bg-danger-soft text-danger"
+          }`}
+          role={result.ok ? "status" : "alert"}
+        >
+          {result.text}
+        </div>
+      ) : null}
+
+      <form onSubmit={sendTest} className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
+          Send to
+          <input
+            type="email"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="you@company.com"
+            className="w-72 rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={busy}
+          className="rounded-md border border-border px-4 py-2 text-sm font-semibold text-text2 hover:text-text disabled:opacity-50"
+        >
+          {busy ? "Sending…" : "Send test email"}
+        </button>
+      </form>
+    </section>
+  );
+}

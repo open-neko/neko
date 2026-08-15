@@ -4,6 +4,7 @@ import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
 import { getPluginStatus } from "@/lib/auth";
 import { AdminDenied, AdminShell } from "../AdminShell";
+import { UsersClient, type AdminUserRow } from "./UsersClient";
 
 export default async function AdminUsersPage() {
   await connection();
@@ -15,6 +16,7 @@ export default async function AdminUsersPage() {
     db()
       .select({
         id: app_user.id,
+        sub: app_user.sub,
         email: app_user.email,
         name: app_user.name,
         role: app_user.role,
@@ -27,6 +29,17 @@ export default async function AdminUsersPage() {
       .orderBy(asc(app_user.email)),
     getPluginStatus(),
   ]);
+
+  const rows: AdminUserRow[] = users.map((user) => ({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    disabled: Boolean(user.disabledAt),
+    hasSignedIn: Boolean(user.sub ?? user.lastLoginAt),
+    lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+    createdAt: user.createdAt?.toISOString() ?? null,
+  }));
 
   return (
     <AdminShell
@@ -44,90 +57,18 @@ export default async function AdminUsersPage() {
           <div>
             <h2 className="settings-card-title">Users</h2>
             <p className="settings-card-copy">
-              App users, roles, account status, and recent sign-in activity.
+              Provision users before their first sign-in, assign roles, and
+              disable accounts. Providers without automatic provisioning
+              (e.g. magic link) only ever sign in users listed here.
             </p>
           </div>
           <div className="settings-source">
-            <strong className="is-ok">{users.length} total</strong>
+            <strong className="is-ok">{rows.length} total</strong>
           </div>
         </div>
 
-        {users.length === 0 ? (
-          <p className="text-sm text-text2">No SSO users have signed in yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead className="text-[10px] uppercase tracking-[0.12em] text-text3">
-                <tr>
-                  <th className="border-b border-border px-3 py-2 font-bold">User</th>
-                  <th className="border-b border-border px-3 py-2 font-bold">Role</th>
-                  <th className="border-b border-border px-3 py-2 font-bold">Status</th>
-                  <th className="border-b border-border px-3 py-2 font-bold">Last login</th>
-                  <th className="border-b border-border px-3 py-2 font-bold">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((user) => (
-                  <tr key={user.id} className="border-b border-border last:border-0">
-                    <td className="px-3 py-3">
-                      <div className="font-semibold text-text">{user.email}</div>
-                      <div className="text-xs text-text3">{user.name ?? user.id}</div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <RoleBadge role={user.role} />
-                    </td>
-                    <td className="px-3 py-3">
-                      <StatusBadge disabled={Boolean(user.disabledAt)} />
-                    </td>
-                    <td className="px-3 py-3 text-text2">
-                      {formatDate(user.lastLoginAt)}
-                    </td>
-                    <td className="px-3 py-3 text-text2">
-                      {formatDate(user.createdAt)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <UsersClient users={rows} />
       </section>
     </AdminShell>
   );
-}
-
-function RoleBadge({ role }: { role: string }) {
-  const isAdmin = role === "admin";
-  return (
-    <span
-      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-        isAdmin ? "bg-success-soft text-success-ink" : "bg-neutral text-text2"
-      }`}
-    >
-      {role}
-    </span>
-  );
-}
-
-function StatusBadge({ disabled }: { disabled: boolean }) {
-  return (
-    <span
-      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-        disabled ? "bg-danger-soft text-danger" : "bg-success-soft text-success-ink"
-      }`}
-    >
-      {disabled ? "Disabled" : "Active"}
-    </span>
-  );
-}
-
-function formatDate(value: Date | null): string {
-  if (!value) return "Never";
-  return value.toLocaleString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }

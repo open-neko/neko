@@ -325,7 +325,7 @@ describe("worker admin /admin/auth/*", () => {
     try {
       const res = await fetch(`http://127.0.0.1:${srv.port}/admin/auth/status`);
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ provider: null });
+      expect(await res.json()).toEqual({ provider: null, pending: null });
     } finally {
       await srv.close();
     }
@@ -356,8 +356,154 @@ describe("worker admin /admin/auth/*", () => {
         provider: {
           pluginName: "@open-neko/plugin-scalekit",
           providerLabel: "Scalekit",
+          provisioning: "automatic",
+          loginHintRequired: false,
         },
+        pending: null,
       });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("GET /admin/auth/status keeps a manual-provisioning provider pending until an admin user exists", async () => {
+    let hasAdmin = false;
+    const handler = createAdminHandler({
+      auth: {
+        authSignInReady: () => true,
+        getAuthEnvGaps: () => [],
+        getAuthConfiguredEnvKeys: () => ["MAGIC_LINK_FROM", "RESEND_API_KEY"],
+        hasProvisionedAdmin: async () => hasAdmin,
+        getAuthProvider: () => ({
+          pluginName: "@open-neko/plugin-magic-link",
+          providerLabel: "Email link",
+          provisioning: "manual",
+          loginHintRequired: true,
+        }),
+        beginAuth: async () => ({ authorizationUrl: "https://x" }),
+        completeAuth: async () => ({
+          sub: "u",
+          email: "u@e.com",
+          groups: [],
+        }),
+      },
+    });
+    const srv = await startServer(handler);
+    try {
+      const pendingRes = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/auth/status`,
+      );
+      expect(pendingRes.status).toBe(200);
+      const pendingBody = (await pendingRes.json()) as {
+        provider: unknown;
+        pending: { needsAdminUser: boolean; missingEnv: string[] } | null;
+      };
+      expect(pendingBody.provider).toBeNull();
+      expect(pendingBody.pending?.needsAdminUser).toBe(true);
+      expect(pendingBody.pending?.missingEnv).toEqual([]);
+
+      hasAdmin = true;
+      const liveRes = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/auth/status`,
+      );
+      const liveBody = (await liveRes.json()) as {
+        provider: { pluginName: string } | null;
+        pending: unknown;
+      };
+      expect(liveBody.provider?.pluginName).toBe(
+        "@open-neko/plugin-magic-link",
+      );
+      expect(liveBody.pending).toBeNull();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("GET /admin/auth/status reports missing env keys for a pending provider", async () => {
+    const srv = await startServer(
+      createAdminHandler({
+        auth: {
+          authSignInReady: () => false,
+          getAuthEnvGaps: () => ["MAGIC_LINK_FROM"],
+          getAuthConfiguredEnvKeys: () => ["MAGIC_LINK_SIGNING_SECRET"],
+          hasProvisionedAdmin: async () => true,
+          getAuthProvider: () => ({
+            pluginName: "@open-neko/plugin-magic-link",
+            providerLabel: "Email link",
+            provisioning: "manual",
+            loginHintRequired: true,
+          }),
+          beginAuth: async () => ({ authorizationUrl: "https://x" }),
+          completeAuth: async () => ({
+            sub: "u",
+            email: "u@e.com",
+            groups: [],
+          }),
+        },
+      }),
+    );
+    try {
+      const res = await fetch(`http://127.0.0.1:${srv.port}/admin/auth/status`);
+      const body = (await res.json()) as {
+        provider: unknown;
+        pending: { missingEnv: string[]; configuredEnv: string[] } | null;
+      };
+      expect(body.provider).toBeNull();
+      expect(body.pending?.missingEnv).toEqual(["MAGIC_LINK_FROM"]);
+      expect(body.pending?.configuredEnv).toEqual(["MAGIC_LINK_SIGNING_SECRET"]);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("POST /admin/auth/secrets writes and deletes only declared keys", async () => {
+    const writes: Array<[string, string | null]> = [];
+    const srv = await startServer(
+      createAdminHandler({
+        auth: {
+          authSignInReady: () => true,
+          getAuthDeclaredEnvKeys: () => ["MAGIC_LINK_FROM", "RESEND_API_KEY"],
+          setAuthSecret: async (key, value) => {
+            writes.push([key, value]);
+          },
+          getAuthProvider: () => ({
+            pluginName: "@open-neko/plugin-magic-link",
+            providerLabel: "Email link",
+            provisioning: "manual",
+            loginHintRequired: true,
+          }),
+          beginAuth: async () => ({ authorizationUrl: "https://x" }),
+          completeAuth: async () => ({
+            sub: "u",
+            email: "u@e.com",
+            groups: [],
+          }),
+        },
+      }),
+    );
+    try {
+      const ok = await fetch(`http://127.0.0.1:${srv.port}/admin/auth/secrets`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          values: { MAGIC_LINK_FROM: "a <b@c.co>", RESEND_API_KEY: null },
+        }),
+      });
+      expect(ok.status).toBe(200);
+      expect(writes).toEqual([
+        ["MAGIC_LINK_FROM", "a <b@c.co>"],
+        ["RESEND_API_KEY", null],
+      ]);
+
+      const undeclared = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/auth/secrets`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ values: { SNEAKY_KEY: "x" } }),
+        },
+      );
+      expect(undeclared.status).toBe(400);
     } finally {
       await srv.close();
     }
