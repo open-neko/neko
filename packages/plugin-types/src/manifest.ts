@@ -47,6 +47,15 @@ export const PluginEnvRequirement = z.object({
    * locally and never sends out (e.g. a webhook signing secret).
    */
   inject: z.enum(["egress", "box"]).optional(),
+  /**
+   * The host mints this value itself (48 random bytes, base64url) and
+   * stores it in the secrets file — the operator is never prompted and
+   * never needs to know it. For purely internal secrets like HMAC
+   * signing keys. The CLI fills it at install; the worker backfills it
+   * at registry load for plugins installed before the flag existed.
+   * Rotation = delete the stored value and restart.
+   */
+  autogenerate: z.boolean().default(false),
 });
 
 export type PluginEnvRequirement = z.infer<typeof PluginEnvRequirement>;

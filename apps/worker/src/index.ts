@@ -51,12 +51,14 @@ import {
 } from "./sso/sso-setup-service.js";
 import {
   and,
+  app_user,
   data_source,
   app_state,
   db,
   desc,
   eq,
   getOrgId,
+  isNull,
   metric,
   processing_job,
 } from "@neko/db";
@@ -446,6 +448,31 @@ const server = createServer(
     auth: {
       getAuthProvider: () => pluginRegistry?.getAuthProvider() ?? null,
       authSignInReady: () => pluginRegistry?.authSignInReady() ?? false,
+      getAuthEnvGaps: () => pluginRegistry?.getAuthEnvGaps() ?? null,
+      getAuthConfiguredEnvKeys: () =>
+        pluginRegistry?.getAuthConfiguredEnvKeys() ?? [],
+      getAuthDeclaredEnvKeys: () =>
+        pluginRegistry?.getAuthDeclaredEnvKeys() ?? [],
+      hasProvisionedAdmin: async () => {
+        const [row] = await db()
+          .select({ id: app_user.id })
+          .from(app_user)
+          .where(and(eq(app_user.role, "admin"), isNull(app_user.disabled_at)))
+          .limit(1);
+        return Boolean(row);
+      },
+      setAuthSecret: async (key, value) => {
+        if (!pluginRegistry) {
+          throw new Error("plugin registry not initialised");
+        }
+        const provider = pluginRegistry.getAuthProvider();
+        if (!provider) throw new Error("no auth plugin installed");
+        if (value === null) {
+          await pluginRegistry.deletePluginSecret(provider.pluginName, key);
+        } else {
+          await pluginRegistry.setPluginSecret(provider.pluginName, key, value);
+        }
+      },
       beginAuth: (params) => {
         if (!pluginRegistry) {
           throw new Error("plugin registry not initialised");

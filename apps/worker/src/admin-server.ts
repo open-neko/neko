@@ -45,6 +45,8 @@ export interface AuthHandlerSurface {
   getAuthProvider(): {
     pluginName: string;
     providerLabel: string;
+    provisioning?: "automatic" | "manual";
+    loginHintRequired?: boolean;
   } | null;
   /**
    * Whether sign-in is actually usable (all required env vars set).
@@ -52,6 +54,23 @@ export interface AuthHandlerSurface {
    * admin isn't locked out of the setup UI before SSO is configured.
    */
   authSignInReady(): boolean;
+  /**
+   * Names of required env vars still unset (empty = env complete);
+   * null/undefined when unavailable. Key names only, never values.
+   */
+  getAuthEnvGaps?(): string[] | null;
+  /** Declared env keys currently holding a value — names only. */
+  getAuthConfiguredEnvKeys?(): string[];
+  /** All declared env keys — the allowlist for setAuthSecret. */
+  getAuthDeclaredEnvKeys?(): string[];
+  /**
+   * ≥1 active admin app_user exists. Manual-provisioning providers
+   * (magic link) must not go live before this — flipping the sign-in
+   * gate with zero provisioned admins locks everyone out.
+   */
+  hasProvisionedAdmin?(): Promise<boolean>;
+  /** Write (string) or delete (null) one auth-plugin env value. */
+  setAuthSecret?(key: string, value: string | null): Promise<void>;
   beginAuth(params: {
     redirectUri: string;
     state: string;
@@ -381,7 +400,11 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
       return;
     }
     if (req.method === "GET" && req.url === "/admin/auth/status") {
-      handleAuthStatus(res, auth);
+      void handleAuthStatus(res, auth);
+      return;
+    }
+    if (req.method === "POST" && req.url === "/admin/auth/secrets") {
+      void handleAuthSecrets(req, res, auth);
       return;
     }
     if (req.method === "POST" && req.url === "/admin/auth/begin") {
@@ -683,23 +706,97 @@ function handlePluginStatus(
   json(res, 200, { status: plugins?.status() ?? EMPTY_PLUGIN_STATUS });
 }
 
-function handleAuthStatus(res: ServerResponse, auth: AuthHandlerSurface | null) {
+async function handleAuthStatus(
+  res: ServerResponse,
+  auth: AuthHandlerSurface | null,
+) {
   if (!auth) {
-    json(res, 200, { provider: null });
+    json(res, 200, { provider: null, pending: null });
     return;
   }
-  // Only surface the provider once sign-in is configured — before that
-  // the deployment stays in single-operator mode so the admin can reach
-  // the setup UI and configure credentials.
-  const provider = auth.authSignInReady() ? auth.getAuthProvider() : null;
+  const info = auth.getAuthProvider();
+  if (!info) {
+    json(res, 200, { provider: null, pending: null });
+    return;
+  }
+  // Only surface the provider once sign-in is truly usable — before
+  // that the deployment stays in single-operator mode so the admin can
+  // reach the setup UI. Usable means: every required env var is set,
+  // AND (for manual-provisioning providers like magic link) at least
+  // one active admin user is provisioned — otherwise flipping the gate
+  // would lock everyone out with no way back in.
+  const missingEnv =
+    auth.getAuthEnvGaps?.() ?? (auth.authSignInReady() ? [] : null);
+  const envComplete = missingEnv !== null && missingEnv.length === 0;
+  const manual = (info.provisioning ?? "automatic") === "manual";
+  const needsAdminUser = manual
+    ? !(await (auth.hasProvisionedAdmin?.() ?? Promise.resolve(true)))
+    : false;
+  const ready = envComplete && !needsAdminUser;
+  const summary = {
+    pluginName: info.pluginName,
+    providerLabel: info.providerLabel,
+    provisioning: info.provisioning ?? "automatic",
+    loginHintRequired: info.loginHintRequired ?? false,
+  };
   json(res, 200, {
-    provider: provider
-      ? {
-          pluginName: provider.pluginName,
-          providerLabel: provider.providerLabel,
-        }
-      : null,
+    provider: ready ? summary : null,
+    pending: ready
+      ? null
+      : {
+          ...summary,
+          missingEnv: missingEnv ?? [],
+          needsAdminUser,
+          configuredEnv: auth.getAuthConfiguredEnvKeys?.() ?? [],
+        },
   });
+}
+
+/**
+ * POST /admin/auth/secrets — write or delete env values for the
+ * installed auth plugin. Body: { values: { KEY: string | null } }.
+ * Keys are restricted to the plugin's declared env; loopback-only like
+ * every admin route, and the web re-gates it behind an admin session.
+ */
+async function handleAuthSecrets(
+  req: IncomingMessage,
+  res: ServerResponse,
+  auth: AuthHandlerSurface | null,
+) {
+  if (!auth?.setAuthSecret) {
+    json(res, 503, { error: "auth secrets surface unavailable" });
+    return;
+  }
+  const body = await readJson(req).catch(() => null);
+  const values = (body as { values?: unknown } | null)?.values;
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    json(res, 400, { error: "values (object) is required" });
+    return;
+  }
+  const declared = new Set(auth.getAuthDeclaredEnvKeys?.() ?? []);
+  const entries = Object.entries(values as Record<string, unknown>);
+  if (entries.length === 0) {
+    json(res, 400, { error: "values must contain at least one key" });
+    return;
+  }
+  for (const [key, value] of entries) {
+    if (!declared.has(key)) {
+      json(res, 400, { error: `"${key}" is not a declared env var of the auth plugin` });
+      return;
+    }
+    if (value !== null && (typeof value !== "string" || value.length === 0)) {
+      json(res, 400, { error: `"${key}" must be a non-empty string or null` });
+      return;
+    }
+  }
+  try {
+    for (const [key, value] of entries) {
+      await auth.setAuthSecret(key, value as string | null);
+    }
+    json(res, 200, { ok: true });
+  } catch (err) {
+    json(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 async function handleExternalEvent(

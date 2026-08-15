@@ -228,6 +228,65 @@ describe("runInstall", () => {
     expect(result.envSaved).toEqual([]);
   });
 
+  it("generates autogenerate env keys instead of prompting", async () => {
+    const plugin = {
+      name: "@open-neko/plugin-magic-link",
+      title: "Magic link",
+      description: "...",
+      source: "https://github.com/open-neko/plugins",
+      versions: [
+        actionVersion({
+          permissions: {
+            network: ["api.resend.com"],
+            env: [
+              {
+                key: "MAGIC_LINK_SIGNING_SECRET",
+                required: true,
+                secret: true,
+                autogenerate: true,
+                description: "HMAC key — host-minted.",
+              },
+              {
+                key: "MAGIC_LINK_FROM",
+                required: true,
+                secret: false,
+                description: "From address.",
+              },
+            ],
+          },
+          kinds: [{ kind: "noop", description: "noop" }],
+        }),
+      ],
+    };
+    const fixtures = new Map([
+      [OFFICIAL_MARKETPLACE_URL, marketplaceWith([plugin])],
+    ]);
+    const prompted: string[] = [];
+    const result = await runInstall({
+      repoRoot: repoDir,
+      spec: "@open-neko/plugin-magic-link",
+      trustedMarketplaces: [officialMarketplace],
+      secretsConfigDir: configDir,
+      marketplaceClient: fakeClient(fixtures),
+      npmRunner: async () => {},
+      envPrompt: async (_pkg, req) => {
+        prompted.push(req.key);
+        return `value-for-${req.key}`;
+      },
+    });
+    // Only the human-supplied key is prompted; the HMAC key is minted.
+    expect(prompted).toEqual(["MAGIC_LINK_FROM"]);
+    expect(result.envSaved).toEqual([
+      "MAGIC_LINK_SIGNING_SECRET",
+      "MAGIC_LINK_FROM",
+    ]);
+    const readBack = await readSecretsStore(configDir);
+    const minted =
+      readBack["@open-neko/plugin-magic-link"].MAGIC_LINK_SIGNING_SECRET;
+    expect(minted).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(minted.length).toBeGreaterThanOrEqual(48);
+  });
+
   it("errors when envPrompt returns empty for a required key", async () => {
     const plugin = {
       name: "@open-neko/plugin-x",

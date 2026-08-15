@@ -17,6 +17,7 @@ function SignInBody() {
   const notice = params.get("notice");
   const returnTo = params.get("returnTo") ?? "/";
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
+  const [pendingLabel, setPendingLabel] = useState<string | null>(null);
   const [providerLoaded, setProviderLoaded] = useState(false);
   const [loginHint, setLoginHint] = useState("");
 
@@ -25,9 +26,13 @@ function SignInBody() {
     (async () => {
       try {
         const res = await fetch("/api/auth/status", { cache: "no-store" });
-        const body = (await res.json()) as { provider: ProviderInfo | null };
+        const body = (await res.json()) as {
+          provider: ProviderInfo | null;
+          pending?: { providerLabel: string } | null;
+        };
         if (cancelled) return;
         setProvider(body.provider ?? null);
+        setPendingLabel(body.pending?.providerLabel ?? null);
       } catch {
         if (cancelled) return;
         setProvider(null);
@@ -105,6 +110,15 @@ function SignInBody() {
             Provided by <code>{provider.pluginName}</code>
           </p>
         </form>
+      ) : pendingLabel ? (
+        <div className="entry-empty">
+          <p className="entry-section-kicker">Setup in progress</p>
+          <h3>{pendingLabel} sign-in is being set up</h3>
+          <p>
+            An administrator is still configuring sign-in for this
+            deployment. Try again shortly.
+          </p>
+        </div>
       ) : (
         <div className="entry-empty">
           <p className="entry-section-kicker">Single-operator mode</p>
