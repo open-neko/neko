@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.26.3](https://github.com/open-neko/openneko/compare/v2.26.2...v2.26.3) (2026-08-16)
+
+
+### Bug Fixes
+
+* **openshell:** declare Docker IPAM gateway ([480c465](https://github.com/open-neko/openneko/commit/480c465c36d068381e709937df35a8e3a9231af2))
+* **openshell:** declare Docker IPAM gateway ([6a9b91d](https://github.com/open-neko/openneko/commit/6a9b91d3d93c712b1258e80a461aab716ca858d5))
+
 ## [2.26.2](https://github.com/open-neko/openneko/compare/v2.26.1...v2.26.2) (2026-08-16)
 
 
