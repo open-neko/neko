@@ -13,6 +13,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@fontsource-variable/archivo": "5.3.0",
+    "@fontsource-variable/manrope": "5.3.0",
     "@neko/channels": "workspace:*",
     "@neko/db": "workspace:*",
     "@neko/interaction": "workspace:*",

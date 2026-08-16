@@ -1,9 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Archivo, Manrope } from "next/font/google";
 import { Toaster } from "sonner";
 import { DensityProvider } from "@/components/DensityProvider";
 import AppRail from "@/components/AppRail";
 import CommandDock from "@/components/CommandDock";
+import "@fontsource-variable/archivo/wght.css";
+import "@fontsource-variable/manrope/wght.css";
 import "./globals.css";
 import "./styles/_operations.css";
 import "./styles/_library.css";
@@ -11,17 +12,6 @@ import "./styles/_library.css";
 // Set data-density before paint from the persisted choice (default compact),
 // so the dense layout never flashes the comfortable one on load.
 const DENSITY_INIT = `(function(){try{var d=localStorage.getItem('neko-density');document.documentElement.setAttribute('data-density',d==='comfortable'?'comfortable':'compact');}catch(e){document.documentElement.setAttribute('data-density','compact');}})();`;
-
-const display = Archivo({
-  variable: "--font-display",
-  subsets: ["latin"],
-  weight: ["600", "700", "800", "900"],
-});
-
-const body = Manrope({
-  variable: "--font-body",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "OpenNeko",
@@ -41,7 +31,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" data-density="compact" className={`${display.variable} ${body.variable}`}>
+    <html lang="en" data-density="compact">
       <head>
         <script dangerouslySetInnerHTML={{ __html: DENSITY_INIT }} />
       </head>

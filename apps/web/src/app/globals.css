@@ -19,6 +19,11 @@
 @import "./styles/_responsive.css";
 @import "./styles/_dock.css";
 
+:root {
+  --font-display: "Archivo Variable";
+  --font-body: "Manrope Variable";
+}
+
 @theme {
   --color-bg: #FAFAF7;
   --color-card: #FFFFFF;
@@ -52,9 +57,8 @@
   --shadow-lift: 0 1px 2px rgba(20,18,12,0.04), 0 18px 48px -16px rgba(20,18,12,0.16);
 }
 
-/* font-display / font-body utilities — defined as @utility so they pick up the
-   Next.js font CSS variables at runtime rather than capturing them at @theme
-   resolution time. */
+/* font-display / font-body utilities use the bundled Fontsource variable
+   fonts, so production builds never depend on Google Fonts availability. */
 @utility font-display {
   font-family: var(--font-display), 'Archivo', sans-serif;
 }
@@ -245,7 +249,6 @@ html[data-density="compact"] .triage-pane {
   .topbar-spacer { display: none; }
   .topbar-nav { order: 3; width: 100%; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
 }
-
 
 
 
