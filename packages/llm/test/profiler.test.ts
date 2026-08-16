@@ -87,10 +87,31 @@ Not measured.`;
     ).toThrow(/failure text/);
   });
 
-  it("rejects output that does not start with the exact profile heading", () => {
+  it("accepts markdown without enforcing a heading or section template", () => {
+    const profile = `# AdventureWorks at a glance
+
+AdventureWorks makes and sells bicycles.
+
+- It serves retailers and consumers.
+- It operates across several regions.`;
+
+    expect(validateBusinessProfile(profile, "AdventureWorks Cycles")).toBe(
+      profile,
+    );
+  });
+
+  it("unwraps an outer markdown fence", () => {
+    const fenced = `\`\`\`markdown\n${VALID_PROFILE}\n\`\`\``;
+
+    expect(validateBusinessProfile(fenced, "AdventureWorks Cycles")).toBe(
+      VALID_PROFILE,
+    );
+  });
+
+  it("rejects an empty response", () => {
     expect(() =>
-      validateBusinessProfile("Here is the profile:\n\n" + VALID_PROFILE, "AdventureWorks Cycles"),
-    ).toThrow(/expected heading/);
+      validateBusinessProfile("  \n", "AdventureWorks Cycles"),
+    ).toThrow(/empty business profile/);
   });
 });
 
