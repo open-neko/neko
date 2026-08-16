@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.26.1](https://github.com/open-neko/openneko/compare/v2.26.0...v2.26.1) (2026-08-16)
+
+
+### Bug Fixes
+
+* **ci:** reclaim disk before the release pull so Deploy to VM stops hitting ENOSPC ([8a75072](https://github.com/open-neko/openneko/commit/8a750722f9f148f4e2273ec5f1c9e8449df3d9ce))
+* **ci:** reclaim disk before the release pull so Deploy to VM stops hitting ENOSPC ([b948fbc](https://github.com/open-neko/openneko/commit/b948fbc399f9dc15245bd5e08fdc1d9bf783e8df))
+
 ## [2.26.0](https://github.com/open-neko/openneko/compare/v2.25.5...v2.26.0) (2026-08-15)
 
 
