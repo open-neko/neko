@@ -37,6 +37,7 @@ export {
 export {
   ensureHostConfigProvisioned,
   provisionHostConfig,
+  resolveHermesModelBinary,
 } from "./host-provision";
 export {
   prefetchKnowledgePack,

@@ -142,6 +142,9 @@ services:
       OPENNEKO_AGENT_IMAGE: ${OPENNEKO_AGENT_IMAGE:-ghcr.io/open-neko/agent:${OPENNEKO_VERSION:-latest}}
       # provider / egress host / connecting binary / key-env are derived from the
       # org's model config by provisionHostConfig — no per-deploy egress wiring.
+      # Keep an operator override for emergency compatibility with custom agent
+      # images; an empty value lets runtime auto-resolution choose the binary.
+      OPENNEKO_AGENT_MODEL_BINARY: ${OPENNEKO_AGENT_MODEL_BINARY:-}
       OPENSHELL_GATEWAY: openneko
       # The sandbox shares this Compose network and receives the broker's
       # private container IP, without crossing the host network.
@@ -161,6 +164,7 @@ services:
   web:
     environment:
       OPENNEKO_AGENT_IMAGE: ${OPENNEKO_AGENT_IMAGE:-ghcr.io/open-neko/agent:${OPENNEKO_VERSION:-latest}}
+      OPENNEKO_AGENT_MODEL_BINARY: ${OPENNEKO_AGENT_MODEL_BINARY:-}
       OPENSHELL_GATEWAY: openneko
       OPENNEKO_SANDBOX_SHARED_NETWORK: "1"
       OPENNEKO_BROKER_PORT: ${OPENNEKO_WEB_BROKER_PORT:-4198}
