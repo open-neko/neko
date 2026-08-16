@@ -180,14 +180,18 @@ volumes:
 # OpenShell's Docker driver writes host.openshell.internal into /etc/hosts, so
 # a normal Compose DNS alias cannot route sandbox callbacks to the containerised
 # gateway. A small, project-specific network gives that gateway a stable private
-# address without publishing its mTLS port to the LAN. The CLI selects distinct
-# defaults per stack mode; direct Compose users can override all three values.
+# address without publishing its mTLS port to the LAN. OpenShell reads Docker's
+# IPAM Gateway field when it creates the sandbox runtime, so declare that field
+# instead of relying on Docker to synthesize it (some daemons leave it empty).
+# The CLI selects distinct defaults per stack mode; direct Compose users can
+# override all four values.
 networks:
   default:
     name: "${COMPOSE_PROJECT_NAME}_runtime"
     ipam:
       config:
         - subnet: "${OPENNEKO_DOCKER_SUBNET:-172.29.0.0/24}"
+          gateway: "${OPENNEKO_DOCKER_GATEWAY:-172.29.0.1}"
           # Keep dynamic service/sandbox allocation away from the gateway's
           # fixed .2 address (the CLI derives this range for custom subnets).
           ip_range: "${OPENNEKO_DOCKER_IP_RANGE:-172.29.0.128/25}"

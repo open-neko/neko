@@ -232,6 +232,7 @@ func configureOpenShellStateDir() error {
 
 const (
 	openShellNetworkSubnetEnv  = "OPENNEKO_DOCKER_SUBNET"
+	openShellNetworkGatewayEnv = "OPENNEKO_DOCKER_GATEWAY"
 	openShellNetworkIPRangeEnv = "OPENNEKO_DOCKER_IP_RANGE"
 	openShellGatewayIPEnv      = "OPENSHELL_GATEWAY_IP"
 )
@@ -244,7 +245,8 @@ const (
 //
 // Each stack mode gets a distinct /24 so prod/dev/demo can coexist. Operators
 // with an overlapping host route can override OPENNEKO_DOCKER_SUBNET; when the
-// gateway IP is omitted we derive the second usable address from that subnet.
+// Docker bridge gateway or OpenShell gateway IP is omitted we derive the first
+// and second usable addresses from that subnet, respectively.
 func configureOpenShellNetwork(mode compose.Mode) error {
 	subnet := os.Getenv(openShellNetworkSubnetEnv)
 	if subnet == "" {
@@ -273,6 +275,19 @@ func configureOpenShellNetwork(mode compose.Mode) error {
 		return fmt.Errorf("%s must be contained by %s (got %q)", openShellNetworkIPRangeEnv, subnet, dynamicRange)
 	}
 
+	networkGateway := os.Getenv(openShellNetworkGatewayEnv)
+	if networkGateway == "" {
+		networkGateway = prefix.Addr().Next().String()
+		if err := os.Setenv(openShellNetworkGatewayEnv, networkGateway); err != nil {
+			return err
+		}
+	}
+	bridgeAddress, err := netip.ParseAddr(networkGateway)
+	if err != nil || !bridgeAddress.Is4() || !prefix.Contains(bridgeAddress) || pool.Contains(bridgeAddress) ||
+		bridgeAddress == prefix.Addr() || bridgeAddress == lastIPv4Address(prefix) {
+		return fmt.Errorf("%s must be a usable address in %s outside %s (got %q)", openShellNetworkGatewayEnv, subnet, dynamicRange, networkGateway)
+	}
+
 	gatewayIP := os.Getenv(openShellGatewayIPEnv)
 	if gatewayIP == "" {
 		// Docker reserves the first usable address for the network gateway.
@@ -283,7 +298,7 @@ func configureOpenShellNetwork(mode compose.Mode) error {
 	}
 	address, err := netip.ParseAddr(gatewayIP)
 	if err != nil || !address.Is4() || !prefix.Contains(address) || pool.Contains(address) ||
-		address == prefix.Addr() || address == prefix.Addr().Next() ||
+		address == prefix.Addr() || address == bridgeAddress ||
 		address == lastIPv4Address(prefix) {
 		return fmt.Errorf("%s must be a usable address in %s outside %s (got %q)", openShellGatewayIPEnv, subnet, dynamicRange, gatewayIP)
 	}
