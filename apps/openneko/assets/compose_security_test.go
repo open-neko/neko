@@ -215,6 +215,7 @@ func TestPackagedComposeKeepsRuntimeTrafficOnDockerNetwork(t *testing.T) {
 		`ipv4_address: "${OPENSHELL_GATEWAY_IP:-172.29.0.2}"`,
 		`name: "${COMPOSE_PROJECT_NAME}_runtime"`,
 		`subnet: "${OPENNEKO_DOCKER_SUBNET:-172.29.0.0/24}"`,
+		`gateway: "${OPENNEKO_DOCKER_GATEWAY:-172.29.0.1}"`,
 		`ip_range: "${OPENNEKO_DOCKER_IP_RANGE:-172.29.0.128/25}"`,
 	} {
 		if !strings.Contains(raw, required) {
