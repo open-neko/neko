@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.26.2](https://github.com/open-neko/openneko/compare/v2.26.1...v2.26.2) (2026-08-16)
+
+
+### Bug Fixes
+
+* **openshell:** route sandbox callbacks to container gateway ([fa470e0](https://github.com/open-neko/openneko/commit/fa470e0d9e804a62f4ea7986ee254aafb7dc9eb0))
+* **openshell:** route sandbox callbacks to container gateway ([cc6dfc3](https://github.com/open-neko/openneko/commit/cc6dfc39509794babff6acf48b87620cf6bb4c0b))
+* **profiler:** accept markdown output without exact template ([d0d1ebb](https://github.com/open-neko/openneko/commit/d0d1ebbc35903acceb809938065654b29efda29f))
+* **web:** bundle fonts for reproducible builds ([4bcfc74](https://github.com/open-neko/openneko/commit/4bcfc74c9fdacb4dfed26f37a1b0e21bd3efa143))
+* **web:** bundle fonts for reproducible builds ([028f4d8](https://github.com/open-neko/openneko/commit/028f4d8eed6e80a55c6631af20786e133dd4f8ef))
+
 ## [2.26.1](https://github.com/open-neko/openneko/compare/v2.26.0...v2.26.1) (2026-08-16)
 
 
