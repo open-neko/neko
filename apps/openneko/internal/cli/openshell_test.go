@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/open-neko/neko/apps/openneko/internal/compose"
 	"github.com/open-neko/neko/apps/openneko/internal/config"
 )
 
@@ -31,6 +32,62 @@ func TestOpenShellStateDirOverride(t *testing.T) {
 	// An explicit existing value is always respected (no override).
 	if got := openShellStateDirOverride("darwin", "/Users/x", "/custom/state"); got != "" {
 		t.Fatalf("existing value must win: got %q", got)
+	}
+}
+
+func TestConfigureOpenShellNetworkUsesDistinctModeDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		mode       compose.Mode
+		wantSubnet string
+		wantIP     string
+	}{
+		{compose.ModeProd, "172.29.0.0/24", "172.29.0.2"},
+		{compose.ModeDev, "172.29.1.0/24", "172.29.1.2"},
+		{compose.ModeDemo, "172.29.2.0/24", "172.29.2.2"},
+	} {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			t.Setenv(openShellNetworkSubnetEnv, "")
+			t.Setenv(openShellNetworkIPRangeEnv, "")
+			t.Setenv(openShellGatewayIPEnv, "")
+			if err := configureOpenShellNetwork(tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			if got := os.Getenv(openShellNetworkSubnetEnv); got != tc.wantSubnet {
+				t.Fatalf("subnet = %q, want %q", got, tc.wantSubnet)
+			}
+			if got := os.Getenv(openShellGatewayIPEnv); got != tc.wantIP {
+				t.Fatalf("gateway IP = %q, want %q", got, tc.wantIP)
+			}
+			wantRange := strings.Replace(tc.wantSubnet, ".0/24", ".128/25", 1)
+			if got := os.Getenv(openShellNetworkIPRangeEnv); got != wantRange {
+				t.Fatalf("dynamic IP range = %q, want %q", got, wantRange)
+			}
+		})
+	}
+}
+
+func TestConfigureOpenShellNetworkDerivesCustomGatewayIP(t *testing.T) {
+	t.Setenv(openShellNetworkSubnetEnv, "10.77.8.0/24")
+	t.Setenv(openShellNetworkIPRangeEnv, "")
+	t.Setenv(openShellGatewayIPEnv, "")
+	if err := configureOpenShellNetwork(compose.ModeProd); err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv(openShellGatewayIPEnv); got != "10.77.8.2" {
+		t.Fatalf("gateway IP = %q, want 10.77.8.2", got)
+	}
+	if got := os.Getenv(openShellNetworkIPRangeEnv); got != "10.77.8.128/25" {
+		t.Fatalf("dynamic IP range = %q, want 10.77.8.128/25", got)
+	}
+}
+
+func TestConfigureOpenShellNetworkRejectsGatewayOutsideSubnet(t *testing.T) {
+	t.Setenv(openShellNetworkSubnetEnv, "10.77.8.0/24")
+	t.Setenv(openShellNetworkIPRangeEnv, "")
+	t.Setenv(openShellGatewayIPEnv, "10.88.0.2")
+	err := configureOpenShellNetwork(compose.ModeProd)
+	if err == nil || !strings.Contains(err.Error(), openShellGatewayIPEnv) {
+		t.Fatalf("error = %v, want %s validation", err, openShellGatewayIPEnv)
 	}
 }
 

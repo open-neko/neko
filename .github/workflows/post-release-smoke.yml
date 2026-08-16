@@ -39,9 +39,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-            echo "stable=false" >> "$GITHUB_OUTPUT"
-            echo "build_ok=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "tag=${{ inputs.version }}"
+              echo "stable=false"
+              echo "build_ok=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Manual release recoveries run from a fix branch, so head_branch is
@@ -63,14 +65,16 @@ jobs:
           # resolve via the releases API: release-please pins
           # target_commitish to a SHA, so filtering on "main" matches only
           # stale hand-made prereleases (this froze the smoke on v1.18.0-openshell.4).
-          echo "tag=${tag:-}" >> "$GITHUB_OUTPUT"
-          # Only gate stable releases — a '-' marks a prerelease, which is never "Latest".
-          case "${tag:-}" in *-* | "") echo "stable=false" ;; *) echo "stable=true" ;; esac >> "$GITHUB_OUTPUT"
-          if [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
-            echo "build_ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "build_ok=false" >> "$GITHUB_OUTPUT"
-          fi
+          {
+            echo "tag=${tag:-}"
+            # Only gate stable releases — a '-' marks a prerelease, which is never "Latest".
+            case "${tag:-}" in *-* | "") echo "stable=false" ;; *) echo "stable=true" ;; esac
+            if [ "${{ github.event.workflow_run.conclusion }}" = "success" ]; then
+              echo "build_ok=true"
+            else
+              echo "build_ok=false"
+            fi
+          } >> "$GITHUB_OUTPUT"
 
       - name: Fail fast if the release build did not succeed
         if: ${{ steps.ctx.outputs.build_ok != 'true' }}
@@ -98,6 +102,8 @@ jobs:
           # misses fails the boot — so derive the list from the compose files
           # `--mode prod` actually runs instead of hand-maintaining it
           # (busybox:latest for openshell-reg was the second one missed).
+          # OPENSHELL_VERSION is intentionally literal in the second sed expression.
+          # shellcheck disable=SC2016
           mapfile -t refs < <(
             sed -n 's/^[[:space:]]*image:[[:space:]]*//p' \
               apps/openneko/assets/compose/core.yml \
@@ -146,6 +152,21 @@ jobs:
           openneko status -v || true
           openneko logs || true
           exit 1
+
+      - name: OpenShell sandbox callback smoke
+        if: ${{ steps.ctx.outputs.build_ok == 'true' }}
+        env:
+          OPENNEKO_VERSION: ${{ steps.ctx.outputs.tag }}
+        run: |
+          set -euo pipefail
+          worker=$(docker ps -q \
+            --filter label=com.docker.compose.project=openneko-prod \
+            --filter label=com.docker.compose.service=worker | head -1)
+          test -n "$worker"
+          docker exec "$worker" openshell sandbox create \
+            --gateway openneko \
+            --from "ghcr.io/open-neko/agent:$OPENNEKO_VERSION" \
+            --no-keep --no-tty -- /bin/true
 
       # Any failure above — build incomplete OR the stack never served — demotes
       # the release so installers fall back to the last good version.

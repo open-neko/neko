@@ -209,7 +209,13 @@ func TestPackagedComposeKeepsRuntimeTrafficOnDockerNetwork(t *testing.T) {
 	for _, required := range []string{
 		`network_name = "%s"`,
 		`grpc_endpoint = "https://openshell-gateway:%s"`,
-		`OPENNEKO_COMPOSE_NETWORK: "${COMPOSE_PROJECT_NAME}_default"`,
+		`host_gateway_ip = "%s"`,
+		`OPENNEKO_COMPOSE_NETWORK: "${COMPOSE_PROJECT_NAME}_runtime"`,
+		`OPENSHELL_GATEWAY_IP: "${OPENSHELL_GATEWAY_IP:-172.29.0.2}"`,
+		`ipv4_address: "${OPENSHELL_GATEWAY_IP:-172.29.0.2}"`,
+		`name: "${COMPOSE_PROJECT_NAME}_runtime"`,
+		`subnet: "${OPENNEKO_DOCKER_SUBNET:-172.29.0.0/24}"`,
+		`ip_range: "${OPENNEKO_DOCKER_IP_RANGE:-172.29.0.128/25}"`,
 	} {
 		if !strings.Contains(raw, required) {
 			t.Fatalf("openshell.yml missing %q", required)

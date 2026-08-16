@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -97,6 +99,9 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 
 	// SEC9: OpenShell is the only agent runtime.
 	if err := configureOpenShellStateDir(); err != nil {
+		return err
+	}
+	if err := configureOpenShellNetwork(m); err != nil {
 		return err
 	}
 
@@ -223,6 +228,93 @@ func configureOpenShellStateDir() error {
 		return err
 	}
 	return os.Setenv("OPENSHELL_STATE_DIR", dir)
+}
+
+const (
+	openShellNetworkSubnetEnv  = "OPENNEKO_DOCKER_SUBNET"
+	openShellNetworkIPRangeEnv = "OPENNEKO_DOCKER_IP_RANGE"
+	openShellGatewayIPEnv      = "OPENSHELL_GATEWAY_IP"
+)
+
+// configureOpenShellNetwork gives the containerised gateway a stable address
+// on the same private Docker network as its sandboxes. OpenShell's Docker
+// driver rewrites sandbox callbacks to host.openshell.internal and normally
+// maps that name to the host bridge gateway. The OpenNeko gateway does not run
+// on the host, so its address must be supplied as host_gateway_ip instead.
+//
+// Each stack mode gets a distinct /24 so prod/dev/demo can coexist. Operators
+// with an overlapping host route can override OPENNEKO_DOCKER_SUBNET; when the
+// gateway IP is omitted we derive the second usable address from that subnet.
+func configureOpenShellNetwork(mode compose.Mode) error {
+	subnet := os.Getenv(openShellNetworkSubnetEnv)
+	if subnet == "" {
+		subnet = defaultOpenShellSubnet(mode)
+		if err := os.Setenv(openShellNetworkSubnetEnv, subnet); err != nil {
+			return err
+		}
+	}
+
+	prefix, err := netip.ParsePrefix(subnet)
+	if err != nil || !prefix.Addr().Is4() || prefix.Bits() > 24 {
+		return fmt.Errorf("%s must be an IPv4 /24 or larger subnet (got %q)", openShellNetworkSubnetEnv, subnet)
+	}
+	prefix = prefix.Masked()
+	dynamicRange := os.Getenv(openShellNetworkIPRangeEnv)
+	if dynamicRange == "" {
+		dynamicRange = upperHalfPrefix(prefix).String()
+		if err := os.Setenv(openShellNetworkIPRangeEnv, dynamicRange); err != nil {
+			return err
+		}
+	}
+	pool, err := netip.ParsePrefix(dynamicRange)
+	if err != nil || !pool.Addr().Is4() || pool != pool.Masked() ||
+		pool.Bits() < prefix.Bits() || !prefix.Contains(pool.Addr()) ||
+		!prefix.Contains(lastIPv4Address(pool)) {
+		return fmt.Errorf("%s must be contained by %s (got %q)", openShellNetworkIPRangeEnv, subnet, dynamicRange)
+	}
+
+	gatewayIP := os.Getenv(openShellGatewayIPEnv)
+	if gatewayIP == "" {
+		// Docker reserves the first usable address for the network gateway.
+		gatewayIP = prefix.Addr().Next().Next().String()
+		if err := os.Setenv(openShellGatewayIPEnv, gatewayIP); err != nil {
+			return err
+		}
+	}
+	address, err := netip.ParseAddr(gatewayIP)
+	if err != nil || !address.Is4() || !prefix.Contains(address) || pool.Contains(address) ||
+		address == prefix.Addr() || address == prefix.Addr().Next() ||
+		address == lastIPv4Address(prefix) {
+		return fmt.Errorf("%s must be a usable address in %s outside %s (got %q)", openShellGatewayIPEnv, subnet, dynamicRange, gatewayIP)
+	}
+	return nil
+}
+
+func upperHalfPrefix(prefix netip.Prefix) netip.Prefix {
+	raw := prefix.Masked().Addr().As4()
+	value := binary.BigEndian.Uint32(raw[:])
+	value += uint32(1) << uint(31-prefix.Bits())
+	binary.BigEndian.PutUint32(raw[:], value)
+	return netip.PrefixFrom(netip.AddrFrom4(raw), prefix.Bits()+1)
+}
+
+func lastIPv4Address(prefix netip.Prefix) netip.Addr {
+	raw := prefix.Masked().Addr().As4()
+	value := binary.BigEndian.Uint32(raw[:])
+	value |= ^uint32(0) >> uint(prefix.Bits())
+	binary.BigEndian.PutUint32(raw[:], value)
+	return netip.AddrFrom4(raw)
+}
+
+func defaultOpenShellSubnet(mode compose.Mode) string {
+	switch mode {
+	case compose.ModeDev:
+		return "172.29.1.0/24"
+	case compose.ModeDemo:
+		return "172.29.2.0/24"
+	default:
+		return "172.29.0.0/24"
+	}
 }
 
 // configureOpenShellDBURL derives the gateway's database URL from the local
