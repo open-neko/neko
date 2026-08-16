@@ -18,13 +18,13 @@
 #     must exist at an IDENTICAL host:container path. One matched mount of the
 #     whole state dir covers them; XDG_DATA_HOME / OPENSHELL_LOCAL_TLS_DIR / HOME
 #     all point inside it.
-#  3. The Docker driver attaches sandboxes to this Compose project's default
-#     network. The control plane resolves service names to private container
-#     IPs before creating sandbox policies. Sandboxes reach the gateway by its
-#     Compose service name (openshell-gateway) over that network — the server
-#     cert carries it as a SAN — so the driver's grpc_endpoint uses it too. The
-#     gateway's host publish stays loopback-only: unreachable from the LAN;
-#     data services and brokers remain Docker-only.
+#  3. The Docker driver attaches sandboxes to the Compose runtime network, but
+#     rewrites its configured grpc_endpoint to host.openshell.internal. On
+#     native Linux that alias normally points at the host-side bridge gateway;
+#     our gateway is itself a container, so nothing listens there. Give the
+#     gateway a stable private address and pass it as host_gateway_ip so the
+#     alias reaches the gateway container directly. The host publish remains
+#     loopback-only; data services and brokers remain Docker-only.
 #  4. HOME MUST be a matched host-shared path (NOT /tmp). The gateway writes the
 #     per-sandbox JWT under $HOME/.local/state/openshell/... and the driver
 #     bind-mounts it to /etc/openshell/auth/sandbox.jwt in the sandbox — so the
@@ -84,14 +84,15 @@ services:
         printf '{"name":"openneko","gateway_endpoint":"https://openshell-gateway:%s","is_remote":false,"gateway_port":0,"auth_mode":"mtls"}\n' "${OPENSHELL_PORT:-18080}" \
           > "$$REG/metadata.json"
         printf 'openneko' > /config/openshell/active_gateway
-        printf '[openshell]\nversion = 1\n\n[openshell.drivers.docker]\nnetwork_name = "%s"\ngrpc_endpoint = "https://openshell-gateway:%s"\n' \
-          "$$OPENNEKO_COMPOSE_NETWORK" "${OPENSHELL_PORT:-18080}" \
+        printf '[openshell]\nversion = 1\n\n[openshell.drivers.docker]\nnetwork_name = "%s"\ngrpc_endpoint = "https://openshell-gateway:%s"\nhost_gateway_ip = "%s"\n' \
+          "$$OPENNEKO_COMPOSE_NETWORK" "${OPENSHELL_PORT:-18080}" "$$OPENSHELL_GATEWAY_IP" \
           > /config/openshell/gateway.toml
         chmod -R a+rX /config/openshell
     environment:
       # `docker compose -p ...` supplies COMPOSE_PROJECT_NAME during
-      # interpolation; the default network is named <project>_default.
-      OPENNEKO_COMPOSE_NETWORK: "${COMPOSE_PROJECT_NAME}_default"
+      # interpolation; the explicit name must match the runtime network below.
+      OPENNEKO_COMPOSE_NETWORK: "${COMPOSE_PROJECT_NAME}_runtime"
+      OPENSHELL_GATEWAY_IP: "${OPENSHELL_GATEWAY_IP:-172.29.0.2}"
     volumes:
       - ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/pki:${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/pki:ro
       - openshell-config:/config/openshell
@@ -120,10 +121,13 @@ services:
       XDG_DATA_HOME: ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/cache
       # Matched, host-shared HOME (requirement #4) — NOT /tmp.
       HOME: ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/home
-    # Sandboxes reach the gateway over the shared Compose network by service
-    # name; this host publish is loopback-only so LAN clients cannot reach it.
+    # CLI clients use the service name; sandbox callbacks use the stable
+    # private address below. The host publish is loopback-only.
     ports:
       - "127.0.0.1:${OPENSHELL_PORT:-18080}:${OPENSHELL_PORT:-18080}"
+    networks:
+      default:
+        ipv4_address: "${OPENSHELL_GATEWAY_IP:-172.29.0.2}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - openshell-config:/config/openshell:ro
@@ -172,3 +176,18 @@ volumes:
   # Holds the worker/web CLI's gateway registration at /config/openshell (the
   # certgen+reg step writes it; the gateway is reached by mTLS service name).
   openshell-config:
+
+# OpenShell's Docker driver writes host.openshell.internal into /etc/hosts, so
+# a normal Compose DNS alias cannot route sandbox callbacks to the containerised
+# gateway. A small, project-specific network gives that gateway a stable private
+# address without publishing its mTLS port to the LAN. The CLI selects distinct
+# defaults per stack mode; direct Compose users can override all three values.
+networks:
+  default:
+    name: "${COMPOSE_PROJECT_NAME}_runtime"
+    ipam:
+      config:
+        - subnet: "${OPENNEKO_DOCKER_SUBNET:-172.29.0.0/24}"
+          # Keep dynamic service/sandbox allocation away from the gateway's
+          # fixed .2 address (the CLI derives this range for custom subnets).
+          ip_range: "${OPENNEKO_DOCKER_IP_RANGE:-172.29.0.128/25}"

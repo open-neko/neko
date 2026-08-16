@@ -8,6 +8,8 @@ on:
       - "db/migrations/**"
       - "Dockerfile"
       - "compose.yml"
+      - "compose.openshell.yml"
+      - ".github/workflows/deploy.yml"
       - ".github/workflows/go.yml"
   pull_request:
     paths:
@@ -15,6 +17,8 @@ on:
       - "db/migrations/**"
       - "Dockerfile"
       - "compose.yml"
+      - "compose.openshell.yml"
+      - ".github/workflows/deploy.yml"
       - ".github/workflows/go.yml"
 
 jobs:

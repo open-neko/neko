@@ -73,6 +73,9 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command, opts upgradeOptions) er
 	if err := configureBackupEnvironment(project); err != nil {
 		return fmt.Errorf("configure backup repository: %w", err)
 	}
+	if err := configureOpenShellNetwork(m); err != nil {
+		return err
+	}
 
 	previous, hadPrevious := os.LookupEnv("OPENNEKO_VERSION")
 	if err := os.Setenv("OPENNEKO_VERSION", target); err != nil {
@@ -133,7 +136,11 @@ func restartUpgradedStack(ctx context.Context, sup *compose.Supervisor, project 
 		return err
 	}
 	configureOpenShellDBURL()
-	code, err := sup.Run(ctx, project, files, []string{"up", "-d", "--pull", "never", "--remove-orphans"}, os.Stdout, os.Stderr)
+	// Force the one-shot init containers onto the current network too. Compose
+	// otherwise reuses already-exited containers during the one-time migration
+	// from the legacy dynamic <project>_default network, leaving them unable to
+	// resolve services that have moved to <project>_runtime.
+	code, err := sup.Run(ctx, project, files, []string{"up", "-d", "--pull", "never", "--remove-orphans", "--force-recreate"}, os.Stdout, os.Stderr)
 	if err != nil {
 		return err
 	}
