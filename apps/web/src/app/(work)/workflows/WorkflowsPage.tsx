@@ -53,7 +53,7 @@ type RecentAction = {
   target: string | null;
   status: string;
   riskLevel: string | null;
-  summary: string;
+  summary: string | null;
   approvedAt: string | null;
   createdAt: string;
 };

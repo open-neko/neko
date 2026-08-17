@@ -10,6 +10,7 @@ import remarkGfm from "remark-gfm";
 import { Card } from "@/components/ui/Card";
 import { Pill, type PillVariant } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
+import { workflowDisplayName } from "@/lib/workflow-label";
 
 const MUTE_DURATIONS = ["1h", "24h", "7d"] as const;
 
@@ -17,7 +18,7 @@ export type FindingCardData = {
   id: string;
   kind: "approval" | "finding";
   workflowRunId: string | null;
-  workflow: { id: string; name: string };
+  workflow: { id: string; name: string } | null;
   title: string;
   body?: string | null;
   scope?: string | null;
@@ -160,7 +161,9 @@ export default function FindingCard({
       <div className="flex items-center gap-1.5 text-xs text-text3 flex-wrap">
         <span>
           from{" "}
-          <span className="text-text2 font-medium">{data.workflow.name}</span>
+          <span className="text-text2 font-medium">
+            {workflowDisplayName(data.workflow)}
+          </span>
         </span>
         <span className="opacity-50">·</span>
         <span className="font-mono text-xs text-text2">{formatRelative(data.createdAt)}</span>

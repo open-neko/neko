@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { applyMessage, getResolvedComponents } from "@/a2ui/surface";
-import type { A2UIMessage, SurfaceState, A2UIComponent } from "@/a2ui/types";
+import type { SurfaceState, A2UIComponent } from "@/a2ui/types";
 import type { BriefingCardProps } from "@/a2ui/catalog";
 import BriefingCard from "@/components/BriefingCard";
 import type { BriefingCardData } from "@/components/BriefingCard";
@@ -25,6 +25,11 @@ import HoursSavedHero, {
 import AgentLauncher from "@/components/AgentLauncher";
 import { formatSavedShort } from "@/lib/hours-saved";
 import { cn } from "@/lib/cn";
+import {
+  groupAwaiting,
+  type AwaitingPayload,
+} from "@/lib/dashboard-actions";
+import { readBriefingMessages } from "@/lib/briefing-messages";
 
 type ElevatedCard = {
   id: string;
@@ -79,25 +84,6 @@ type RecentActionsPayload = {
   windowHours: number;
 };
 
-type AwaitingRow = {
-  id: string;
-  workflowRunId: string;
-  workflow: { id: string; name: string };
-  triggeredByObservation: { title: string } | null;
-  kind: string;
-  target: string | null;
-  riskLevel: string | null;
-  summary: string;
-  status: string;
-  runAt: string;
-  payload: unknown;
-};
-
-type AwaitingPayload = {
-  actions: AwaitingRow[];
-  count: number;
-};
-
 function approverPhrase(
   kind: ReceiptRow["approverKind"],
   label: string | null,
@@ -105,60 +91,6 @@ function approverPhrase(
   if (kind === "operator") return label ? `you · ${label}` : "you";
   if (kind === "policy") return label ? `rule "${label}"` : "a rule";
   return "auto";
-}
-
-function groupAwaiting(
-  rows: AwaitingRow[],
-): Array<{ key: string; card: ActCardData }> {
-  const groups = new Map<
-    string,
-    {
-      key: string;
-      runId: string;
-      runAt: string;
-      trigger: string | null;
-      workflowName: string;
-      rows: ActRowData[];
-    }
-  >();
-  for (const r of rows) {
-    const tone: ActRowData["tone"] =
-      r.riskLevel === "high" || r.riskLevel === "critical" ? "action" : "watch";
-    const row: ActRowData = {
-      id: r.id,
-      tone,
-      headline: r.summary || r.kind,
-      detail: null,
-      target: r.target,
-      kind: r.kind,
-      payload: r.payload,
-      status: r.status,
-    };
-    const existing = groups.get(r.workflowRunId);
-    if (existing) {
-      existing.rows.push(row);
-    } else {
-      groups.set(r.workflowRunId, {
-        key: r.workflowRunId,
-        runId: r.workflowRunId,
-        runAt: r.runAt,
-        trigger: r.triggeredByObservation?.title ?? null,
-        workflowName: r.workflow.name,
-        rows: [row],
-      });
-    }
-  }
-  return Array.from(groups.values()).map((g) => ({
-    key: g.key,
-    card: {
-      runId: g.runId,
-      runAt: g.runAt,
-      trigger: g.trigger,
-      state: "awaiting",
-      workflowName: g.workflowName,
-      rows: g.rows,
-    },
-  }));
 }
 
 function groupReceipts(
@@ -352,7 +284,7 @@ export default function Dashboard() {
     if (!silent) setLoading(true);
     try {
       const res = await fetch(`/api/briefing?role=${r}`);
-      const messages: A2UIMessage[] = await res.json();
+      const messages = await readBriefingMessages(res);
 
       setSurfaces((prev) => {
         let next = prev;
@@ -361,6 +293,8 @@ export default function Dashboard() {
         }
         return next;
       });
+    } catch (err) {
+      console.warn("[dashboard] briefing refresh failed:", err);
     } finally {
       if (!silent) setLoading(false);
     }

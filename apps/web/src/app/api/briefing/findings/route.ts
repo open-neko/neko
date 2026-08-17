@@ -11,6 +11,7 @@ import {
   gt,
   gte,
   muted_scope,
+  ne,
   notInArray,
   observation,
   sql,
@@ -19,6 +20,8 @@ import {
   workflow_run,
 } from "@neko/db";
 import { summarizeBriefing } from "@neko/llm";
+import { getCurrentActor } from "@/lib/actor";
+import { serializeBriefingApproval } from "@/lib/briefing-findings";
 import { getOrgId } from "@/lib/db";
 
 // 5-minute freshness window for the auto-generated live summary. If a row
@@ -97,7 +100,8 @@ const ACT_LIMIT = 8;
 const APPROVAL_LIMIT = 8;
 
 export async function GET() {
-  const orgId = await getOrgId();
+  const [orgId, actor] = await Promise.all([getOrgId(), getCurrentActor()]);
+  const canReadSourceConfig = actor.role === "admin";
 
   // 0. Active scope mutes (OL7) — matching finding cards are filtered
   // out of every tributary below until muted_until passes.
@@ -124,10 +128,13 @@ export async function GET() {
       createdAt: action_request.created_at,
       workflowId: workflow_definition.id,
       workflowName: workflow_definition.name,
+      pendingApprovalCount: sql<number>`count(*) over()::int`,
     })
     .from(action_request)
-    .innerJoin(workflow_run, eq(action_request.workflow_run_id, workflow_run.id))
-    .innerJoin(
+    // Chat-proposed admin actions do not carry a workflow_run_id. Keep them
+    // in the briefing just like /api/approvals does.
+    .leftJoin(workflow_run, eq(action_request.workflow_run_id, workflow_run.id))
+    .leftJoin(
       workflow_definition,
       eq(workflow_run.workflow_id, workflow_definition.id),
     )
@@ -135,6 +142,9 @@ export async function GET() {
       and(
         eq(action_request.org_id, orgId),
         eq(action_request.status, "pending_approval"),
+        ...(canReadSourceConfig
+          ? []
+          : [ne(action_request.kind, "source_config_admin")]),
       ),
     )
     .orderBy(desc(action_request.created_at))
@@ -146,6 +156,7 @@ export async function GET() {
     if (ra !== rb) return ra - rb;
     return b.createdAt.getTime() - a.createdAt.getTime();
   });
+  const pendingApprovalCount = approvals[0]?.pendingApprovalCount ?? 0;
 
   // 2. Recent mood=act findings — workflow_outputs from the last N hours.
   const since = new Date(Date.now() - RECENT_FINDING_WINDOW_HOURS * 3600 * 1000);
@@ -317,7 +328,7 @@ export async function GET() {
     try {
       summary = await summarizeBriefing(
         {
-          pendingApprovals: approvals.length,
+          pendingApprovals: pendingApprovalCount,
           actFindings: actRaw.length,
           watchFindings: watchRaw.length,
           goodRuns: goodCountRow?.count ?? 0,
@@ -332,7 +343,7 @@ export async function GET() {
     } catch (err) {
       console.warn("[briefing/findings] LLM summary failed, falling back:", err);
       summary = composeSummary({
-        pendingApprovals: approvals.length,
+        pendingApprovals: pendingApprovalCount,
         actFindings: actRaw.length,
         watchFindings: watchRaw.length,
         goodRuns: goodCountRow?.count ?? 0,
@@ -380,16 +391,7 @@ export async function GET() {
         }
       : null,
     awaitingYou: {
-      approvals: approvals.map((a) => ({
-        id: a.id,
-        kind: "approval" as const,
-        workflowRunId: a.workflowRunId,
-        workflow: { id: a.workflowId, name: a.workflowName },
-        title: a.summary || a.kind,
-        target: a.target,
-        riskLevel: a.riskLevel,
-        createdAt: a.createdAt.toISOString(),
-      })),
+      approvals: approvals.map(serializeBriefingApproval),
       actFindings: actRaw.map((o) => ({
         id: o.id,
         kind: "finding" as const,
