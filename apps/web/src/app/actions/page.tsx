@@ -13,6 +13,7 @@ import ActCard, {
 } from "@/components/ActCard";
 import { cn } from "@/lib/cn";
 import { formatSavedShort } from "@/lib/hours-saved";
+import { workflowDisplayName } from "@/lib/workflow-label";
 import {
   parseRecordUpdatePayload,
   RecordActionDiff,
@@ -29,7 +30,7 @@ type ActionRow = {
   target: string | null;
   payload: unknown;
   riskLevel: string | null;
-  summary: string;
+  summary: string | null;
   scope: string;
   status: string;
   minutesSaved: number | null;
@@ -115,7 +116,7 @@ function groupActions(actions: ActionRow[]): Group[] {
         runId: row.workflowRunId,
         runAt: row.runAt,
         trigger: row.triggeredByObservation?.title ?? null,
-        workflowName: row.workflow?.name ?? "the assistant",
+        workflowName: workflowDisplayName(row.workflow),
         state,
         rows: [row],
       });
@@ -390,7 +391,7 @@ function ActionReadingPane({
           {action.summary || action.kind}
         </h2>
         <div className="text-[12.5px] text-text2 mt-2 leading-[1.5]">
-          Proposed by <span className="text-text font-semibold">{action.workflow?.name ?? "the assistant"}</span>
+          Proposed by <span className="text-text font-semibold">{workflowDisplayName(action.workflow)}</span>
           {action.triggeredByObservation ? <> · triggered by “{action.triggeredByObservation.title}”</> : null}
         </div>
 

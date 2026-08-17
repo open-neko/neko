@@ -53,7 +53,7 @@ type RunDetailPayload = {
     scope: string;
     riskLevel: string | null;
     status: string;
-    summary: string;
+    summary: string | null;
     approvedAt: string | null;
     rejectionReason: string | null;
     createdAt: string;
