@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.26.4](https://github.com/open-neko/openneko/compare/v2.26.3...v2.26.4) (2026-08-17)
+
+
+### Bug Fixes
+
+* **openshell:** resolve Hermes egress executable ([5c003d6](https://github.com/open-neko/openneko/commit/5c003d6ce217a4eb73e53ce2a5c7869208e8d0ab))
+* **openshell:** resolve Hermes egress executable ([3a3de5f](https://github.com/open-neko/openneko/commit/3a3de5ff4019b2cba1eb14b054d5582be594078b))
+* **web:** handle approvals without workflow runs ([0bd423c](https://github.com/open-neko/openneko/commit/0bd423c149523a38c2ead10c66005d655e754be8))
+* **web:** handle approvals without workflow runs ([5eee956](https://github.com/open-neko/openneko/commit/5eee956dd57323c3b8d13265d53dd987cc4ef9b9))
+
 ## [2.26.3](https://github.com/open-neko/openneko/compare/v2.26.2...v2.26.3) (2026-08-16)
 
 
