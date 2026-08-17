@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
@@ -12,6 +13,7 @@ const HERMES_DELEGATION_DEFAULT_MAX_ITERATIONS = 50;
 const HERMES_DELEGATION_DEFAULT_MAX_CONCURRENT_CHILDREN = 3;
 const HERMES_DELEGATION_DEFAULT_MAX_SPAWN_DEPTH = 1;
 const HERMES_DELEGATION_DEFAULT_CHILD_TIMEOUT_SECONDS = 0;
+const HERMES_PYTHON_ENTRYPOINT = "/usr/local/uv/tools/hermes-agent/bin/python";
 
 type StoredRow = {
   provider: string;
@@ -338,6 +340,25 @@ function readBoolEnv(name: string, fallback: boolean): boolean {
   return fallback;
 }
 
+/**
+ * OpenShell binds network policy to the caller reported by /proc/<pid>/exe.
+ * Hermes is a Python console script, so that identity is the fully resolved
+ * uv-managed interpreter, not /usr/local/bin/hermes or its versionless
+ * symlink. Resolve it from the runtime image instead of pinning a Python patch
+ * version that can change when uv refreshes its managed 3.11 installation.
+ */
+export function resolveHermesModelBinary(
+  entrypoint = HERMES_PYTHON_ENTRYPOINT,
+): string {
+  try {
+    return realpathSync(entrypoint);
+  } catch {
+    // Local source-only tooling may provision config without the container
+    // toolchain installed. Production images assert this entrypoint exists.
+    return entrypoint;
+  }
+}
+
 function hermesDelegationConfigLines(): string[] {
   const maxIterations = readIntEnv(
     "OPENNEKO_AGENT_DELEGATION_MAX_ITERATIONS",
@@ -431,9 +452,8 @@ const PROVIDER_API_HOSTS: Record<string, string> = {
 /**
  * Derive the agent-sandbox egress from the org's model config: the API host
  * (explicit base_url, else the provider default) + models.dev for hermes model
- * resolution; the connecting binary (per backend + arch — egress matches the
- * resolved path); the env var the backend reads. Binary paths track the agent
- * image's pinned cpython.
+ * resolution; the exact connecting binary (egress matches /proc/<pid>/exe);
+ * and the env var the backend reads.
  */
 function deriveAgentEgress(
   row: StoredRow,
@@ -451,12 +471,11 @@ function deriveAgentEgress(
   }
   host ??= PROVIDER_API_HOSTS[row.provider];
   const isClaude = backend === "claude-agent";
-  const arch = process.arch === "arm64" ? "aarch64" : "x86_64";
   return {
     hosts: [...(host ? [host] : []), ...(isClaude ? [] : ["models.dev"])],
     binary: isClaude
       ? "/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
-      : `/usr/local/uv/python/cpython-3.11.15-linux-${arch}-gnu/bin/python3.11`,
+      : resolveHermesModelBinary(),
     keyEnv: isClaude ? "ANTHROPIC_API_KEY" : mapHermesProvider(row.provider).keyVar,
   };
 }
@@ -498,7 +517,7 @@ async function provisionOpenShellRuntime(orgId: string, backend: string): Promis
     gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
   });
   console.log(
-    `[host-provision] OpenShell agent runtime self-configured: provider="${process.env.OPENNEKO_AGENT_MODEL_PROVIDER}" egress="${hosts.join(",")}" keyEnv=${keyEnv}`,
+    `[host-provision] OpenShell agent runtime self-configured: provider="${process.env.OPENNEKO_AGENT_MODEL_PROVIDER}" egress="${hosts.join(",")}" binary="${process.env.OPENNEKO_AGENT_MODEL_BINARY}" keyEnv=${keyEnv}`,
   );
 }
 
