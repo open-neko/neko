@@ -83,7 +83,8 @@ create unique index if not exists library_concept_org_layer_path_unique
   on library_concept (org_id, coalesce(user_id, ''), path)
   where archived_at is null;
 
--- Same ivfflat/cosine setup as work_memory (0014): small corpus, <=> ops.
-create index if not exists library_concept_embedding_cosine_idx
-  on library_concept using ivfflat (embedding vector_cosine_ops)
-  with (lists = 100);
+-- Deliberately NO ivfflat index here (unlike work_memory 0014): an
+-- ivfflat index trained on an empty table probes badly and silently
+-- drops rows from top-N results on small corpora. Concept counts stay
+-- well under the scale where exact scan hurts; add an ANN index (and
+-- tune probes) if a deployment ever grows past that.
