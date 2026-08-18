@@ -109,11 +109,11 @@ restorable.
 | Personal memory layer | Correct or hide a team memory just for yourself without changing it for anyone else — and pull in team updates when you want them. | #96 |
 | Save, history, restore | Browse what changed and roll back to any earlier state of your assistant's configuration. | #96 |
 | Promote and adopt | When a personal workflow or memory proves valuable, an admin can promote it to the whole team with full lineage of where it came from. | #96 |
-| Document library | Files you attach in a conversation are added to your personal library automatically — a librarian distills them into concepts the assistant can search and cite, each traced back to the original document. | — |
-| Share and approve knowledge | A distilled concept stays private to you until you share it; an admin approves it into the team library, stamping who vouched for it and when. | — |
-| Open Knowledge Format | The team library — and your memories, workflows, and skills — are written to disk as plain Markdown in the vendor-neutral [OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf) v0.2 format: readable in any editor, versioned invisibly, and portable beyond OpenNeko. | — |
-| Take it with you | Export the team library as an OKF bundle and import it into another install — approval stamps, staleness dates, and source citations travel with it, and search vectors are rebuilt on arrival. | — |
-| Starter knowledge packs | Install a curated pack of metric definitions and playbooks on day one instead of teaching the assistant from scratch — every concept lands pre-approved by the installing admin and stays editable. | — |
+| Document library | Files you attach in a conversation are added to your personal library automatically — a librarian distills them into concepts the assistant can search and cite, each traced back to the original document. | #220 |
+| Share and approve knowledge | A distilled concept stays private to you until you share it; an admin approves it into the team library, stamping who vouched for it and when. | #220 |
+| Open Knowledge Format | The team library — and your memories, workflows, and skills — are written to disk as plain Markdown in the vendor-neutral [OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf) v0.2 format: readable in any editor, versioned invisibly, and portable beyond OpenNeko. | #220 |
+| Take it with you | Export the team library as an OKF bundle and import it into another install — approval stamps, staleness dates, and source citations travel with it, and search vectors are rebuilt on arrival. | #220 |
+| Starter knowledge packs | Install a curated pack of metric definitions and playbooks on day one instead of teaching the assistant from scratch — every concept lands pre-approved by the installing admin and stays editable. | #220 |
 
 ## Security you can verify
 
@@ -246,3 +246,4 @@ here.
 | #127 | 2026-06-12 | Deploys follow smoked releases, not merges |
 | #129 | 2026-06-12 | Thread-scale answer surfaces, sidebar timestamps, diagnosable agent exits |
 | #132 | 2026-06-12 | Agentic answers reach hand-tuned speed (join-path hubs, query pattern cards, compact digests everywhere) and the "agent died mid-run" mystery is fixed — turn timeouts are generous, configurable, and say so |
+| #220 | 2026-08-18 | Document library: uploads distilled into an OKF knowledge base the assistant searches and cites |
