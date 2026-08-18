@@ -49,5 +49,6 @@ export {
   type KnowledgePackPaths,
 } from "./knowledge-pack";
 export * from "./work";
+export * from "./library";
 export * from "./workflows";
 export * from "./graphjin";

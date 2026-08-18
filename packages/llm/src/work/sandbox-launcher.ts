@@ -307,6 +307,14 @@ export async function stageSandboxWorkspace(
       stagedWorkspace.threadUploadsRoot,
     ),
     copyDirectoryIfPresent(workspace.runRoot, stagedWorkspace.runRoot),
+    // Team library OKF bundle (approved concepts only — the materializer
+    // never writes personal-layer rows there, so staging it leaks nothing;
+    // personal concepts reach the agent via mcp__neko_library__search,
+    // scoped server-side to the run's owner).
+    copyDirectoryIfPresent(
+      path.join(workspace.orgRoot, "library", "okf"),
+      path.join(stageOrgRoot, "library", "okf"),
+    ),
   ]);
 
   // Preserve the expected workspace shape even when a selected source is

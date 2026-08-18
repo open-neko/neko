@@ -12,6 +12,7 @@ import {
   QUEUE,
   type ActionExecutePayload,
   type ChannelDeliverPayload,
+  type LibraryDistillPayload,
   type ProcessingJobPayload,
   type RecordsIdentityLinkPayload,
   type RecordsImportPayload,
@@ -108,6 +109,7 @@ import { runWorkflowRunFire } from "./jobs/workflow-run-fire.js";
 import { runWorkflowOutputTtlSweep } from "./jobs/workflow-output-ttl-sweep.js";
 import { runActionExecute } from "./jobs/action-execute.js";
 import { runRecordsImport } from "./jobs/records-import.js";
+import { runLibraryDistillJob } from "./jobs/library-distill.js";
 import { runRecordsIdentityLink } from "./jobs/records-identity-link.js";
 import { runRecordsBackupVerification } from "./jobs/records-backup-verify.js";
 import { seedOpenNekoOpsWorkflow } from "./jobs/records-ops-finding.js";
@@ -1072,6 +1074,23 @@ await b.work(
       } catch (e) {
         console.warn(
           `[records-import] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
+        );
+        throw e;
+      }
+    }
+  },
+);
+
+await b.work(
+  QUEUE.LIBRARY_DISTILL,
+  { batchSize: 1, pollingIntervalSeconds: 1 },
+  async (jobs: PgBossLib.Job<LibraryDistillPayload>[]) => {
+    for (const job of jobs) {
+      try {
+        await runLibraryDistillJob(job.data);
+      } catch (e) {
+        console.warn(
+          `[library-distill] job ${job.id} failed; pg-boss may retry: ${e instanceof Error ? e.message : e}`,
         );
         throw e;
       }

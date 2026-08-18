@@ -89,6 +89,12 @@ export class BrokerControlPlane implements AgentControlPlane {
     return this.post("/v1/memory/search", args);
   }
 
+  searchLibraryForRun(
+    args: Parameters<AgentControlPlane["searchLibraryForRun"]>[0],
+  ): ReturnType<AgentControlPlane["searchLibraryForRun"]> {
+    return this.post("/v1/library/search", args);
+  }
+
   queryGraphjinRead(
     input: Parameters<AgentControlPlane["queryGraphjinRead"]>[0],
   ): ReturnType<AgentControlPlane["queryGraphjinRead"]> {

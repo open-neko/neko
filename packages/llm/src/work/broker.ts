@@ -142,6 +142,19 @@ async function handle(
           runId: binding.runId,
         } as Parameters<AgentControlPlane["searchWorkMemoryByContext"]>[0]),
       );
+    case "/v1/library/search":
+      // Same rule as memory: the personal layer comes from the bound
+      // run's owner, never from agent-supplied identity.
+      delete body.userId;
+      return send(
+        res,
+        200,
+        await cp.searchLibraryForRun({
+          ...body,
+          orgId: binding.orgId,
+          runId: binding.runId,
+        } as Parameters<AgentControlPlane["searchLibraryForRun"]>[0]),
+      );
     case "/v1/graphjin/query":
       return send(
         res,

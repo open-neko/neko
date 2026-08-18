@@ -1276,6 +1276,118 @@ export const work_pending_memory = pgTable(
   }),
 );
 
+// Document library: uploaded files promoted from thread context into a
+// per-user library, distilled by the librarian job into OKF concept docs
+// (see packages/llm/src/library). Personal by default (user_id set),
+// team-visible only via explicit share + approval, mirroring the
+// work_memory overlay rules.
+export const library_document = pgTable(
+  "library_document",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    // NULL user_id = solo/no-auth install (actor has no user id); the
+    // document still behaves as the uploader's personal layer.
+    user_id: text("user_id").references(() => app_user.id, {
+      onDelete: "cascade",
+    }),
+    source_thread_id: uuid("source_thread_id").references(() => work_thread.id, {
+      onDelete: "set null",
+    }),
+    filename: text("filename").notNull(),
+    // Org-workspace-relative path of the raw upload, e.g.
+    // "uploads/<threadId>/<name>" — the citation target.
+    relative_path: text("relative_path").notNull(),
+    content_hash: text("content_hash").notNull(),
+    size_bytes: integer("size_bytes").notNull(),
+    status: text("status").notNull().default("uploaded"),
+    skip_reason: text("skip_reason"),
+    error: text("error"),
+    distilled_at: ts("distilled_at"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    org_recent_idx: index("library_document_org_recent_idx").on(
+      t.org_id,
+      t.created_at.desc(),
+    ),
+    org_user_idx: index("library_document_org_user_idx").on(
+      t.org_id,
+      t.user_id,
+      t.status,
+    ),
+    org_hash_idx: index("library_document_org_hash_idx").on(
+      t.org_id,
+      t.content_hash,
+    ),
+  }),
+);
+
+export const library_concept = pgTable(
+  "library_concept",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    // NULL user_id = team layer (approved, org-visible). Non-NULL =
+    // the owner's personal layer, invisible to everyone else. Path is
+    // unique per (org, layer) — enforced in code, not by constraint,
+    // because NULLs make a plain unique index inert here.
+    user_id: text("user_id").references(() => app_user.id, {
+      onDelete: "cascade",
+    }),
+    // Bundle-relative OKF path, e.g. "policies/refund-policy.md".
+    path: text("path").notNull(),
+    type: text("type").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    tags: jsonb("tags").notNull().default(sql`'[]'::jsonb`),
+    body: text("body").notNull(),
+    status: text("status").notNull().default("draft"),
+    // OKF v0.2 provenance/trust, projected into frontmatter on
+    // materialization: sources point at raw uploads, generated is the
+    // producing actor, verified accumulates human approvals.
+    sources: jsonb("sources").notNull().default(sql`'[]'::jsonb`),
+    generated_by: text("generated_by"),
+    generated_at: ts("generated_at"),
+    verified: jsonb("verified").notNull().default(sql`'[]'::jsonb`),
+    stale_after: date("stale_after"),
+    source_document_id: uuid("source_document_id").references(
+      () => library_document.id,
+      { onDelete: "set null" },
+    ),
+    promoted_from_id: uuid("promoted_from_id"),
+    promoted_by: text("promoted_by"),
+    promoted_at: ts("promoted_at"),
+    archived_at: ts("archived_at"),
+    embedding: vector("embedding", 384),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    org_layer_path_idx: index("library_concept_org_layer_path_idx").on(
+      t.org_id,
+      t.user_id,
+      t.path,
+    ),
+    org_status_idx: index("library_concept_org_status_idx").on(
+      t.org_id,
+      t.status,
+      t.archived_at,
+      t.updated_at.desc(),
+    ),
+    org_user_idx: index("library_concept_org_user_idx").on(
+      t.org_id,
+      t.user_id,
+      t.archived_at,
+    ),
+  }),
+);
+
 export const workflow_definition = pgTable(
   "workflow_definition",
   {

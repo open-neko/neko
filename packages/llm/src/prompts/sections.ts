@@ -83,6 +83,12 @@ silently ignore a relevant memory.`;
 \`mcp__neko_memory__search\` with a short natural-language query. Do
 this whenever the user's request mentions a domain, metric, or rule
 that isn't already covered by the preloaded list.`);
+    usageBlocks.push(`The document library holds knowledge distilled from uploaded
+business documents (policies, contracts, SOPs). When the operator asks
+about company documents, agreements, or written policy, call
+\`mcp__neko_library__search\` with a short query before answering from
+general knowledge. Each result cites its source upload — mention the
+source when you rely on one.`);
   }
 
   if (saveMode === "tool") {

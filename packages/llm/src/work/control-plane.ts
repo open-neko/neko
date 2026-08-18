@@ -28,6 +28,7 @@ import {
 } from "../workflows/store";
 import { notifyWorkflowOutputDeliveryHook } from "../workflows/output-delivery";
 import { rememberWorkMemory, searchWorkMemoryByContext } from "./memory";
+import { searchLibraryForRun } from "./library";
 import type {
   GraphjinAgentResponse,
   GraphjinAgentStatus,
@@ -52,6 +53,10 @@ type RememberWorkMemoryInput = Parameters<typeof rememberWorkMemory>[0];
 type WorkMemorySearchArgs = Parameters<typeof searchWorkMemoryByContext>[0];
 type WorkMemorySearchResult = Awaited<
   ReturnType<typeof searchWorkMemoryByContext>
+>[number];
+type LibrarySearchArgs = Parameters<typeof searchLibraryForRun>[0];
+type LibrarySearchResult = Awaited<
+  ReturnType<typeof searchLibraryForRun>
 >[number];
 
 /**
@@ -403,6 +408,7 @@ export interface AgentControlPlane {
   searchWorkMemoryByContext(
     args: WorkMemorySearchArgs,
   ): Promise<WorkMemorySearchResult[]>;
+  searchLibraryForRun(args: LibrarySearchArgs): Promise<LibrarySearchResult[]>;
   queryGraphjinRead(input: {
     orgId: string;
     query: string;
@@ -803,6 +809,12 @@ export class InProcessControlPlane implements AgentControlPlane {
     args: WorkMemorySearchArgs,
   ): Promise<WorkMemorySearchResult[]> {
     return searchWorkMemoryByContext(args);
+  }
+
+  async searchLibraryForRun(
+    args: LibrarySearchArgs,
+  ): Promise<LibrarySearchResult[]> {
+    return searchLibraryForRun(args);
   }
 
   async queryGraphjinRead(input: {

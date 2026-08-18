@@ -1422,6 +1422,71 @@ export function buildWorkMemoryServer(
   });
 }
 
+// Search-only library surface. Layer visibility (team + the run owner's
+// personal concepts) is resolved server-side from the run binding —
+// never from agent input — so a compromised prompt can't read another
+// member's personal library.
+export type LibraryServerOptions = {
+  /** Defaults to the in-process control plane; the agent sandbox injects an HTTP impl. */
+  controlPlane?: AgentControlPlane;
+};
+
+export function buildLibraryServer(
+  ctx: WorkMemoryContext,
+  options: LibraryServerOptions = {},
+) {
+  const controlPlane = options.controlPlane ?? inProcessControlPlane;
+  const search = tool(
+    "search",
+    [
+      "Semantic search over the document library — knowledge distilled",
+      "from uploaded business documents (policies, contracts, SOPs).",
+      "Returns top-N concepts ranked by similarity, each citing its",
+      "source upload. Prefer this over guessing when the operator asks",
+      "about company documents, agreements, or written policy.",
+    ].join(" "),
+    {
+      query: z.string().min(2).max(800),
+      limit: z.number().int().min(1).max(20).optional(),
+    },
+    async (args) => {
+      const results = await controlPlane.searchLibraryForRun({
+        orgId: ctx.orgId,
+        query: args.query,
+        limit: args.limit ?? 5,
+        runId: ctx.runId ?? null,
+      });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              ok: true,
+              results: results.map((r) => ({
+                path: r.concept.path,
+                type: r.concept.type,
+                title: r.concept.title,
+                description: r.concept.description,
+                status: r.concept.status,
+                layer: r.layer,
+                score: r.score,
+                sources: r.concept.sources.map((s) => s.resource),
+                body: r.concept.body,
+              })),
+            }),
+          },
+        ],
+      };
+    },
+  );
+
+  return createSdkMcpServer({
+    name: "neko_library",
+    version: "1.0.0",
+    tools: [search],
+  });
+}
+
 /**
  * Plugin-installed action kinds, surfaced to the agent as MCP tools.
  * The worker collects these from PluginRegistry at turn start and

@@ -1,4 +1,8 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
+import { enqueue, QUEUE, type LibraryDistillPayload } from "@neko/db/jobs";
+import { createLibraryDocument } from "@neko/llm/work";
+import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
 import { ALLOWED_UPLOAD_EXTENSIONS, MAX_UPLOAD_SIZE, saveWorkUpload } from "@/lib/work-files";
 import { getAuthorizedWorkThread } from "@/lib/work-thread-auth";
@@ -48,6 +52,37 @@ export async function POST(request: Request) {
   }
 
   const saved = await saveWorkUpload(orgId, threadId, file);
+
+  // Auto-add to the uploader's personal library: create the tracking row
+  // and queue the librarian. Best-effort — a library hiccup must never
+  // fail the upload itself. Triage inside the distill job decides whether
+  // the file is durable knowledge or one-off working data.
+  try {
+    const actor = await getCurrentActor();
+    const contentHash = createHash("sha256")
+      .update(Buffer.from(await file.arrayBuffer()))
+      .digest("hex");
+    const { document, created } = await createLibraryDocument({
+      orgId,
+      userId: actor.userId,
+      sourceThreadId: threadId,
+      filename: saved.name,
+      relativePath: saved.relativePath.replace(/\\/g, "/"),
+      contentHash,
+      sizeBytes: saved.size,
+    });
+    if (created) {
+      const payload: LibraryDistillPayload = { orgId, documentId: document.id };
+      await enqueue(QUEUE.LIBRARY_DISTILL, payload, {
+        singletonKey: `library-distill:${document.id}`,
+      });
+    }
+  } catch (error) {
+    console.warn(
+      `[work-upload] library auto-add failed (upload succeeded): ${error instanceof Error ? error.message : error}`,
+    );
+  }
+
   return NextResponse.json({
     file: {
       name: saved.name,
