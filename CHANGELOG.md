@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.27.0](https://github.com/open-neko/openneko/compare/v2.26.4...v2.27.0) (2026-08-18)
+
+
+### Features
+
+* **library:** add OKF document library with search and citations ([73b1b5a](https://github.com/open-neko/openneko/commit/73b1b5aff372c97492af7c4b1a66951d0bd95d05))
+* **library:** audit events, staleness sweep, and deprecate ([961445f](https://github.com/open-neko/openneko/commit/961445f24cc0ae83e996247be0550a34acf978ef))
+* **library:** OKF concept docs, fences, tree writer, and triage ([0356a39](https://github.com/open-neko/openneko/commit/0356a39c135266fc3d00a6517eea3f2aee34e2bb))
+* **library:** OKF-conformant config tree, bundle export/import, starter packs ([f601239](https://github.com/open-neko/openneko/commit/f601239d795649f8e56729dde697af7a5b2d334a))
+* **library:** schema, distill job, agent search, and upload auto-add ([22e3f47](https://github.com/open-neko/openneko/commit/22e3f475b753777cc1e47187a2e976f0689f4bc9))
+* **library:** upload, detail view, retry, remove, and archive UI ([f4b8aa6](https://github.com/open-neko/openneko/commit/f4b8aa65b03c1c6b7f9488af7798ece3c1d6ca4a))
+* **library:** web surface, distill tests, and FEATURES entry ([75e4ac3](https://github.com/open-neko/openneko/commit/75e4ac347f40b9cbb6e986bd88f350b444ead824))
+* **skills:** document-extraction skill wired into the librarian ([34b7007](https://github.com/open-neko/openneko/commit/34b7007c18f697d653d5285b8a6ae2a79cdb9726))
+* **workflows:** mount library search in workflow runs ([076c8aa](https://github.com/open-neko/openneko/commit/076c8aa151661b53798c148d0013b801bb053359))
+
+
+### Bug Fixes
+
+* **library:** drop ivfflat index on concept embeddings ([cbe0487](https://github.com/open-neko/openneko/commit/cbe04870014150f8b7efa2e1a7f404e829f7424f))
+* **library:** retry failed distills on identical re-upload ([7526cac](https://github.com/open-neko/openneko/commit/7526cac050fd2f5664541796668d1335e1f7e801))
+
 ## [2.26.4](https://github.com/open-neko/openneko/compare/v2.26.3...v2.26.4) (2026-08-17)
 
 
