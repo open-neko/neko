@@ -26,6 +26,8 @@ export type LibraryUpsertOp = {
   description?: string;
   tags?: string[];
   body: string;
+  /** YYYY-MM-DD after which this concept should be treated as stale. */
+  stale_after?: string;
 };
 
 export type LibrarySkipOp = {
@@ -74,6 +76,10 @@ function parseUpsert(value: unknown): LibraryUpsertOp | null {
       ? o.tags.filter(isStr).map((t) => t.trim()).filter(Boolean)
       : undefined,
     body: o.body.trim(),
+    stale_after:
+      isStr(o.stale_after) && /^\d{4}-\d{2}-\d{2}$/.test(o.stale_after)
+        ? o.stale_after
+        : undefined,
   };
 }
 

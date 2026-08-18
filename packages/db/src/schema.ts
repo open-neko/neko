@@ -1388,6 +1388,30 @@ export const library_concept = pgTable(
   }),
 );
 
+export const library_event = pgTable(
+  "library_event",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    document_id: uuid("document_id").references(() => library_document.id, {
+      onDelete: "set null",
+    }),
+    concept_id: uuid("concept_id").references(() => library_concept.id, {
+      onDelete: "set null",
+    }),
+    user_id: text("user_id"),
+    action: text("action").notNull(),
+    payload: jsonb("payload").notNull().default(sql`'{}'::jsonb`),
+    created_at: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    concept_idx: index("library_event_concept_idx").on(t.concept_id, t.id.desc()),
+    org_recent_idx: index("library_event_org_recent_idx").on(t.org_id, t.id.desc()),
+  }),
+);
+
 export const workflow_definition = pgTable(
   "workflow_definition",
   {

@@ -151,6 +151,7 @@ export async function runLibraryDistill(input: {
         sources: [{ resource: `/${document.relativePath}`, last_modified: now }],
         generatedBy: await producerActor(),
         sourceDocumentId: document.id,
+        ...(op.stale_after ? { staleAfter: op.stale_after } : {}),
       });
       concepts.push(concept);
     }

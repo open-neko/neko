@@ -942,6 +942,23 @@ await b.work(QUEUE.METRIC_REFRESH_SCHEDULED_SWEEP, async () => {
       `[worker] memory TTL sweep failed: ${e instanceof Error ? e.message : e}`,
     );
   }
+  // Library staleness: stable concepts past stale_after become
+  // deprecated, and affected orgs get their team bundle re-materialized.
+  try {
+    const { sweepStaleLibraryConcepts } = await import("@neko/llm/work");
+    const { materializeTeamLibrary } = await import("@neko/llm");
+    const swept = await sweepStaleLibraryConcepts();
+    if (swept.deprecated > 0) {
+      console.log(`[worker] library staleness sweep: deprecated ${swept.deprecated}`);
+      for (const orgId of swept.orgIds) {
+        await materializeTeamLibrary(orgId);
+      }
+    }
+  } catch (e) {
+    console.warn(
+      `[worker] library staleness sweep failed: ${e instanceof Error ? e.message : e}`,
+    );
+  }
   // CV0: nightly memory checkpoint into the org config repo; CV4 also
   // checkpoints each member's personal layer onto their user/<id> ref.
   try {

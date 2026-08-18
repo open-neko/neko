@@ -29,6 +29,7 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
+    isAdmin: actor.role === "admin",
     documents,
     personal,
     team,

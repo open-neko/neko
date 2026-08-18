@@ -30,6 +30,7 @@ type ConceptRow = {
 };
 
 type LibraryData = {
+  isAdmin: boolean;
   documents: DocumentRow[];
   personal: ConceptRow[];
   team: ConceptRow[];
@@ -41,6 +42,7 @@ async function fetchLibraryData(signal?: AbortSignal): Promise<LibraryData> {
   if (!response.ok) throw new Error("Library could not be loaded.");
   const data = (await response.json()) as Partial<LibraryData>;
   return {
+    isAdmin: data.isAdmin === true,
     documents: data.documents ?? [],
     personal: data.personal ?? [],
     team: data.team ?? [],
@@ -50,6 +52,7 @@ async function fetchLibraryData(signal?: AbortSignal): Promise<LibraryData> {
 
 export default function LibraryPage() {
   const [data, setData] = useState<LibraryData>({
+    isAdmin: false,
     documents: [],
     personal: [],
     team: [],
@@ -155,7 +158,7 @@ export default function LibraryPage() {
   );
 
   const decide = useCallback(
-    (id: string, action: "approve" | "decline") =>
+    (id: string, action: "approve" | "decline" | "deprecate") =>
       act(
         id,
         () =>
@@ -225,7 +228,7 @@ export default function LibraryPage() {
     [act],
   );
 
-  const { documents, personal, team, pending } = data;
+  const { isAdmin, documents, personal, team, pending } = data;
 
   const conceptRow = (
     concept: ConceptRow,
@@ -512,7 +515,19 @@ export default function LibraryPage() {
                 conceptRow(
                   concept,
                   index,
-                  <span data-status={concept.status}>{humanize(concept.status)}</span>,
+                  <>
+                    <span data-status={concept.status}>{humanize(concept.status)}</span>
+                    {isAdmin && concept.status === "stable" ? (
+                      <button
+                        type="button"
+                        disabled={busyId === concept.id}
+                        onClick={() => void decide(concept.id, "deprecate")}
+                        title="Retire from the assistant's knowledge"
+                      >
+                        Deprecate
+                      </button>
+                    ) : null}
+                  </>,
                 ),
               )}
             </ol>

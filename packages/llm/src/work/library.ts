@@ -14,6 +14,7 @@ import {
   isNull,
   library_concept,
   library_document,
+  library_event,
   sql,
   work_run,
   work_thread,
@@ -115,6 +116,13 @@ export async function createLibraryDocument(input: {
       size_bytes: input.sizeBytes,
     })
     .returning();
+  await insertLibraryEvent({
+    orgId: input.orgId,
+    documentId: rows[0].id,
+    userId: input.userId,
+    action: "document_created",
+    payload: { filename: input.filename },
+  });
   return { document: rowToDocument(rows[0]), created: true };
 }
 
@@ -170,6 +178,17 @@ export async function markLibraryDocumentStatus(input: {
     .where(
       and(eq(library_document.org_id, input.orgId), eq(library_document.id, input.id)),
     );
+  if (input.status !== "distilling" && input.status !== "uploaded") {
+    await insertLibraryEvent({
+      orgId: input.orgId,
+      documentId: input.id,
+      action: `document_${input.status}`,
+      payload: {
+        ...(input.skipReason ? { skipReason: input.skipReason } : {}),
+        ...(input.error ? { error: input.error } : {}),
+      },
+    });
+  }
 }
 
 /**
@@ -191,6 +210,8 @@ export async function upsertLibraryConcept(input: {
   generatedBy?: string | null;
   sourceDocumentId?: string | null;
   status?: LibraryConceptStatus;
+  /** YYYY-MM-DD after which the concept is considered stale. */
+  staleAfter?: string | null;
 }): Promise<{ concept: LibraryConcept; created: boolean }> {
   const now = new Date();
   const embedding = await tryEmbed(embeddingText(input.title, input.description, input.body));
@@ -209,6 +230,7 @@ export async function upsertLibraryConcept(input: {
         generated_at: now,
         source_document_id: input.sourceDocumentId ?? existing.sourceDocumentId,
         ...(input.status ? { status: input.status } : {}),
+        ...(input.staleAfter !== undefined ? { stale_after: input.staleAfter } : {}),
         ...(embedding ? { embedding: sql`${embedding}::vector` } : {}),
         updated_at: now,
       })
@@ -216,6 +238,14 @@ export async function upsertLibraryConcept(input: {
         and(eq(library_concept.org_id, input.orgId), eq(library_concept.id, existing.id)),
       )
       .returning();
+    await insertLibraryEvent({
+      orgId: input.orgId,
+      conceptId: existing.id,
+      documentId: input.sourceDocumentId,
+      userId: input.userId,
+      action: "concept_updated",
+      payload: { path: input.path },
+    });
     return { concept: rowToConcept(rows[0]), created: false };
   }
   const rows = await db()
@@ -234,9 +264,18 @@ export async function upsertLibraryConcept(input: {
       generated_by: input.generatedBy ?? null,
       generated_at: now,
       source_document_id: input.sourceDocumentId ?? null,
+      stale_after: input.staleAfter ?? null,
       ...(embedding ? { embedding: sql`${embedding}::vector` } : {}),
     })
     .returning();
+  await insertLibraryEvent({
+    orgId: input.orgId,
+    conceptId: rows[0].id,
+    documentId: input.sourceDocumentId,
+    userId: input.userId,
+    action: "concept_created",
+    payload: { path: input.path },
+  });
   return { concept: rowToConcept(rows[0]), created: true };
 }
 
@@ -400,18 +439,27 @@ export async function shareLibraryConceptToTeam(input: {
     })
     .where(and(eq(library_concept.org_id, input.orgId), eq(library_concept.id, concept.id)))
     .returning();
+  await insertLibraryEvent({
+    orgId: input.orgId,
+    conceptId: concept.id,
+    userId: input.sharedBy,
+    action: "shared",
+    payload: { path: personal.path, fromConceptId: personal.id },
+  });
   return rowToConcept(rows[0]);
 }
 
 /**
- * Admin decision on a team draft. Approve stamps a human verification
- * (OKF actor convention "human:<id>") and flips to stable; decline
- * archives the draft. Idempotency guard mirrors acceptPendingWorkMemory.
+ * Admin decision on a team concept. Approve stamps a human verification
+ * (OKF actor convention "human:<id>") and flips a draft to stable;
+ * decline archives a draft; deprecate retires a stable concept from
+ * agent search and the materialized bundle. Idempotency guards mirror
+ * acceptPendingWorkMemory.
  */
 export async function decideLibraryConcept(input: {
   orgId: string;
   id: string;
-  action: "approve" | "decline";
+  action: "approve" | "decline" | "deprecate";
   decidedBy: string | null;
 }): Promise<LibraryConcept> {
   const concept = await getLibraryConcept(input.orgId, input.id);
@@ -421,28 +469,46 @@ export async function decideLibraryConcept(input: {
   if (concept.userId !== null) {
     throw new Error("Only team-layer concepts go through approval.");
   }
+  const now = new Date();
+  const actor = input.decidedBy ?? "admin";
+  const finish = async (
+    set: Partial<typeof library_concept.$inferInsert>,
+    action: string,
+  ): Promise<LibraryConcept> => {
+    const rows = await db()
+      .update(library_concept)
+      .set({ ...set, updated_at: now })
+      .where(
+        and(eq(library_concept.org_id, input.orgId), eq(library_concept.id, input.id)),
+      )
+      .returning();
+    await insertLibraryEvent({
+      orgId: input.orgId,
+      conceptId: input.id,
+      userId: input.decidedBy,
+      action,
+      payload: { path: concept.path },
+    });
+    return rowToConcept(rows[0]);
+  };
+
+  if (input.action === "deprecate") {
+    if (concept.status !== "stable") {
+      throw new Error(`Only stable concepts can be deprecated (is ${concept.status})`);
+    }
+    return finish({ status: "deprecated" }, "deprecated");
+  }
   if (concept.status !== "draft") {
     throw new Error(`Library concept ${input.id} already ${concept.status}`);
   }
-  const now = new Date();
   if (input.action === "decline") {
-    const rows = await db()
-      .update(library_concept)
-      .set({ archived_at: now, updated_at: now })
-      .where(and(eq(library_concept.org_id, input.orgId), eq(library_concept.id, input.id)))
-      .returning();
-    return rowToConcept(rows[0]);
+    return finish({ archived_at: now }, "declined");
   }
   const verified: OkfActorStamp[] = [
     ...concept.verified,
-    { by: `human:${input.decidedBy ?? "admin"}`, at: now.toISOString() },
+    { by: `human:${actor}`, at: now.toISOString() },
   ];
-  const rows = await db()
-    .update(library_concept)
-    .set({ status: "stable", verified, updated_at: now })
-    .where(and(eq(library_concept.org_id, input.orgId), eq(library_concept.id, input.id)))
-    .returning();
-  return rowToConcept(rows[0]);
+  return finish({ status: "stable", verified }, "approved");
 }
 
 /** Owner archives one of their personal concepts (team rows go through decide). */
@@ -461,6 +527,13 @@ export async function archiveLibraryConcept(input: {
     .set({ archived_at: now, updated_at: now })
     .where(and(eq(library_concept.org_id, input.orgId), eq(library_concept.id, input.id)))
     .returning();
+  await insertLibraryEvent({
+    orgId: input.orgId,
+    conceptId: input.id,
+    userId: input.userId,
+    action: "archived",
+    payload: { path: concept.path },
+  });
   return rowToConcept(rows[0]);
 }
 
@@ -496,7 +569,75 @@ export async function removeLibraryDocument(input: {
     .where(
       and(eq(library_document.org_id, input.orgId), eq(library_document.id, input.id)),
     );
+  await insertLibraryEvent({
+    orgId: input.orgId,
+    userId: input.userId,
+    action: "document_removed",
+    payload: { filename: document.filename },
+  });
   return document;
+}
+
+// Best-effort audit insert, mirroring insertWorkMemoryEvent — a logging
+// failure never fails the write it describes.
+export async function insertLibraryEvent(input: {
+  orgId: string;
+  documentId?: string | null;
+  conceptId?: string | null;
+  userId?: string | null;
+  action: string;
+  payload?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    await db().insert(library_event).values({
+      org_id: input.orgId,
+      document_id: input.documentId ?? null,
+      concept_id: input.conceptId ?? null,
+      user_id: input.userId ?? null,
+      action: input.action,
+      payload: input.payload ?? {},
+    });
+  } catch (err) {
+    console.warn(
+      `[library] event insert failed (write succeeded): ${err instanceof Error ? err.message : err}`,
+    );
+  }
+}
+
+/**
+ * Nightly staleness sweep: stable concepts past their stale_after date
+ * become deprecated — still stored and searchable in the UI, but
+ * excluded from agent search and the materialized team bundle. Returns
+ * the org ids that changed so callers can re-materialize their bundles.
+ */
+export async function sweepStaleLibraryConcepts(): Promise<{
+  deprecated: number;
+  orgIds: string[];
+}> {
+  const rows = await db()
+    .update(library_concept)
+    .set({ status: "deprecated", updated_at: new Date() })
+    .where(
+      and(
+        eq(library_concept.status, "stable"),
+        isNull(library_concept.archived_at),
+        sql`${library_concept.stale_after} IS NOT NULL`,
+        sql`${library_concept.stale_after} < CURRENT_DATE`,
+      ),
+    )
+    .returning({ id: library_concept.id, org_id: library_concept.org_id });
+  for (const row of rows) {
+    await insertLibraryEvent({
+      orgId: row.org_id,
+      conceptId: row.id,
+      action: "deprecated",
+      payload: { reason: "stale_after elapsed" },
+    });
+  }
+  return {
+    deprecated: rows.length,
+    orgIds: [...new Set(rows.map((r) => r.org_id))],
+  };
 }
 
 async function findActiveConceptByPath(

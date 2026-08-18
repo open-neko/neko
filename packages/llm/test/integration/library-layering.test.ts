@@ -36,6 +36,7 @@ import {
   listLibraryConcepts,
   searchLibraryByContext,
   shareLibraryConceptToTeam,
+  sweepStaleLibraryConcepts,
   upsertLibraryConcept,
 } from "../../src/work/library";
 
@@ -213,6 +214,76 @@ describeIfDb("library layering and search", () => {
 
       const list = await listLibraryConcepts({ orgId, userId: alice() });
       expect(list).toHaveLength(1);
+    } finally {
+      await deleteTestOrg(orgId);
+    }
+  });
+
+  it("staleness sweep deprecates expired stable concepts and search drops them", async () => {
+    try {
+      const { concept } = await upsertLibraryConcept({
+        orgId,
+        userId: null,
+        path: "contracts/expired-msa.md",
+        type: "Contract",
+        title: "Expired MSA",
+        body: "This agreement ended last year.",
+        status: "stable",
+        staleAfter: "2020-01-01",
+      });
+      const swept = await sweepStaleLibraryConcepts();
+      expect(swept.deprecated).toBeGreaterThanOrEqual(1);
+      expect(swept.orgIds).toContain(orgId);
+
+      const results = await searchLibraryByContext({
+        orgId,
+        userId: null,
+        query: "expired agreement",
+      });
+      expect(results.find((r) => r.concept.id === concept.id)).toBeUndefined();
+
+      const listed = await listLibraryConcepts({ orgId, userId: null });
+      expect(listed.find((c) => c.id === concept.id)?.status).toBe("deprecated");
+    } finally {
+      await deleteTestOrg(orgId);
+    }
+  });
+
+  it("admin deprecate retires a stable concept; drafts cannot be deprecated", async () => {
+    try {
+      const { concept } = await upsertLibraryConcept({
+        orgId,
+        userId: null,
+        path: "policies/old-policy.md",
+        type: "Policy",
+        title: "Old policy",
+        body: "Superseded.",
+        status: "stable",
+      });
+      const deprecated = await decideLibraryConcept({
+        orgId,
+        id: concept.id,
+        action: "deprecate",
+        decidedBy: alice(),
+      });
+      expect(deprecated.status).toBe("deprecated");
+
+      const { concept: draft } = await upsertLibraryConcept({
+        orgId,
+        userId: null,
+        path: "policies/draft-policy.md",
+        type: "Policy",
+        title: "Draft policy",
+        body: "Pending.",
+      });
+      await expect(
+        decideLibraryConcept({
+          orgId,
+          id: draft.id,
+          action: "deprecate",
+          decidedBy: alice(),
+        }),
+      ).rejects.toThrow(/stable/i);
     } finally {
       await deleteTestOrg(orgId);
     }

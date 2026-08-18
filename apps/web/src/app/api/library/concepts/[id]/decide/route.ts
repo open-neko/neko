@@ -24,10 +24,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const action = body.action === "decline" ? "decline" : body.action === "approve" ? "approve" : null;
+  const action = ["approve", "decline", "deprecate"].includes(body.action)
+    ? (body.action as "approve" | "decline" | "deprecate")
+    : null;
   if (!action) {
     return NextResponse.json(
-      { error: 'action must be "approve" or "decline"' },
+      { error: 'action must be "approve", "decline", or "deprecate"' },
       { status: 400 },
     );
   }
