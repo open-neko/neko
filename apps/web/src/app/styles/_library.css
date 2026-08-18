@@ -1387,3 +1387,36 @@
   vertical-align: -2px;
   margin-right: 4px;
 }
+
+.document-library .library-concept-title {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.document-library .library-concept-detail {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+}
+
+.document-library .library-concept-detail pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.document-library .library-concept-detail a {
+  color: inherit;
+}

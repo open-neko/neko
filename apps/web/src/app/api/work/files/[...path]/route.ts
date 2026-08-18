@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { extname } from "node:path";
 import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
-import { FORCE_DOWNLOAD_EXTENSIONS, readWorkFile } from "@/lib/work-files";
+import {
+  FORCE_DOWNLOAD_EXTENSIONS,
+  libraryOwnerSegment,
+  readWorkFile,
+} from "@/lib/work-files";
 import {
   getAuthorizedWorkRun,
   getAuthorizedWorkThread,
@@ -29,6 +33,16 @@ export async function GET(_: Request, context: RouteContext) {
     if (path?.[0] === "runs") {
       const runId = path[1] ?? "";
       if (!runId || !(await getAuthorizedWorkRun(orgId, runId, actor))) {
+        return NextResponse.json({ error: "not found" }, { status: 404 });
+      }
+    }
+    if (path?.[0] === "library") {
+      // library/uploads/<owner>/... — the owner or an admin only.
+      const owner = path[2] ?? "";
+      if (
+        path[1] !== "uploads" ||
+        (owner !== libraryOwnerSegment(actor.userId) && actor.role !== "admin")
+      ) {
         return NextResponse.json({ error: "not found" }, { status: 404 });
       }
     }

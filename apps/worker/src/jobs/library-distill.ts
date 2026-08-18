@@ -16,6 +16,7 @@ export async function runLibraryDistillJob(
   const result = await runLibraryDistill({
     orgId: payload.orgId,
     documentId: payload.documentId,
+    force: payload.force === true,
   });
   console.log(
     `[library_distill] document ${payload.documentId} → ${result.status}` +

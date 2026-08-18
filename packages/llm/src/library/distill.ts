@@ -52,13 +52,18 @@ async function defaultLlm(orgId: string): Promise<DistillLlm> {
 export async function runLibraryDistill(input: {
   orgId: string;
   documentId: string;
+  /** Bypass triage — used by explicit operator retries. */
+  force?: boolean;
   llm?: DistillLlm;
   extract?: DistillExtract;
 }): Promise<LibraryDistillResult> {
   const { orgId, documentId } = input;
   const document = await getLibraryDocument(orgId, documentId);
   if (!document) throw new Error(`library document not found: ${documentId}`);
-  if (document.status === "cataloged" || document.status === "skipped") {
+  if (
+    !input.force &&
+    (document.status === "cataloged" || document.status === "skipped")
+  ) {
     return { status: document.status, concepts: [] };
   }
   await markLibraryDocumentStatus({ orgId, id: documentId, status: "distilling" });
@@ -99,12 +104,14 @@ export async function runLibraryDistill(input: {
     }
     const content = outcome.text;
 
-    const decision = triageUpload({
-      filename: document.filename,
-      size: document.sizeBytes,
-      sample: content.slice(0, 4000),
-    });
-    if (decision.action === "skip") return await skip(decision.reason);
+    if (!input.force) {
+      const decision = triageUpload({
+        filename: document.filename,
+        size: document.sizeBytes,
+        sample: content.slice(0, 4000),
+      });
+      if (decision.action === "skip") return await skip(decision.reason);
+    }
 
     const catalog = await listLibraryConcepts({ orgId, userId: document.userId });
     const truncated = content.length > DISTILL_CONTENT_LIMIT;

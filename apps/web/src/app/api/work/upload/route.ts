@@ -56,7 +56,20 @@ export async function POST(request: Request) {
   // Auto-add to the uploader's personal library: create the tracking row
   // and queue the librarian. Best-effort — a library hiccup must never
   // fail the upload itself. Triage inside the distill job decides whether
-  // the file is durable knowledge or one-off working data.
+  // the file is durable knowledge or one-off working data. Callers can
+  // opt an upload out entirely with catalog=false (no library record at
+  // all — the file stays thread-only).
+  const catalog = String(form.get("catalog") ?? "true") !== "false";
+  if (!catalog) {
+    return NextResponse.json({
+      file: {
+        name: saved.name,
+        size: saved.size,
+        relativePath: saved.relativePath.replace(/\\/g, "/"),
+        absolutePath: saved.absolutePath,
+      },
+    });
+  }
   try {
     const actor = await getCurrentActor();
     const contentHash = createHash("sha256")

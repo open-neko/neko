@@ -445,6 +445,60 @@ export async function decideLibraryConcept(input: {
   return rowToConcept(rows[0]);
 }
 
+/** Owner archives one of their personal concepts (team rows go through decide). */
+export async function archiveLibraryConcept(input: {
+  orgId: string;
+  id: string;
+  userId: string | null;
+}): Promise<LibraryConcept> {
+  const concept = await getLibraryConcept(input.orgId, input.id);
+  if (!concept || concept.archivedAt || concept.userId !== input.userId) {
+    throw new Error(`Library concept not found: ${input.id}`);
+  }
+  const now = new Date();
+  const rows = await db()
+    .update(library_concept)
+    .set({ archived_at: now, updated_at: now })
+    .where(and(eq(library_concept.org_id, input.orgId), eq(library_concept.id, input.id)))
+    .returning();
+  return rowToConcept(rows[0]);
+}
+
+/**
+ * Owner removes a document from their library: the tracking row is
+ * deleted and every same-layer concept sourced from it is archived.
+ * The raw file is the caller's to clean up (thread uploads belong to
+ * the thread and are left alone; library-direct uploads get deleted).
+ */
+export async function removeLibraryDocument(input: {
+  orgId: string;
+  id: string;
+  userId: string | null;
+}): Promise<LibraryDocument> {
+  const document = await getLibraryDocument(input.orgId, input.id);
+  if (!document || document.userId !== input.userId) {
+    throw new Error(`Library document not found: ${input.id}`);
+  }
+  const now = new Date();
+  await db()
+    .update(library_concept)
+    .set({ archived_at: now, updated_at: now })
+    .where(
+      and(
+        eq(library_concept.org_id, input.orgId),
+        eq(library_concept.source_document_id, input.id),
+        userLayerCondition(library_concept.user_id, input.userId),
+        isNull(library_concept.archived_at),
+      ),
+    );
+  await db()
+    .delete(library_document)
+    .where(
+      and(eq(library_document.org_id, input.orgId), eq(library_document.id, input.id)),
+    );
+  return document;
+}
+
 async function findActiveConceptByPath(
   orgId: string,
   userId: string | null,

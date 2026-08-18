@@ -108,6 +108,8 @@ export type LibraryDistillPayload = {
   orgId: string;
   /** library_document.id to distill into OKF concepts. */
   documentId: string;
+  /** Operator retry: bypass triage and the cataloged/skipped guard. */
+  force?: boolean;
 };
 
 export type RecordsIdentityLinkPayload = {
