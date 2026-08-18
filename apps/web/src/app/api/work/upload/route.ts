@@ -71,7 +71,11 @@ export async function POST(request: Request) {
       contentHash,
       sizeBytes: saved.size,
     });
-    if (created) {
+    // Distill new documents, and retry a previously failed one on
+    // re-upload of the identical file (the environment may have been
+    // fixed since). Skipped stays skipped — triage's verdict stands —
+    // and cataloged/in-flight documents are left alone.
+    if (created || document.status === "failed") {
       const payload: LibraryDistillPayload = { orgId, documentId: document.id };
       await enqueue(QUEUE.LIBRARY_DISTILL, payload, {
         singletonKey: `library-distill:${document.id}`,
