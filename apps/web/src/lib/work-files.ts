@@ -67,6 +67,37 @@ export async function saveWorkUpload(
   };
 }
 
+/** Owner segment for library-direct uploads: solo installs have no user id. */
+export function libraryOwnerSegment(userId: string | null): string {
+  return (userId ?? "solo").replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+/**
+ * Direct-to-library upload (no thread): stored under
+ * library/uploads/<owner>/. Serving is owner-or-admin gated in the
+ * files route, unlike thread uploads which gate on thread access.
+ */
+export async function saveLibraryUpload(
+  orgId: string,
+  userId: string | null,
+  file: File,
+): Promise<{ relativePath: string; absolutePath: string; name: string; size: number }> {
+  const roots = await ensureOrgWorkspace(orgId);
+  const owner = libraryOwnerSegment(userId);
+  const dir = join(roots.orgRoot, "library", "uploads", owner);
+  await mkdir(dir, { recursive: true });
+  const safeName = safeFileName(file.name || "upload.bin");
+  const absolutePath = join(dir, safeName);
+  const buffer = Buffer.from(await file.arrayBuffer());
+  await writeFile(absolutePath, buffer);
+  return {
+    relativePath: join("library", "uploads", owner, safeName),
+    absolutePath,
+    name: safeName,
+    size: buffer.byteLength,
+  };
+}
+
 export function joinMessageWithAttachments(
   text: string,
   attachments: Array<{ relativePath: string; name: string; size?: number }>,
@@ -92,7 +123,8 @@ export async function readWorkFile(orgId: string, relativePath: string): Promise
     !normalized.startsWith("uploads/") &&
     !normalized.startsWith("runs/") &&
     !normalized.startsWith("skills/") &&
-    !normalized.startsWith("memory/")
+    !normalized.startsWith("memory/") &&
+    !normalized.startsWith("library/uploads/")
   ) {
     throw new Error("Unsupported work file path.");
   }

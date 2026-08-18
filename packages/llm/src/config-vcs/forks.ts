@@ -142,6 +142,7 @@ export async function snapshotUserConfig(
       path: `memory/${row.kind}/${row.id}.md`,
       content: [
         "---",
+        `type: ${row.kind}`,
         `id: ${row.id}`,
         `kind: ${row.kind}`,
         `pinned: ${row.pinned}`,

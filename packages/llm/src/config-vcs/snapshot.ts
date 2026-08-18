@@ -53,6 +53,8 @@ export async function snapshotDurableMemories(
       await mkdir(dir, { recursive: true });
       const body = [
         "---",
+        // OKF v0.2 conformance: `type` is the one required field.
+        `type: ${row.kind}`,
         `id: ${row.id}`,
         `kind: ${row.kind}`,
         `pinned: ${row.pinned}`,

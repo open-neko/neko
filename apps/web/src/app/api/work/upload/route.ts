@@ -1,4 +1,8 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
+import { enqueue, QUEUE, type LibraryDistillPayload } from "@neko/db/jobs";
+import { createLibraryDocument } from "@neko/llm/work";
+import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
 import { ALLOWED_UPLOAD_EXTENSIONS, MAX_UPLOAD_SIZE, saveWorkUpload } from "@/lib/work-files";
 import { getAuthorizedWorkThread } from "@/lib/work-thread-auth";
@@ -48,6 +52,54 @@ export async function POST(request: Request) {
   }
 
   const saved = await saveWorkUpload(orgId, threadId, file);
+
+  // Auto-add to the uploader's personal library: create the tracking row
+  // and queue the librarian. Best-effort — a library hiccup must never
+  // fail the upload itself. Triage inside the distill job decides whether
+  // the file is durable knowledge or one-off working data. Callers can
+  // opt an upload out entirely with catalog=false (no library record at
+  // all — the file stays thread-only).
+  const catalog = String(form.get("catalog") ?? "true") !== "false";
+  if (!catalog) {
+    return NextResponse.json({
+      file: {
+        name: saved.name,
+        size: saved.size,
+        relativePath: saved.relativePath.replace(/\\/g, "/"),
+        absolutePath: saved.absolutePath,
+      },
+    });
+  }
+  try {
+    const actor = await getCurrentActor();
+    const contentHash = createHash("sha256")
+      .update(Buffer.from(await file.arrayBuffer()))
+      .digest("hex");
+    const { document, created } = await createLibraryDocument({
+      orgId,
+      userId: actor.userId,
+      sourceThreadId: threadId,
+      filename: saved.name,
+      relativePath: saved.relativePath.replace(/\\/g, "/"),
+      contentHash,
+      sizeBytes: saved.size,
+    });
+    // Distill new documents, and retry a previously failed one on
+    // re-upload of the identical file (the environment may have been
+    // fixed since). Skipped stays skipped — triage's verdict stands —
+    // and cataloged/in-flight documents are left alone.
+    if (created || document.status === "failed") {
+      const payload: LibraryDistillPayload = { orgId, documentId: document.id };
+      await enqueue(QUEUE.LIBRARY_DISTILL, payload, {
+        singletonKey: `library-distill:${document.id}`,
+      });
+    }
+  } catch (error) {
+    console.warn(
+      `[work-upload] library auto-add failed (upload succeeded): ${error instanceof Error ? error.message : error}`,
+    );
+  }
+
   return NextResponse.json({
     file: {
       name: saved.name,

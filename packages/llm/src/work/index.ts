@@ -12,6 +12,7 @@ export {
   buildDataSourceManagerServer,
   buildGraphjinAgentServer,
   buildGraphjinReadServer,
+  buildLibraryServer,
   buildRecordsReadServer,
   buildPluginActionServer,
   buildPluginManagerServer,
@@ -40,6 +41,7 @@ export {
   type StartAgentBrokerOptions,
 } from "./broker";
 export * from "./memory";
+export * from "./library";
 export * from "./store";
 export * from "./authz";
 export * from "./personas";

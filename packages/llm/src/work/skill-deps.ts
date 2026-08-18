@@ -43,6 +43,15 @@ export const KNOWN_SKILL_DEPS: Record<string, SkillDeps> = {
     apt: ["poppler-utils", "qpdf"],
     brew: ["poppler", "qpdf"],
   },
+  "document-extraction": {
+    // The bundled extract_text.py degrades to stdlib zipfile parsing for
+    // docx/pptx/xlsx, so only the PDF/OCR path truly needs these.
+    python: ["pypdf", "docx", "pptx", "openpyxl"],
+    pip: ["pypdf", "python-docx", "python-pptx", "openpyxl"],
+    binaries: ["pdftotext", "tesseract", "file"],
+    apt: ["poppler-utils", "tesseract-ocr", "file"],
+    brew: ["poppler", "tesseract"],
+  },
   "internal-comms": {
     python: [],
     pip: [],

@@ -33,6 +33,7 @@ export const QUEUE = {
   RECORDS_WATCH_EVALUATE: "records_watch_evaluate",
   RECORDS_WATCH_SWEEP: "records_watch_sweep",
   CHANNEL_DELIVER: "channel_deliver",
+  LIBRARY_DISTILL: "library_distill",
 } as const;
 
 export type QueueName = (typeof QUEUE)[keyof typeof QUEUE];
@@ -101,6 +102,14 @@ export type RecordsImportPayload = {
   orgId: string;
   importRunId: string;
   actorUserId: string;
+};
+
+export type LibraryDistillPayload = {
+  orgId: string;
+  /** library_document.id to distill into OKF concepts. */
+  documentId: string;
+  /** Operator retry: bypass triage and the cataloged/skipped guard. */
+  force?: boolean;
 };
 
 export type RecordsIdentityLinkPayload = {

@@ -1,4 +1,5 @@
 ---
+type: Skill
 name: graphjin-config
 description: "Use when viewing or proposing changes to GraphJin sources, roles, access, security, runtime settings, and reload behavior."
 ---

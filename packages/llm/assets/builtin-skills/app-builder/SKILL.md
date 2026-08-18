@@ -1,4 +1,5 @@
 ---
+type: Skill
 name: app-builder
 description: Design or evolve governed OpenNeko record apps from plain-language workflows, recurring hand-tracked lists, or spreadsheets. Use when an operator asks to create an app, tracker, CRM, support desk, inventory system, or custom business workflow; add objects or fields; change permissions or layouts; or turn a CSV into a new app.
 ---

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { git } from "./git-shell";
 import { withRepoLock } from "./lock";
@@ -16,12 +16,30 @@ import { withRepoLock } from "./lock";
 const TRACKED_IGNORE = `# config-vcs (CV0): version config artifacts only.
 *
 !.gitignore
+!index.md
 !skills/
 !skills/**
 !workflows/
 !workflows/**
 !memory/
 !memory/**
+!library/
+!library/**
+`;
+
+// OKF bundle root: declares the version and catalogs the tracked trees.
+// Static — the per-directory contents change, the shape doesn't.
+const ROOT_INDEX = `---
+okf_version: "0.2"
+title: "OpenNeko org knowledge"
+---
+
+# OpenNeko org knowledge
+
+- [skills/](skills/) — what the assistant knows how to do
+- [workflows/](workflows/) — scheduled and saved workflows
+- [memory/](memory/) — durable team memories
+- [library/](library/okf/index.md) — approved knowledge distilled from documents
 `;
 
 export type ConfigCommit = {
@@ -38,10 +56,26 @@ export async function ensureConfigRepo(workspaceRoot: string): Promise<void> {
       await git(root, ["init", "--initial-branch=main"]);
     }
     const ignorePath = join(root, ".gitignore");
-    if (!existsSync(ignorePath)) {
+    // Rewrite when stale too (not just missing) so repos initialized
+    // before a tracked dir was added — e.g. library/ — pick it up.
+    const current = existsSync(ignorePath)
+      ? await readFile(ignorePath, "utf8").catch(() => null)
+      : null;
+    const indexPath = join(root, "index.md");
+    const currentIndex = existsSync(indexPath)
+      ? await readFile(indexPath, "utf8").catch(() => null)
+      : null;
+    if (current !== TRACKED_IGNORE || currentIndex !== ROOT_INDEX) {
       await writeFile(ignorePath, TRACKED_IGNORE, "utf8");
-      await git(root, ["add", ".gitignore"]);
-      await git(root, ["commit", "-m", "Initialize config versioning"]);
+      await writeFile(indexPath, ROOT_INDEX, "utf8");
+      await git(root, ["add", ".gitignore", "index.md"]);
+      await git(root, [
+        "commit",
+        "-m",
+        current === null
+          ? "Initialize config versioning"
+          : "Update tracked config paths",
+      ]);
     }
   });
 }

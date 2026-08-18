@@ -55,10 +55,11 @@ The memory layer runs on your own Postgres, on your own infrastructure:
 
 - **Findings & briefings** — every watcher run and result, kept against the watcher that produced it.
 - **Pinned facts & learned rules** — what the agent figured out and you confirmed, kept separate from what the agent proposed and you haven't decided on yet.
+- **Document library** — files you upload, distilled by a librarian agent into concepts the assistant searches and cites. Private to you until you share; team knowledge only after a human approves it.
 - **Action policies** — your rules for what auto-fires, what queues, what's blocked.
 - **Decision history** — every approval, rejection, and execution receipt.
 
-Apache-2.0 core, self-hosted, single Postgres. Take a backup, take it with you.
+Apache-2.0 core, self-hosted, single Postgres. Take a backup, take it with you — and the team library exports as a plain-Markdown [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf) bundle any OKF-aware tool can read.
 
 ## Plugins
 

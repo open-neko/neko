@@ -1,4 +1,5 @@
 ---
+type: Skill
 name: records
 description: Browse and query OpenNeko generated record apps, then propose governed record_create, record_update, record_delete, or record_restore actions safely. Use when a user asks to find, list, inspect, create, change, delete, restore, summarize, or answer questions about records in a generated app such as a CRM, support desk, inventory tracker, or custom workflow.
 ---

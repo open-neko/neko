@@ -114,6 +114,8 @@ All current `AgentEvent` variants map here or to runtime/action semantics:
 | `WORK-MEMORY-WRITE` | Agent/fence-driven memory writes validate scope, attribution, confidence, and dedupe | state oracle |
 | `WORK-MEMORY-LAYERS` | Personal/team overlays, hide/correct/promote/adopt, fork/pull, and restore preserve lineage | versioned state oracle |
 | `WORK-MEMORY-INTEGRITY` | Seal verification, expiry/TTL, and tamper handling prevent poisoned context | adversarial state test |
+| `LIBRARY-DISTILL` | Uploaded documents triage, extract, and distill into OKF concepts on the uploader's personal layer — update-not-append, content-hash dedupe, forced retry, clean failure reasons | distiller fixture oracle |
+| `LIBRARY-LAYERS` | Library concepts honor personal/team layering, share/approve/deprecate transitions, staleness sweep, and bundle export/import round-trip with trust state intact | versioned state oracle |
 | `WORK-PERSONA` | Operator role/profile changes prompt emphasis without weakening authorization | matched persona cases |
 | `WORK-COMPACTION` | Long-thread compaction retains decisions, figures, actions, and open tasks without cross-thread leakage | multi-turn oracle |
 | `WORK-SKILLS` | Skill discovery, dependency aggregation, install/use, and allowed-tool implications are correct | trace + artifact contract |
@@ -262,6 +264,7 @@ All current worker jobs map to the registry:
 | `records-import` | `RECORDS-IMPORT` |
 | `records-salesforce-export`, `records-salesforce-sync`, `records-salesforce-sync-sweep`, `records-salesforce-cutover` | `RECORDS-CONNECT` |
 | `records-identity-link` | `RECORDS-IDENTITY` |
+| `library-distill` | `LIBRARY-DISTILL`, `LIBRARY-LAYERS` |
 | `records-backup-verify`, `records-ops-health`, `records-ops-watch`, `records-ops-finding`, `records-lifecycle-finding`, `records-system-finding` | `RECORDS-OPS`, `OPS-BACKUP` |
 
 ## 12. Corpus growth rule
