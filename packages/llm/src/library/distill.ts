@@ -4,7 +4,6 @@
 // model call and text extraction are injectable so tests run without a
 // provider or the 22 MB embedding model.
 
-import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   getLibraryDocument,
@@ -14,6 +13,7 @@ import {
   type LibraryConcept,
 } from "../work/library";
 import { getOrgAgentRoot } from "../work/workspace";
+import { extractDocumentText, type ExtractOutcome } from "./extract";
 import { extractLibraryFences, type LibraryUpsertOp } from "./fence";
 import { buildDistillPrompt, DISTILL_CONTENT_LIMIT } from "./prompts";
 import { triageUpload } from "./triage";
@@ -22,46 +22,13 @@ export type DistillLlm = (prompt: string) => Promise<string>;
 export type DistillExtract = (input: {
   absolutePath: string;
   filename: string;
-}) => Promise<string | null>;
+}) => Promise<ExtractOutcome>;
 
 export type LibraryDistillResult = {
   status: "cataloged" | "skipped" | "failed";
   reason?: string;
   concepts: LibraryConcept[];
 };
-
-const TEXT_EXTENSIONS = new Set([
-  ".md",
-  ".txt",
-  ".html",
-  ".csv",
-  ".tsv",
-  ".json",
-]);
-
-/**
- * Default extractor: plain-text formats read directly (HTML crudely
- * de-tagged). Binary office formats return null — the caller records a
- * clear failure instead of feeding garbage to the model.
- */
-export async function extractUploadText(input: {
-  absolutePath: string;
-  filename: string;
-}): Promise<string | null> {
-  const idx = input.filename.lastIndexOf(".");
-  const ext = idx > 0 ? input.filename.slice(idx).toLowerCase() : "";
-  if (!TEXT_EXTENSIONS.has(ext)) return null;
-  const raw = await readFile(input.absolutePath, "utf8");
-  if (ext === ".html") {
-    return raw
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-  return raw;
-}
 
 async function defaultLlm(orgId: string): Promise<DistillLlm> {
   const [{ ax }, { buildLlm }] = await Promise.all([
@@ -125,13 +92,12 @@ export async function runLibraryDistill(input: {
       return await fail("upload path escapes the org workspace");
     }
 
-    const extract = input.extract ?? extractUploadText;
-    const content = await extract({ absolutePath, filename: document.filename });
-    if (content === null) {
-      return await fail(
-        `text extraction is not supported for "${document.filename}" yet — upload a text export (.md, .txt, .html, .csv, .json)`,
-      );
+    const extract = input.extract ?? extractDocumentText;
+    const outcome = await extract({ absolutePath, filename: document.filename });
+    if (!outcome.ok) {
+      return await fail(outcome.reason);
     }
+    const content = outcome.text;
 
     const decision = triageUpload({
       filename: document.filename,

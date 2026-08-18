@@ -8,8 +8,15 @@ export type TriageDecision =
   | { action: "distill" }
   | { action: "skip"; reason: string };
 
-const KNOWLEDGE_EXTENSIONS = new Set([".md", ".pdf", ".docx", ".html"]);
-const DATA_EXTENSIONS = new Set([".csv", ".json"]);
+const KNOWLEDGE_EXTENSIONS = new Set([
+  ".md",
+  ".pdf",
+  ".docx",
+  ".pptx",
+  ".html",
+  ".txt",
+]);
+const DATA_EXTENSIONS = new Set([".csv", ".tsv", ".json", ".xlsx"]);
 
 // A data-shaped file this small with mostly prose lines may still be a
 // pasted policy or notes export — let the distiller look at it.

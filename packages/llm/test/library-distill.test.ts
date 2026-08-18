@@ -35,7 +35,7 @@ vi.mock("../src/work/workspace", () => ({
   getOrgAgentRoot: vi.fn(() => workspaceRoot),
 }));
 
-import { extractUploadText, runLibraryDistill } from "../src/library/distill";
+import { runLibraryDistill } from "../src/library/distill";
 
 const ORG = "org-1";
 
@@ -176,7 +176,7 @@ describe("runLibraryDistill", () => {
     expect(llm).not.toHaveBeenCalled();
   });
 
-  it("fails cleanly on unsupported binary formats", async () => {
+  it("fails cleanly when extraction reports a failure", async () => {
     state.document = document({
       filename: "contract.pdf",
       relativePath: "uploads/thread-1/contract.pdf",
@@ -185,9 +185,10 @@ describe("runLibraryDistill", () => {
       orgId: ORG,
       documentId: "doc-1",
       llm: vi.fn(async () => FENCE_REPLY),
+      extract: async () => ({ ok: false, reason: "no extraction tool installed" }),
     });
     expect(result.status).toBe("failed");
-    expect(state.statuses.at(-1)?.error).toContain("text extraction");
+    expect(state.statuses.at(-1)?.error).toBe("no extraction tool installed");
   });
 
   it("fails when the reply has no parseable ops", async () => {
@@ -221,21 +222,3 @@ describe("runLibraryDistill", () => {
   });
 });
 
-describe("extractUploadText", () => {
-  it("strips tags from html", async () => {
-    const file = join(workspaceRoot, "uploads", "thread-1", "page.html");
-    await writeFile(
-      file,
-      "<html><style>b{}</style><body><h1>Policy</h1><p>Refunds in 30 days.</p></body></html>",
-      "utf8",
-    );
-    const text = await extractUploadText({ absolutePath: file, filename: "page.html" });
-    expect(text).toBe("Policy Refunds in 30 days.");
-  });
-
-  it("returns null for binary formats", async () => {
-    expect(
-      await extractUploadText({ absolutePath: "/nope.docx", filename: "a.docx" }),
-    ).toBeNull();
-  });
-});
