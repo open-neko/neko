@@ -44,6 +44,7 @@ worker_queues:
   records_watch_evaluate: [RECORDS-WATCH]
   records_watch_sweep: [RECORDS-WATCH]
   channel_deliver: [CHANNEL-DELIVERY]
+  library_distill: [LIBRARY-DISTILL, LIBRARY-LAYERS]
 
 observation_kinds:
   run.start: [RUNTIME-OBSERVABILITY]

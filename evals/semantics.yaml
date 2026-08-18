@@ -494,6 +494,24 @@ entries:
     disposition: declared
     owners:
       - packages/llm/src/work
+  - id: LIBRARY-DISTILL
+    category: work-context
+    description: Uploaded documents triage, extract, and distill into OKF concepts
+      on the uploader's personal layer — update-not-append, content-hash dedupe,
+      forced retry, clean failure reasons
+    verification: distiller fixture oracle
+    disposition: declared
+    owners:
+      - packages/llm/src/work
+  - id: LIBRARY-LAYERS
+    category: work-context
+    description: Library concepts honor personal/team layering,
+      share/approve/deprecate transitions, staleness sweep, and bundle
+      export/import round-trip with trust state intact
+    verification: versioned state oracle
+    disposition: declared
+    owners:
+      - packages/llm/src/work
   - id: WORK-PERSONA
     category: work-context
     description: Operator role/profile changes prompt emphasis without weakening
