@@ -124,12 +124,15 @@ RUN OPENSHELL_ASSET_ID="$(case "${TARGETARCH}" in amd64) echo "${OPENSHELL_ASSET
     && openshell --version
 
 # ─── 2b. cli: + doc-skill toolchain (agent image only) ─────────────────
-# Bundled skills (xlsx / pptx / docx / pdf) shell out to Python + LibreOffice +
-# Poppler / qpdf via the agent's Bash inside the OpenShell sandbox — web/worker
-# never run these, so the ~1GB toolchain stays out of their images.
+# Bundled skills (xlsx / pptx / docx / pdf / document-extraction) shell out to
+# Python + LibreOffice + Poppler / qpdf / Tesseract via the agent's Bash inside
+# the OpenShell sandbox — web never runs these, so the ~1GB toolchain stays out
+# of its image (the worker gets a minimal subset below for the librarian).
+# Keep this list in sync with KNOWN_SKILL_DEPS (packages/llm/src/work/skill-deps.ts);
+# `pnpm skills:check` prints the current aggregate.
 FROM runtime-base AS cli
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 python3-pip libreoffice poppler-utils qpdf \
+      python3 python3-pip libreoffice poppler-utils qpdf tesseract-ocr file \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --no-cache-dir --break-system-packages \
        openpyxl python-pptx Pillow python-docx pypdf pdfplumber reportlab PyYAML
@@ -260,6 +263,15 @@ RUN pnpm --filter @neko/worker deploy --prod /out/worker-app
 # admin endpoints on port 4100 for liveness probes.
 FROM runtime-base AS worker
 WORKDIR /app
+# Minimal extraction toolchain for the library distiller ("the librarian"),
+# which shells out to the bundled document-extraction script on this host:
+# python3 covers docx/pptx/xlsx via stdlib zipfile fallbacks, pdftotext
+# (poppler-utils) covers PDFs. Deliberately no pip deps and no tesseract —
+# scanned-PDF OCR runs in the agent image; a worker-side extraction miss
+# fails the document row with a clear reason and is retryable from /library.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production \
     PORT=4100 \
     HOSTNAME=0.0.0.0 \
