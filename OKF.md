@@ -121,8 +121,10 @@ rules are.
 - **Personal/team layering is not an OKF concept.** The exporter enforces
   team-layer-only, as the current snapshot already does. The layering rules
   themselves are referenced in code comments as `docs/DATA_LIFECYCLE.md`,
-  which does not exist yet — writing it is a prerequisite for the importer's
-  correctness rules and should land with or before item 2.
+  which does not exist — and cannot as referenced, since `docs/` is
+  gitignored. Writing it (at a committable path, updating the code
+  references) is a prerequisite for the importer's correctness rules and
+  should land with or before item 2.
 - **OpenNeko-specific fields** (confidence, promotion lineage) go in as
   additional frontmatter keys — explicitly permitted; OKF consumers must not
   reject unknown keys.
@@ -130,7 +132,7 @@ rules are.
 ## Suggested order
 
 1. Item 1 (bundle conformance) — small serializer change, immediate value.
-2. `docs/DATA_LIFECYCLE.md` — codify the layering rules the importer depends on.
+2. `DATA_LIFECYCLE.md` — codify the layering rules the importer depends on.
 3. Item 2 (export/import CLI), with item 3's field mapping, plus a JSON
    Schema for the bundle contract in the style of
    `evals/schemas/*.v1.schema.json`.
