@@ -5,7 +5,7 @@ import type {
   AgentWorkspace,
 } from "../agent-backend";
 import type { AgentControlPlane } from "../work/control-plane";
-import { buildWorkMemoryServer } from "../work/tools";
+import { buildLibraryServer, buildWorkMemoryServer } from "../work/tools";
 import { buildWorkflowActionServer } from "./action-server";
 import { buildWorkflowOutputServer } from "./output-server";
 import {
@@ -84,6 +84,12 @@ export async function runWorkflowAgentBackend(
             threadId,
             runId,
           },
+          { controlPlane },
+        ),
+        // Search-only: workflows consult the document library the same
+        // way chat turns do (layering resolved from the run binding).
+        neko_library: buildLibraryServer(
+          { orgId, threadId, runId },
           { controlPlane },
         ),
       }
