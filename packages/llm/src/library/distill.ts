@@ -48,7 +48,8 @@ export async function extractUploadText(input: {
   absolutePath: string;
   filename: string;
 }): Promise<string | null> {
-  const ext = extension(input.filename);
+  const idx = input.filename.lastIndexOf(".");
+  const ext = idx > 0 ? input.filename.slice(idx).toLowerCase() : "";
   if (!TEXT_EXTENSIONS.has(ext)) return null;
   const raw = await readFile(input.absolutePath, "utf8");
   if (ext === ".html") {

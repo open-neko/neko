@@ -7,6 +7,7 @@ import {
   Brain,
   CheckCircle2,
   Home,
+  LibraryBig,
   MessageCircle,
   MonitorPlay,
   Plug,
@@ -73,6 +74,14 @@ export const SECONDARY_NAV: NavDestination[] = [
     shortLabel: "Memory",
     description: "Pinned facts and learned rules",
     icon: Brain,
+    group: "knowledge",
+  },
+  {
+    href: "/library",
+    label: "Library",
+    shortLabel: "Library",
+    description: "Documents distilled into knowledge",
+    icon: LibraryBig,
     group: "knowledge",
   },
   {

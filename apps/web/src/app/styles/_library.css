@@ -1358,3 +1358,32 @@
     display: none;
   }
 }
+
+/* ─── Document library (/library) ─── */
+
+.document-library .memory-review-actions span[data-status] {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text2);
+}
+
+.document-library .memory-review-actions span[data-status="cataloged"],
+.document-library .memory-review-actions span[data-status="stable"] {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.document-library .memory-review-actions span[data-status="failed"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.document-library .memory-review-actions button svg,
+.document-library .memory-review-meta svg {
+  vertical-align: -2px;
+  margin-right: 4px;
+}

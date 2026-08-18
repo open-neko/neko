@@ -1,0 +1,243 @@
+// Integration tests for the library domain: layered visibility (team vs
+// personal), the share → approve flow, and pgvector search shape.
+// Embeddings are mocked (same anchors as the memory search suite); a
+// real Postgres exercises the Drizzle column types and SQL.
+
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { app_user, db, pool } from "@neko/db";
+import {
+  createTestOrg,
+  dbReachable,
+  deleteTestOrg,
+  uniqueOrgId,
+} from "@neko/db/test-helpers";
+
+vi.mock("../../src/embedding", async () => {
+  const EMBEDDING_DIM = 384;
+  return {
+    EMBEDDING_DIM,
+    embedText: vi.fn(async (text: string) => {
+      const seed = text
+        .split("")
+        .reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) >>> 0, 7);
+      const v = new Array<number>(EMBEDDING_DIM);
+      for (let i = 0; i < EMBEDDING_DIM; i++) {
+        v[i] = Math.sin(seed + i) * 0.1;
+      }
+      return v;
+    }),
+    vectorLiteral: (vec: number[]) => `[${vec.join(",")}]`,
+  };
+});
+
+import {
+  createLibraryDocument,
+  decideLibraryConcept,
+  listLibraryConcepts,
+  searchLibraryByContext,
+  shareLibraryConceptToTeam,
+  upsertLibraryConcept,
+} from "../../src/work/library";
+
+const reachable = await dbReachable();
+const describeIfDb = reachable ? describe : describe.skip;
+
+if (!reachable) {
+  console.warn("[library-layering] skipping: Postgres unreachable.");
+}
+
+describeIfDb("library layering and search", () => {
+  afterAll(async () => {
+    await pool().end();
+  });
+
+  let orgId: string;
+  const ALICE = "user-alice";
+  const BOB = "user-bob";
+
+  beforeEach(async () => {
+    orgId = uniqueOrgId("lib");
+    await createTestOrg(orgId, "Library Test");
+    await db()
+      .insert(app_user)
+      .values([
+        { id: `${orgId}-${ALICE}`, email: "alice@example.com", org_id: orgId, role: "member" },
+        { id: `${orgId}-${BOB}`, email: "bob@example.com", org_id: orgId, role: "member" },
+      ]);
+  });
+
+  const alice = () => `${orgId}-${ALICE}`;
+  const bob = () => `${orgId}-${BOB}`;
+
+  it("keeps personal concepts invisible to other members and to the team layer", async () => {
+    try {
+      await upsertLibraryConcept({
+        orgId,
+        userId: alice(),
+        path: "policies/refund-policy.md",
+        type: "Policy",
+        title: "Refund policy",
+        body: "Refunds within 30 days need CFO approval over $500.",
+      });
+
+      const aliceView = await searchLibraryByContext({
+        orgId,
+        userId: alice(),
+        query: "refund policy approvals",
+      });
+      expect(aliceView).toHaveLength(1);
+      expect(aliceView[0].layer).toBe("personal");
+
+      const bobView = await searchLibraryByContext({
+        orgId,
+        userId: bob(),
+        query: "refund policy approvals",
+      });
+      expect(bobView).toEqual([]);
+
+      const teamOnly = await searchLibraryByContext({
+        orgId,
+        userId: null,
+        query: "refund policy approvals",
+      });
+      expect(teamOnly).toEqual([]);
+    } finally {
+      await deleteTestOrg(orgId);
+    }
+  });
+
+  it("share → approve promotes a concept into everyone's view with a human verification", async () => {
+    try {
+      const { concept: personal } = await upsertLibraryConcept({
+        orgId,
+        userId: alice(),
+        path: "policies/refund-policy.md",
+        type: "Policy",
+        title: "Refund policy",
+        body: "Refunds within 30 days.",
+      });
+
+      const draft = await shareLibraryConceptToTeam({
+        orgId,
+        id: personal.id,
+        sharedBy: alice(),
+      });
+      expect(draft.userId).toBeNull();
+      expect(draft.status).toBe("draft");
+      expect(draft.promotedFromId).toBe(personal.id);
+
+      const approved = await decideLibraryConcept({
+        orgId,
+        id: draft.id,
+        action: "approve",
+        decidedBy: alice(),
+      });
+      expect(approved.status).toBe("stable");
+      expect(approved.verified.at(-1)?.by).toBe(`human:${alice()}`);
+
+      const bobView = await searchLibraryByContext({
+        orgId,
+        userId: bob(),
+        query: "refund policy",
+      });
+      expect(bobView.some((r) => r.concept.id === draft.id && r.layer === "team")).toBe(
+        true,
+      );
+    } finally {
+      await deleteTestOrg(orgId);
+    }
+  });
+
+  it("decline archives the draft and double-decisions are rejected", async () => {
+    try {
+      const { concept: personal } = await upsertLibraryConcept({
+        orgId,
+        userId: alice(),
+        path: "notes/scratch.md",
+        type: "Notes",
+        title: "Scratch",
+        body: "Not for the team.",
+      });
+      const draft = await shareLibraryConceptToTeam({
+        orgId,
+        id: personal.id,
+        sharedBy: alice(),
+      });
+      const declined = await decideLibraryConcept({
+        orgId,
+        id: draft.id,
+        action: "decline",
+        decidedBy: alice(),
+      });
+      expect(declined.archivedAt).not.toBeNull();
+
+      await expect(
+        decideLibraryConcept({ orgId, id: draft.id, action: "approve", decidedBy: alice() }),
+      ).rejects.toThrow(/not found/i);
+
+      const team = await listLibraryConcepts({ orgId, userId: null });
+      expect(team.find((c) => c.id === draft.id)).toBeUndefined();
+    } finally {
+      await deleteTestOrg(orgId);
+    }
+  });
+
+  it("upsert revises the existing concept at a path instead of duplicating", async () => {
+    try {
+      const first = await upsertLibraryConcept({
+        orgId,
+        userId: alice(),
+        path: "policies/refund-policy.md",
+        type: "Policy",
+        title: "Refund policy",
+        body: "v1",
+        sources: [{ resource: "/uploads/t/a.md" }],
+      });
+      expect(first.created).toBe(true);
+      const second = await upsertLibraryConcept({
+        orgId,
+        userId: alice(),
+        path: "policies/refund-policy.md",
+        type: "Policy",
+        title: "Refund policy (updated)",
+        body: "v2",
+        sources: [{ resource: "/uploads/t/b.md" }],
+      });
+      expect(second.created).toBe(false);
+      expect(second.concept.id).toBe(first.concept.id);
+      expect(second.concept.body).toBe("v2");
+      expect(second.concept.sources.map((s) => s.resource).sort()).toEqual([
+        "/uploads/t/a.md",
+        "/uploads/t/b.md",
+      ]);
+
+      const list = await listLibraryConcepts({ orgId, userId: alice() });
+      expect(list).toHaveLength(1);
+    } finally {
+      await deleteTestOrg(orgId);
+    }
+  });
+
+  it("createLibraryDocument is idempotent on content hash per layer", async () => {
+    try {
+      const input = {
+        orgId,
+        userId: alice(),
+        filename: "policy.md",
+        relativePath: "uploads/t/policy.md",
+        contentHash: "abc123",
+        sizeBytes: 100,
+      };
+      const first = await createLibraryDocument(input);
+      const second = await createLibraryDocument(input);
+      expect(first.created).toBe(true);
+      expect(second.created).toBe(false);
+      expect(second.document.id).toBe(first.document.id);
+
+      const bobCopy = await createLibraryDocument({ ...input, userId: bob() });
+      expect(bobCopy.created).toBe(true);
+    } finally {
+      await deleteTestOrg(orgId);
+    }
+  });
+});
