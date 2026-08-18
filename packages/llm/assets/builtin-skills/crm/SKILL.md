@@ -1,4 +1,5 @@
 ---
+type: Skill
 name: crm
 description: Model or interpret a generated CRM app, especially for Salesforce-shaped sales data. Use when a user wants a CRM, sales pipeline, account/contact/deal tracking, Salesforce replacement or import, opportunity stages, ownership mapping, or help interpreting a CRM import report.
 ---

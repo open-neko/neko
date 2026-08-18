@@ -1,4 +1,5 @@
 ---
+type: Skill
 name: document-extraction
 description: Extract plain text from any uploaded document — PDF (including scanned pages via OCR), DOCX, PPTX, XLSX, HTML, and unknown or oddly-encoded files. Use whenever you need the text content of a non-plain-text file before summarizing, cataloging, or answering questions about it.
 version: 1.0.0

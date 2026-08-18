@@ -1,4 +1,5 @@
 ---
+type: Skill
 name: support-desk
 description: Model or interpret a generated customer-support app, especially for Zendesk-shaped data. Use when a user wants a support desk, ticket and requester tracking, Zendesk replacement or import, queues and assignment, service priorities or statuses, or help interpreting a support import report.
 ---

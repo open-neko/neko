@@ -1,4 +1,5 @@
 ---
+type: Skill
 name: excel-author
 description: Build auditable Excel workbooks headless with openpyxl — blue/black/green cell conventions, formulas over hardcodes, named ranges, balance checks, sensitivity tables. Use for financial models, audit outputs, reconciliations.
 version: 1.0.0

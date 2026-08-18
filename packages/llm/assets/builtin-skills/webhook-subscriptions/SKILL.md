@@ -1,4 +1,5 @@
 ---
+type: Skill
 name: webhook-subscriptions
 description: "Webhook subscriptions: event-driven agent runs."
 version: 1.1.0

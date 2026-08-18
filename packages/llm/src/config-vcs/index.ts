@@ -16,6 +16,7 @@ import { withRepoLock } from "./lock";
 const TRACKED_IGNORE = `# config-vcs (CV0): version config artifacts only.
 *
 !.gitignore
+!index.md
 !skills/
 !skills/**
 !workflows/
@@ -24,6 +25,21 @@ const TRACKED_IGNORE = `# config-vcs (CV0): version config artifacts only.
 !memory/**
 !library/
 !library/**
+`;
+
+// OKF bundle root: declares the version and catalogs the tracked trees.
+// Static — the per-directory contents change, the shape doesn't.
+const ROOT_INDEX = `---
+okf_version: "0.2"
+title: "OpenNeko org knowledge"
+---
+
+# OpenNeko org knowledge
+
+- [skills/](skills/) — what the assistant knows how to do
+- [workflows/](workflows/) — scheduled and saved workflows
+- [memory/](memory/) — durable team memories
+- [library/](library/okf/index.md) — approved knowledge distilled from documents
 `;
 
 export type ConfigCommit = {
@@ -45,9 +61,14 @@ export async function ensureConfigRepo(workspaceRoot: string): Promise<void> {
     const current = existsSync(ignorePath)
       ? await readFile(ignorePath, "utf8").catch(() => null)
       : null;
-    if (current !== TRACKED_IGNORE) {
+    const indexPath = join(root, "index.md");
+    const currentIndex = existsSync(indexPath)
+      ? await readFile(indexPath, "utf8").catch(() => null)
+      : null;
+    if (current !== TRACKED_IGNORE || currentIndex !== ROOT_INDEX) {
       await writeFile(ignorePath, TRACKED_IGNORE, "utf8");
-      await git(root, ["add", ".gitignore"]);
+      await writeFile(indexPath, ROOT_INDEX, "utf8");
+      await git(root, ["add", ".gitignore", "index.md"]);
       await git(root, [
         "commit",
         "-m",

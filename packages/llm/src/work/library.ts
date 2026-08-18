@@ -212,6 +212,8 @@ export async function upsertLibraryConcept(input: {
   status?: LibraryConceptStatus;
   /** YYYY-MM-DD after which the concept is considered stale. */
   staleAfter?: string | null;
+  /** Import path only: carry verification stamps from a bundle. */
+  verified?: OkfActorStamp[];
 }): Promise<{ concept: LibraryConcept; created: boolean }> {
   const now = new Date();
   const embedding = await tryEmbed(embeddingText(input.title, input.description, input.body));
@@ -231,6 +233,7 @@ export async function upsertLibraryConcept(input: {
         source_document_id: input.sourceDocumentId ?? existing.sourceDocumentId,
         ...(input.status ? { status: input.status } : {}),
         ...(input.staleAfter !== undefined ? { stale_after: input.staleAfter } : {}),
+        ...(input.verified !== undefined ? { verified: input.verified } : {}),
         ...(embedding ? { embedding: sql`${embedding}::vector` } : {}),
         updated_at: now,
       })
@@ -265,6 +268,7 @@ export async function upsertLibraryConcept(input: {
       generated_at: now,
       source_document_id: input.sourceDocumentId ?? null,
       stale_after: input.staleAfter ?? null,
+      verified: input.verified ?? [],
       ...(embedding ? { embedding: sql`${embedding}::vector` } : {}),
     })
     .returning();

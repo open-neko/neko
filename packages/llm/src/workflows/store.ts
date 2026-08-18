@@ -312,6 +312,8 @@ function workflowSlug(name: string): string {
 function workflowMarkdown(workflow: WorkflowRecord): string {
   return [
     "---",
+    // OKF v0.2 conformance: `type` is the one required field.
+    "type: Workflow",
     `name: ${JSON.stringify(workflow.name)}`,
     `goal: ${JSON.stringify(workflow.goal)}`,
     `cron: ${workflow.cron ? JSON.stringify(workflow.cron) : "null"}`,

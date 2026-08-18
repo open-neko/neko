@@ -29,6 +29,13 @@ type ConceptRow = {
   updatedAt: string;
 };
 
+type PackRow = {
+  id: string;
+  title: string;
+  description: string;
+  concepts: number;
+};
+
 type LibraryData = {
   isAdmin: boolean;
   documents: DocumentRow[];
@@ -63,7 +70,9 @@ export default function LibraryPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [packs, setPacks] = useState<PackRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -225,6 +234,73 @@ export default function LibraryPage() {
         "Concept could not be archived.",
       );
     },
+    [act],
+  );
+
+  useEffect(() => {
+    if (!data.isAdmin) return;
+    const controller = new AbortController();
+    fetch("/api/library/packs", { cache: "no-store", signal: controller.signal })
+      .then(async (res) => (res.ok ? res.json() : { packs: [] }))
+      .then((payload: { packs?: PackRow[] }) => setPacks(payload.packs ?? []))
+      .catch(() => {});
+    return () => controller.abort();
+  }, [data.isAdmin]);
+
+  const exportBundle = useCallback(async () => {
+    try {
+      const res = await fetch("/api/library/export", { cache: "no-store" });
+      if (!res.ok) throw new Error("Export failed.");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "library-okf-bundle.json";
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Export failed.");
+    }
+  }, []);
+
+  const importBundle = useCallback(
+    async (files: FileList | null) => {
+      const file = files?.[0];
+      if (!file) return;
+      try {
+        const parsed = JSON.parse(await file.text()) as unknown;
+        const res = await fetch("/api/library/import", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(parsed),
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => null)) as
+            | { error?: string }
+            | null;
+          throw new Error(payload?.error ?? "Import failed.");
+        }
+        setError(null);
+        await refresh();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Import failed.");
+      } finally {
+        if (importInputRef.current) importInputRef.current.value = "";
+      }
+    },
+    [refresh],
+  );
+
+  const installPack = useCallback(
+    (id: string) =>
+      act(
+        id,
+        () =>
+          fetch(`/api/library/packs/${encodeURIComponent(id)}/install`, {
+            method: "POST",
+          }),
+        "Pack could not be installed.",
+      ),
     [act],
   );
 
@@ -533,6 +609,59 @@ export default function LibraryPage() {
             </ol>
           )}
         </section>
+        {isAdmin ? (
+          <section className="library-section">
+            <header className="library-section-head">
+              <div>
+                <span>Admin</span>
+                <h2>Portability &amp; starter packs</h2>
+              </div>
+            </header>
+            <div className="memory-review-actions library-portability">
+              <button type="button" onClick={() => void exportBundle()}>
+                Export OKF bundle
+              </button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".json,application/json"
+                hidden
+                onChange={(event) => void importBundle(event.target.files)}
+              />
+              <button type="button" onClick={() => importInputRef.current?.click()}>
+                Import bundle
+              </button>
+            </div>
+            {packs.length > 0 ? (
+              <ol className="memory-review-list">
+                {packs.map((pack, index) => (
+                  <li key={pack.id} className="memory-review-row">
+                    <span className="library-index">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <div className="memory-review-copy">
+                      <div className="memory-review-meta">
+                        <span>{pack.id}</span>
+                        <span>{pack.concepts} concepts</span>
+                      </div>
+                      <p>{pack.title}</p>
+                      {pack.description ? <small>{pack.description}</small> : null}
+                    </div>
+                    <div className="memory-review-actions">
+                      <button
+                        type="button"
+                        disabled={busyId === pack.id}
+                        onClick={() => void installPack(pack.id)}
+                      >
+                        Install
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+          </section>
+        ) : null}
       </main>
     </div>
   );

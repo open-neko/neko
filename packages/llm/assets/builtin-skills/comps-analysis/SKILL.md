@@ -1,4 +1,5 @@
 ---
+type: Skill
 name: comps-analysis
 description: Build comparable company analysis in Excel — operating metrics, valuation multiples, statistical benchmarking vs peer sets. Pairs with excel-author. Use for public-company valuation, IPO pricing, sector benchmarking, or outlier detection.
 version: 1.0.0

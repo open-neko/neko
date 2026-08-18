@@ -1,4 +1,5 @@
 ---
+type: Skill
 name: 3-statement-model
 description: Build fully-integrated 3-statement models (IS, BS, CF) in Excel with working capital schedules, D&A roll-forwards, debt schedule, and the plugs that make cash and retained earnings tie. Pairs with excel-author.
 version: 1.0.0

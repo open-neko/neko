@@ -1,4 +1,5 @@
 ---
+type: Skill
 name: access-admin
 description: Assign, change, inspect, or remove user and SSO-group access to OpenNeko generated apps, objects, and fields through governed entitlement actions. Use when an administrator asks who can access an app, to grant or revoke app access, or to set read/create/update/delete or field read/write permissions.
 ---

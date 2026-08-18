@@ -1,4 +1,5 @@
 ---
+type: Skill
 name: lbo-model
 description: Build leveraged buyout models in Excel — sources & uses, debt schedule, cash sweep, exit multiple, IRR/MOIC sensitivity. Pairs with excel-author. Use for PE screening, sponsor-case valuation, or illustrative LBO in a pitch.
 version: 1.0.0

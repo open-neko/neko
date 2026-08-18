@@ -1420,3 +1420,7 @@
 .document-library .library-concept-detail a {
   color: inherit;
 }
+
+.document-library .library-portability {
+  padding: 0 0 16px;
+}
