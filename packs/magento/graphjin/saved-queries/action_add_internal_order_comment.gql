@@ -1,0 +1,9 @@
+mutation MagentoAddInternalOrderComment($request: JSON!) {
+  magento_add_order_comment(call: $request) {
+    ok
+    status_code
+    operation_id
+    request_id
+    response_json
+  }
+}

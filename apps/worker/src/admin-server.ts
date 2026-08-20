@@ -211,6 +211,18 @@ export interface InstallPolicyHandlerSurface {
   }>;
 }
 
+export interface PacksHandlerSurface {
+  list(): Promise<unknown>;
+  inspect(packId: string): Promise<unknown>;
+  plan(packId: string): Promise<unknown>;
+  status(packId: string): Promise<unknown>;
+  doctor(packId: string): Promise<unknown>;
+  install(packId: string, input: Record<string, unknown>): Promise<unknown>;
+  configure(packId: string, input: Record<string, unknown>): Promise<unknown>;
+  upgrade(packId: string, input: Record<string, unknown>): Promise<unknown>;
+  uninstall(packId: string, input: Record<string, unknown>): Promise<unknown>;
+}
+
 export interface PluginsHandlerSurface {
   status(): PluginRegistryStatus;
   /**
@@ -318,6 +330,8 @@ export type AdminHandlerOptions = {
   recordsImports?: RecordsImportHandlerSurface | null;
   /** Trusted web→worker action creation so worker-owned preflight hooks run. */
   actionRequests?: ActionRequestHandlerSurface | null;
+  /** Embedded, first-party solution-pack lifecycle. */
+  packs?: PacksHandlerSurface | null;
 };
 
 export interface ActionRequestHandlerSurface {
@@ -376,6 +390,7 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
   const recordsWatches = opts.recordsWatches ?? null;
   const recordsImports = opts.recordsImports ?? null;
   const actionRequests = opts.actionRequests ?? null;
+  const packs = opts.packs ?? null;
 
   return function handle(req: IncomingMessage, res: ServerResponse) {
     if (req.method === "GET" && req.url === "/health") {
@@ -541,6 +556,38 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
       void handleInstallPolicy(res, installPolicy);
       return;
     }
+    if (req.method === "GET" && req.url === "/admin/packs") {
+      void handlePacksList(res, packs);
+      return;
+    }
+    const packPath = (req.url ?? "").split(/[?#]/, 1)[0] ?? "";
+    const packRoute = /^\/admin\/packs\/([^/]+)(?:\/(plan|status|doctor|install|configure|upgrade|uninstall))?$/.exec(
+      packPath,
+    );
+    if (packRoute) {
+      let packId: string;
+      try {
+        packId = decodeURIComponent(packRoute[1]!);
+      } catch {
+        json(res, 400, { error: "pack id contains invalid URL encoding" });
+        return;
+      }
+      const action = packRoute[2] ?? "inspect";
+      if (req.method === "GET" && !["install", "configure", "upgrade", "uninstall"].includes(action)) {
+        void handlePackRead(res, packs, packId, action as "inspect" | "plan" | "status" | "doctor");
+        return;
+      }
+      if (req.method === "POST" && ["install", "configure", "upgrade", "uninstall"].includes(action)) {
+        void handlePackApply(
+          req,
+          res,
+          packs,
+          packId,
+          action as "install" | "configure" | "upgrade" | "uninstall",
+        );
+        return;
+      }
+    }
     if (req.method === "GET" && req.url === "/admin/channels/providers") {
       handleChannelProviders(res, channels);
       return;
@@ -561,6 +608,66 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
     }
     res.writeHead(404).end();
   };
+}
+
+async function handlePacksList(
+  res: ServerResponse,
+  packs: PacksHandlerSurface | null,
+): Promise<void> {
+  if (!packs) {
+    json(res, 503, { error: "solution-pack service unavailable" });
+    return;
+  }
+  try {
+    json(res, 200, { packs: await packs.list() });
+  } catch (error) {
+    json(res, 500, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handlePackRead(
+  res: ServerResponse,
+  packs: PacksHandlerSurface | null,
+  packId: string,
+  action: "inspect" | "plan" | "status" | "doctor",
+): Promise<void> {
+  if (!packs) {
+    json(res, 503, { error: "solution-pack service unavailable" });
+    return;
+  }
+  try {
+    const result = await packs[action](packId);
+    if (action === "status" && result === null) {
+      json(res, 404, { error: `pack ${packId} is not installed` });
+      return;
+    }
+    json(res, 200, result);
+  } catch (error) {
+    json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handlePackApply(
+  req: IncomingMessage,
+  res: ServerResponse,
+  packs: PacksHandlerSurface | null,
+  packId: string,
+  action: "install" | "configure" | "upgrade" | "uninstall",
+): Promise<void> {
+  if (!packs) {
+    json(res, 503, { error: "solution-pack service unavailable" });
+    return;
+  }
+  const body = await readJson(req).catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    json(res, 400, { error: "request body must be a JSON object" });
+    return;
+  }
+  try {
+    json(res, 200, await packs[action](packId, body as Record<string, unknown>));
+  } catch (error) {
+    json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 async function handleActionRequestCreate(

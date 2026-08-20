@@ -130,6 +130,13 @@ export default async function SettingsPage() {
         jwtSources === enabledSources.length,
     },
     {
+      href: "/admin/settings/packs",
+      title: "Solution packs",
+      copy: "Connect and administer Magento and future application packs without using the terminal.",
+      status: "Magento available",
+      statusOk: true,
+    },
+    {
       href: "/admin/settings/research",
       title: "Research",
       copy: "Optional industry research run during onboarding.",

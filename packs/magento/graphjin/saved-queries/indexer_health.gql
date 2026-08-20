@@ -1,0 +1,7 @@
+query MagentoIndexerHealth($staleBefore: String!) {
+  indexer_state(where: {or: [{status: {neq: "valid"}}, {updated: {lt: $staleBefore}}]}, order_by: {updated: asc}) {
+    indexer_id
+    status
+    updated
+  }
+}

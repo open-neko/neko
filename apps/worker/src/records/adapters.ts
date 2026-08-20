@@ -379,6 +379,13 @@ async function writeRequest(
 ): Promise<RecordWriteRequest> {
   const payload = request.payload;
   const operation = operationForKind(kind);
+  if (kind === "record_create") {
+    assertOnlyKeys(payload, ["app", "object", "fields"]);
+  } else if (kind === "record_update") {
+    assertOnlyKeys(payload, ["app", "object", "id", "fields", "expected"]);
+  } else {
+    assertOnlyKeys(payload, ["app", "object", "id"]);
+  }
   const common = {
     actionRequestId: request.id,
     orgId: request.orgId,
@@ -389,11 +396,9 @@ async function writeRequest(
   };
 
   if (kind === "record_create") {
-    assertOnlyKeys(payload, ["app", "object", "fields"]);
     return { ...common, fields: requiredRecord(payload, "fields") };
   }
   if (kind === "record_update") {
-    assertOnlyKeys(payload, ["app", "object", "id", "fields", "expected"]);
     return {
       ...common,
       id: requiredString(payload, "id"),
@@ -401,7 +406,6 @@ async function writeRequest(
       expected: optionalRecord(payload, "expected"),
     };
   }
-  assertOnlyKeys(payload, ["app", "object", "id"]);
   return { ...common, id: requiredString(payload, "id") };
 }
 

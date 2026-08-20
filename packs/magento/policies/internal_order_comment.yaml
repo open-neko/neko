@@ -1,0 +1,18 @@
+key: policy.internal_order_comment
+targetRef: magento.policy.internal_order_comment
+name: Magento internal order comment approval
+description: Every private note added to a Magento order requires an OpenNeko administrator to approve it.
+appliesToKinds: [magento.add_internal_order_comment]
+appliesToScopes: [internal]
+mode: ask
+approverRole: admin
+priority: 10
+enabled: true
+allowedTargets:
+  source: magento_operator
+  operationId: magentoAddInternalOrderComment
+limits:
+  maxCommentLength: 1000
+  maxExecutionsPerRequest: 1
+  customerNotified: false
+  visibleOnFront: false

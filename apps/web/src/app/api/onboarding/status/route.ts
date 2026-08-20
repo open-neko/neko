@@ -29,7 +29,7 @@ const STAGE_KINDS: StageKind[] = [
 ];
 
 const PROFILE_BUILD_FAILED_MESSAGE =
-  "Setup could not finish because the profiler agent failed. Check the agent provider configuration, then try again.";
+  "Setup could not finish because the agent became unavailable. Confirm `openneko status` shows serving, re-test the model in Admin → Settings → Agent, then try again.";
 
 function isStageKind(s: string): s is StageKind {
   return (STAGE_KINDS as string[]).includes(s);

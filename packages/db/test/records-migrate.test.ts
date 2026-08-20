@@ -86,6 +86,30 @@ describe("buildRecordsPoolConfig", () => {
       ssl: { rejectUnauthorized: false },
     });
   });
+
+  it("can prefer explicit host-development environment values", () => {
+    expect(
+      buildRecordsPoolConfig(
+        {
+          OPENNEKO_PG_ENV_OVERRIDE: "1",
+          RECORDS_PG_HOST: "127.0.0.1",
+          RECORDS_PG_PORT: "56434",
+          RECORDS_PG_PASSWORD: "host-password",
+        },
+        {
+          localConfig: {
+            host: "records-db",
+            port: 5432,
+            password: "container-password",
+          },
+        },
+      ),
+    ).toMatchObject({
+      host: "127.0.0.1",
+      port: 56434,
+      password: "host-password",
+    });
+  });
 });
 
 describe("discoverRecordsMigrations", () => {

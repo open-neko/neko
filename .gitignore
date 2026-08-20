@@ -9,7 +9,7 @@ apps/web/.cache/
 apps/web/test-results/
 apps/web/playwright-report/
 
-docs/
+/docs/
 .turbo/
 dist/
 build/

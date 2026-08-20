@@ -69,6 +69,7 @@ func NewRoot() *cobra.Command {
 
 Getting started: setup (guided install — preflight, bring-up, configure).
 Plugin ops: init, install, list, remove, marketplace, secrets, doctor.
+Solution packs: pack list, pack inspect, pack plan, pack install, pack status.
 Stack ops:  start, upgrade, stop, logs, status, backup, restore, migrate, seed, reset.
 Developer ops: eval.`,
 		Version:       version.Version,
@@ -92,6 +93,7 @@ Developer ops: eval.`,
 		newDoctorCmd(),
 		newMarketplaceCmd(),
 		newSecretsCmd(),
+		newPackCmd(),
 		newVersionCmd(),
 		newStartCmd(),
 		newUpgradeCmd(),

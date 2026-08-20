@@ -1,0 +1,12 @@
+query MagentoStockStatus($threshold: Float = 5) {
+  inventory_source_item(
+    where: {or: [{status: {eq: 0}}, {quantity: {lte: $threshold}}]}
+    order_by: {quantity: asc}
+    limit: 100
+  ) {
+    sku
+    source_code
+    quantity
+    status
+  }
+}

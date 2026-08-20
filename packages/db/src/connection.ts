@@ -51,21 +51,23 @@ function envPort(): number | undefined {
 
 export function buildPoolConfig(overrides: { database?: string } = {}): PoolConfig {
   const cfg = readLocalConfig().pg ?? {};
+  const environmentFirst = nonEmptyEnv("OPENNEKO_PG_ENV_OVERRIDE") === "1";
+  const choose = <T>(environmentValue: T | undefined, localValue: T | undefined): T | undefined =>
+    environmentFirst ? environmentValue ?? localValue : localValue ?? environmentValue;
   const poolCfg: PoolConfig = {
-    host: cfg.host ?? nonEmptyEnv("NEKO_PG_HOST") ?? DEFAULT_PG.host,
-    port: cfg.port ?? envPort() ?? DEFAULT_PG.port,
-    user: cfg.user ?? nonEmptyEnv("NEKO_PG_USER") ?? DEFAULT_PG.user,
+    host: choose(nonEmptyEnv("NEKO_PG_HOST"), cfg.host) ?? DEFAULT_PG.host,
+    port: choose(envPort(), cfg.port) ?? DEFAULT_PG.port,
+    user: choose(nonEmptyEnv("NEKO_PG_USER"), cfg.user) ?? DEFAULT_PG.user,
     password:
-      cfg.password ?? nonEmptyEnv("NEKO_PG_PASSWORD") ?? DEFAULT_PG.password,
+      choose(nonEmptyEnv("NEKO_PG_PASSWORD"), cfg.password) ?? DEFAULT_PG.password,
     database:
       overrides.database ??
-      cfg.database ??
-      nonEmptyEnv("NEKO_PG_DATABASE") ??
+      choose(nonEmptyEnv("NEKO_PG_DATABASE"), cfg.database) ??
       DEFAULT_PG.database,
     max: 10,
   };
 
-  if ((cfg.sslmode ?? nonEmptyEnv("NEKO_PG_SSLMODE")) === "require") {
+  if (choose(nonEmptyEnv("NEKO_PG_SSLMODE"), cfg.sslmode) === "require") {
     poolCfg.ssl = { rejectUnauthorized: false };
   }
 

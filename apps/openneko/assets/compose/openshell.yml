@@ -4,11 +4,11 @@
 #
 #   docker compose -f compose.yml -f compose.openshell.yml up
 #
-# STATUS: VALIDATED end-to-end on the Linux target (neko-vm / GCP, 2026-06-03):
-# containerised gateway boots with mTLS, the Docker driver creates a sandbox,
-# the supervisor fetches policy + reaches Ready, exec runs, and default-deny
-# egress is enforced. On macOS/OrbStack the same compose stalls at JWT delivery
-# (see requirement #4) — run it on Linux.
+# STATUS: VALIDATED end-to-end on Linux and macOS/OrbStack. The containerised
+# gateway boots with mTLS, the Docker driver creates a sandbox, the supervisor
+# fetches policy + reaches Ready, exec runs, and default-deny egress is
+# enforced. On macOS the host-side state path must live under $HOME; the
+# `openneko` supervisor configures that automatically (see requirement #4).
 #
 # Hard requirements proven during bring-up:
 #  1. Docker sandboxes REQUIRE mTLS (JWT + client-cert auth); --disable-tls is a
@@ -135,6 +135,37 @@ services:
       # path the gateway hands the daemon resolves identically on the host.
       - ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}:${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}
 
+  # A running gateway container is not yet a usable gateway: it still has to
+  # finish its database migrations and bind the mTLS control plane. Probe a
+  # real, read-only RPC before either app process is allowed to start. This
+  # closes the fresh-install race where setup completed successfully but the
+  # first profiler sandbox failed with "No active gateway"/connection errors.
+  openshell-ready:
+    image: ghcr.io/open-neko/neko-worker:${OPENNEKO_VERSION:-latest}
+    restart: "no"
+    entrypoint: ["/bin/sh", "-ceu"]
+    command:
+      - |
+        attempt=0
+        until openshell --gateway openneko provider list --names >/dev/null 2>&1; do
+          attempt=$$((attempt + 1))
+          if [ "$$attempt" -ge 60 ]; then
+            echo "OpenShell gateway did not become ready within 120 seconds" >&2
+            openshell --gateway openneko provider list --names
+            exit 1
+          fi
+          sleep 2
+        done
+        echo "OpenShell gateway ready"
+    environment:
+      HOME: /tmp/openneko-home
+      XDG_CONFIG_HOME: /config
+    volumes:
+      - openshell-config:/config/openshell:ro
+    depends_on:
+      openshell-gateway:
+        condition: service_started
+
   # Worker: channel-triggered agent runs + plugins, both in OpenShell sandboxes.
   worker:
     environment:
@@ -155,8 +186,8 @@ services:
     volumes:
       - openshell-config:/config/openshell
     depends_on:
-      openshell-gateway:
-        condition: service_started
+      openshell-ready:
+        condition: service_completed_successfully
 
   # Web: interactive chat launches the agent in a sandbox too (the Next.js server
   # is the control plane; the agent never runs in-process). Same flags; egress
@@ -173,8 +204,8 @@ services:
     volumes:
       - openshell-config:/config/openshell
     depends_on:
-      openshell-gateway:
-        condition: service_started
+      openshell-ready:
+        condition: service_completed_successfully
 
 volumes:
   # Holds the worker/web CLI's gateway registration at /config/openshell (the

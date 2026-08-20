@@ -29,9 +29,16 @@ import {
 } from "@neko/db";
 import { callRoute } from "../_helpers/route";
 
-const { mockGetOrgId, mockEnqueue } = vi.hoisted(() => ({
+const {
+  mockGetOrgId,
+  mockEnqueue,
+  mockHasPrimaryProviderSetup,
+  mockRequireAgentRuntimeReady,
+} = vi.hoisted(() => ({
   mockGetOrgId: vi.fn(),
   mockEnqueue: vi.fn(),
+  mockHasPrimaryProviderSetup: vi.fn(),
+  mockRequireAgentRuntimeReady: vi.fn(),
 }));
 
 vi.mock("@/lib/db", async () => {
@@ -42,6 +49,20 @@ vi.mock("@/lib/db", async () => {
 vi.mock("@neko/db/jobs", async () => {
   const actual = await vi.importActual<typeof import("@neko/db/jobs")>("@neko/db/jobs");
   return { ...actual, enqueue: mockEnqueue };
+});
+
+vi.mock("@/lib/provider-settings", () => ({
+  hasPrimaryProviderSetup: mockHasPrimaryProviderSetup,
+}));
+
+vi.mock("@/lib/agent-runtime-readiness", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/lib/agent-runtime-readiness")
+  >("@/lib/agent-runtime-readiness");
+  return {
+    ...actual,
+    requireAgentRuntimeReady: mockRequireAgentRuntimeReady,
+  };
 });
 
 const reachable = await dbReachable();
@@ -65,6 +86,8 @@ describeIfDb("/api/onboarding/submit", () => {
     await createTestOrg(orgId);
     mockGetOrgId.mockResolvedValue(orgId);
     mockEnqueue.mockResolvedValue("queue-id-stub");
+    mockHasPrimaryProviderSetup.mockResolvedValue(true);
+    mockRequireAgentRuntimeReady.mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -128,6 +151,7 @@ describeIfDb("/api/onboarding/submit", () => {
       expect.objectContaining({ orgId, processingJobId: jobId }),
       { retryLimit: 0 },
     );
+    expect(mockRequireAgentRuntimeReady).toHaveBeenCalledWith(orgId);
   });
 
   it("re-submission replaces the wizard row (no duplicate primary key)", async () => {
@@ -165,6 +189,40 @@ describeIfDb("/api/onboarding/submit", () => {
       },
     });
     expect(res.status).toBe(400);
+    const wizards = await db()
+      .select({ id: onboarding_wizard.org_id })
+      .from(onboarding_wizard)
+      .where(eq(onboarding_wizard.org_id, orgId));
+    expect(wizards).toHaveLength(0);
+  });
+
+  it("does not write or enqueue work when the agent runtime is unavailable", async () => {
+    const { AgentRuntimeUnavailableError } = await import(
+      "@/lib/agent-runtime-readiness"
+    );
+    mockRequireAgentRuntimeReady.mockRejectedValueOnce(
+      new AgentRuntimeUnavailableError(),
+    );
+
+    const res = await callRoute(POST, {
+      method: "POST",
+      body: {
+        companyName: "AdventureWorks Cycles",
+        companyNote: "We sell bikes",
+        fiscalYearStartMonth: 7,
+        activeSeats: ["CEO"],
+        priorities: [],
+      },
+    });
+
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ code: "agent_runtime_unavailable" });
+    expect(mockEnqueue).not.toHaveBeenCalled();
+    const jobs = await db()
+      .select({ id: processing_job.id })
+      .from(processing_job)
+      .where(eq(processing_job.org_id, orgId));
+    expect(jobs).toHaveLength(0);
     const wizards = await db()
       .select({ id: onboarding_wizard.org_id })
       .from(onboarding_wizard)

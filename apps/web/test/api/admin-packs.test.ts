@@ -1,0 +1,118 @@
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { NextResponse } from "next/server";
+import { callRoute } from "../_helpers/route";
+
+const { mockRequireAdminActor } = vi.hoisted(() => ({
+  mockRequireAdminActor: vi.fn(),
+}));
+
+vi.mock("@/lib/admin-auth", () => ({
+  requireAdminActor: mockRequireAdminActor,
+  isDenied: (value: unknown) => value instanceof Response,
+}));
+
+let fetchMock: MockInstance;
+
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+beforeEach(() => {
+  mockRequireAdminActor.mockResolvedValue({ userId: "admin-1", role: "admin" });
+  fetchMock = vi.spyOn(globalThis, "fetch");
+});
+
+afterEach(() => {
+  fetchMock.mockRestore();
+  vi.clearAllMocks();
+});
+
+describe("/api/admin/packs", () => {
+  it("proxies the embedded pack list", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { packs: [{ id: "magento" }] }));
+    const { GET } = await import("@/app/api/admin/packs/route");
+    const result = await callRoute(GET);
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ packs: [{ id: "magento" }] });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/admin/packs");
+  });
+
+  it("keeps the worker route behind the admin gate", async () => {
+    mockRequireAdminActor.mockResolvedValue(
+      NextResponse.json({ error: "admin only" }, { status: 403 }),
+    );
+    const { GET } = await import("@/app/api/admin/packs/route");
+    const result = await callRoute(GET);
+    expect(result.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("/api/admin/packs/[packId]/[action]", () => {
+  it("proxies status reads", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { packId: "magento", status: "installed" }));
+    const { GET } = await import("@/app/api/admin/packs/[packId]/[action]/route");
+    const result = await callRoute(
+      (request) => GET(request, { params: Promise.resolve({ packId: "magento", action: "status" }) }),
+    );
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ packId: "magento", status: "installed" });
+  });
+
+  it("adds a server-owned actor and idempotency key to writes", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { packId: "magento", status: "installed" }));
+    const { POST } = await import("@/app/api/admin/packs/[packId]/[action]/route");
+    const result = await callRoute(
+      (request) => POST(request, { params: Promise.resolve({ packId: "magento", action: "install" }) }),
+      {
+        method: "POST",
+        body: { actorUserId: "forged", inputs: { "database.host": "db" } },
+      },
+    );
+    expect(result.status).toBe(200);
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.actorUserId).toBe("admin-1");
+    expect(body.idempotencyKey).toEqual(expect.any(String));
+  });
+
+  it("rejects unknown operations before contacting the worker", async () => {
+    const { GET } = await import("@/app/api/admin/packs/[packId]/[action]/route");
+    const result = await callRoute(
+      (request) => GET(request, { params: Promise.resolve({ packId: "magento", action: "erase" }) }),
+    );
+    expect(result.status).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed JSON as a client error", async () => {
+    const { POST } = await import("@/app/api/admin/packs/[packId]/[action]/route");
+    const request = new Request("http://localhost/api/admin/packs/magento/install", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{broken",
+    });
+    const response = await POST(request as never, {
+      params: Promise.resolve({ packId: "magento", action: "install" }),
+    });
+    expect(response.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized bodies even without a content-length header", async () => {
+    const { POST } = await import("@/app/api/admin/packs/[packId]/[action]/route");
+    const request = new Request("http://localhost/api/admin/packs/magento/install", {
+      method: "POST",
+      body: JSON.stringify({ value: "x".repeat(65 * 1024) }),
+    });
+    request.headers.delete("content-length");
+    const response = await POST(request as never, {
+      params: Promise.resolve({ packId: "magento", action: "install" }),
+    });
+    expect(response.status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

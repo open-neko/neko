@@ -4,11 +4,9 @@
 #
 #   docker compose -f compose.yml -f compose.openshell.yml up
 #
-# STATUS: VALIDATED end-to-end on the Linux target (neko-vm / GCP, 2026-06-03):
-# containerised gateway boots with mTLS, the Docker driver creates a sandbox,
-# the supervisor fetches policy + reaches Ready, exec runs, and default-deny
-# egress is enforced. On macOS/OrbStack the same compose stalls at JWT delivery
-# (see requirement #4) — run it on Linux.
+# STATUS: VALIDATED end-to-end on Linux and macOS/OrbStack. On macOS, set
+# OPENSHELL_STATE_DIR to an absolute path under $HOME; the commands in
+# INSTALL.md do this automatically (see requirement #4).
 #
 # Hard requirements proven during bring-up:
 #  1. Docker sandboxes REQUIRE mTLS (JWT + client-cert auth); --disable-tls is a
@@ -36,6 +34,16 @@
 #     the egress netns). The plugin-base + agent images provide both.
 
 services:
+  # Build and tag the agent image from this checkout. The one-shot proves the
+  # image starts and leaves the tag available for OpenShell sandbox creation.
+  agent-image:
+    image: ${OPENNEKO_AGENT_IMAGE:-openneko-agent:dev}
+    build:
+      context: .
+      target: agent
+    restart: "no"
+    command: ["node", "--version"]
+
   # Generate the mTLS PKI (CA + server + client + JWT signing key). Distroless
   # image → run the binary directly. The state dir is mounted at an identical
   # path so generate-certs' temp-dir rename stays on one device (requirement #2).
@@ -92,7 +100,7 @@ services:
       # `docker compose -p ...` supplies COMPOSE_PROJECT_NAME during
       # interpolation; the explicit name must match the runtime network below.
       OPENNEKO_COMPOSE_NETWORK: "${COMPOSE_PROJECT_NAME}_runtime"
-      OPENSHELL_GATEWAY_IP: "${OPENSHELL_GATEWAY_IP:-172.29.0.2}"
+      OPENSHELL_GATEWAY_IP: "${OPENSHELL_GATEWAY_IP:-172.29.3.2}"
     volumes:
       - ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/pki:${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/pki:ro
       - openshell-config:/config/openshell
@@ -116,7 +124,7 @@ services:
         condition: service_completed_successfully
     environment:
       OPENSHELL_DRIVERS: docker
-      OPENSHELL_DB_URL: ${OPENSHELL_DB_URL:-postgres://neko:secret@neko-db:5432/neko}
+      OPENSHELL_DB_URL: ${OPENSHELL_DB_URL:-postgres://openshell:${OPENNEKO_OPENSHELL_DB_PASSWORD:-openneko-openshell-development-password}@neko-db:5432/neko}
       OPENSHELL_LOCAL_TLS_DIR: ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/pki
       XDG_DATA_HOME: ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}/cache
       # Matched, host-shared HOME (requirement #4) — NOT /tmp.
@@ -127,7 +135,7 @@ services:
       - "127.0.0.1:${OPENSHELL_PORT:-18080}:${OPENSHELL_PORT:-18080}"
     networks:
       default:
-        ipv4_address: "${OPENSHELL_GATEWAY_IP:-172.29.0.2}"
+        ipv4_address: "${OPENSHELL_GATEWAY_IP:-172.29.3.2}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - openshell-config:/config/openshell:ro
@@ -135,13 +143,46 @@ services:
       # path the gateway hands the daemon resolves identically on the host.
       - ${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}:${OPENSHELL_STATE_DIR:-/var/lib/openneko/openshell}
 
+  # Do not let web/worker advertise readiness until a real mTLS gateway RPC
+  # succeeds. Container state alone is not enough on a fresh install.
+  openshell-ready:
+    build:
+      context: .
+      target: worker
+    restart: "no"
+    entrypoint: ["/bin/sh", "-ceu"]
+    command:
+      - |
+        attempt=0
+        until openshell --gateway openneko provider list --names >/dev/null 2>&1; do
+          attempt=$$((attempt + 1))
+          if [ "$$attempt" -ge 60 ]; then
+            echo "OpenShell gateway did not become ready within 120 seconds" >&2
+            openshell --gateway openneko provider list --names
+            exit 1
+          fi
+          sleep 2
+        done
+        echo "OpenShell gateway ready"
+    environment:
+      HOME: /tmp/openneko-home
+      XDG_CONFIG_HOME: /config
+    volumes:
+      - openshell-config:/config/openshell:ro
+    depends_on:
+      agent-image:
+        condition: service_completed_successfully
+      openshell-gateway:
+        condition: service_started
+
   # Worker: channel-triggered agent runs + plugins, both in OpenShell sandboxes.
   worker:
     environment:
       OPENNEKO_PLUGIN_BASE_IMAGE: ${OPENNEKO_PLUGIN_BASE_IMAGE:-ghcr.io/open-neko/plugin-base:${OPENNEKO_VERSION:-latest}}
-      OPENNEKO_AGENT_IMAGE: ${OPENNEKO_AGENT_IMAGE:-ghcr.io/open-neko/agent:${OPENNEKO_VERSION:-latest}}
+      OPENNEKO_AGENT_IMAGE: ${OPENNEKO_AGENT_IMAGE:-openneko-agent:dev}
       # provider / egress host / connecting binary / key-env are derived from the
       # org's model config by provisionHostConfig — no per-deploy egress wiring.
+      OPENNEKO_AGENT_MODEL_BINARY: ${OPENNEKO_AGENT_MODEL_BINARY:-}
       OPENSHELL_GATEWAY: openneko
       # The sandbox shares this Compose network and receives the broker's
       # private container IP, without crossing the host network.
@@ -152,15 +193,16 @@ services:
     volumes:
       - openshell-config:/config/openshell
     depends_on:
-      openshell-gateway:
-        condition: service_started
+      openshell-ready:
+        condition: service_completed_successfully
 
   # Web: interactive chat launches the agent in a sandbox too (the Next.js server
   # is the control plane; the agent never runs in-process). Same flags; egress
   # self-derives on the first settings save (provisionHostConfig).
   web:
     environment:
-      OPENNEKO_AGENT_IMAGE: ${OPENNEKO_AGENT_IMAGE:-ghcr.io/open-neko/agent:${OPENNEKO_VERSION:-latest}}
+      OPENNEKO_AGENT_IMAGE: ${OPENNEKO_AGENT_IMAGE:-openneko-agent:dev}
+      OPENNEKO_AGENT_MODEL_BINARY: ${OPENNEKO_AGENT_MODEL_BINARY:-}
       OPENSHELL_GATEWAY: openneko
       OPENNEKO_SANDBOX_SHARED_NETWORK: "1"
       OPENNEKO_BROKER_PORT: ${OPENNEKO_WEB_BROKER_PORT:-4198}
@@ -169,8 +211,8 @@ services:
     volumes:
       - openshell-config:/config/openshell
     depends_on:
-      openshell-gateway:
-        condition: service_started
+      openshell-ready:
+        condition: service_completed_successfully
 
 volumes:
   # Holds the worker/web CLI's gateway registration at /config/openshell (the
@@ -187,7 +229,8 @@ networks:
     name: "${COMPOSE_PROJECT_NAME}_runtime"
     ipam:
       config:
-        - subnet: "${OPENNEKO_DOCKER_SUBNET:-172.29.0.0/24}"
+        - subnet: "${OPENNEKO_DOCKER_SUBNET:-172.29.3.0/24}"
+          gateway: "${OPENNEKO_DOCKER_GATEWAY:-172.29.3.1}"
           # Keep dynamic service/sandbox allocation away from the gateway's
           # fixed .2 address (the CLI derives this range for custom subnets).
-          ip_range: "${OPENNEKO_DOCKER_IP_RANGE:-172.29.0.128/25}"
+          ip_range: "${OPENNEKO_DOCKER_IP_RANGE:-172.29.3.128/25}"

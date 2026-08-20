@@ -110,6 +110,18 @@ describe("persistGraphjinSourceConfigUpdate", () => {
     });
   });
 
+  it("removes only explicitly named managed sources", async () => {
+    const file = await configFile();
+    await persistGraphjinSourceConfigUpdate({
+      configFile: file,
+      update: { remove_sources: ["warehouse"] },
+    });
+    const parsed = parse(await readFile(file, "utf8")) as {
+      sources: Array<{ name: string }>;
+    };
+    expect(parsed.sources.map((source) => source.name)).toEqual(["graphjin"]);
+  });
+
   it("persists GraphJin's deterministic secret reference, not a password", async () => {
     const file = await configFile();
     await persistGraphjinSourceConfigUpdate({
@@ -129,6 +141,34 @@ describe("persistGraphjinSourceConfigUpdate", () => {
     expect(raw).toContain("gjsecret://sources/billing_db/password");
   });
 
+  it("persists nested API credentials using GraphJin's deterministic secret paths", async () => {
+    const file = await configFile();
+    await persistGraphjinSourceConfigUpdate({
+      configFile: file,
+      update: {
+        update_sources: [
+          {
+            name: "magento_operator",
+            kind: "api",
+            specs: {
+              "magento-operator-v1": {
+                auth: {
+                  scheme: "bearer",
+                  token: "plain-integration-token",
+                },
+              },
+            },
+          },
+        ],
+      },
+    });
+    const raw = await readFile(file, "utf8");
+    expect(raw).not.toContain("plain-integration-token");
+    expect(raw).toContain(
+      "gjsecret://sources/magento_operator/specs/magento-operator-v1/auth/token",
+    );
+  });
+
   it("serializes writers of the shared durable config", async () => {
     const file = await configFile();
     const release = await acquireGraphjinConfigLock({ configFile: file });
@@ -139,4 +179,5 @@ describe("persistGraphjinSourceConfigUpdate", () => {
     const releaseAgain = await acquireGraphjinConfigLock({ configFile: file });
     await releaseAgain();
   });
+
 });

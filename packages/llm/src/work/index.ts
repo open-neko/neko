@@ -92,6 +92,7 @@ export {
   buildSandboxPolicy,
   buildScopedEgressArgs,
   ensureOpenShellProvider,
+  verifyOpenShellGateway,
   makeSandboxJobRunCore,
   makeSandboxRunCore,
   makeSandboxWorkflowRunCore,

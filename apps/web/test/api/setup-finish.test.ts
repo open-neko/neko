@@ -24,9 +24,10 @@ import {
 import { app_user, db, eq, organization, pool } from "@neko/db";
 import { callRoute } from "../_helpers/route";
 
-const { mockGetOrgId, mockGetCurrentUser } = vi.hoisted(() => ({
+const { mockGetOrgId, mockGetCurrentUser, mockRequireAgentRuntimeReady } = vi.hoisted(() => ({
   mockGetOrgId: vi.fn(),
   mockGetCurrentUser: vi.fn(),
+  mockRequireAgentRuntimeReady: vi.fn(),
 }));
 
 vi.mock("@/lib/db", async () => {
@@ -37,6 +38,16 @@ vi.mock("@/lib/db", async () => {
 vi.mock("@/lib/auth", async () => {
   const actual = await vi.importActual<typeof import("@/lib/auth")>("@/lib/auth");
   return { ...actual, getCurrentUser: mockGetCurrentUser };
+});
+
+vi.mock("@/lib/agent-runtime-readiness", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/lib/agent-runtime-readiness")
+  >("@/lib/agent-runtime-readiness");
+  return {
+    ...actual,
+    requireAgentRuntimeReady: mockRequireAgentRuntimeReady,
+  };
 });
 
 const reachable = await dbReachable();
@@ -68,6 +79,7 @@ describeIfDb("/settings/finish", () => {
     await createTestOrg(orgId);
     mockGetOrgId.mockResolvedValue(orgId);
     mockGetCurrentUser.mockResolvedValue(null);
+    mockRequireAgentRuntimeReady.mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -133,5 +145,28 @@ describeIfDb("/settings/finish", () => {
 
     const ts = await readSetupCompleteAt(orgId);
     expect(ts).toBeInstanceOf(Date);
+    expect(mockRequireAgentRuntimeReady).toHaveBeenCalledWith(orgId);
+  });
+
+  it("does not finish setup when the secure agent runtime is unavailable", async () => {
+    const { AgentRuntimeUnavailableError } = await import(
+      "@/lib/agent-runtime-readiness"
+    );
+    await seedDataSource(orgId);
+    await seedProvider(orgId, {
+      scope: "primary",
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+      secrets: { apiKey: "sk-ant" },
+    });
+    mockRequireAgentRuntimeReady.mockRejectedValueOnce(
+      new AgentRuntimeUnavailableError(),
+    );
+
+    const res = await callRoute(POST, { method: "POST" });
+
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ code: "agent_runtime_unavailable" });
+    expect(await readSetupCompleteAt(orgId)).toBeNull();
   });
 });

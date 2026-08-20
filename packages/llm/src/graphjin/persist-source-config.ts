@@ -76,17 +76,68 @@ function secretRefSegment(value: string): string {
     .replaceAll("\0", "_");
 }
 
-function sourceForDisk(patch: SourcePatch): SourcePatch {
-  const copy = structuredClone(patch);
-  if (
-    typeof copy.password === "string" &&
-    copy.password.trim() &&
-    !copy.password.trim().startsWith("gjsecret://") &&
-    !copy.password.includes("${")
-  ) {
-    copy.password = `gjsecret://sources/${secretRefSegment(sourceName(copy))}/password`;
+function isSensitiveConfigKey(key: string): boolean {
+  const normalized = key.toLowerCase().replaceAll("-", "_");
+  return (
+    normalized.includes("password") ||
+    normalized.includes("secret") ||
+    normalized.includes("token") ||
+    normalized.includes("passphrase") ||
+    normalized.includes("private_key") ||
+    normalized.includes("client_key") ||
+    normalized.includes("api_key") ||
+    normalized.includes("apikey") ||
+    normalized.includes("authorization") ||
+    normalized.includes("cookie") ||
+    normalized === "connection_string" ||
+    normalized === "key_value"
+  );
+}
+
+function shouldReplaceWithSecretRef(value: string): boolean {
+  const trimmed = value.trim();
+  return Boolean(trimmed) && !trimmed.startsWith("gjsecret://") && !value.includes("${");
+}
+
+function sealSourceForDisk(
+  value: unknown,
+  path: string[],
+  parentKey = "",
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item, index) => {
+      const named = item && typeof item === "object" && !Array.isArray(item) &&
+        typeof (item as Record<string, unknown>).name === "string"
+        ? String((item as Record<string, unknown>).name)
+        : String(index);
+      return sealSourceForDisk(item, [...path, secretRefSegment(named)]);
+    });
   }
-  return copy;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+        key,
+        sealSourceForDisk(child, [...path, secretRefSegment(key)], key),
+      ]),
+    );
+  }
+  if (
+    typeof value === "string" &&
+    (isSensitiveConfigKey(parentKey) ||
+      (path.length >= 2 && path.at(-2)?.toLowerCase() === "headers" && isSensitiveConfigKey(parentKey))) &&
+    shouldReplaceWithSecretRef(value)
+  ) {
+    return `gjsecret://${path.filter(Boolean).join("/")}`;
+  }
+  return value;
+}
+
+function sourceForDisk(patch: SourcePatch): SourcePatch {
+  const name = sourceName(patch);
+  return sealSourceForDisk(
+    structuredClone(patch),
+    ["sources", secretRefSegment(name)],
+  ) as SourcePatch;
 }
 
 function mapByName(sources: YAMLSeq, name: string): YAMLMap | null {
@@ -177,6 +228,21 @@ export async function persistGraphjinSourceConfigUpdate(input: {
       if (existing) mergeMap(existing, patch);
       else sourcesNode.add(document.createNode(patch));
     }
+  }
+
+  const removals = input.update.remove_sources;
+  if (Array.isArray(removals)) {
+    const names = new Set(
+      removals.map((value, index) => {
+        if (typeof value !== "string" || !value.trim()) {
+          throw new Error(`GraphJin remove_sources[${index}] must be a source name`);
+        }
+        return value.trim().toLowerCase();
+      }),
+    );
+    sourcesNode.items = sourcesNode.items.filter(
+      (item) => !isMap(item) || !names.has(String(item.get("name") ?? "").trim().toLowerCase()),
+    );
   }
 
   const accessPatches = input.update.source_patches;

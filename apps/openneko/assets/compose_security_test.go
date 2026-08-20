@@ -197,6 +197,10 @@ func TestPackagedComposeKeepsRuntimeTrafficOnDockerNetwork(t *testing.T) {
 	if gateway.DependsOn["neko-migrate"].Condition != "service_completed_successfully" {
 		t.Fatal("OpenShell gateway must wait for private database preparation")
 	}
+	ready := openshell.Services["openshell-ready"]
+	if ready.DependsOn["openshell-gateway"].Condition != "service_started" {
+		t.Fatal("OpenShell readiness probe must start after the gateway container")
+	}
 	for _, service := range []string{"worker", "web"} {
 		env := openshell.Services[service].Environment
 		if env["OPENNEKO_SANDBOX_SHARED_NETWORK"] != "1" {
@@ -204,6 +208,9 @@ func TestPackagedComposeKeepsRuntimeTrafficOnDockerNetwork(t *testing.T) {
 		}
 		if _, exposed := env["OPENNEKO_BROKER_HOST_ALIAS"]; exposed {
 			t.Fatalf("%s must derive a private container IP instead of a host broker alias", service)
+		}
+		if openshell.Services[service].DependsOn["openshell-ready"].Condition != "service_completed_successfully" {
+			t.Fatalf("%s must wait for a successful OpenShell control-plane probe", service)
 		}
 	}
 	for _, required := range []string{

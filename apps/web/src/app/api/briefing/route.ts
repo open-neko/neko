@@ -7,7 +7,9 @@ import {
   eq,
   metric,
   metric_snapshot,
+  or,
   processing_job,
+  sql,
 } from "@neko/db";
 import { enqueue, QUEUE } from "@neko/db/jobs";
 import {
@@ -236,7 +238,7 @@ export async function GET(request: NextRequest) {
               )
             : and(
                 eq(metric.org_id, (await getOrgId())),
-                eq(metric.role, role),
+                or(eq(metric.role, role), sql`${metric.source} like 'pack:%'`),
                 eq(metric.active, true),
               ),
           orderBy: asc(metric.slug),
@@ -249,7 +251,7 @@ export async function GET(request: NextRequest) {
         })
         .catch(() => [] as Array<never>);
 
-  const dbInsights = cards.slice(0, isOverview ? 12 : undefined).map((m) => {
+  const dbInsights = cards.map((m) => {
     const snap = m.snapshots?.[0];
     const p = snap?.payload as SnapshotPayload;
     const hasData = !!p;

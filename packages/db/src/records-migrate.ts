@@ -25,21 +25,27 @@ export function buildRecordsPoolConfig(
   overrides: { database?: string; localConfig?: LocalPgConfig } = {},
 ): PoolConfig {
   const local = overrides.localConfig ?? readLocalConfig().recordsPg ?? {};
-  const port = local.port ?? Number.parseInt(env.RECORDS_PG_PORT ?? "5434", 10);
+  const environmentFirst = env.OPENNEKO_PG_ENV_OVERRIDE?.trim() === "1";
+  const choose = <T>(environmentValue: T | undefined, localValue: T | undefined): T | undefined =>
+    environmentFirst ? environmentValue ?? localValue : localValue ?? environmentValue;
+  const environmentPort = env.RECORDS_PG_PORT
+    ? Number.parseInt(env.RECORDS_PG_PORT, 10)
+    : undefined;
+  const port = choose(environmentPort, local.port) ?? 5434;
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new Error(`invalid RECORDS_PG_PORT: ${env.RECORDS_PG_PORT ?? ""}`);
   }
 
   const config: PoolConfig = {
-    host: local.host ?? env.RECORDS_PG_HOST ?? "localhost",
+    host: choose(env.RECORDS_PG_HOST, local.host) ?? "localhost",
     port,
-    user: local.user ?? env.RECORDS_PG_USER ?? "records",
-    password: local.password ?? env.RECORDS_PG_PASSWORD ?? "records-secret",
+    user: choose(env.RECORDS_PG_USER, local.user) ?? "records",
+    password: choose(env.RECORDS_PG_PASSWORD, local.password) ?? "records-secret",
     database:
-      overrides.database ?? local.database ?? env.RECORDS_PG_DATABASE ?? "records",
+      overrides.database ?? choose(env.RECORDS_PG_DATABASE, local.database) ?? "records",
     max: 5,
   };
-  if ((local.sslmode ?? env.RECORDS_PG_SSLMODE) === "require") {
+  if (choose(env.RECORDS_PG_SSLMODE, local.sslmode) === "require") {
     config.ssl = { rejectUnauthorized: false };
   }
   return config;

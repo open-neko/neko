@@ -117,6 +117,7 @@ const {
   buildScopedEgressArgs,
   ensureOpenShellProvider,
   stageSandboxWorkspace,
+  verifyOpenShellGateway,
 } = await import("../src/work/sandbox-launcher");
 
 function fakeInput(
@@ -733,5 +734,18 @@ describe("ensureOpenShellProvider", () => {
     expect(create).toContain("--name org-x");
     expect(create).toContain("--type openneko-agent");
     expect(create).toContain("--credential api_key=SECRET-KEY");
+  });
+});
+
+describe("verifyOpenShellGateway", () => {
+  beforeEach(() => {
+    h.calls.length = 0;
+  });
+
+  it("uses a read-only gateway RPC with the configured registration", async () => {
+    await verifyOpenShellGateway({ gatewayName: "openneko" });
+    expect(h.calls).toEqual([
+      { args: ["--gateway", "openneko", "provider", "list", "--names"] },
+    ]);
   });
 });

@@ -116,7 +116,14 @@ export default function OnboardingWizard({
           priorities,
         }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof body.error === "string"
+            ? body.error
+            : "Workspace setup could not start. Please try again.",
+        );
+      }
       router.push("/business-profile");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

@@ -411,6 +411,12 @@ export const metric = pgTable(
     direction_good: text("direction_good"),
     cadence: text("cadence").notNull().default("daily"),
     active: boolean("active").notNull().default(true),
+    // Pack metrics execute a reviewed saved query and declarative result
+    // mapping. Existing/custom cards retain the agent execution path.
+    execution_mode: text("execution_mode").notNull().default("agent"),
+    definition_json: jsonb("definition_json").$type<Record<string, unknown>>(),
+    definition_version: integer("definition_version"),
+    definition_hash: text("definition_hash"),
     created_by_job: uuid("created_by_job").references(() => processing_job.id),
     // Denormalized refresh status — read by /api/briefing so the dashboard
     // can render pending vs failed cards without joining processing_job.
@@ -452,6 +458,10 @@ export const metric_snapshot = pgTable(
     status: text("status"),
     created_at: ts("created_at").notNull().defaultNow(),
     payload: jsonb("payload"),
+    definition_hash: text("definition_hash"),
+    source_freshness_at: ts("source_freshness_at"),
+    duration_ms: integer("duration_ms"),
+    error_class: text("error_class"),
   },
   (t) => ({
     metric_recent_idx: index("metric_snapshot_metric_recent_idx").on(
@@ -744,6 +754,13 @@ export const watcher = pgTable(
     threshold: jsonb("threshold"),
     cadence_seconds: integer("cadence_seconds").notNull().default(300),
     debounce_seconds: integer("debounce_seconds").notNull().default(3600),
+    cooldown_seconds: integer("cooldown_seconds").notNull().default(0),
+    dedupe_key: text("dedupe_key"),
+    activation: text("activation"),
+    variables_json: jsonb("variables_json")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     severity: text("severity").notNull().default("medium"),
     last_checked_at: ts("last_checked_at"),
     last_fired_at: ts("last_fired_at"),
@@ -1919,6 +1936,180 @@ export const action_execution = pgTable(
       t.created_at.desc(),
     ),
     org_status_idx: index("action_execution_org_status_idx").on(
+      t.org_id,
+      t.status,
+      t.created_at.desc(),
+    ),
+  }),
+);
+
+// Solution packs are organization-scoped, versioned bundles. The provenance
+// rows make install/upgrade/uninstall drift-aware without claiming a database
+// transaction can also cover GraphJin config files.
+export const pack_install = pgTable(
+  "pack_install",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    pack_id: text("pack_id").notNull(),
+    version: text("version").notNull(),
+    status: text("status").notNull().default("planning"),
+    manifest_hash: text("manifest_hash").notNull(),
+    config: jsonb("config")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    source: text("source").notNull().default("embedded"),
+    installed_by_user_id: text("installed_by_user_id").references(
+      () => app_user.id,
+      { onDelete: "set null" },
+    ),
+    operation_id: uuid("operation_id"),
+    last_error: text("last_error"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+    installed_at: ts("installed_at"),
+    removed_at: ts("removed_at"),
+  },
+  (t) => ({
+    org_pack_active_unique: uniqueIndex("pack_install_org_pack_active_unique")
+      .on(t.org_id, t.pack_id)
+      .where(sql`${t.status} <> 'removed'`),
+    org_status_idx: index("pack_install_org_status_idx").on(
+      t.org_id,
+      t.status,
+      t.updated_at.desc(),
+    ),
+  }),
+);
+
+export const pack_artifact = pgTable(
+  "pack_artifact",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pack_install_id: uuid("pack_install_id")
+      .notNull()
+      .references(() => pack_install.id, { onDelete: "cascade" }),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    artifact_kind: text("artifact_kind").notNull(),
+    artifact_key: text("artifact_key").notNull(),
+    target_ref: text("target_ref").notNull(),
+    desired_hash: text("desired_hash").notNull(),
+    last_applied_hash: text("last_applied_hash").notNull(),
+    ownership: text("ownership").notNull().default("managed"),
+    readiness: text("readiness").notNull().default("not_applicable"),
+    readiness_reason: text("readiness_reason"),
+    previous_snapshot: jsonb("previous_snapshot").$type<Record<string, unknown>>(),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+    detached_at: ts("detached_at"),
+  },
+  (t) => ({
+    org_kind_target_unique: uniqueIndex("pack_artifact_org_kind_target_unique").on(
+      t.org_id,
+      t.artifact_kind,
+      t.target_ref,
+    ),
+    install_kind_key_unique: uniqueIndex("pack_artifact_install_kind_key_unique").on(
+      t.pack_install_id,
+      t.artifact_kind,
+      t.artifact_key,
+    ),
+    install_idx: index("pack_artifact_install_idx").on(
+      t.pack_install_id,
+      t.ownership,
+      t.artifact_kind,
+    ),
+    org_readiness_idx: index("pack_artifact_org_readiness_idx").on(
+      t.org_id,
+      t.readiness,
+      t.updated_at.desc(),
+    ),
+  }),
+);
+
+export const pack_action_definition = pgTable(
+  "pack_action_definition",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    description: text("description").notNull().default(""),
+    definition: jsonb("definition")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    definition_hash: text("definition_hash").notNull(),
+    readiness: text("readiness").notNull().default("blocked"),
+    readiness_reason: text("readiness_reason"),
+    enabled: boolean("enabled").notNull().default(true),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    org_kind_unique: uniqueIndex("pack_action_definition_org_kind_unique").on(
+      t.org_id,
+      t.kind,
+    ),
+    discovery_idx: index("pack_action_definition_discovery_idx").on(
+      t.org_id,
+      t.readiness,
+      t.enabled,
+      t.updated_at.desc(),
+    ),
+  }),
+);
+
+export const pack_operation = pgTable(
+  "pack_operation",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pack_install_id: uuid("pack_install_id")
+      .notNull()
+      .references(() => pack_install.id, { onDelete: "cascade" }),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    operation_type: text("operation_type").notNull(),
+    actor_user_id: text("actor_user_id").references(() => app_user.id, {
+      onDelete: "set null",
+    }),
+    status: text("status").notNull().default("planned"),
+    requested_version: text("requested_version"),
+    idempotency_key: text("idempotency_key").notNull(),
+    plan: jsonb("plan")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    plan_hash: text("plan_hash").notNull(),
+    phase: text("phase").notNull().default("planned"),
+    failure_phase: text("failure_phase"),
+    error: text("error"),
+    compensation_status: text("compensation_status"),
+    started_at: ts("started_at"),
+    completed_at: ts("completed_at"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    org_idempotency_unique: uniqueIndex("pack_operation_org_idempotency_unique").on(
+      t.org_id,
+      t.idempotency_key,
+    ),
+    install_recent_idx: index("pack_operation_install_recent_idx").on(
+      t.pack_install_id,
+      t.created_at.desc(),
+    ),
+    org_status_idx: index("pack_operation_org_status_idx").on(
       t.org_id,
       t.status,
       t.created_at.desc(),

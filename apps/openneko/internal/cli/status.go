@@ -49,6 +49,7 @@ var oneShotJobs = map[string]bool{
 	"neko-adventureworks-seed":     true,
 	"openshell-certgen":            true,
 	"openshell-reg":                true,
+	"openshell-ready":              true,
 }
 
 func newStatusCmd() *cobra.Command {

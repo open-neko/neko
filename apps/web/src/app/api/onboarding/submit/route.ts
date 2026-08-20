@@ -8,6 +8,12 @@ import {
 } from "@neko/db";
 import { enqueue, QUEUE } from "@neko/db/jobs";
 import { getOrgId } from "@/lib/db";
+import {
+  AGENT_RUNTIME_UNAVAILABLE_CODE,
+  AgentRuntimeUnavailableError,
+  requireAgentRuntimeReady,
+} from "@/lib/agent-runtime-readiness";
+import { hasPrimaryProviderSetup } from "@/lib/provider-settings";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -34,6 +40,29 @@ export async function POST(request: NextRequest) {
   }
 
   const orgId = await getOrgId();
+
+  if (!(await hasPrimaryProviderSetup(orgId))) {
+    return NextResponse.json(
+      {
+        error:
+          "The primary model provider is not configured. Open Agent settings, save a provider, then try again.",
+        code: "primary_provider_unavailable",
+      },
+      { status: 409 },
+    );
+  }
+
+  try {
+    await requireAgentRuntimeReady(orgId);
+  } catch (error) {
+    if (error instanceof AgentRuntimeUnavailableError) {
+      return NextResponse.json(
+        { error: error.message, code: AGENT_RUNTIME_UNAVAILABLE_CODE },
+        { status: 503 },
+      );
+    }
+    throw error;
+  }
 
   await db()
     .update(organization)
