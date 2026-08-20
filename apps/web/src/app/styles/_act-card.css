@@ -26,7 +26,7 @@
   border-radius: 100px;
   background: var(--danger);
   color: #fff;
-  font-size: 10.5px;
+  font-size: var(--type-label);
   font-weight: 700;
   line-height: 1;
 }

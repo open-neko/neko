@@ -484,7 +484,7 @@ export default function RunPage() {
                     </button>
                     <span
                       className={cn(
-                        "text-[10.5px] font-bold tracking-[0.12em] uppercase px-[9px] py-[3px] rounded-full shrink-0",
+                        "text-ui-label font-bold tracking-[0.12em] uppercase px-[9px] py-[3px] rounded-full shrink-0",
                         actionPillClasses(a.status),
                       )}
                     >
@@ -510,11 +510,11 @@ export default function RunPage() {
                   </div>
                   {a.status === "pending_approval" && rejectingId === a.id ? (
                     <div className="pt-3 border-t border-border mt-2.5 flex flex-col gap-2">
-                      <label className="text-[11px] font-bold tracking-[0.13em] uppercase text-text3">
+                      <label className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3">
                         Why are you rejecting this? (optional)
                       </label>
                       <textarea
-                        className="border border-border rounded-[10px] px-3 py-2 font-body text-[13px] text-text bg-card resize-y min-h-[50px] outline-none focus:border-accent"
+                        className="border border-border rounded-[10px] px-3 py-2 font-body text-ui-body-sm text-text bg-card resize-y min-h-[50px] outline-none focus:border-accent"
                         value={rejectReason}
                         placeholder="e.g. wrong channel, retry tomorrow…"
                         onChange={(e) => setRejectReason(e.target.value)}
@@ -524,7 +524,7 @@ export default function RunPage() {
                       <div className="flex gap-2 mt-2.5">
                         <button
                           type="button"
-                          className="px-3.5 py-[7px] rounded-control border border-danger bg-danger text-white font-body text-[13px] font-semibold cursor-pointer hover:enabled:bg-[var(--danger-hover)] hover:enabled:border-[var(--danger-hover)] disabled:opacity-55 disabled:cursor-not-allowed"
+                          className="px-3.5 py-[7px] rounded-control border border-danger bg-danger text-white font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:bg-[var(--danger-hover)] hover:enabled:border-[var(--danger-hover)] disabled:opacity-55 disabled:cursor-not-allowed"
                           disabled={actionBusyId === a.id}
                           onClick={() => void submitReject()}
                         >
@@ -532,7 +532,7 @@ export default function RunPage() {
                         </button>
                         <button
                           type="button"
-                          className="px-3.5 py-[7px] rounded-[10px] border border-border bg-card text-text font-body text-[13px] font-semibold cursor-pointer hover:enabled:border-text3 disabled:opacity-55 disabled:cursor-not-allowed"
+                          className="px-3.5 py-[7px] rounded-[10px] border border-border bg-card text-text font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:border-text3 disabled:opacity-55 disabled:cursor-not-allowed"
                           disabled={actionBusyId === a.id}
                           onClick={cancelReject}
                         >
@@ -544,7 +544,7 @@ export default function RunPage() {
                     <div className="flex gap-2 mt-2.5">
                       <button
                         type="button"
-                        className="px-3.5 py-[7px] rounded-control border border-accent bg-accent text-white font-body text-[13px] font-semibold cursor-pointer hover:enabled:bg-[var(--accent-hover)] hover:enabled:border-[var(--accent-hover)] disabled:opacity-55 disabled:cursor-not-allowed"
+                        className="px-3.5 py-[7px] rounded-control border border-accent bg-accent text-white font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:bg-[var(--accent-hover)] hover:enabled:border-[var(--accent-hover)] disabled:opacity-55 disabled:cursor-not-allowed"
                         disabled={actionBusyId === a.id}
                         onClick={() => void actOnRequest(a.id, "approve")}
                       >
@@ -552,7 +552,7 @@ export default function RunPage() {
                       </button>
                       <button
                         type="button"
-                        className="px-3.5 py-[7px] rounded-[10px] border border-border bg-card text-text font-body text-[13px] font-semibold cursor-pointer hover:enabled:border-text3 disabled:opacity-55 disabled:cursor-not-allowed"
+                        className="px-3.5 py-[7px] rounded-[10px] border border-border bg-card text-text font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:border-text3 disabled:opacity-55 disabled:cursor-not-allowed"
                         disabled={actionBusyId === a.id}
                         onClick={() => setRejectingId(a.id)}
                       >
@@ -561,7 +561,7 @@ export default function RunPage() {
                     </div>
                   ) : null}
                   {a.status === "rejected" && a.rejectionReason && (
-                    <p className="mt-2 text-[12.5px] text-text2 italic">
+                    <p className="mt-2 text-ui-body-sm text-text2 italic">
                       Rejected: {a.rejectionReason}
                     </p>
                   )}
@@ -623,7 +623,7 @@ export default function RunPage() {
                 </p>
               )}
               {lineage.upstream && (
-                <div className="text-[13.5px] leading-[1.55] text-text">
+                <div className="text-ui-body leading-[1.55] text-text">
                   <p>
                     Triggered by{" "}
                     {lineage.upstream.workflow ? (
@@ -642,7 +642,7 @@ export default function RunPage() {
                   {lineage.upstream.workflowRunId && (
                     <button
                       type="button"
-                      className="mt-2 bg-transparent border-0 text-accent cursor-pointer font-inherit text-[12.5px] p-0 hover:underline hover:underline-offset-[3px]"
+                      className="mt-2 bg-transparent border-0 text-accent cursor-pointer font-inherit text-ui-body-sm p-0 hover:underline hover:underline-offset-[3px]"
                       onClick={() =>
                         router.push(`/runs/${lineage.upstream!.workflowRunId}`)
                       }
@@ -701,7 +701,7 @@ function coalesceEvents(events: EventRow[]): RenderedItem[] {
 function EventStream({ events }: { events: EventRow[] }) {
   const items = coalesceEvents(events);
   return (
-    <ul className="list-none p-0 m-0 flex flex-col gap-1.5 text-[13.5px] border-l-2 border-border pl-3">
+    <ul className="list-none p-0 m-0 flex flex-col gap-1.5 text-ui-body border-l-2 border-border pl-3">
       {items.map((item) => {
         if (item.type === "message-block") {
           return (
@@ -716,7 +716,7 @@ function EventStream({ events }: { events: EventRow[] }) {
         if (ev.type === "status") {
           const message = (ev.event as { message?: string } | null)?.message;
           return (
-            <li key={ev.seq} className="text-text3 text-[12.5px] italic">
+            <li key={ev.seq} className="text-text3 text-ui-body-sm italic">
               · {message}
             </li>
           );
@@ -724,7 +724,7 @@ function EventStream({ events }: { events: EventRow[] }) {
         if (ev.type === "output_emit") {
           const e = ev.event as { kind?: string } | null;
           return (
-            <li key={ev.seq} className="text-text2 text-[12.5px]">
+            <li key={ev.seq} className="text-text2 text-ui-body-sm">
               emitted output ({e?.kind ?? "unknown kind"})
             </li>
           );
@@ -734,7 +734,7 @@ function EventStream({ events }: { events: EventRow[] }) {
             | { kind?: string; risk_level?: string }
             | null;
           return (
-            <li key={ev.seq} className="text-text2 text-[12.5px]">
+            <li key={ev.seq} className="text-text2 text-ui-body-sm">
               proposed action: {e?.kind ?? "unknown"}
               {e?.risk_level ? ` (risk ${e.risk_level})` : ""}
             </li>
@@ -743,7 +743,7 @@ function EventStream({ events }: { events: EventRow[] }) {
         if (ev.type === "needs_input") {
           const e = ev.event as { question?: string } | null;
           return (
-            <li key={ev.seq} className="text-warn-ink text-[12.5px]">
+            <li key={ev.seq} className="text-warn-ink text-ui-body-sm">
               paused for input: {e?.question}
             </li>
           );
@@ -751,14 +751,14 @@ function EventStream({ events }: { events: EventRow[] }) {
         if (ev.type === "error") {
           const e = ev.event as { message?: string } | null;
           return (
-            <li key={ev.seq} className="text-danger text-[12.5px]">
+            <li key={ev.seq} className="text-danger text-ui-body-sm">
               error: {e?.message}
             </li>
           );
         }
         if (ev.type === "done") {
           return (
-            <li key={ev.seq} className="text-text3 text-[11.5px] font-mono">
+            <li key={ev.seq} className="text-text3 text-ui-caption font-mono">
               — done
             </li>
           );

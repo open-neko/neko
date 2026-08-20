@@ -19,19 +19,20 @@
 }
 .settings-card-title {
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.2;
+  font-size: var(--type-section);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: var(--leading-heading);
 }
 .settings-card-copy {
   margin-top: 6px;
   color: var(--text2);
-  line-height: 1.55;
-  font-size: 15px;
+  line-height: var(--leading-body);
+  font-size: var(--type-body);
 }
 .settings-source {
   color: var(--text3);
-  font-size: 11px;
+  font-size: var(--type-label);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-weight: 600;
@@ -83,7 +84,7 @@
   list-style: none; padding: 0; margin: 0 0 6px;
 }
 .pm-ul li {
-  font-size: 15px; line-height: 1.6; color: var(--text2);
+  font-size: var(--type-body); line-height: var(--leading-body); color: var(--text2);
   padding: 3px 0 3px 20px; position: relative;
 }
 .pm-ul li::before {

@@ -275,7 +275,7 @@ function PolicyCard({
       className={cn("px-5 py-4.5", !policy.enabled && "opacity-60")}
     >
       <div className="flex items-center justify-between gap-3 mb-2 max-[560px]:items-start max-[560px]:flex-col">
-        <div className="min-w-0 max-w-full font-display text-[17px] font-bold tracking-[-0.01em] text-text [overflow-wrap:anywhere]">
+        <div className="min-w-0 max-w-full font-display text-ui-subsection font-bold tracking-[-0.01em] text-text [overflow-wrap:anywhere]">
           {policy.name}
         </div>
         <div className="flex max-w-full items-center gap-2 flex-wrap max-[560px]:self-stretch">
@@ -302,12 +302,12 @@ function PolicyCard({
       </div>
 
       {policy.description && (
-        <p className="text-[13.5px] text-text2 mt-0 mb-3 leading-[1.55]">
+        <p className="text-ui-body text-text2 mt-0 mb-3 leading-[1.55]">
           {policy.description}
         </p>
       )}
 
-      <dl className="m-0 flex flex-col gap-1 text-[13px]">
+      <dl className="m-0 flex flex-col gap-1 text-ui-body-sm">
         <Row label="Applies to">
           <span className="font-mono text-xs text-text2">{appliesKinds}</span>
           {appliesScopes && (
@@ -337,7 +337,7 @@ function Row({
 }) {
   return (
     <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2.5 items-baseline max-[480px]:grid-cols-1 max-[480px]:gap-0.5">
-      <dt className="text-[10.5px] font-bold tracking-[0.13em] uppercase text-text3">
+      <dt className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3">
         {label}
       </dt>
       <dd className="m-0 text-text break-words">{children}</dd>
@@ -394,19 +394,19 @@ function InstalledPluginsSection({
   return (
     <section className="mb-6">
       <div className="flex items-baseline justify-between mb-2.5">
-        <h2 className="font-display text-[18px] font-bold tracking-[-0.01em] text-text">
+        <h2 className="font-display text-ui-section font-bold tracking-[-0.01em] text-text">
           Installed plugins
         </h2>
-        <span className="font-mono text-[11px] text-text3">
+        <span className="font-mono text-ui-label text-text3">
           {descriptors.length} action kind{descriptors.length === 1 ? "" : "s"}
         </span>
       </div>
-      <p className="text-[13px] leading-[1.5] text-text2 mb-3 max-w-[640px]">
+      <p className="text-ui-body-sm leading-[1.5] text-text2 mb-3 max-w-[640px]">
         Plugins contribute action kinds the agent can call from /work. Each
         kind's effective approval mode comes from the rule whose
         <em> applies-to-kinds </em>
         includes it; everything else falls through to{" "}
-        <code className="font-mono text-[12px] bg-neutral px-1 rounded">
+        <code className="font-mono text-ui-caption bg-neutral px-1 rounded">
           external_default
         </code>
         . Click a kind to edit the rule that governs it.
@@ -414,7 +414,7 @@ function InstalledPluginsSection({
       <ul className="list-none p-0 m-0 flex flex-col gap-3">
         {[...groups.entries()].map(([groupName, kinds]) => (
           <Card key={groupName} as="li" className="px-5 py-4">
-            <div className="font-display text-[14px] font-bold uppercase tracking-[0.1em] text-text3 mb-2">
+            <div className="font-display text-ui-label font-bold uppercase tracking-[0.1em] text-text3 mb-2">
               {groupName}
             </div>
             <div className="flex flex-col gap-2">
@@ -429,10 +429,10 @@ function InstalledPluginsSection({
                     className="flex min-w-0 items-center justify-between gap-3 px-3 py-2 rounded-[10px] bg-neutral-soft max-[640px]:items-stretch max-[640px]:flex-col"
                   >
                     <div className="flex flex-col gap-0.5 min-w-0">
-                      <code className="font-mono text-[12px] text-text [overflow-wrap:anywhere]">
+                      <code className="font-mono text-ui-caption text-text [overflow-wrap:anywhere]">
                         {descriptor.kind}
                       </code>
-                      <span className="text-[11px] text-text3 truncate max-[640px]:whitespace-normal max-[640px]:[overflow-wrap:anywhere]">
+                      <span className="text-ui-caption text-text3 truncate max-[640px]:whitespace-normal max-[640px]:[overflow-wrap:anywhere]">
                         {descriptor.description}
                       </span>
                     </div>
@@ -440,14 +440,14 @@ function InstalledPluginsSection({
                       <Pill variant={modePillVariant(mode)}>
                         {describeMode(mode)}
                       </Pill>
-                      <span className="min-w-0 text-[10.5px] text-text3 [overflow-wrap:anywhere]">
+                      <span className="min-w-0 text-ui-label text-text3 [overflow-wrap:anywhere]">
                         {describeDefaultMode(descriptor.default_mode)}
                       </span>
                       {policyId ? (
                         <button
                           type="button"
                           onClick={() => onEditPolicy(policyId)}
-                          className="text-[11px] font-semibold text-text2 hover:text-accent bg-transparent border-0 p-0 cursor-pointer"
+                          className="text-ui-label font-semibold text-text2 hover:text-accent bg-transparent border-0 p-0 cursor-pointer"
                         >
                           edit rule →
                         </button>

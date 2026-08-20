@@ -22,9 +22,9 @@ const STATUS_LABEL: Record<SsoSetupStatus, string> = {
   failed: "Failed",
 };
 
-const HELP_CLS = "text-[13px] text-text3 leading-[1.45]";
+const HELP_CLS = "text-ui-body-sm text-text3 leading-[1.45]";
 const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-[15px] font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
+  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
 
 function StepHeader({
   step,
@@ -39,19 +39,19 @@ function StepHeader({
     <div className="flex items-center gap-2">
       {done ? (
         <span
-          className="flex items-center justify-center w-5 h-5 rounded-full bg-accent text-bg text-[11px] font-bold"
+          className="flex items-center justify-center w-5 h-5 rounded-full bg-accent text-bg text-ui-label font-bold"
           aria-label="done"
         >
           ✓
         </span>
       ) : (
-        <span className="flex items-center justify-center w-5 h-5 rounded-full border-[1.5px] border-border text-text3 text-[11px] font-semibold">
+        <span className="flex items-center justify-center w-5 h-5 rounded-full border-[1.5px] border-border text-text3 text-ui-label font-semibold">
           {step}
         </span>
       )}
-      <span className="text-[14px] font-semibold text-text">{title}</span>
+      <span className="text-ui-body font-semibold text-text">{title}</span>
       {done ? (
-        <span className="text-[11px] font-semibold text-accent">Done</span>
+        <span className="text-ui-label font-semibold text-accent">Done</span>
       ) : null}
     </div>
   );
@@ -399,7 +399,7 @@ export default function SsoSetupForm({
                 <div>
                   <button
                     type="button"
-                    className="text-[12px] text-text2 underline"
+                    className="text-ui-caption text-text2 underline"
                     onClick={() => setEditingStep(2)}
                   >
                     Change
@@ -419,7 +419,7 @@ export default function SsoSetupForm({
                 </p>
                 <div className="flex gap-2 flex-wrap items-center">
                   {pickerBusy ? (
-                    <span className="flex items-center gap-2 text-[13px] text-text2">
+                    <span className="flex items-center gap-2 text-ui-body-sm text-text2">
                       <span
                         className="inline-block w-4 h-4 border-2 border-border border-t-accent rounded-full animate-spin"
                         aria-hidden="true"
@@ -502,7 +502,7 @@ export default function SsoSetupForm({
                 <div>
                   <button
                     type="button"
-                    className="text-[12px] text-text2 underline"
+                    className="text-ui-caption text-text2 underline"
                     onClick={() => setEditingStep(3)}
                   >
                     Replace
@@ -606,7 +606,7 @@ export default function SsoSetupForm({
                       once opened it stays valid for the session.
                     </p>
                     <div className="flex items-center gap-2">
-                      <code className="flex-1 truncate text-[13px] text-text2">
+                      <code className="flex-1 truncate text-ui-body-sm text-text2">
                         {status.portalLink}
                       </code>
                       <Button type="button" variant="secondary" onClick={copyLink}>

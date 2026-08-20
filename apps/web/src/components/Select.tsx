@@ -19,7 +19,7 @@ type Props = {
 };
 
 const TRIGGER_BASE =
-  "px-3.5 py-3 rounded-xl border-[1.5px] border-border bg-bg text-text text-[15px] font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
+  "px-3.5 py-3 rounded-xl border-[1.5px] border-border bg-bg text-text text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
 
 export default function Select({
   value,
@@ -170,7 +170,7 @@ export default function Select({
               aria-selected={opt.value === value}
               data-idx={idx}
               data-focused={idx === focusIdx ? "true" : undefined}
-              className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-[10px] text-[15px] text-text cursor-pointer select-none data-[focused=true]:bg-accent-soft data-[focused=true]:text-accent aria-selected:font-semibold"
+              className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-[10px] text-ui-body-lg text-text cursor-pointer select-none data-[focused=true]:bg-accent-soft data-[focused=true]:text-accent aria-selected:font-semibold"
               onMouseEnter={() => setFocusIdx(idx)}
               onMouseDown={(e) => {
                 e.preventDefault();

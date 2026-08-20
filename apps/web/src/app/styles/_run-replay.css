@@ -14,7 +14,7 @@
   background: color-mix(in srgb, var(--card) 72%, transparent);
   color: var(--text2);
   font-family: var(--font-body), "Manrope", sans-serif;
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   font-weight: 650;
   cursor: pointer;
   transition:
@@ -46,7 +46,7 @@
   border-radius: 14px;
   background: var(--card);
   color: var(--text2);
-  font-size: 13.5px;
+  font-size: var(--type-body);
   font-style: italic;
   line-height: 1.55;
 }
@@ -69,17 +69,16 @@
   margin: 0;
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 12px;
+  font-size: var(--type-section);
   font-weight: 800;
-  letter-spacing: 0.08em;
-  line-height: 1.2;
-  text-transform: uppercase;
+  letter-spacing: -0.02em;
+  line-height: var(--leading-heading);
 }
 
 .run-section-head > span {
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
 }
 
 .run-finding-list {
@@ -146,8 +145,8 @@
   gap: 7px;
   min-width: 0;
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -162,7 +161,7 @@
   border-radius: 999px;
   background: var(--neutral);
   color: var(--text2);
-  font-size: 10px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.08em;
   line-height: 1;
@@ -194,10 +193,10 @@
   margin: 0 0 10px;
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: clamp(21px, 2.6vw, 28px);
+  font-size: var(--type-page);
   font-weight: 800;
   letter-spacing: -0.035em;
-  line-height: 1.12;
+  line-height: var(--leading-page);
   overflow-wrap: anywhere;
 }
 
@@ -205,8 +204,8 @@
   max-width: 76ch;
   margin-bottom: 16px;
   color: var(--text2);
-  font-size: 13.5px;
-  line-height: 1.62;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 
 .run-finding-body p {
@@ -243,7 +242,7 @@
 
 .run-finding-tags span {
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-label);
   line-height: 1.3;
 }
 
@@ -264,7 +263,7 @@
   background: transparent;
   color: var(--text2);
   font-family: var(--font-body), "Manrope", sans-serif;
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   font-weight: 650;
   cursor: pointer;
   transition:
@@ -295,7 +294,7 @@
 .run-empty-state {
   margin: 0;
   color: var(--text3);
-  font-size: 13px;
+  font-size: var(--type-body-sm);
   font-style: italic;
   line-height: 1.55;
 }
@@ -306,7 +305,7 @@
   gap: 9px;
   margin: -15px 0 30px;
   color: var(--text3);
-  font-size: 12px;
+  font-size: var(--type-caption);
   line-height: 1.45;
 }
 
@@ -332,7 +331,7 @@
 .run-trace-head p {
   margin: 4px 0 0;
   color: var(--text3);
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   line-height: 1.4;
 }
 
@@ -345,7 +344,7 @@
   min-height: 46px;
   padding: 11px 2px;
   color: var(--text2);
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   font-weight: 600;
   list-style: none;
   display: flex;
@@ -356,8 +355,8 @@
 .run-expander-summary > span {
   margin-left: auto;
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
   font-weight: 500;
 }
 
@@ -365,7 +364,7 @@
 .run-expander-summary::before {
   content: "▸";
   color: var(--text3);
-  font-size: 11px;
+  font-size: var(--type-label);
   display: inline-block;
   transition: transform 0.18s;
 }
@@ -377,8 +376,8 @@
 .run-expander-content {
   padding: 3px 4px 16px 22px;
   color: var(--text);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 
 .run-evt-message p { margin: 0 0 6px; }
@@ -389,8 +388,8 @@
   background: var(--neutral);
   border-radius: 4px;
   padding: 0 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12.5px;
+  font-family: var(--font-mono);
+  font-size: var(--type-body-sm);
 }
 .run-evt-message strong { font-weight: 700; }
 .run-evt-message em { font-style: italic; }
@@ -400,7 +399,7 @@
   border-radius: var(--radius-control);
   padding: 10px 12px;
   overflow-x: auto;
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   line-height: 1.5;
 }
 .run-evt-message pre code { background: transparent; padding: 0; }
@@ -475,20 +474,20 @@
 
   .run-finding-context {
     padding-top: 5px;
-    font-size: 9.5px;
+    font-size: var(--type-label);
   }
 
   .run-finding-status {
-    font-size: 9px;
+    font-size: var(--type-label);
   }
 
   .run-finding-title {
     margin-bottom: 9px;
-    font-size: 22px;
+    font-size: var(--type-page);
   }
 
   .run-finding-body {
-    font-size: 13px;
+    font-size: var(--type-body);
   }
 
   .run-finding-footer {

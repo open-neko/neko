@@ -259,7 +259,7 @@ export default function ActionPage() {
           actions={
             <button
               type="button"
-              className="shrink-0 px-3.5 py-[7px] rounded-full border-[1.5px] border-border bg-white/60 font-body text-[12.5px] font-semibold text-text2 cursor-pointer transition hover:border-accent hover:text-accent hover:bg-accent-soft"
+              className="shrink-0 px-3.5 py-[7px] rounded-full border-[1.5px] border-border bg-white/60 font-body text-ui-body-sm font-semibold text-text2 cursor-pointer transition hover:border-accent hover:text-accent hover:bg-accent-soft"
               onClick={askFollowUp}
               title="Open an Ask thread pre-loaded with this action's context"
             >
@@ -336,7 +336,7 @@ export default function ActionPage() {
                   <span className="font-mono">{latestExecution.executor}</span>
                   <span className="text-text3/70"> · </span>
                   <span className={cn(
-                    "inline-block px-2 py-0.5 rounded-full text-[11.5px] font-semibold tracking-[0.04em] uppercase",
+                    "inline-block px-2 py-0.5 rounded-full text-ui-caption font-semibold tracking-[0.04em] uppercase",
                     actionStatusClasses(latestExecution.status),
                   )}>
                     {latestExecution.status}
@@ -350,7 +350,7 @@ export default function ActionPage() {
                     </>
                   )}
                   {latestExecution.error && (
-                    <div className="mt-1.5 px-2.5 py-2 bg-danger-soft text-danger rounded-lg font-mono text-[12.5px]">{latestExecution.error}</div>
+                    <div className="mt-1.5 px-2.5 py-2 bg-danger-soft text-danger rounded-lg font-mono text-ui-body-sm">{latestExecution.error}</div>
                   )}
                 </>
               ) : (
@@ -367,7 +367,7 @@ export default function ActionPage() {
                 {showPayload ? "hide" : "show"} JSON
               </button>
               {showPayload && (
-                <pre className="mt-2 px-3.5 py-3 bg-card border border-border rounded-[10px] font-mono text-[12.5px] text-text2 whitespace-pre-wrap break-words overflow-x-auto">
+                <pre className="mt-2 px-3.5 py-3 bg-card border border-border rounded-[10px] font-mono text-ui-body-sm text-text2 whitespace-pre-wrap break-words overflow-x-auto">
                   {JSON.stringify(ar.payload, null, 2)}
                 </pre>
               )}
@@ -378,7 +378,7 @@ export default function ActionPage() {
         {(workflow || upstreamOutput) && (
           <Section title="Lineage">
             {workflow && ar.workflowRunId && (
-              <p className="m-0 mb-2 text-[13.5px] text-text2 leading-[1.55]">
+              <p className="m-0 mb-2 text-ui-body text-text2 leading-[1.55]">
                 Proposed by workflow{" "}
                 <button
                   type="button"
@@ -391,7 +391,7 @@ export default function ActionPage() {
               </p>
             )}
             {upstreamOutput && (
-              <p className="m-0 mb-2 text-[13.5px] text-text2 leading-[1.55]">
+              <p className="m-0 mb-2 text-ui-body text-text2 leading-[1.55]">
                 Triggered by finding{" "}
                 <em>{upstreamOutput.title}</em>
                 {upstreamOutput.workflowRunId && (
@@ -417,11 +417,11 @@ export default function ActionPage() {
           <Section title="Decide">
             {rejecting ? (
               <div className="pt-3 border-t border-border mt-2.5 flex flex-col gap-2">
-                <label className="text-[11px] font-bold tracking-[0.13em] uppercase text-text3">
+                <label className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3">
                   Why are you rejecting this? (optional)
                 </label>
                 <textarea
-                  className="border border-border rounded-[10px] px-3 py-2 font-body text-[13px] text-text bg-card resize-y min-h-[50px] outline-none focus:border-accent"
+                  className="border border-border rounded-[10px] px-3 py-2 font-body text-ui-body-sm text-text bg-card resize-y min-h-[50px] outline-none focus:border-accent"
                   value={rejectReason}
                   placeholder="e.g. wrong channel, retry tomorrow…"
                   onChange={(e) => setRejectReason(e.target.value)}
@@ -431,7 +431,7 @@ export default function ActionPage() {
                 <div className="flex gap-2 mt-2.5">
                   <button
                     type="button"
-                    className="px-3.5 py-[7px] rounded-[10px] border border-danger bg-danger text-white font-body text-[13px] font-semibold cursor-pointer hover:enabled:bg-[#c84545] hover:enabled:border-[#c84545] disabled:opacity-55 disabled:cursor-not-allowed"
+                    className="px-3.5 py-[7px] rounded-[10px] border border-danger bg-danger text-white font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:bg-[#c84545] hover:enabled:border-[#c84545] disabled:opacity-55 disabled:cursor-not-allowed"
                     disabled={busy}
                     onClick={() => void submitReject()}
                   >
@@ -439,7 +439,7 @@ export default function ActionPage() {
                   </button>
                   <button
                     type="button"
-                    className="px-3.5 py-[7px] rounded-[10px] border border-border bg-card text-text font-body text-[13px] font-semibold cursor-pointer hover:enabled:border-text3 disabled:opacity-55 disabled:cursor-not-allowed"
+                    className="px-3.5 py-[7px] rounded-[10px] border border-border bg-card text-text font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:border-text3 disabled:opacity-55 disabled:cursor-not-allowed"
                     disabled={busy}
                     onClick={() => {
                       setRejecting(false);
@@ -454,7 +454,7 @@ export default function ActionPage() {
               <div className="flex gap-2 mt-2.5">
                 <button
                   type="button"
-                  className="px-3.5 py-[7px] rounded-[10px] border border-accent bg-accent text-white font-body text-[13px] font-semibold cursor-pointer hover:enabled:bg-[#5a4cd1] hover:enabled:border-[#5a4cd1] disabled:opacity-55 disabled:cursor-not-allowed"
+                  className="px-3.5 py-[7px] rounded-[10px] border border-accent bg-accent text-white font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:bg-[#5a4cd1] hover:enabled:border-[#5a4cd1] disabled:opacity-55 disabled:cursor-not-allowed"
                   disabled={busy}
                   onClick={() => void submitDecision("approve")}
                 >
@@ -462,7 +462,7 @@ export default function ActionPage() {
                 </button>
                 <button
                   type="button"
-                  className="px-3.5 py-[7px] rounded-[10px] border border-border bg-card text-text font-body text-[13px] font-semibold cursor-pointer hover:enabled:border-text3 disabled:opacity-55 disabled:cursor-not-allowed"
+                  className="px-3.5 py-[7px] rounded-[10px] border border-border bg-card text-text font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:border-text3 disabled:opacity-55 disabled:cursor-not-allowed"
                   disabled={busy}
                   onClick={() => setRejecting(true)}
                 >
@@ -488,7 +488,7 @@ function Section({
 }) {
   return (
     <div className="mb-7">
-      <div className="text-[10.5px] font-bold tracking-[0.13em] uppercase text-text3 mb-2.5">{title}</div>
+      <div className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3 mb-2.5">{title}</div>
       {children}
     </div>
   );
@@ -503,8 +503,8 @@ function Field({
 }) {
   return (
     <div className="grid grid-cols-[110px_1fr] gap-x-4 gap-y-2.5 items-baseline">
-      <dt className="text-[11.5px] font-bold tracking-[0.13em] uppercase text-text3 m-0">{label}</dt>
-      <dd className="m-0 text-[13.5px] text-text2 leading-[1.55]">{children}</dd>
+      <dt className="text-ui-caption font-bold tracking-[0.13em] uppercase text-text3 m-0">{label}</dt>
+      <dd className="m-0 text-ui-body text-text2 leading-[1.55]">{children}</dd>
     </div>
   );
 }

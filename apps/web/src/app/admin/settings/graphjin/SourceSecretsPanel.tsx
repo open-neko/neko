@@ -11,9 +11,9 @@ type SourceSecretSummary = {
 };
 
 const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-[15px] font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
+  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
 const FIELD_CLS = "flex flex-col gap-2";
-const LABEL_CLS = "text-[14px] font-semibold text-text";
+const LABEL_CLS = "text-ui-body font-semibold text-text";
 
 export default function SourceSecretsPanel({
   initialSecrets,

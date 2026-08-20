@@ -17,7 +17,7 @@ export function Button({
     <button
       type={type}
       className={cn(
-        "inline-flex items-center px-4.5 py-2.5 rounded-full border-[1.5px] font-body text-[14.5px] font-medium cursor-pointer",
+        "inline-flex items-center px-4.5 py-2.5 rounded-full border-[1.5px] font-body text-ui-body font-medium cursor-pointer",
         "transition-[color,background,border-color,transform,box-shadow] duration-200",
         "disabled:opacity-55 disabled:cursor-not-allowed",
         variant === "secondary" &&

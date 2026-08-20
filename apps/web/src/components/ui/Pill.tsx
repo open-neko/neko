@@ -28,7 +28,7 @@ export function Pill({
       className={cn(
         "inline-flex min-w-0 max-w-full min-h-6 shrink-0 items-center px-2.5 py-1 rounded-full",
         "overflow-hidden text-ellipsis whitespace-nowrap leading-none",
-        "text-[11px] font-extrabold tracking-[0.08em] uppercase",
+        "text-ui-label font-extrabold tracking-[0.08em] uppercase",
         "border",
         VARIANTS[variant],
         className,

@@ -26,7 +26,7 @@
     0 12px 40px -8px rgba(20, 18, 12, 0.12),
     0 24px 60px -16px rgba(20, 18, 12, 0.08);
   font-family: var(--font-body), 'Manrope', sans-serif;
-  font-size: 13px;
+  font-size: var(--type-body-sm);
   font-weight: 400;
   line-height: 1.5;
   box-sizing: border-box;
@@ -92,7 +92,7 @@
 
 .app-toast .app-toast-title {
   font-family: var(--font-body), 'Manrope', sans-serif;
-  font-size: 14px;
+  font-size: var(--type-body);
   font-weight: 500;
   line-height: 1.4;
   letter-spacing: -0.1px;
@@ -100,7 +100,7 @@
 }
 
 .app-toast .app-toast-desc {
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   font-weight: 400;
   line-height: 1.5;
   color: var(--text2);
@@ -151,7 +151,7 @@
   background: var(--text);
   color: var(--card);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   font-weight: 500;
   cursor: pointer;
   transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
@@ -170,7 +170,7 @@
   background: transparent;
   color: var(--text2);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   font-weight: 500;
   cursor: pointer;
   transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
@@ -180,4 +180,3 @@
   color: var(--text);
   border-color: var(--text3);
 }
-

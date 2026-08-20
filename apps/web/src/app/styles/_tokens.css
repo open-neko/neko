@@ -32,8 +32,28 @@
   --shadow: 0 1px 3px rgba(20,18,12,0.04), 0 4px 16px rgba(20,18,12,0.03);
   --shadow-h: 0 2px 8px rgba(20,18,12,0.06), 0 12px 36px -8px rgba(20,18,12,0.07);
   --shadow-lift: 0 1px 2px rgba(20,18,12,0.04), 0 18px 48px -16px rgba(20,18,12,0.16);
+
+  /* Canonical product type scale. Page families may change composition,
+     never the semantic size assigned to a role. Display is reserved for
+     entry/empty-state statements; operational page titles use --type-page. */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --type-display: clamp(32px, 4vw, 48px);
+  --type-page: clamp(22px, 1.8vw, 24px);
+  --type-section: 18px;
+  --type-subsection: 16px;
+  --type-body-lg: 15px;
+  --type-body: 14px;
+  --type-body-sm: 13px;
+  --type-caption: 12px;
+  --type-label: 11px;
+  --leading-display: 1.02;
+  --leading-page: 1.15;
+  --leading-heading: 1.25;
+  --leading-body: 1.55;
+  --leading-compact: 1.4;
+
   --page-head-height: 68px;
-  --page-head-title-size: 17px;
+  --page-head-title-size: var(--type-page);
   --page-head-z: 45;
   --page-head-bg: color-mix(in srgb, var(--bg) 96%, var(--card));
 }
@@ -46,8 +66,36 @@
 
   body {
     font-family: var(--font-body), 'Manrope', sans-serif;
+    font-size: var(--type-body);
+    line-height: var(--leading-body);
     background: var(--bg);
     color: var(--text);
     -webkit-font-smoothing: antialiased;
+  }
+
+  :where(h1, h2, h3, h4) {
+    color: var(--text);
+    font-family: var(--font-display), 'Archivo', sans-serif;
+  }
+
+  h1 {
+    font-size: var(--type-page);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: var(--leading-page);
+  }
+
+  h2 {
+    font-size: var(--type-section);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: var(--leading-heading);
+  }
+
+  h3 {
+    font-size: var(--type-subsection);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: var(--leading-heading);
   }
 }

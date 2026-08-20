@@ -139,7 +139,7 @@ export default async function AdminGraphjinPage() {
               className="w-full border-collapse text-left text-sm"
               style={{ minWidth: 1040 }}
             >
-              <thead className="text-[10px] uppercase tracking-[0.12em] text-text3">
+              <thead className="text-ui-label uppercase tracking-[0.12em] text-text3">
                 <tr>
                   <th className="whitespace-nowrap border-b border-border px-3 py-2 font-bold">Source</th>
                   <th className="whitespace-nowrap border-b border-border px-3 py-2 font-bold">Auth</th>
@@ -288,7 +288,7 @@ function Stat({
 }) {
   return (
     <div className="rounded-[14px] border border-border bg-card px-4 py-3 shadow-soft">
-      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-text3">
+      <div className="text-ui-label font-bold uppercase tracking-[0.12em] text-text3">
         {label}
       </div>
       <div
@@ -311,7 +311,7 @@ function Badge({
 }) {
   return (
     <span
-      className={`whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-semibold ${
+      className={`whitespace-nowrap rounded-md border px-2 py-0.5 text-ui-label font-semibold ${
         tone === "ok"
           ? "border-success-soft bg-bg text-text2"
           : "border-danger-soft bg-bg text-danger"

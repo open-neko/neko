@@ -87,18 +87,18 @@ export default function PolicyDetailClient({ policyId }: { policyId: string }) {
         ) : (
           <article className="bg-card border border-border rounded-2xl p-6">
             <Field label="Mode">
-              <code className="font-mono text-[13px] text-text2">{policy.mode}</code>
+              <code className="font-mono text-ui-body-sm text-text2">{policy.mode}</code>
             </Field>
 
             <Field label="Applies to">
-              <div className="text-[13px] text-text">
+              <div className="text-ui-body-sm text-text">
                 {policy.appliesToKinds.length === 0 ? (
                   <span className="italic text-text3">any action kind</span>
                 ) : (
                   policy.appliesToKinds.map((k) => (
                     <code
                       key={k}
-                      className="font-mono text-[12px] bg-neutral-soft text-text2 px-1.5 py-0.5 rounded mr-1.5"
+                      className="font-mono text-ui-caption bg-neutral-soft text-text2 px-1.5 py-0.5 rounded mr-1.5"
                     >
                       {k}
                     </code>
@@ -112,9 +112,9 @@ export default function PolicyDetailClient({ policyId }: { policyId: string }) {
 
             {policy.riskThresholdAutoApprove && (
               <Field label="Auto-approve">
-                <span className="text-[13px]">
+                <span className="text-ui-body-sm">
                   risk ≤{" "}
-                  <code className="font-mono text-[12px] text-text2">
+                  <code className="font-mono text-ui-caption text-text2">
                     {policy.riskThresholdAutoApprove}
                   </code>
                 </span>
@@ -123,7 +123,7 @@ export default function PolicyDetailClient({ policyId }: { policyId: string }) {
 
             {Object.keys(policy.limits).length > 0 && (
               <Field label="Limits">
-                <code className="font-mono text-[12px] text-text2">
+                <code className="font-mono text-ui-caption text-text2">
                   {Object.entries(policy.limits)
                     .map(([k, v]) => `${k}: ${String(v)}`)
                     .join(" · ")}
@@ -133,16 +133,16 @@ export default function PolicyDetailClient({ policyId }: { policyId: string }) {
 
             {policy.approverRole && (
               <Field label="Approver role">
-                <span className="text-[13px]">{policy.approverRole}</span>
+                <span className="text-ui-body-sm">{policy.approverRole}</span>
               </Field>
             )}
 
             <Field label="Priority">
-              <span className="text-[13px]">{policy.priority}</span>
+              <span className="text-ui-body-sm">{policy.priority}</span>
             </Field>
 
             <Field label="Updated">
-              <span className="text-[13px] text-text2">
+              <span className="text-ui-body-sm text-text2">
                 {new Date(policy.updatedAt).toLocaleString()}
               </span>
             </Field>
@@ -163,7 +163,7 @@ export default function PolicyDetailClient({ policyId }: { policyId: string }) {
               )}
               <button
                 type="button"
-                className="px-3 py-2 rounded-lg border border-accent bg-accent text-white font-body text-[13px] font-semibold cursor-pointer hover:bg-[#5a4cd1] hover:border-[#5a4cd1]"
+                className="px-3 py-2 rounded-lg border border-accent bg-accent text-white font-body text-ui-body-sm font-semibold cursor-pointer hover:bg-[#5a4cd1] hover:border-[#5a4cd1]"
                 onClick={editInWork}
               >
                 edit in /work
@@ -181,7 +181,7 @@ export default function PolicyDetailClient({ policyId }: { policyId: string }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mb-4 last:mb-0">
-      <div className="text-[10.5px] font-bold tracking-[0.13em] uppercase text-text3 mb-1">
+      <div className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3 mb-1">
         {label}
       </div>
       <div className="text-text">{children}</div>

@@ -569,7 +569,7 @@ export default function Dashboard() {
                 style={{ animation: "fadeUp 0.5s ease 0.15s both" }}
               >
                 <p className="m-0">{findings.summary.summaryMd}</p>
-                <div className="mt-2 font-mono text-[11.5px] text-text3 italic">
+                <div className="mt-2 font-mono text-ui-caption text-text3 italic">
                   as of {new Date(findings.summary.createdAt).toLocaleTimeString("en-IN", {
                     hour: "numeric",
                     minute: "2-digit",
@@ -623,7 +623,7 @@ export default function Dashboard() {
                 className="mb-7"
                 style={{ animation: "fadeUp 0.5s ease 0.21s both" }}
               >
-                <div className="text-[11px] font-bold tracking-[0.13em] uppercase text-text3 mb-3">
+                <div className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3 mb-3">
                   Worth your read
                 </div>
                 <div className="flex flex-col gap-3">
@@ -644,7 +644,7 @@ export default function Dashboard() {
                 className="mb-7"
                 style={{ animation: "fadeUp 0.5s ease 0.22s both" }}
               >
-                <div className="text-[11px] font-bold tracking-[0.13em] uppercase text-text3 mb-3">
+                <div className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3 mb-3">
                   Pinned
                 </div>
                 <div className="flex flex-col gap-3">
@@ -670,7 +670,7 @@ export default function Dashboard() {
                 className="mb-7"
                 style={{ animation: "fadeUp 0.5s ease 0.25s both" }}
               >
-                <div className="text-[11px] font-bold tracking-[0.13em] uppercase text-text3 mb-3">
+                <div className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3 mb-3">
                   Worth knowing
                 </div>
                 <div className="flex flex-col gap-3">
@@ -691,7 +691,7 @@ export default function Dashboard() {
                 className="mb-7"
                 style={{ animation: "fadeUp 0.5s ease 0.27s both" }}
               >
-                <div className="text-[11px] font-bold tracking-[0.13em] uppercase text-text3 mb-3">
+                <div className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3 mb-3">
                   Elevated
                 </div>
                 <div className="flex flex-col gap-3">
@@ -717,7 +717,7 @@ export default function Dashboard() {
 
             {findings && findings.quiet.goodOutputs > 0 && (
               <div
-                className="-mt-1.5 mb-7 text-[13px] text-text3 italic"
+                className="-mt-1.5 mb-7 text-ui-body-sm text-text3 italic"
                 style={{ animation: "fadeUp 0.5s ease 0.3s both" }}
               >
                 {findings.quiet.goodOutputs} healthy run
@@ -730,7 +730,7 @@ export default function Dashboard() {
               metricsProgress.completed + metricsProgress.failed < metricsProgress.total && (
                 <div
                   role="status"
-                  className="mt-4 px-3.5 py-2.5 rounded-[10px] border border-border bg-accent-soft text-accent text-[13px] inline-block"
+                  className="mt-4 px-3.5 py-2.5 rounded-[10px] border border-border bg-accent-soft text-accent text-ui-body-sm inline-block"
                 >
                   Building your briefing — {metricsProgress.completed + metricsProgress.failed} of {metricsProgress.total} cards complete
                 </div>

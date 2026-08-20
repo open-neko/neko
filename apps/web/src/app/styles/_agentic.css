@@ -38,8 +38,8 @@
   gap: 8px;
   color: var(--text2);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 9px;
-  font-weight: 850;
+  font-size: var(--type-label);
+  font-weight: 800;
   letter-spacing: 0.14em;
   line-height: 1;
   text-transform: uppercase;
@@ -62,8 +62,8 @@
   border-radius: 999px;
   background: var(--neutral);
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
   letter-spacing: 0;
   text-transform: none;
 }
@@ -78,7 +78,7 @@
   font-size: var(--page-head-title-size);
   font-weight: 800;
   letter-spacing: -0.025em;
-  line-height: 1.2;
+  line-height: var(--leading-page);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -90,8 +90,8 @@
   margin: 0;
   overflow: hidden;
   color: var(--text2);
-  font-size: 11.5px;
-  line-height: 1.35;
+  font-size: var(--type-body-sm);
+  line-height: var(--leading-compact);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -157,10 +157,6 @@
     display: none;
   }
 
-  .page-heading-eyebrow {
-    font-size: 8px;
-  }
-
   .page-heading-meta {
     max-width: 78px;
     overflow: hidden;
@@ -189,14 +185,14 @@
 
 .dash-system-state p {
   margin: 4px 0 0;
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   line-height: 1.5;
 }
 
 .dash-system-label {
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 14px;
+  font-size: var(--type-body);
   font-weight: 800;
   letter-spacing: -0.01em;
 }
@@ -240,7 +236,7 @@
   background: var(--danger);
   color: var(--on-accent);
   font-family: var(--font-body), "Manrope", sans-serif;
-  font-size: 12px;
+  font-size: var(--type-caption);
   font-weight: 750;
   cursor: pointer;
   transition:
@@ -288,7 +284,7 @@
 .dash-role-control > span {
   color: var(--text3);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -309,7 +305,7 @@
   background: transparent;
   color: var(--text2);
   font-family: var(--font-body), "Manrope", sans-serif;
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   font-weight: 700;
   cursor: pointer;
   transition:
@@ -364,7 +360,7 @@
   margin: 0;
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 19px;
+  font-size: var(--type-section);
   font-weight: 800;
   letter-spacing: -0.025em;
   line-height: 1.2;
@@ -374,8 +370,8 @@
   max-width: 58ch;
   margin: 5px 0 0;
   color: var(--text2);
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: var(--type-body-sm);
+  line-height: var(--leading-body);
 }
 
 .agent-launcher-form {
@@ -410,7 +406,7 @@
   background: transparent;
   color: var(--text);
   font-family: var(--font-body), "Manrope", sans-serif;
-  font-size: 14.5px;
+  font-size: var(--type-body-lg);
   line-height: 1.5;
   padding: 7px 0;
 }
@@ -470,7 +466,7 @@
   gap: 10px;
   margin-top: 11px;
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-label);
 }
 
 .agent-starters {
@@ -487,7 +483,7 @@
   background: transparent;
   color: var(--text2);
   font-family: var(--font-body), "Manrope", sans-serif;
-  font-size: 10.5px;
+  font-size: var(--type-caption);
   font-weight: 650;
   cursor: pointer;
   transition:
@@ -506,7 +502,7 @@
   border-left: 2px solid var(--danger);
   background: var(--danger-soft);
   color: var(--danger);
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   line-height: 1.45;
 }
 

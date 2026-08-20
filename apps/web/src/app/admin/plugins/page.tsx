@@ -116,7 +116,7 @@ export default async function AdminPluginsPage() {
         ) : (
           <div className="mt-4 border-t border-border">
             <div
-              className="hidden grid-cols-[minmax(0,0.9fr)_120px_minmax(0,1.5fr)] gap-5 border-b border-border py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-text3 md:grid"
+              className="hidden grid-cols-[minmax(0,0.9fr)_120px_minmax(0,1.5fr)] gap-5 border-b border-border py-2 text-ui-label font-bold uppercase tracking-[0.12em] text-text3 md:grid"
               aria-hidden="true"
             >
               <div>Kind</div>
@@ -163,7 +163,7 @@ function Stat({
 }) {
   return (
     <div className="flex min-h-[92px] items-end justify-between gap-4 bg-card px-5 py-4">
-      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-text3">
+      <div className="text-ui-label font-bold uppercase tracking-[0.12em] text-text3">
         {label}
       </div>
       <div
@@ -190,7 +190,7 @@ function RegistryColumn({
     <div className="border-b border-border py-5 last:border-b-0 md:border-b-0 md:border-l md:px-5 md:first:border-l-0 md:first:pl-0 md:last:pr-0">
       <div className="flex items-center justify-between gap-3">
         <h3
-          className={`text-[10px] font-bold uppercase tracking-[0.12em] ${
+          className={`text-ui-label font-bold uppercase tracking-[0.12em] ${
             warn && values.length > 0 ? "text-danger" : "text-text3"
           }`}
         >
@@ -231,7 +231,7 @@ function Capability({
 }) {
   return (
     <div className="border-b border-border py-4 last:border-b-0 sm:border-b-0 sm:border-l sm:px-5 sm:first:border-l-0 sm:first:pl-0 sm:last:pr-0">
-      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-text3">
+      <div className="text-ui-label font-bold uppercase tracking-[0.12em] text-text3">
         {label}
       </div>
       <div className="mt-2 text-sm font-semibold leading-6 text-text">
@@ -250,7 +250,7 @@ function DescriptorField({
 }) {
   return (
     <div className="min-w-0">
-      <div className="mb-1 text-[9px] font-bold uppercase tracking-[0.12em] text-text3 md:hidden">
+      <div className="mb-1 text-ui-label font-bold uppercase tracking-[0.12em] text-text3 md:hidden">
         {label}
       </div>
       {children}

@@ -257,7 +257,7 @@ function ActionsPageInner() {
                 key={t.key}
                 type="button"
                 className={cn(
-                  "font-body text-[13px] font-semibold px-3.5 py-2 -mb-px border-b-2 transition-[color,border-color] duration-[120ms] ease-out cursor-pointer",
+                  "font-body text-ui-body-sm font-semibold px-3.5 py-2 -mb-px border-b-2 transition-[color,border-color] duration-[120ms] ease-out cursor-pointer",
                   active
                     ? "text-text border-accent"
                     : "text-text3 border-transparent hover:text-text2",
@@ -271,9 +271,9 @@ function ActionsPageInner() {
         </div>
 
         {error ? (
-          <div className="py-[60px] text-center text-danger text-[14px]">{error}</div>
+          <div className="py-[60px] text-center text-danger text-ui-body">{error}</div>
         ) : data === null ? (
-          <div className="py-[60px] text-center text-text3 text-[14px]">Loading…</div>
+          <div className="py-[60px] text-center text-text3 text-ui-body">Loading…</div>
         ) : data.actions.length === 0 ? (
           <EmptyState filter={filter} onBack={() => router.push("/")} />
         ) : (
@@ -364,7 +364,7 @@ function ActionReadingPane({
   if (!action) {
     return (
       <aside className="triage-pane">
-        <div className="bg-card border border-border rounded-2xl px-5 py-10 text-center text-[13px] text-text3 shadow-soft">
+        <div className="bg-card border border-border rounded-2xl px-5 py-10 text-center text-ui-body-sm text-text3 shadow-soft">
           Select an action to review.
         </div>
       </aside>
@@ -382,23 +382,23 @@ function ActionReadingPane({
     <aside className="triage-pane">
       <div className="bg-card border border-border rounded-2xl px-5 py-[18px] shadow-soft">
         <div className="flex items-center gap-2.5 mb-2.5">
-          <span className={cn("font-display text-[9.5px] font-extrabold tracking-[0.08em] uppercase px-2 py-0.5 rounded-full", RISK_PILL[risk] ?? RISK_PILL.low)}>
+          <span className={cn("font-display text-ui-label font-extrabold tracking-[0.08em] uppercase px-2 py-0.5 rounded-full", RISK_PILL[risk] ?? RISK_PILL.low)}>
             {risk} risk
           </span>
-          <code className="ml-auto font-mono text-[11px] text-text3">{action.kind}</code>
+          <code className="ml-auto font-mono text-ui-label text-text3">{action.kind}</code>
         </div>
-        <h2 className="font-display text-[19px] font-extrabold tracking-[-0.02em] leading-[1.2] text-text">
+        <h2 className="font-display text-ui-section font-extrabold tracking-[-0.02em] leading-[1.2] text-text">
           {action.summary || action.kind}
         </h2>
-        <div className="text-[12.5px] text-text2 mt-2 leading-[1.5]">
+        <div className="text-ui-body-sm text-text2 mt-2 leading-[1.5]">
           Proposed by <span className="text-text font-semibold">{workflowDisplayName(action.workflow)}</span>
           {action.triggeredByObservation ? <> · triggered by “{action.triggeredByObservation.title}”</> : null}
         </div>
 
         {action.target && (
           <div className="mt-4">
-            <div className="text-[10px] font-bold tracking-[0.12em] uppercase text-text3 mb-1.5">Target</div>
-            <code className="font-mono text-[12px] text-text2 break-all">{action.target}</code>
+            <div className="text-ui-label font-bold tracking-[0.12em] uppercase text-text3 mb-1.5">Target</div>
+            <code className="font-mono text-ui-caption text-text2 break-all">{action.target}</code>
           </div>
         )}
 
@@ -414,10 +414,10 @@ function ActionReadingPane({
 
         {payloadEntries.length > 0 && (
           <div className="mt-4">
-            <div className="text-[10px] font-bold tracking-[0.12em] uppercase text-text3 mb-1.5">Payload</div>
+            <div className="text-ui-label font-bold tracking-[0.12em] uppercase text-text3 mb-1.5">Payload</div>
             <div className="bg-bg border border-border rounded-xl px-3 py-2.5 grid gap-1.5">
               {payloadEntries.map(([k, v]) => (
-                <div key={k} className="flex gap-3 text-[12px]">
+                <div key={k} className="flex gap-3 text-ui-caption">
                   <span className="text-text3 min-w-[88px] flex-none">{k}</span>
                   <span className="font-mono text-text break-all">
                     {typeof v === "object" ? JSON.stringify(v) : String(v)}
@@ -429,7 +429,7 @@ function ActionReadingPane({
         )}
 
         {(action.minutesSaved ?? 0) > 0 && (
-          <div className="mt-4 text-[12.5px] text-text2">
+          <div className="mt-4 text-ui-body-sm text-text2">
             Saves <span className="font-mono text-success-ink">{formatSavedShort(action.minutesSaved as number)}</span> of manual effort.
           </div>
         )}
@@ -439,7 +439,7 @@ function ActionReadingPane({
             type="button"
             disabled={busy}
             onClick={onApprove}
-            className="px-[18px] py-2.5 rounded-[11px] bg-accent text-white font-display font-bold text-[13.5px] tracking-[-0.01em] hover:bg-[#5a4cd1] disabled:opacity-50 cursor-pointer"
+            className="px-[18px] py-2.5 rounded-[11px] bg-accent text-white font-display font-bold text-ui-body tracking-[-0.01em] hover:bg-[#5a4cd1] disabled:opacity-50 cursor-pointer"
           >
             Approve
           </button>
@@ -447,7 +447,7 @@ function ActionReadingPane({
             type="button"
             disabled={busy}
             onClick={onReject}
-            className="px-[18px] py-2.5 rounded-[11px] border border-border text-text2 font-semibold text-[13.5px] hover:border-danger hover:text-danger disabled:opacity-50 cursor-pointer"
+            className="px-[18px] py-2.5 rounded-[11px] border border-border text-text2 font-semibold text-ui-body hover:border-danger hover:text-danger disabled:opacity-50 cursor-pointer"
           >
             Reject
           </button>
@@ -481,10 +481,10 @@ function EmptyState({ filter, onBack }: { filter: Filter; onBack: () => void }) 
   return (
     <div className="py-20 px-5 text-center text-text3">
       <p className="font-display text-2xl font-bold text-text tracking-[-0.01em] mb-2">{copy.line}</p>
-      <p className="text-[14px] leading-[1.5] max-w-[400px] mx-auto mb-6">{copy.sub}</p>
+      <p className="text-ui-body leading-[1.5] max-w-[400px] mx-auto mb-6">{copy.sub}</p>
       <button
         type="button"
-        className="bg-transparent border-0 text-accent [font:inherit] text-[13px] cursor-pointer p-0 hover:underline hover:[text-underline-offset:3px]"
+        className="bg-transparent border-0 text-accent [font:inherit] text-ui-body-sm cursor-pointer p-0 hover:underline hover:[text-underline-offset:3px]"
         onClick={onBack}
       >
         ← Back to dashboard

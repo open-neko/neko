@@ -143,7 +143,7 @@ export function UsersClient({ users }: { users: AdminUserRow[] }) {
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-left text-sm">
-            <thead className="text-[10px] uppercase tracking-[0.12em] text-text3">
+            <thead className="text-ui-label uppercase tracking-[0.12em] text-text3">
               <tr>
                 <th className="border-b border-border px-3 py-2 font-bold">User</th>
                 <th className="border-b border-border px-3 py-2 font-bold">Role</th>

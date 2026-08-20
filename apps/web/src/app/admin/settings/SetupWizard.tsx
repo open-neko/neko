@@ -7,7 +7,7 @@ import Select from "@/components/Select";
 import { Button } from "@/components/ui/Button";
 
 const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-[15px] font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
+  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
 
 type ProviderOption = { value: string; label: string; description: string };
 type Field = {
@@ -444,7 +444,7 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
             {confirmPassword.length > 0 && confirmPassword !== newPassword && (
-              <span className="text-[13px] text-[#c33] leading-[1.45]">
+              <span className="text-ui-body-sm text-[#c33] leading-[1.45]">
                 Passwords don&apos;t match.
               </span>
             )}
@@ -480,7 +480,7 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
                 setData((p) => ({ ...p, rootUrl: e.target.value }));
               }}
             />
-            <span className="text-[13px] text-text3 leading-[1.45]">
+            <span className="text-ui-body-sm text-text3 leading-[1.45]">
               Just the base URL — OpenNeko handles the GraphQL and MCP endpoints automatically.
             </span>
           </Field>
@@ -523,7 +523,7 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
               options={initial.agent.options}
               ariaLabel="Agent backend"
             />
-            <span className="text-[13px] text-text3 leading-[1.45]">
+            <span className="text-ui-body-sm text-text3 leading-[1.45]">
               {initial.agent.options.find((o) => o.value === backend)?.description}
             </span>
           </Field>
@@ -538,7 +538,7 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
                 ariaLabel="Primary provider"
               />
               {backend === "claude-agent" && (
-                <span className="text-[13px] text-text3 leading-[1.45]">Locked because Agent backend = Claude Agent.</span>
+                <span className="text-ui-body-sm text-text3 leading-[1.45]">Locked because Agent backend = Claude Agent.</span>
               )}
             </Field>
             <Field label="Model">
@@ -578,7 +578,7 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
               value={concurrentJobs}
               onChange={(e) => setConcurrentJobs(e.target.value)}
             />
-            <span className="text-[13px] text-text3 leading-[1.45]">
+            <span className="text-ui-body-sm text-text3 leading-[1.45]">
               How many metric jobs the worker runs in parallel. Worker restart applies changes.
             </span>
           </Field>
@@ -605,7 +605,7 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
           title="Research (optional)"
           description="Lets the system pull industry context from Perplexity once your business team submits the onboarding profile. Leave the toggle off to set this up later."
         >
-          <label className="inline-flex items-center gap-2.5 mt-[18px] text-text2 text-[15px]">
+          <label className="inline-flex items-center gap-2.5 mt-[18px] text-text2 text-ui-body-lg">
             <input
               type="checkbox"
               checked={researchEnabled}
@@ -715,7 +715,7 @@ function Step({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-2">
-      <span className="text-[14px] font-semibold text-text">{label}</span>
+      <span className="text-ui-body font-semibold text-text">{label}</span>
       {children}
     </label>
   );
@@ -726,7 +726,7 @@ function InlineError({ message }: { message: string | null }) {
   return (
     <div
       role="alert"
-      className="rounded-2xl px-4 py-3.5 mt-3.5 text-[14px] leading-[1.5] bg-[#fff0ee] border border-[#f2c9c3] text-[#9a4035]"
+      className="rounded-2xl px-4 py-3.5 mt-3.5 text-ui-body leading-[1.5] bg-[#fff0ee] border border-[#f2c9c3] text-[#9a4035]"
     >
       {message}
     </div>
@@ -744,7 +744,7 @@ function ProviderFieldInput({
 }) {
   return (
     <label className="flex flex-col gap-2">
-      <span className="text-[14px] font-semibold text-text">
+      <span className="text-ui-body font-semibold text-text">
         {field.label}
         {field.required ? " *" : ""}
       </span>
@@ -755,7 +755,7 @@ function ProviderFieldInput({
         placeholder={field.placeholder}
         onChange={(e) => onChange(e.target.value)}
       />
-      {field.help && <span className="text-[13px] text-text3 leading-[1.45]">{field.help}</span>}
+      {field.help && <span className="text-ui-body-sm text-text3 leading-[1.45]">{field.help}</span>}
     </label>
   );
 }

@@ -55,6 +55,17 @@
   --shadow-soft: 0 1px 3px rgba(20,18,12,0.04), 0 4px 16px rgba(20,18,12,0.03);
   --shadow-hover: 0 2px 8px rgba(20,18,12,0.06), 0 12px 36px -8px rgba(20,18,12,0.07);
   --shadow-lift: 0 1px 2px rgba(20,18,12,0.04), 0 18px 48px -16px rgba(20,18,12,0.16);
+
+  /* Semantic utilities for component-local Tailwind. These mirror the
+     product scale in _tokens.css instead of exposing one-off pixel values. */
+  --text-ui-page: var(--type-page);
+  --text-ui-section: var(--type-section);
+  --text-ui-subsection: var(--type-subsection);
+  --text-ui-body-lg: var(--type-body-lg);
+  --text-ui-body: var(--type-body);
+  --text-ui-body-sm: var(--type-body-sm);
+  --text-ui-caption: var(--type-caption);
+  --text-ui-label: var(--type-label);
 }
 
 /* font-display / font-body utilities use the bundled Fontsource variable
@@ -74,7 +85,7 @@ html[data-density="compact"] {
   /* Cap at TWO cards side by side — charts need the width to stay legible. */
   --d-brief-cols: repeat(2, minmax(0, 1fr));
   --d-brief-gap: 12px;
-  --d-greet: 30px;
+  --d-greet: 32px;
   --d-section-gap: 22px;
   --d-icard-pad: 15px 16px 15px 20px;
   /* Sticky offset for the side panels — set to their resting top (sticky
@@ -86,7 +97,7 @@ html[data-density="comfortable"] {
   --d-dash-width: 760px;
   --d-brief-cols: 1fr;
   --d-brief-gap: 12px;
-  --d-greet: 46px;
+  --d-greet: 48px;
   --d-section-gap: 32px;
   --d-icard-pad: 22px 24px 22px 28px;
 }
@@ -96,7 +107,7 @@ html[data-density="comfortable"] {
   border-radius: 999px; padding: 3px; gap: 2px; flex: 0 0 auto;
 }
 .density-seg button {
-  font-family: var(--font-body), 'Manrope', sans-serif; font-weight: 600; font-size: 12.5px;
+  font-family: var(--font-body), 'Manrope', sans-serif; font-weight: 600; font-size: var(--type-body-sm);
   color: var(--text2); border: 0; background: transparent; padding: 6px 14px; border-radius: 999px;
   cursor: pointer; display: inline-flex; align-items: center; gap: 6px; line-height: 1; transition: color 0.18s;
 }
@@ -147,7 +158,7 @@ html[data-density="compact"] .triage-pane {
   padding: 13px 14px 14px; box-shadow: var(--shadow);
 }
 .wcr-h {
-  font-family: var(--font-display), 'Archivo', sans-serif; font-size: 10px; font-weight: 700;
+  font-family: var(--font-display), 'Archivo', sans-serif; font-size: var(--type-label); font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.13em; color: var(--text3);
   margin: 0 0 9px; display: flex; align-items: center; gap: 8px;
 }
@@ -167,23 +178,23 @@ html[data-density="compact"] .triage-pane {
   display: flex; align-items: flex-start; gap: 8px; padding: 9px 11px;
   border: 1px solid var(--border); border-radius: 11px; background: var(--bg);
   text-align: left; width: 100%; cursor: pointer;
-  font-family: var(--font-body), 'Manrope', sans-serif; font-size: 12.5px; line-height: 1.4;
+  font-family: var(--font-body), 'Manrope', sans-serif; font-size: var(--type-body-sm); line-height: var(--leading-compact);
   color: var(--text2);
   transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.15s;
 }
 .wcr-chip:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); transform: translateY(-1px); }
-.wcr-source { display: flex; align-items: center; gap: 8px; padding: 6px 2px; font-size: 12.5px; color: var(--text2); }
+.wcr-source { display: flex; align-items: center; gap: 8px; padding: 6px 2px; font-size: var(--type-body-sm); color: var(--text2); }
 .wcr-source-dot { width: 6px; height: 6px; border-radius: 2px; background: var(--accent); opacity: 0.7; flex: none; }
-.wcr-memo { background: var(--bg); border: 1px solid var(--border); border-left: 2px solid var(--accent); border-radius: 11px; padding: 9px 11px; font-size: 12px; line-height: 1.45; color: var(--text2); }
-.wcr-empty-text { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text3); }
+.wcr-memo { background: var(--bg); border: 1px solid var(--border); border-left: 2px solid var(--accent); border-radius: 11px; padding: 9px 11px; font-size: var(--type-caption); line-height: var(--leading-compact); color: var(--text2); }
+.wcr-empty-text { margin: 0; font-size: var(--type-caption); line-height: var(--leading-body); color: var(--text3); }
 .wcr-vitals { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .wcr-vital { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 9px 10px; }
-.wcr-vital-k { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text3); margin-bottom: 5px; }
+.wcr-vital-k { font-size: var(--type-label); font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text3); margin-bottom: 5px; }
 .wcr-vital-v {
-  font-family: var(--font-display), 'Archivo', sans-serif; font-weight: 800; font-size: 18px;
+  font-family: var(--font-display), 'Archivo', sans-serif; font-weight: 800; font-size: var(--type-section);
   line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--text);
 }
-.wcr-vital-s { margin-top: 4px; font-size: 10.5px; font-weight: 600; color: var(--success-ink); }
+.wcr-vital-s { margin-top: 4px; font-size: var(--type-label); font-weight: 600; color: var(--success-ink); }
 
 @media (min-width: 1100px) {
   html[data-density="compact"] .work-layout.has-rail {
@@ -205,9 +216,9 @@ html[data-density="compact"] .triage-pane {
 .topbar-brand { display: inline-flex; align-items: center; gap: 9px; text-decoration: none; color: var(--text); flex: 0 0 auto; transition: opacity 0.18s; }
 .topbar-brand:hover { opacity: 0.85; }
 .topbar-logo { width: 22px; height: auto; object-fit: contain; display: block; flex: none; }
-.topbar-name { font-family: var(--font-display), 'Archivo', sans-serif; font-weight: 800; font-size: 17px; letter-spacing: -0.02em; line-height: 1; }
+.topbar-name { font-family: var(--font-display), 'Archivo', sans-serif; font-weight: 800; font-size: var(--type-subsection); letter-spacing: -0.02em; line-height: 1; }
 .topbar-ver {
-  font-family: var(--font-body), 'Manrope', sans-serif; font-weight: 600; font-size: 10.5px;
+  font-family: var(--font-body), 'Manrope', sans-serif; font-weight: 600; font-size: var(--type-label);
   color: var(--text2); background: var(--neutral); padding: 2px 6px; border-radius: 999px;
   border: 0; line-height: 1.4; letter-spacing: 0; white-space: nowrap; flex: 0 0 auto;
 }
@@ -220,7 +231,7 @@ html[data-density="compact"] .triage-pane {
 .topbar-ver-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success-mid); }
 .topbar-nav { display: flex; align-items: center; gap: 2px; margin-left: 6px; flex-wrap: nowrap; }
 .topbar-nav-link {
-  font-size: 13.5px; font-weight: 500; color: var(--text2); padding: 7px 12px; border-radius: 999px;
+  font-size: var(--type-body); font-weight: 500; color: var(--text2); padding: 7px 12px; border-radius: 999px;
   border: 1px solid transparent; text-decoration: none; white-space: nowrap; display: inline-flex; align-items: center;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
@@ -231,11 +242,11 @@ html[data-density="compact"] .triage-pane {
   background: var(--accent); margin-right: 7px;
 }
 .topbar-spacer { flex: 1; }
-.topbar-signout { background: transparent; border: 0; cursor: pointer; color: var(--text2); font-size: 12px; font-weight: 500; padding: 0; flex: 0 0 auto; white-space: nowrap; }
+.topbar-signout { background: transparent; border: 0; cursor: pointer; color: var(--text2); font-size: var(--type-caption); font-weight: 500; padding: 0; flex: 0 0 auto; white-space: nowrap; }
 .topbar-signout:hover { color: var(--text); }
 .topbar-credit {
   display: inline-flex; align-items: center; flex: 0 0 auto;
-  font-family: var(--font-body), 'Manrope', sans-serif; font-size: 11.5px; font-weight: 500;
+  font-family: var(--font-body), 'Manrope', sans-serif; font-size: var(--type-caption); font-weight: 500;
   color: var(--text3); text-decoration: none; line-height: 1; white-space: nowrap;
   padding-left: 14px; margin-left: 2px; border-left: 1px solid var(--border);
   transition: color 0.18s;
@@ -249,8 +260,5 @@ html[data-density="compact"] .triage-pane {
   .topbar-spacer { display: none; }
   .topbar-nav { order: 3; width: 100%; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
 }
-
-
-
 
 

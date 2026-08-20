@@ -188,7 +188,7 @@ function RunsPageInner() {
               type="button"
               onClick={() => switchFilter(tab.key)}
               className={cn(
-                "px-3.5 py-1.5 rounded-full border font-body text-[12.5px] font-semibold cursor-pointer transition",
+                "px-3.5 py-1.5 rounded-full border font-body text-ui-body-sm font-semibold cursor-pointer transition",
                 filter === tab.key
                   ? "bg-text text-bg border-text"
                   : "bg-white/60 text-text2 border-border hover:border-accent hover:text-accent hover:bg-accent-soft",
@@ -226,27 +226,27 @@ function RunsPageInner() {
                         <span className="font-semibold text-text">
                           {run.workflow.name}
                         </span>
-                        <span className="font-mono text-[11.5px] text-text3">
+                        <span className="font-mono text-ui-caption text-text3">
                           {run.triggerKind}
                           {run.chainDepth > 0
                             ? ` · chain ${run.chainDepth}`
                             : ""}
                         </span>
                       </div>
-                      <p className="mt-1.5 mb-0 text-[13px] leading-[1.45] text-text2 line-clamp-2">
+                      <p className="mt-1.5 mb-0 text-ui-body-sm leading-[1.45] text-text2 line-clamp-2">
                         {describeRun(run)}
                       </p>
                     </div>
                     <span
                       className={cn(
-                        "shrink-0 uppercase text-[10.5px] tracking-[0.12em] font-bold px-2 py-0.5 rounded-full",
+                        "shrink-0 uppercase text-ui-label tracking-[0.12em] font-bold px-2 py-0.5 rounded-full",
                         statusClass(run.status),
                       )}
                     >
                       {statusLabel(run.status)}
                     </span>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11.5px] text-text3">
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5 text-ui-caption text-text3">
                     <span className="font-mono">
                       {formatRelative(run.createdAt)}
                     </span>
@@ -272,7 +272,7 @@ function RunsPageInner() {
                         </span>
                       </>
                     )}
-                    <span className="ml-auto font-mono text-[11.5px] text-text3">
+                    <span className="ml-auto font-mono text-ui-caption text-text3">
                       →
                     </span>
                   </div>

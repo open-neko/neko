@@ -45,7 +45,7 @@ export default function StatStrip() {
       type="button"
       onClick={onClick}
       disabled={!onClick}
-      className="bg-transparent border-0 p-0 font-[inherit] text-[13px] text-text2 disabled:cursor-default cursor-pointer enabled:hover:text-text"
+      className="bg-transparent border-0 p-0 font-[inherit] text-ui-body-sm text-text2 disabled:cursor-default cursor-pointer enabled:hover:text-text"
     >
       <span className="font-mono font-semibold text-text">{n}</span> {label}
     </button>

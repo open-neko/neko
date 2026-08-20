@@ -64,7 +64,7 @@ export default function RootLayout({
               boxShadow:
                 "0 1px 2px rgba(20,18,12,0.04), 0 12px 40px -8px rgba(20,18,12,0.12), 0 24px 60px -16px rgba(20,18,12,0.08)",
               fontFamily: "var(--font-body), 'Manrope', sans-serif",
-              fontSize: 13,
+              fontSize: "var(--type-body-sm)",
               fontWeight: 400,
               lineHeight: 1.5,
               boxSizing: "border-box",

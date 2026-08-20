@@ -48,9 +48,9 @@ const initialForm: FormState = {
 };
 
 const FIELD = "flex flex-col gap-2";
-const LABEL = "text-[14px] font-semibold text-text";
-const HELP = "text-[13px] leading-[1.45] text-text3";
-const INPUT = "rounded-xl border-[1.5px] border-border bg-bg px-3.5 py-3 text-[15px] text-text outline-none transition focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
+const LABEL = "text-ui-body font-semibold text-text";
+const HELP = "text-ui-body-sm leading-[1.45] text-text3";
+const INPUT = "rounded-xl border-[1.5px] border-border bg-bg px-3.5 py-3 text-ui-body-lg text-text outline-none transition focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
 const REPORTING_LOGIN_REQUEST = `Please create a dedicated read-only MariaDB/MySQL login for OpenNeko analytics on our Magento database.
 
 Grant only SELECT and SHOW VIEW on the Magento database. Do not grant INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, ALL PRIVILEGES, or GRANT OPTION.
@@ -288,7 +288,7 @@ export default function MagentoPackAdmin() {
               ].map((item) => (
                 <Link key={item.href} href={item.href} className="rounded-xl border border-border px-4 py-3 transition hover:border-accent">
                   <strong className="text-sm text-text">{item.title}</strong>
-                  <p className="mt-1 text-[13px] leading-[1.45] text-text3">{item.copy}</p>
+                  <p className="mt-1 text-ui-body-sm leading-[1.45] text-text3">{item.copy}</p>
                 </Link>
               ))}
             </div>
@@ -307,7 +307,7 @@ export default function MagentoPackAdmin() {
                   <li key={check.id} className="flex flex-col gap-1 rounded-xl border border-border px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <strong className="text-sm capitalize text-text">{checkLabel(check.id)}</strong>
-                      <p className="mt-1 text-[13px] leading-[1.45] text-text3">{check.detail}</p>
+                      <p className="mt-1 text-ui-body-sm leading-[1.45] text-text3">{check.detail}</p>
                     </div>
                     <span className={`mt-1 text-xs font-semibold uppercase tracking-wide ${checkTone(check.status)}`}>{checkStatusLabel(check.id, check.status)}</span>
                   </li>
@@ -409,7 +409,7 @@ export default function MagentoPackAdmin() {
             </div>
           ) : null}
 
-          <div className="mt-6 rounded-xl border border-border bg-bg2 px-4 py-3 text-[13px] leading-[1.5] text-text2">
+          <div className="mt-6 rounded-xl border border-border bg-bg2 px-4 py-3 text-ui-body-sm leading-[1.5] text-text2">
             OpenNeko starts in view-only mode: it can analyze the store but cannot change Magento data. Any supported change is enabled separately by an administrator and requires approval.
           </div>
           <div className="mt-5">

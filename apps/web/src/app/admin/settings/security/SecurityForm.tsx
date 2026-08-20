@@ -23,10 +23,10 @@ const OFFICIAL_MARKETPLACE_URL =
   "https://open-neko.github.io/plugins/marketplace.json";
 
 const FIELD_CLS = "flex flex-col gap-2";
-const LABEL_CLS = "text-[14px] font-semibold text-text";
-const HELP_CLS = "text-[13px] text-text3 leading-[1.45]";
+const LABEL_CLS = "text-ui-body font-semibold text-text";
+const HELP_CLS = "text-ui-body-sm text-text3 leading-[1.45]";
 const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-[15px] font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
+  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
 
 export default function SecurityForm({ initial }: { initial: InstallPolicyPayload }) {
   const [policy, setPolicy] = useState<InstallPolicy>(initial.policy);
@@ -136,13 +136,13 @@ export default function SecurityForm({ initial }: { initial: InstallPolicyPayloa
                   key={url}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-bg"
                 >
-                  <code className="flex-1 truncate text-[13px] text-text2">{url}</code>
+                  <code className="flex-1 truncate text-ui-body-sm text-text2">{url}</code>
                   {url === OFFICIAL_MARKETPLACE_URL ? (
-                    <span className="text-[12px] text-text3">official</span>
+                    <span className="text-ui-caption text-text3">official</span>
                   ) : (
                     <button
                       type="button"
-                      className="text-[12px] text-text2 underline"
+                      className="text-ui-caption text-text2 underline"
                       onClick={() => removeMarketplace(url)}
                     >
                       remove
