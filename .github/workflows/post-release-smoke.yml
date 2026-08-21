@@ -103,6 +103,10 @@ jobs:
           # `--mode prod` actually runs instead of hand-maintaining it
           # (busybox:latest for openshell-reg was the second one missed).
           # OPENSHELL_VERSION is intentionally literal in the second sed expression.
+          # The final expression unwraps ANY other ${VAR:-default} to its
+          # default (e.g. ${OPENNEKO_GRAPHJIN_IMAGE:-dosco/graphjin:X}) — an
+          # uninterpolated ref reaches `docker pull` as a literal and fails
+          # smoke with "invalid reference format", demoting a good release.
           # shellcheck disable=SC2016
           mapfile -t refs < <(
             sed -n 's/^[[:space:]]*image:[[:space:]]*//p' \
@@ -110,6 +114,7 @@ jobs:
               apps/openneko/assets/compose/openshell.yml \
             | sed -e "s/\${OPENNEKO_VERSION:-latest}/${tag}/" \
                   -e 's/\${OPENSHELL_VERSION:-\([0-9.][0-9.]*\)}/\1/' \
+                  -e 's/\${[A-Za-z_][A-Za-z_0-9]*:-\([^}]*\)}/\1/g' \
             | sort -u
           )
           echo "pre-pulling: ${refs[*]}"
