@@ -103,6 +103,7 @@ import { runBusinessProfileBuild } from "./jobs/business-profile-build.js";
 import { runIndustryInsightsBuild } from "./jobs/industry-insights-build.js";
 import { runBootstrapMetricsBuild } from "./jobs/bootstrap-metrics-build.js";
 import { runMetricRefresh } from "./jobs/metric-refresh.js";
+import { metricRefreshIsDue } from "./jobs/metric-schedule.js";
 import { runWorkRun } from "./jobs/work-run.js";
 import { runWorkflowCronSweep } from "./jobs/workflow-cron-sweep.js";
 import { runWorkflowRunFire } from "./jobs/workflow-run-fire.js";
@@ -164,6 +165,8 @@ import {
   initializeWorkerTelemetry,
   shutdownWorkerTelemetry,
 } from "./telemetry.js";
+import { PackService } from "./packs/service.js";
+import { registerPackActionPreflight } from "./packs/action-preflight.js";
 
 const PORT: number = 4100;
 const MAX_JOB_RETRIES: number = 2;
@@ -176,13 +179,14 @@ const RECONCILE_SWEEP_MIN_AGE_MS: number = Math.max(
   660_000,
   agentTurnTimeoutMs() + 240_000,
 );
-const SCHEDULED_REFRESH_HOURS: number = 24;
+const SCHEDULED_REFRESH_HOURS: number = 1;
 
 if (initializeWorkerTelemetry()) {
   console.log("[telemetry] OTLP trace export enabled");
 }
 
 const ADMIN_ORG_ID = await getOrgId();
+const packService = new PackService(ADMIN_ORG_ID);
 const recordsPool = new pg.Pool({
   ...buildRecordsPoolConfig(),
   application_name: "openneko-worker-records",
@@ -364,16 +368,29 @@ function makeHandler<P extends ProcessingJobPayload>(
 
 async function runMetricRefreshSweep() {
   const cards = await db()
-    .select({ id: metric.id, org_id: metric.org_id })
+    .select({
+      id: metric.id,
+      org_id: metric.org_id,
+      cadence: metric.cadence,
+      last_refresh_status: metric.last_refresh_status,
+      updated_at: metric.updated_at,
+    })
     .from(metric)
     .where(eq(metric.active, true));
-  if (cards.length === 0) {
-    console.log("[worker] scheduled sweep: no active metrics");
+  const now = new Date();
+  const due = cards.filter((card) => metricRefreshIsDue({
+    cadence: card.cadence,
+    lastRefreshStatus: card.last_refresh_status,
+    updatedAt: card.updated_at,
+    now,
+  }));
+  if (due.length === 0) {
+    console.log("[worker] scheduled sweep: no metrics are due");
     return;
   }
 
   let enqueued = 0;
-  for (const card of cards) {
+  for (const card of due) {
     const inserted = await db()
       .insert(processing_job)
       .values({
@@ -386,6 +403,12 @@ async function runMetricRefreshSweep() {
       .returning({ id: processing_job.id });
     const processingJobId = inserted[0]?.id;
     if (!processingJobId) continue;
+    await db().update(metric).set({
+      last_refresh_status: "pending",
+      last_refresh_error: null,
+      last_refresh_job_id: processingJobId,
+      updated_at: now,
+    }).where(eq(metric.id, card.id));
     await enqueue(QUEUE.METRIC_REFRESH, {
       processingJobId,
       orgId: card.org_id,
@@ -544,6 +567,17 @@ const server = createServer(
         return getInstallPolicyForOrg(ADMIN_ORG_ID);
       },
     },
+    packs: {
+      list: () => packService.list(),
+      inspect: (packId) => packService.inspect(packId),
+      plan: (packId) => packService.plan(packId),
+      status: (packId) => packService.status(packId),
+      doctor: (packId) => packService.doctor(packId),
+      install: (packId, input) => packService.install(packId, input),
+      configure: (packId, input) => packService.configure(packId, input),
+      upgrade: (packId, input) => packService.upgrade(packId, input),
+      uninstall: (packId, input) => packService.uninstall(packId, input),
+    },
     connect: {
       getConnectProviders: () => pluginRegistry?.getConnectProviders() ?? [],
       getOperatorConnectStatus: (operatorId) =>
@@ -677,6 +711,7 @@ const unregisterRecordArtifactImportPreflight = registerRecordArtifactImportActi
       singletonKey: `records-import:${payload.importRunId}`,
     }),
 });
+const unregisterPackActionPreflight = registerPackActionPreflight();
 // Only now may the web process create action requests through this worker:
 // every worker-owned preflight hook is registered and will finish before the
 // request id is returned for an approval card.
@@ -1467,6 +1502,7 @@ const shutdown = async (signal: string) => {
   unregisterRecordImportPreflight();
   unregisterRecordArtifactImportPreflight();
   unregisterRecordSalesforcePreflight();
+  unregisterPackActionPreflight();
   server.close();
   const cancelled = cancelAllAgents();
   if (cancelled > 0) {

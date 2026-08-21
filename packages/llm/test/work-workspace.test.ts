@@ -19,6 +19,7 @@ import {
 } from "../src/work/workspace";
 
 const cleanupPaths: string[] = [];
+const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 
 afterEach(async () => {
   while (cleanupPaths.length > 0) {
@@ -26,9 +27,48 @@ afterEach(async () => {
     if (path) await rm(path, { recursive: true, force: true });
   }
   delete process.env.HOME;
+  delete process.env.OPENNEKO_AGENT_HOME;
+  delete process.env.OPENNEKO_HOST_WEB_DEV;
+  delete process.env.OPENNEKO_STACK_MODE;
+  delete process.env.NEXT_PUBLIC_DEMO;
+  delete process.env.DEMO;
+  if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = ORIGINAL_NODE_ENV;
 });
 
 describe("work workspace", () => {
+  it("supports an isolated agent home in explicit host-web development mode", async () => {
+    const agentHome = await mkdtemp(join(tmpdir(), "neko-agent-home-"));
+    cleanupPaths.push(agentHome);
+    process.env.OPENNEKO_AGENT_HOME = agentHome;
+    process.env.OPENNEKO_HOST_WEB_DEV = "1";
+    process.env.NODE_ENV = "development";
+
+    const workspace = await ensureOrgWorkspace("org-test");
+    expect(workspace.orgRoot).toBe(
+      join(agentHome, ".config", "openneko", "agents", "orgs", "org-test"),
+    );
+  }, 30_000);
+
+  it.each([
+    ["production", { NODE_ENV: "production" }],
+    ["demo stack", { NODE_ENV: "development", OPENNEKO_STACK_MODE: "demo" }],
+    ["demo UI", { NODE_ENV: "development", NEXT_PUBLIC_DEMO: "true" }],
+  ])("ignores the host-web agent home in %s mode", async (_label, mode) => {
+    const home = await mkdtemp(join(tmpdir(), "neko-work-home-"));
+    const agentHome = await mkdtemp(join(tmpdir(), "neko-agent-home-"));
+    cleanupPaths.push(home, agentHome);
+    process.env.HOME = home;
+    process.env.OPENNEKO_AGENT_HOME = agentHome;
+    process.env.OPENNEKO_HOST_WEB_DEV = "1";
+    Object.assign(process.env, mode);
+
+    const workspace = await ensureOrgWorkspace("org-test");
+    expect(workspace.orgRoot).toBe(
+      join(home, ".config", "openneko", "agents", "orgs", "org-test"),
+    );
+  }, 30_000);
+
   it("seeds built-in skills into the org workspace", async () => {
     const home = await mkdtemp(join(tmpdir(), "neko-work-home-"));
     cleanupPaths.push(home);

@@ -1,0 +1,203 @@
+import { z } from "zod";
+import type { PackArtifactKind } from "./bundle.js";
+
+const artifactKey = z.string().regex(/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_.-]*$/);
+const targetRef = z.string().regex(/^[a-z][a-z0-9_.-]*$/);
+const base = {
+  key: artifactKey,
+  targetRef,
+};
+
+const sourceSchema = z
+  .object({
+    key: artifactKey.optional(),
+    name: targetRef,
+    kind: z.enum(["database", "api"]),
+  })
+  .loose();
+
+const sourceFileSchema = z
+  .object({
+    sources: z.array(sourceSchema).min(1),
+  })
+  .strict();
+
+const metricSchema = z
+  .object({
+    ...base,
+    title: z.string().min(1),
+    description: z.string().min(1),
+    role: z.string().min(1),
+    chartHint: z.string().min(1),
+    unit: z.string().min(1),
+    directionGood: z.enum(["up", "down", "neutral"]),
+    cadence: z.string().min(1),
+    calculationNote: z.string().min(1),
+    execution: z
+      .object({
+        mode: z.literal("saved_query"),
+        source: z.string().min(1),
+        query: z.string().min(1),
+        result: z.record(z.string(), z.unknown()),
+        freshnessSeconds: z.number().int().positive(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const workflowSchema = z
+  .object({
+    ...base,
+    name: z.string().min(1),
+    description: z.string(),
+    enabled: z.boolean(),
+    status: z.literal("active"),
+    goal: z.string().min(1),
+    schedule: z
+      .object({
+        cron: z.string().min(1),
+        timezoneInput: z.string().min(1),
+        enabled: z.boolean(),
+      })
+      .strict()
+      .nullable(),
+    activation: z.string().optional(),
+    outputContract: z
+      .object({
+        kind: z.string().min(1),
+        required: z.array(z.string()).min(1),
+      })
+      .strict(),
+  })
+  .strict();
+
+const watcherSchema = z
+  .object({
+    ...base,
+    name: z.string().min(1),
+    description: z.string(),
+    workflow: artifactKey,
+    enabled: z.boolean(),
+    activation: z.string().min(1),
+    query: z.string().min(1),
+    valuePath: z.string().min(1),
+    operator: z.enum(["gt", "gte", "lt", "lte", "eq", "ne"]),
+    threshold: z.union([z.number(), z.string(), z.boolean(), z.null()]),
+    cadenceSeconds: z.number().int().positive(),
+    debounceSeconds: z.number().int().nonnegative(),
+    cooldownSeconds: z.number().int().nonnegative(),
+    severity: z.enum(["low", "medium", "high", "critical"]),
+    dedupeKey: z.string().min(1),
+    readinessSignals: z.array(z.string()).optional(),
+  })
+  .strict();
+
+const mappingLeafSchema: z.ZodType<unknown> = z.union([
+  z.object({ input: z.string().min(1) }).strict(),
+  z.object({ packInput: z.string().min(1) }).strict(),
+  z.object({ const: z.union([z.string(), z.number(), z.boolean(), z.null()]) }).strict(),
+]);
+
+const mappingSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([mappingLeafSchema, z.record(z.string(), mappingSchema)]),
+);
+
+const actionSchema = z
+  .object({
+    ...base,
+    kind: targetRef,
+    description: z.string().min(1),
+    readiness: z
+      .object({
+        capability: z.string().min(1),
+        unavailableReasons: z.array(z.string()).min(1),
+      })
+      .strict(),
+    inputSchema: z.record(z.string(), z.unknown()),
+    adapter: z
+      .object({
+        kind: z.literal("graphjin_api_operation"),
+        source: z.string().min(1),
+        operationId: z.string().min(1),
+        mutationRoot: z.string().min(1),
+        preconditionQuery: z.string().min(1),
+        mutationQuery: z.string().min(1),
+        reconciliationQuery: z.string().min(1),
+        request: z
+          .object({
+            path: z.record(z.string(), mappingSchema),
+            body: z.record(z.string(), mappingSchema),
+          })
+          .strict(),
+        receipt: z
+          .object({
+            fields: z.array(z.string()),
+            redact: z.array(z.string()),
+          })
+          .strict(),
+        ambiguousOutcome: z.literal("reconcile_required"),
+        retry: z.literal("never"),
+      })
+      .strict(),
+  })
+  .strict();
+
+const policySchema = z
+  .object({
+    ...base,
+    name: z.string().min(1),
+    description: z.string(),
+    appliesToKinds: z.array(targetRef).min(1),
+    appliesToScopes: z.array(targetRef).min(1),
+    mode: z.literal("ask"),
+    approverRole: z.literal("admin"),
+    priority: z.number().int(),
+    enabled: z.boolean(),
+    allowedTargets: z.record(z.string(), z.unknown()),
+    limits: z.record(z.string(), z.unknown()),
+  })
+  .strict();
+
+const relationshipsSchema = z
+  .object({
+    ...base,
+    source: z.string().min(1),
+    relationships: z
+      .array(
+        z
+          .object({
+            left: z.string().min(1),
+            right: z.string().min(1),
+            cardinality: z.enum(["one_to_one", "one_to_many", "many_to_one", "many_to_many"]),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+
+const schemas: Partial<Record<PackArtifactKind, z.ZodType>> = {
+  source: sourceFileSchema,
+  metric: metricSchema,
+  workflow: workflowSchema,
+  watcher: watcherSchema,
+  action: actionSchema,
+  policy: policySchema,
+  relationships: relationshipsSchema,
+};
+
+export function validateArtifactContent(kind: PackArtifactKind, content: unknown, path: string): void {
+  const schema = schemas[kind];
+  if (schema) {
+    const parsed = schema.safeParse(content);
+    if (!parsed.success) {
+      throw new Error(`invalid ${kind} artifact ${path}: ${z.prettifyError(parsed.error)}`);
+    }
+  }
+  if (kind === "spec") {
+    const spec = content as Record<string, unknown> | null;
+    if (!spec || typeof spec !== "object" || typeof spec.openapi !== "string" || !spec.paths) {
+      throw new Error(`invalid OpenAPI artifact ${path}`);
+    }
+  }
+}

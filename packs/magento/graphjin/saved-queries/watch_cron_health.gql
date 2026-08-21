@@ -1,0 +1,5 @@
+query MagentoWatchCronHealth($staleBefore: String!, $from: String!) {
+  cron_schedule(where: {created_at: {gte: $from}, or: [{status: {eq: "error"}}, {status: {eq: "running"}, executed_at: {lt: $staleBefore}}]}) {
+    count: count_schedule_id
+  }
+}

@@ -9,8 +9,8 @@ import type { ChartDataPoint } from "@/a2ui/catalog";
 export type { ChartDataPoint } from "@/a2ui/catalog";
 import { formatCompact } from "@/lib/format-number";
 
-const axisProps = { tick: { fontSize: 11, fill: "#b0aa9f" }, axisLine: false, tickLine: false } as const;
-const tooltipStyle = { contentStyle: { borderRadius: 10, border: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.08)", fontSize: 13 }, itemStyle: { color: "#7A756A" } };
+const axisProps = { tick: { fontSize: "var(--type-label)", fill: "#b0aa9f" }, axisLine: false, tickLine: false } as const;
+const tooltipStyle = { contentStyle: { borderRadius: 10, border: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.08)", fontSize: "var(--type-body-sm)" }, itemStyle: { color: "#7A756A" } };
 const BASELINE_COLOR = "#5C5751";
 
 export default function Chart({ type, accent = "#6B5CE7", h = 130, data, centerLabel, valueLabel, baselineLabel }: {
@@ -72,7 +72,7 @@ export default function Chart({ type, accent = "#6B5CE7", h = 130, data, centerL
           </Pie>
           <Tooltip {...tooltipStyle} formatter={donutFormatter as never} />
           <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle"
-            style={{ fontSize: 13, fill: "#7A756A" }}>
+            style={{ fontSize: "var(--type-body-sm)", fill: "#7A756A" }}>
             {centerLabel ?? formatCompact(total)}
           </text>
         </PieChart>

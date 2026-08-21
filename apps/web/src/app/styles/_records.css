@@ -28,7 +28,7 @@
   margin-bottom: 8px;
   color: var(--accent);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -37,41 +37,18 @@
 .apps-overview-header h1 {
   margin: 0;
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: clamp(28px, 4vw, 42px);
+  font-size: var(--type-page);
   font-weight: 800;
   letter-spacing: -0.045em;
-  line-height: 1.05;
+  line-height: var(--leading-page);
 }
 
 .apps-overview-header p {
   max-width: 560px;
   margin: 11px 0 0;
   color: var(--text2);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.apps-overview-create {
-  min-height: 38px;
-  padding: 9px 13px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  flex: none;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-control);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 11px;
-  font-weight: 750;
-  text-decoration: none;
-  transition: background 150ms ease, transform 150ms ease;
-}
-
-.apps-overview-create:hover {
-  background: var(--accent-hover);
-  transform: translateY(-1px);
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 
 .apps-overview-create svg {
@@ -95,7 +72,7 @@
   margin: 0;
   color: var(--text2);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 10px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -103,7 +80,7 @@
 
 .apps-overview-section-heading span {
   color: var(--text3);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-variant-numeric: tabular-nums;
 }
 
@@ -159,7 +136,7 @@
 
 .apps-overview-app-copy strong {
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 14px;
+  font-size: var(--type-subsection);
   font-weight: 800;
   letter-spacing: -0.015em;
 }
@@ -168,8 +145,8 @@
   max-width: 620px;
   overflow: hidden;
   color: var(--text2);
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--type-body);
+  line-height: var(--leading-compact);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -177,7 +154,7 @@
 .apps-overview-app-copy small {
   overflow: hidden;
   color: var(--text3);
-  font-size: 9.5px;
+  font-size: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -187,7 +164,7 @@
   align-items: center;
   gap: 7px;
   color: var(--text3);
-  font-size: 10px;
+  font-size: var(--type-body-sm);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -232,7 +209,7 @@
 .apps-overview-empty h2 {
   margin: 0;
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 20px;
+  font-size: var(--type-section);
   font-weight: 800;
   letter-spacing: -0.025em;
 }
@@ -241,15 +218,8 @@
   max-width: 510px;
   margin: 10px 0 0;
   color: var(--text2);
-  font-size: 11px;
-  line-height: 1.6;
-}
-
-.apps-overview-empty > a:not(.apps-overview-create) {
-  margin-top: 18px;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 750;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 
 .apps-overview-empty > .apps-overview-create {
@@ -287,18 +257,18 @@
   border-radius: 999px;
   background: var(--neutral);
   color: var(--text2);
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
 }
 
 .apps-overview-steps strong {
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
 }
 
 .apps-overview-steps small {
   color: var(--text3);
-  font-size: 9px;
-  line-height: 1.45;
+  font-size: var(--type-caption);
+  line-height: var(--leading-compact);
 }
 
 .apps-overview-member-note {
@@ -306,7 +276,7 @@
   padding-top: 17px;
   border-top: 1px solid var(--border);
   color: var(--text3);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .records-app-shell {
@@ -397,7 +367,7 @@
   border-radius: 999px;
   background: var(--neutral);
   color: var(--text3);
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 750;
   text-align: center;
 }
@@ -436,7 +406,7 @@
   overflow: hidden;
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 11.5px;
+  font-size: var(--type-body-sm);
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -444,7 +414,7 @@
 
 .app-chat-heading small {
   color: var(--text3);
-  font-size: 8.5px;
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -492,8 +462,8 @@
 }
 
 .app-chat-empty svg { width: 18px; height: 18px; }
-.app-chat-empty strong { color: var(--text); font-size: 12px; }
-.app-chat-empty p { margin: 0; font-size: 10.5px; line-height: 1.55; }
+.app-chat-empty strong { color: var(--text); font-size: var(--type-subsection); }
+.app-chat-empty p { margin: 0; font-size: var(--type-body-sm); line-height: var(--leading-body); }
 
 .app-chat-state {
   margin: auto;
@@ -501,7 +471,7 @@
   align-items: center;
   gap: 7px;
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-caption);
 }
 
 .app-chat-state svg { width: 14px; height: 14px; }
@@ -511,8 +481,8 @@
   display: grid;
   gap: 7px;
   color: var(--text2);
-  font-size: 11.5px;
-  line-height: 1.55;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 
 .app-chat-message.is-user {
@@ -525,7 +495,7 @@
 .app-chat-message p { margin: 0 0 8px; }
 .app-chat-message ul,
 .app-chat-message ol { margin: 7px 0; padding-left: 18px; }
-.app-chat-message pre { max-width: 100%; padding: 9px; overflow-x: auto; border-radius: 8px; background: var(--neutral-soft); font-size: 10px; }
+.app-chat-message pre { max-width: 100%; padding: 9px; overflow-x: auto; border-radius: 8px; background: var(--neutral-soft); font-size: var(--type-caption); }
 .app-chat-message code { overflow-wrap: anywhere; font-size: 0.92em; }
 
 .app-chat-message.is-user > div {
@@ -543,13 +513,13 @@
   border-radius: var(--radius-inner);
   background: var(--card);
   color: var(--text);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
   text-decoration: none;
 }
 
 .app-chat-action-link span {
   color: var(--warning-ink, var(--accent));
-  font-size: 8.5px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -568,7 +538,7 @@
   align-items: center;
   justify-content: space-between;
   color: var(--text3);
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -583,14 +553,14 @@
   border-radius: var(--radius-control);
   background: var(--card);
   color: var(--text2);
-  font-size: 9px;
+  font-size: var(--type-caption);
   font-weight: 750;
   letter-spacing: 0;
   text-transform: none;
 }
 
 .app-chat-history-title svg { width: 11px; height: 11px; }
-.app-chat-history > p { color: var(--text3); font-size: 10.5px; }
+.app-chat-history > p { color: var(--text3); font-size: var(--type-caption); }
 
 .app-chat-history-row {
   display: flex;
@@ -616,13 +586,13 @@
 .app-chat-history-row strong {
   overflow: hidden;
   color: var(--text);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.app-chat-history-row small { color: var(--text3); font-size: 8.5px; }
+.app-chat-history-row small { color: var(--text3); font-size: var(--type-label); }
 
 .app-chat-history-delete {
   width: 28px;
@@ -654,7 +624,7 @@
   display: block;
   overflow: hidden;
   color: var(--text3);
-  font-size: 8.5px;
+  font-size: var(--type-label);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -687,7 +657,7 @@
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--type-body);
   line-height: 1.45;
 }
 
@@ -705,7 +675,7 @@
 
 .app-chat-composer button:disabled { cursor: default; opacity: 0.4; }
 .app-chat-composer button svg { width: 13px; height: 13px; }
-.app-chat-error { margin: 6px 2px 0; color: var(--danger); font-size: 9.5px; }
+.app-chat-error { margin: 6px 2px 0; color: var(--danger); font-size: var(--type-caption); }
 
 @keyframes app-chat-pulse {
   0%, 100% { opacity: 0.35; transform: translateY(1px); }
@@ -746,22 +716,22 @@
   margin: 0;
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 17px;
+  font-size: var(--type-page);
   font-weight: 800;
   letter-spacing: -0.02em;
-  line-height: 1.2;
+  line-height: var(--leading-page);
 }
 
 .records-breadcrumb,
 .records-object-title > span[aria-hidden] {
   color: var(--text3);
-  font-size: 11px;
+  font-size: var(--type-label);
   font-weight: 650;
 }
 
 .records-total {
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-caption);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -798,37 +768,7 @@
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 12px;
-}
-
-.records-primary-action,
-.records-secondary-action,
-.records-page-button {
-  min-height: 36px;
-  padding: 7px 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-control);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 11.5px;
-  font-weight: 750;
-  line-height: 1;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.records-primary-action:hover {
-  background: var(--accent-hover);
-}
-
-.records-primary-action svg,
-.records-secondary-action svg {
-  width: 14px;
-  height: 14px;
+  font-size: var(--type-body);
 }
 
 .records-viewbar {
@@ -863,7 +803,7 @@
   box-shadow: var(--shadow);
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 12px;
+  font-size: var(--type-body);
   font-weight: 800;
 }
 
@@ -874,7 +814,6 @@
 }
 
 .records-view-picker select,
-.records-view-picker button,
 .records-view-save > summary {
   min-height: 30px;
   padding: 5px 9px;
@@ -884,11 +823,10 @@
   box-shadow: var(--shadow);
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 11px;
+  font-size: var(--type-body-sm);
   font-weight: 750;
 }
 
-.records-view-picker button,
 .records-view-save > summary {
   cursor: pointer;
 }
@@ -904,7 +842,7 @@
   border-radius: 999px;
   background: var(--card);
   color: var(--text2);
-  font-size: 10.5px;
+  font-size: var(--type-caption);
   font-weight: 600;
 }
 
@@ -914,7 +852,7 @@
 
 .records-filter-chip a {
   color: var(--text3);
-  font-size: 15px;
+  font-size: var(--type-body-lg);
   line-height: 1;
   text-decoration: none;
 }
@@ -926,7 +864,7 @@
   place-items: center;
   border-radius: 999px;
   color: var(--text3);
-  font-size: 15px;
+  font-size: var(--type-body-lg);
   line-height: 1;
   text-decoration: none;
 }
@@ -978,7 +916,7 @@
   display: grid;
   gap: 5px;
   color: var(--text2);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 750;
 }
 
@@ -996,20 +934,6 @@
   font: inherit;
 }
 
-.records-filter-builder button,
-.records-view-save button,
-.records-view-delete {
-  min-height: 30px;
-  padding: 5px 10px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-control);
-  background: var(--accent);
-  color: white;
-  cursor: pointer;
-  font-size: 10.5px;
-  font-weight: 750;
-}
-
 .records-home-header {
   padding: 6px 0 18px;
   display: flex;
@@ -1020,15 +944,17 @@
 .records-home-header h1 {
   margin: 3px 0 0;
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: clamp(28px, 4vw, 44px);
-  letter-spacing: -0.04em;
+  font-size: var(--type-page);
+  letter-spacing: -0.025em;
+  line-height: var(--leading-page);
 }
 
 .records-home-header p {
   max-width: 680px;
   margin: 7px 0 0;
   color: var(--text2);
-  font-size: 13px;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 
 .records-page-grid {
@@ -1060,15 +986,14 @@
 .records-page-block h2 {
   margin: 0;
   color: var(--text2);
-  font-size: 11px;
+  font-size: var(--type-subsection);
   font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: -0.01em;
 }
 
 .records-page-block > header a {
   color: var(--accent);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
   font-weight: 750;
   text-decoration: none;
 }
@@ -1076,7 +1001,7 @@
 .records-page-metric {
   display: block;
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: clamp(30px, 4vw, 48px);
+  font-size: var(--type-display);
   letter-spacing: -0.05em;
   line-height: 1;
 }
@@ -1088,7 +1013,7 @@
 .records-page-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .records-page-table th,
@@ -1101,7 +1026,7 @@
 
 .records-page-table th {
   color: var(--text3);
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1143,7 +1068,7 @@
   display: flex;
   gap: 12px;
   color: var(--text2);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .records-page-timeline li > div b {
@@ -1155,7 +1080,7 @@
   margin: 0;
   padding: 20px 0;
   color: var(--text3);
-  font-size: 12px;
+  font-size: var(--type-body);
 }
 
 .records-object-grid {
@@ -1191,7 +1116,7 @@
 
 .records-object-grid small {
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-caption);
 }
 
 @container records-content (max-width: 900px) {
@@ -1205,7 +1130,7 @@
   }
 
   .records-page-metric {
-    font-size: clamp(30px, 7cqw, 42px);
+    font-size: var(--type-display);
   }
 }
 
@@ -1232,7 +1157,7 @@
   align-items: center;
   gap: 8px;
   color: var(--text2);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
   font-weight: 700;
   text-decoration: none;
 }
@@ -1288,7 +1213,7 @@
   border-bottom: 1px solid var(--border);
   color: var(--text3);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.11em;
   text-align: left;
@@ -1311,7 +1236,7 @@
   overflow: hidden;
   border-bottom: 1px solid var(--border);
   color: var(--text2);
-  font-size: 12px;
+  font-size: var(--type-body-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1352,7 +1277,7 @@
   border-radius: 999px;
   background: var(--watch-soft);
   color: var(--warn-ink) !important;
-  font-size: 8.5px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.04em;
   line-height: 1;
@@ -1389,7 +1314,7 @@
 .record-action-diff-target > span,
 .record-action-diff dt {
   color: var(--text3);
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -1398,7 +1323,7 @@
 .record-action-diff-target code {
   overflow-wrap: anywhere;
   color: var(--text2);
-  font-size: 10.5px;
+  font-size: var(--type-caption);
 }
 
 .record-action-diff dl {
@@ -1428,7 +1353,7 @@
   overflow-wrap: anywhere;
   color: var(--text2);
   font-family: var(--font-mono), monospace;
-  font-size: 11.5px;
+  font-size: var(--type-body-sm);
 }
 
 .record-action-diff-old {
@@ -1452,7 +1377,7 @@
   padding-top: 9px;
   border-top: 1px dashed var(--border);
   color: var(--text3);
-  font-size: 10px;
+  font-size: var(--type-caption);
   line-height: 1.45;
 }
 
@@ -1479,18 +1404,18 @@
 }
 
 .record-action-diff.is-compact dt {
-  font-size: 8.5px;
+  font-size: var(--type-label);
 }
 
 .record-action-diff.is-compact dd {
   gap: 6px;
-  font-size: 10.5px;
+  font-size: var(--type-caption);
 }
 
 .record-action-diff.is-compact .record-action-diff-freshness {
   margin-top: 7px;
   padding-top: 6px;
-  font-size: 9.5px;
+  font-size: var(--type-caption);
 }
 
 .records-table .is-number {
@@ -1538,7 +1463,7 @@
   padding: 3px 8px;
   display: inline-flex;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 750;
   line-height: 1.35;
 }
@@ -1556,7 +1481,7 @@
 
 .records-pill-more {
   color: var(--text3);
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 700;
 }
 
@@ -1570,7 +1495,7 @@
   background: var(--neutral);
   color: var(--text2);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 7.5px;
+  font-size: var(--type-label);
   font-weight: 800;
 }
 
@@ -1585,7 +1510,7 @@
   border-radius: 999px;
   background: var(--watch-soft);
   color: var(--warn-ink);
-  font-size: 8.5px;
+  font-size: var(--type-label);
   font-weight: 750;
 }
 
@@ -1597,20 +1522,11 @@
   gap: 10px;
   border-top: 1px solid var(--border);
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
 }
 
 .records-page-button {
-  min-height: 30px;
   margin-left: auto;
-  border-color: var(--border);
-  background: var(--card);
-  color: var(--text2);
-}
-
-.records-page-button:hover {
-  border-color: var(--text3);
-  color: var(--text);
 }
 
 .records-empty {
@@ -1626,11 +1542,11 @@
 .records-empty strong {
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 14px;
+  font-size: var(--type-subsection);
 }
 
 .records-empty span {
-  font-size: 11.5px;
+  font-size: var(--type-body-sm);
 }
 
 .records-substrate {
@@ -1661,13 +1577,13 @@
 .records-substrate-item > span {
   display: grid;
   gap: 1px;
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
 }
 
 .records-substrate-item b {
   color: var(--text3);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 8px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1683,7 +1599,7 @@
   border-bottom: 1px solid color-mix(in srgb, var(--danger) 25%, var(--border));
   background: var(--danger-soft);
   color: var(--text2);
-  font-size: 11.5px;
+  font-size: var(--type-body);
 }
 
 .records-degraded svg {
@@ -1718,7 +1634,7 @@
 .records-eyebrow {
   color: var(--danger);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1726,13 +1642,16 @@
 
 .records-unavailable-panel h1 {
   margin: 7px 0;
-  font: 800 24px/1.15 var(--font-display), "Archivo", sans-serif;
+  font-family: var(--font-display), "Archivo", sans-serif;
+  font-size: var(--type-page);
+  font-weight: 800;
+  line-height: var(--leading-page);
 }
 
 .records-unavailable-panel p {
   max-width: 48ch;
   color: var(--text2);
-  font-size: 12.5px;
+  font-size: var(--type-body);
   line-height: 1.6;
 }
 
@@ -1763,9 +1682,6 @@
 
 .records-secondary-action {
   margin-left: auto;
-  border-color: var(--border);
-  background: var(--card);
-  color: var(--text);
 }
 
 .records-object-header .records-secondary-action {
@@ -1779,12 +1695,15 @@
   align-items: baseline;
   gap: 8px;
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
 }
 
 .records-recycle-note strong {
   color: var(--text);
-  font: 800 12px/1.2 var(--font-display), "Archivo", sans-serif;
+  font-family: var(--font-display), "Archivo", sans-serif;
+  font-size: var(--type-body);
+  font-weight: 800;
+  line-height: var(--leading-heading);
 }
 
 .records-recycle-table td:first-child {
@@ -1796,7 +1715,7 @@
   display: block;
   overflow: hidden;
   color: var(--text3);
-  font-size: 8.5px;
+  font-size: var(--type-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1811,7 +1730,7 @@
 .records-restore-control > span {
   max-width: 240px;
   color: var(--text3);
-  font-size: 9.5px;
+  font-size: var(--type-caption);
 }
 
 .records-recycle-warning {
@@ -1822,7 +1741,7 @@
   border-radius: var(--radius-control);
   background: var(--watch-soft);
   color: var(--text2);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
 }
 
 .records-detail-card {
@@ -1838,7 +1757,7 @@
   margin: 0;
   padding: 13px 20px 0;
   color: var(--text2);
-  font-size: 11px;
+  font-size: var(--type-subsection);
   font-weight: 800;
 }
 
@@ -1862,7 +1781,7 @@
   margin-bottom: 6px;
   color: var(--text3);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1871,7 +1790,7 @@
 .records-detail-field dd {
   overflow-wrap: anywhere;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--type-body);
   line-height: 1.5;
 }
 
@@ -1882,7 +1801,7 @@
   gap: 10px;
   background: var(--neutral-soft);
   color: var(--text3);
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1891,7 +1810,7 @@
 .records-detail-id code {
   overflow: hidden;
   color: var(--text2);
-  font-size: 10px;
+  font-size: var(--type-caption);
   text-overflow: ellipsis;
   text-transform: none;
   white-space: nowrap;
@@ -1930,13 +1849,13 @@
 .records-related h2,
 .records-history h2 {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--type-subsection);
   font-weight: 800;
 }
 
 .records-related header a {
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--type-body-sm);
   font-weight: 750;
   text-decoration: none;
 }
@@ -1946,7 +1865,7 @@
   margin: 0;
   padding: 20px 15px;
   color: var(--text3);
-  font-size: 11px;
+  font-size: var(--type-body-sm);
 }
 
 .records-related-scroll { overflow-x: auto; }
@@ -1955,7 +1874,7 @@
   width: 100%;
   min-width: 620px;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .records-related th,
@@ -1967,7 +1886,7 @@
 
 .records-related th {
   color: var(--text3);
-  font-size: 9px;
+  font-size: var(--type-label);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -1976,7 +1895,7 @@
 
 .records-history > header span {
   color: var(--text3);
-  font-size: 9.5px;
+  font-size: var(--type-label);
 }
 
 .records-history ol {
@@ -1996,7 +1915,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 10.5px;
+  font-size: var(--type-caption);
 }
 
 .records-history-event strong {
@@ -2020,7 +1939,7 @@
   display: grid;
   grid-template-columns: minmax(100px, 0.28fr) 1fr;
   gap: 10px;
-  font-size: 10.5px;
+  font-size: var(--type-caption);
 }
 
 .records-history dt { color: var(--text2); font-weight: 750; }
@@ -2067,13 +1986,13 @@
 .records-ask-label strong {
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 11.5px;
+  font-size: var(--type-body-sm);
   font-weight: 800;
 }
 
 .records-ask-label small {
   color: var(--text3);
-  font-size: 9.5px;
+  font-size: var(--type-caption);
   line-height: 1.35;
 }
 
@@ -2103,7 +2022,7 @@
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--type-body);
 }
 
 .records-ask button {
@@ -2131,7 +2050,7 @@
 .records-ask-error {
   grid-column: 2;
   color: var(--danger);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .records-ask.is-list-panel {
@@ -2163,7 +2082,7 @@
 }
 
 .records-ask.is-list-panel .records-ask-label strong {
-  font-size: 9.5px;
+  font-size: var(--type-label);
   letter-spacing: 0.11em;
   text-transform: uppercase;
 }
@@ -2188,7 +2107,7 @@
 
 .records-ask-message {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--type-body);
   line-height: 1.55;
 }
 
@@ -2226,7 +2145,7 @@
 .records-ask-action > header span {
   color: var(--text2);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 8.5px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -2238,7 +2157,7 @@
   border-radius: 6px;
   background: var(--card);
   color: var(--text2);
-  font-size: 9.5px;
+  font-size: var(--type-caption);
 }
 
 .records-ask-action > div {
@@ -2252,14 +2171,14 @@
 
 .records-ask-action > div > strong {
   color: var(--text);
-  font-size: 11.5px;
+  font-size: var(--type-body-sm);
 }
 
 .records-ask-action > div > small {
   margin-top: 2px;
   overflow: hidden;
   color: var(--text3);
-  font-size: 9.5px;
+  font-size: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2273,7 +2192,7 @@
   border-radius: var(--radius-control);
   background: var(--text);
   color: var(--card);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
   font-weight: 750;
   text-decoration: none;
 }
@@ -2282,7 +2201,7 @@
 .records-ask-empty {
   margin: 0;
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
   line-height: 1.55;
 }
 
@@ -2317,14 +2236,17 @@
 .records-form-intro h2 {
   margin: 5px 0 2px;
   color: var(--text);
-  font: 800 19px/1.2 var(--font-display), "Archivo", sans-serif;
+  font-family: var(--font-display), "Archivo", sans-serif;
+  font-size: var(--type-section);
+  font-weight: 800;
+  line-height: var(--leading-heading);
   letter-spacing: -0.02em;
 }
 
 .records-form-intro p {
   margin: 0;
   color: var(--text3);
-  font-size: 11.5px;
+  font-size: var(--type-body-sm);
 }
 
 .records-form-card {
@@ -2360,7 +2282,7 @@
   display: block;
   color: var(--text2);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 9.5px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.055em;
   text-transform: uppercase;
@@ -2382,7 +2304,7 @@
   background: var(--neutral-soft);
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--type-body);
 }
 
 .records-form-field textarea {
@@ -2422,7 +2344,7 @@
   margin-top: 5px;
   display: block;
   color: var(--text3);
-  font-size: 9.5px;
+  font-size: var(--type-caption);
 }
 
 .records-checkbox {
@@ -2431,7 +2353,7 @@
   align-items: center;
   gap: 8px;
   color: var(--text2);
-  font-size: 12px;
+  font-size: var(--type-body-sm);
 }
 
 .records-checkbox input {
@@ -2443,7 +2365,7 @@
 .records-form-empty {
   padding: 34px 18px;
   color: var(--text3);
-  font-size: 12px;
+  font-size: var(--type-body-sm);
   text-align: center;
 }
 
@@ -2457,7 +2379,7 @@
   border-radius: var(--radius-control);
   background: var(--watch-soft);
   color: var(--text2);
-  font-size: 11px;
+  font-size: var(--type-body-sm);
   line-height: 1.45;
 }
 
@@ -2484,7 +2406,7 @@
   align-items: center;
   gap: 7px;
   color: var(--text3);
-  font-size: 9.5px;
+  font-size: var(--type-caption);
   line-height: 1.4;
 }
 
@@ -2493,19 +2415,6 @@
   height: 14px;
   flex: none;
   color: var(--success-mid);
-}
-
-.records-form-cancel {
-  padding: 8px 10px;
-  color: var(--text2);
-  font-size: 11px;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.records-primary-action:disabled {
-  cursor: wait;
-  opacity: 0.65;
 }
 
 .records-admin-nav {
@@ -2527,7 +2436,7 @@
   gap: 6px;
   border-radius: calc(var(--radius-control) - 2px);
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
   font-weight: 750;
   text-decoration: none;
 }
@@ -2561,13 +2470,13 @@
 
 .records-admin-panel h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--type-section);
 }
 
 .records-admin-panel header p {
   margin: 4px 0 0;
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
 }
 
 .records-admin-table-scroll { overflow-x: auto; }
@@ -2576,7 +2485,7 @@
   width: 100%;
   min-width: 740px;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .records-admin-table th,
@@ -2588,7 +2497,7 @@
 
 .records-admin-table th {
   color: var(--text3);
-  font-size: 8.5px;
+  font-size: var(--type-label);
   letter-spacing: 0.07em;
   text-transform: uppercase;
 }
@@ -2597,13 +2506,13 @@
   margin-top: 2px;
   display: block;
   color: var(--text3);
-  font-size: 8.5px;
+  font-size: var(--type-label);
 }
 
 .records-permission-grant {
   padding: 3px 7px;
   border-radius: 999px;
-  font-size: 8.5px;
+  font-size: var(--type-label);
   font-weight: 750;
 }
 
@@ -2614,7 +2523,7 @@
   padding: 12px 14px;
   background: var(--neutral-soft);
   color: var(--text2);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .records-schema-history > ol {
@@ -2634,15 +2543,15 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 
 .records-schema-history strong { text-transform: capitalize; }
 .records-schema-history time,
 .records-schema-history span { color: var(--text3); }
-.records-schema-history ul { margin: 0; padding-left: 18px; color: var(--text2); font-size: 10.5px; }
-.records-schema-history code { color: var(--text3); font-size: 9px; }
-.records-admin-empty { margin: 0; padding: 28px 18px; color: var(--text3); font-size: 11px; }
+.records-schema-history ul { margin: 0; padding-left: 18px; color: var(--text2); font-size: var(--type-caption); }
+.records-schema-history code { color: var(--text3); font-size: var(--type-label); }
+.records-admin-empty { margin: 0; padding: 28px 18px; color: var(--text3); font-size: var(--type-body-sm); }
 
 .records-identity-layout {
   width: min(1240px, 100%);
@@ -2671,12 +2580,11 @@
   gap: 6px;
 }
 
-.records-identity-backfill select,
-.records-identity-backfill button {
+.records-identity-backfill select {
   min-height: 32px;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
-  font-size: 9.5px;
+  font-size: var(--type-caption);
 }
 
 .records-identity-backfill select {
@@ -2687,33 +2595,10 @@
   color: var(--text2);
 }
 
-.records-identity-backfill button {
-  padding: 6px 9px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  background: var(--card);
-  color: var(--text);
-  font-weight: 750;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.records-identity-backfill button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.records-identity-backfill button svg {
-  width: 12px;
-  height: 12px;
-}
-
 .records-identity-backfill > span {
   grid-column: 1 / -1;
   color: var(--text3);
-  font-size: 9px;
+  font-size: var(--type-label);
   text-align: right;
 }
 
@@ -2727,7 +2612,7 @@
   border-radius: var(--radius-control);
   background: var(--card);
   color: var(--text2);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
@@ -2745,7 +2630,7 @@
   border-radius: 999px;
   background: var(--neutral);
   color: var(--text3);
-  font-size: 8.5px;
+  font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
@@ -2770,20 +2655,23 @@
 .records-identity-card h2 {
   margin: 0 0 3px;
   color: var(--text);
-  font: 800 15px/1.25 var(--font-display), "Archivo", sans-serif;
+  font-family: var(--font-display), "Archivo", sans-serif;
+  font-size: var(--type-section);
+  font-weight: 800;
+  line-height: var(--leading-heading);
 }
 
 .records-identity-card header p {
   max-width: 68ch;
   margin: 0;
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
   line-height: 1.45;
 }
 
 .records-identity-card > header > span {
   color: var(--text3);
-  font-size: 10px;
+  font-size: var(--type-caption);
   white-space: nowrap;
 }
 
@@ -2803,7 +2691,7 @@
   background: var(--neutral-soft);
   color: var(--text3);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 8.5px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.09em;
   text-align: left;
@@ -2814,7 +2702,7 @@
   padding: 11px 12px;
   border-bottom: 1px solid var(--border);
   color: var(--text2);
-  font-size: 10.5px;
+  font-size: var(--type-caption);
   line-height: 1.35;
   vertical-align: top;
 }
@@ -2836,7 +2724,7 @@
 .records-identity-table td > small {
   margin-top: 2px;
   color: var(--text3);
-  font-size: 9px;
+  font-size: var(--type-label);
 }
 
 .records-identity-table code {
@@ -2844,7 +2732,7 @@
   border-radius: 4px;
   background: var(--neutral-soft);
   color: var(--text2);
-  font-size: 9px;
+  font-size: var(--type-label);
 }
 
 .records-identity-status {
@@ -2855,7 +2743,7 @@
   border-radius: 999px;
   background: var(--neutral);
   color: var(--text2);
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 750;
   text-transform: capitalize;
 }
@@ -2882,12 +2770,14 @@
   gap: 6px;
 }
 
-.records-identity-control select,
-.records-identity-control button {
+.records-identity-control select {
   min-height: 32px;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
-  font: 700 9.5px/1 var(--font-body), sans-serif;
+  font-family: var(--font-body), sans-serif;
+  font-size: var(--type-caption);
+  font-weight: 700;
+  line-height: 1;
 }
 
 .records-identity-control select {
@@ -2904,36 +2794,10 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-soft) 80%, transparent);
 }
 
-.records-identity-control button {
-  padding: 6px 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  background: var(--accent);
-  color: var(--on-accent);
-  cursor: pointer;
-}
-
-.records-identity-control button.is-quiet {
-  background: var(--card);
-  color: var(--text2);
-}
-
-.records-identity-control button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.records-identity-control button svg {
-  width: 11px;
-  height: 11px;
-}
-
 .records-identity-control > span {
   grid-column: 1 / -1;
   color: var(--danger);
-  font-size: 9px;
+  font-size: var(--type-label);
 }
 
 .records-import-layout {
@@ -2983,7 +2847,10 @@
 .records-import-principles h2 {
   margin: 4px 0 3px;
   color: var(--text);
-  font: 800 16px/1.25 var(--font-display), "Archivo", sans-serif;
+  font-family: var(--font-display), "Archivo", sans-serif;
+  font-size: var(--type-section);
+  font-weight: 800;
+  line-height: var(--leading-heading);
   letter-spacing: -0.015em;
 }
 
@@ -2992,7 +2859,7 @@
 .records-import-principles p {
   margin: 0;
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
   line-height: 1.5;
 }
 
@@ -3002,7 +2869,7 @@
   gap: 6px;
   color: var(--text2);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.055em;
   text-transform: uppercase;
@@ -3020,7 +2887,10 @@
   outline: 0;
   background: var(--neutral-soft);
   color: var(--text);
-  font: 500 11px/1.2 var(--font-body), sans-serif;
+  font-family: var(--font-body), sans-serif;
+  font-size: var(--type-body-sm);
+  font-weight: 500;
+  line-height: var(--leading-compact);
   text-transform: none;
 }
 
@@ -3080,7 +2950,7 @@
   background: var(--neutral-soft);
   color: var(--text3);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 8.5px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.09em;
   text-align: left;
@@ -3092,7 +2962,7 @@
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   color: var(--text2);
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.4;
   vertical-align: top;
 }
@@ -3114,7 +2984,7 @@
   margin-top: 5px;
   display: block;
   color: var(--text3);
-  font-size: 9px;
+  font-size: var(--type-label);
 }
 
 .records-import-kind {
@@ -3123,7 +2993,7 @@
   border-radius: 999px;
   background: var(--neutral);
   color: var(--text2);
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 750;
 }
 
@@ -3147,7 +3017,7 @@
   align-items: center;
   gap: 6px;
   color: var(--text3);
-  font-size: 9.5px;
+  font-size: var(--type-caption);
   line-height: 1.4;
 }
 
@@ -3190,7 +3060,7 @@
 .records-import-artifact-report > p {
   margin: 0;
   color: var(--text3);
-  font-size: 9px;
+  font-size: var(--type-caption);
   line-height: 1.5;
 }
 
@@ -3212,14 +3082,14 @@
   margin-top: 4px;
   overflow: hidden;
   color: var(--text);
-  font-size: 11.5px;
+  font-size: var(--type-body-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .records-import-status > span:not(.records-import-status-dot) {
   color: var(--text3);
-  font-size: 9.5px;
+  font-size: var(--type-caption);
 }
 
 .records-import-status-dot {
@@ -3258,7 +3128,7 @@
 
 .records-import-progress small {
   color: var(--text3);
-  font-size: 9px;
+  font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -3283,7 +3153,7 @@
 
 .records-import-report dt {
   color: var(--text3);
-  font-size: 8px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -3291,7 +3161,10 @@
 
 .records-import-report dd {
   color: var(--text);
-  font: 800 14px/1 var(--font-display), "Archivo", sans-serif;
+  font-family: var(--font-display), "Archivo", sans-serif;
+  font-size: var(--type-body);
+  font-weight: 800;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
@@ -3301,28 +3174,8 @@
   border-radius: var(--radius-inner);
   background: var(--danger-soft);
   color: var(--danger);
-  font-size: 9.5px;
+  font-size: var(--type-caption);
   line-height: 1.4;
-}
-
-.records-import-cancel {
-  min-height: 34px;
-  margin-top: 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--card);
-  color: var(--text2);
-  font-size: 10px;
-  font-weight: 750;
-}
-
-.records-import-cancel svg {
-  width: 13px;
-  height: 13px;
 }
 
 .records-import-principles > svg {
@@ -3362,7 +3215,7 @@
 
 .records-import-recent span {
   overflow: hidden;
-  font-size: 10.5px;
+  font-size: var(--type-body-sm);
   font-weight: 750;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3370,7 +3223,7 @@
 
 .records-import-recent small {
   color: var(--text3);
-  font-size: 8.5px;
+  font-size: var(--type-label);
 }
 
 .records-spin {

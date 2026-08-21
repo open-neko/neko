@@ -33,10 +33,10 @@ type SettingsPayload = {
   fields: { primary: Record<string, Field[]>; research: Record<string, Field[]> };
 };
 const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-[15px] font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
+  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
 const FIELD_CLS = "flex flex-col gap-2";
-const LABEL_CLS = "text-[14px] font-semibold text-text";
-const HELP_CLS = "text-[13px] text-text3 leading-[1.45]";
+const LABEL_CLS = "text-ui-body font-semibold text-text";
+const HELP_CLS = "text-ui-body-sm text-text3 leading-[1.45]";
 
 type AgentBackendOption = { value: "hermes" | "claude-agent"; label: string; description: string };
 type AgentSettingsPayload = {
@@ -248,10 +248,10 @@ export default function AgentForm({
                 {field.help && <span className={HELP_CLS}>{field.help}</span>}
                 {isSecret && masked && !primary.clearedSecrets[field.key] && (
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-text3 text-[13px]">Saved: {masked}</span>
+                    <span className="text-text3 text-ui-body-sm">Saved: {masked}</span>
                     <button
                       type="button"
-                      className="border-0 bg-transparent text-[#b05555] cursor-pointer text-[13px] font-semibold"
+                      className="border-0 bg-transparent text-[#b05555] cursor-pointer text-ui-body-sm font-semibold"
                       onClick={() =>
                         setPrimary((p) => ({
                           ...p,

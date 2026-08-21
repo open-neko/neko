@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Archive, Pin } from "lucide-react";
 import { confirmDialog } from "@/components/ConfirmModal";
 import PageHeading from "@/components/PageHeading";
+import { Button, IconButton } from "@/components/ui/Button";
 
 type MemoryRow = {
   id: string;
@@ -175,9 +176,14 @@ export default function MemoryPage() {
               <strong>Memory unavailable</strong>
               <span>{error}</span>
             </div>
-            <button type="button" onClick={() => void refresh()}>
+            <Button
+              variant="danger"
+              size="sm"
+              className="shrink-0"
+              onClick={() => void refresh()}
+            >
               Retry
-            </button>
+            </Button>
           </div>
         ) : null}
 
@@ -206,21 +212,21 @@ export default function MemoryPage() {
                     {item.reasoning ? <small>{item.reasoning}</small> : null}
                   </div>
                   <div className="memory-review-actions">
-                    <button
-                      type="button"
-                      className="is-primary"
+                    <Button
+                      variant="primary"
+                      size="sm"
                       disabled={busyId === item.id}
                       onClick={() => void decide(item.id, "accept")}
                     >
                       Save globally
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      size="sm"
                       disabled={busyId === item.id}
                       onClick={() => void decide(item.id, "decline")}
                     >
                       Decline
-                    </button>
+                    </Button>
                   </div>
                 </li>
               ))}
@@ -291,16 +297,15 @@ export default function MemoryPage() {
                             : "not used"}
                       </small>
                     </div>
-                    <button
-                      type="button"
-                      className="memory-archive"
+                    <IconButton
+                      label="Archive memory"
+                      variant="danger"
+                      className="memory-archive-control"
                       disabled={busyId === memory.id}
                       onClick={() => void archive(memory.id)}
-                      aria-label="Archive memory"
-                      title="Archive memory"
                     >
                       <Archive aria-hidden="true" strokeWidth={1.9} />
-                    </button>
+                    </IconButton>
                   </li>
                 ))}
               </ol>

@@ -5,12 +5,17 @@ import { isDenied, requireAdminActor } from "@/lib/admin-auth";
 import { getOrgId } from "@/lib/db";
 import { hasDataSourceSetup } from "@/lib/data-source-settings";
 import { hasPrimaryProviderSetup } from "@/lib/provider-settings";
+import {
+  AGENT_RUNTIME_UNAVAILABLE_CODE,
+  AgentRuntimeUnavailableError,
+  requireAgentRuntimeReady,
+} from "@/lib/agent-runtime-readiness";
 
 /**
- * Marks admin setup complete on the org. Gated on the same prerequisites
- * the wizard's "Finish" button enforces in the UI — re-checked server-side
- * so a direct API call can't bypass them. Research is intentionally NOT
- * required: it's optional and admins can skip it.
+ * Marks admin setup complete on the org. Data, provider configuration, and a
+ * live OpenShell control-plane call are re-checked server-side so neither a
+ * direct API call nor a fresh-install race can send users into onboarding with
+ * an unusable agent. Research remains optional.
  */
 export async function POST() {
   const allowed = await requireAdminActor();
@@ -32,6 +37,18 @@ export async function POST() {
       { error: "Primary model provider not configured." },
       { status: 400 },
     );
+  }
+
+  try {
+    await requireAgentRuntimeReady(orgId);
+  } catch (error) {
+    if (error instanceof AgentRuntimeUnavailableError) {
+      return NextResponse.json(
+        { error: error.message, code: AGENT_RUNTIME_UNAVAILABLE_CODE },
+        { status: 503 },
+      );
+    }
+    throw error;
   }
 
   await db()

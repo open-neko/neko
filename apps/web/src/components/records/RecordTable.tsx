@@ -8,6 +8,7 @@ import {
 } from "@/lib/records-reference";
 import { RecordCell } from "./RecordCell";
 import { PendingChangeMarker } from "./PendingChangeMarker";
+import { buttonClassName } from "@/components/ui/Button";
 
 function hrefWith(
   base: string,
@@ -148,7 +149,10 @@ export function RecordTable({
         </span>
         {hasMore && (
           <Link
-            className="records-page-button"
+            className={buttonClassName({
+              size: "sm",
+              className: "records-page-button",
+            })}
             href={hrefWith(base, query, {
               after: cursor,
               page: String(page + 1),

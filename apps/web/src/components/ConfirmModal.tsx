@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/Button";
 
 export type ConfirmDialogOptions = {
   title: string;
@@ -105,32 +105,25 @@ function ConfirmDialog({
           {options.title}
         </h2>
         {options.description ? (
-          <p className="mt-2 text-[13.5px] leading-[1.55] text-text2 whitespace-pre-line">
+          <p className="mt-2 text-ui-body leading-[1.55] text-text2 whitespace-pre-line">
             {options.description}
           </p>
         ) : null}
         <div className="mt-[18px] flex justify-end gap-2">
-          <button
+          <Button
             ref={cancelRef}
-            type="button"
+            size="sm"
             onClick={() => onChoice(false)}
-            className="text-[13px] font-medium px-3.5 py-2 rounded-control border border-border bg-card text-text cursor-pointer transition-all duration-150 hover:bg-black/5 hover:border-text3 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
           >
             {options.cancelLabel ?? "Cancel"}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant={options.destructive ? "danger" : "primary"}
+            size="sm"
             onClick={() => onChoice(true)}
-            className={cn(
-              "text-[13px] font-medium px-3.5 py-2 rounded-control border cursor-pointer transition-all duration-150 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2",
-              !options.destructive &&
-                "bg-text border-text text-bg hover:bg-[#1a1814] hover:border-[#1a1814]",
-              options.destructive &&
-                "bg-danger border-danger text-white hover:bg-[var(--danger-hover)] hover:border-[var(--danger-hover)]",
-            )}
           >
             {options.confirmLabel ?? "Confirm"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -59,15 +59,15 @@
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 14.5px;
-  line-height: 1.55;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
   outline: none;
 }
 .work-bubble-edit-hint {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--text3);
 }
 .work-bubble-edit-hint button {
@@ -110,8 +110,8 @@
   border-radius: 16px;
 }
 .work-markdown {
-  font-size: 14.5px;
-  line-height: 1.6;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 .work-markdown > * + * {
   margin-top: 10px;
@@ -230,7 +230,7 @@
   align-items: center;
   gap: 8px;
   color: var(--text3);
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   padding-left: 4px;
 }
 .work-status-row::before {
@@ -258,7 +258,7 @@
   padding: 10px 14px 8px;
   color: var(--warn-ink);
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 9.5px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.15em;
   text-transform: uppercase;
@@ -279,7 +279,7 @@
   margin: 0;
   color: var(--text);
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 19px;
+  font-size: var(--type-section);
   font-weight: 800;
   letter-spacing: -0.025em;
   line-height: 1.15;
@@ -287,21 +287,21 @@
 .work-capability-denied p {
   margin: 8px 0 0;
   color: var(--text2);
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: var(--type-body-sm);
+  line-height: var(--leading-body);
 }
 .work-capability-denied code {
   display: block;
   margin-top: 13px;
   color: var(--warn-ink);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
+  font-family: var(--font-mono);
+  font-size: var(--type-caption);
   overflow-wrap: anywhere;
 }
 .work-capability-recovery > span {
   color: var(--text3);
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -315,7 +315,7 @@
   margin-top: 12px;
   padding: 8px 11px;
   color: var(--text);
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   font-weight: 700;
   text-decoration: none;
 }
@@ -370,7 +370,7 @@
   display: block;
   color: var(--text3);
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 8.5px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -379,9 +379,9 @@
   display: block;
   margin-top: 4px;
   color: var(--text2);
-  font-size: 11px;
+  font-size: var(--type-body-sm);
   font-weight: 600;
-  line-height: 1.45;
+  line-height: var(--leading-compact);
   overflow-wrap: anywhere;
 }
 .work-answer-evidence a:hover strong {
@@ -408,7 +408,7 @@
   color: var(--text2);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--type-body-sm);
   text-align: left;
 }
 .work-answer-followups button:hover {
@@ -442,8 +442,8 @@
   border-radius: 999px;
   cursor: pointer;
   padding: 4px 12px 4px 9px;
-  font-size: 11.5px;
-  line-height: 1.4;
+  font-size: var(--type-caption);
+  line-height: var(--leading-compact);
   color: var(--text3);
   text-align: left;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
@@ -455,7 +455,7 @@
   width: 100%;
   padding: 9px 14px;
   align-self: stretch;
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
 }
 .work-tool-group-head:hover {
   border-color: color-mix(in srgb, var(--text3) 35%, var(--border));
@@ -467,7 +467,7 @@
 }
 .work-tool-group-toggle {
   color: var(--text3);
-  font-size: 11px;
+  font-size: var(--type-label);
   width: 10px;
   text-align: center;
   flex-shrink: 0;
@@ -482,7 +482,7 @@
   gap: 5px;
   padding: 2px 9px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--type-label);
   font-weight: 500;
   background: var(--accent-soft);
   color: var(--accent);
@@ -557,14 +557,14 @@
 }
 .work-tool-row-name {
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--type-body-sm);
   color: var(--text);
   flex-shrink: 0;
 }
 .work-tool-row-subtitle {
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px;
+  font-family: var(--font-mono);
+  font-size: var(--type-caption);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -583,7 +583,7 @@
   border-top: 1px solid var(--border);
 }
 .work-tool-row-section-label {
-  font-size: 10.5px;
+  font-size: var(--type-label);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -594,22 +594,22 @@
   margin-top: 4px;
 }
 .work-tool-delta {
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   color: var(--text2);
   font-style: italic;
 }
 .work-tool-row-pre {
   margin: 0;
   padding: 10px 12px;
-  font-size: 11.5px;
-  line-height: 1.55;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
   color: var(--text);
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 10px;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   max-height: 320px;
   overflow: auto;
 }
@@ -676,14 +676,14 @@
 }
 .work-confirm-label {
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 10.5px;
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: 0.13em;
   text-transform: uppercase;
   color: var(--success-mid);
 }
 .work-confirm-title {
-  font-size: 16px;
+  font-size: var(--type-subsection);
   font-weight: 600;
   line-height: 1.3;
   letter-spacing: -0.012em;
@@ -703,7 +703,7 @@
   align-items: center;
   gap: 8px;
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 10.5px;
+  font-size: var(--type-label);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -718,15 +718,15 @@
 }
 .work-surface-title {
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 19px;
+  font-size: var(--type-section);
   font-weight: 800;
   letter-spacing: -0.025em;
   line-height: 1.18;
   color: var(--text);
 }
 .work-surface-sub {
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--type-body-sm);
+  line-height: var(--leading-compact);
   color: var(--text2);
   margin-top: 4px;
 }
@@ -754,7 +754,7 @@
   padding: 9px 0 8px;
   color: var(--text3);
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 9.5px;
+  font-size: var(--type-label);
   font-weight: 750;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -775,7 +775,7 @@
 }
 .work-key-figure dt {
   color: var(--text3);
-  font-size: 10px;
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: 0.08em;
   line-height: 1.35;
@@ -795,14 +795,14 @@
 .work-key-figure-sub {
   margin-top: 7px;
   color: var(--text2);
-  font-size: 11.5px;
-  line-height: 1.4;
+  font-size: var(--type-caption);
+  line-height: var(--leading-compact);
 }
 .work-key-figure-proof {
   margin-top: 8px;
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9.5px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
   letter-spacing: 0.02em;
   line-height: 1.4;
   text-transform: uppercase;
@@ -843,19 +843,19 @@
   overflow-x: auto;
 }
 .work-table-caption {
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--text3);
   margin-bottom: 6px;
 }
 .work-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--type-body-sm);
 }
 .work-table thead th {
   text-align: left;
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 10.5px;
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -882,7 +882,7 @@
 .work-section-title,
 .work-section-summary {
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 11px;
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -939,7 +939,7 @@
 }
 .work-callout-title {
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 10.5px;
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -961,7 +961,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 13px;
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   font-weight: 500;
   color: var(--text);
   background: var(--card);
@@ -980,7 +980,7 @@
 .work-choice-arrow {
   color: var(--accent);
   opacity: 0.7;
-  font-size: 13px;
+  font-size: var(--type-body-sm);
 }
 .work-choice-btn[data-mood="good"] {
   border-color: color-mix(in srgb, var(--success-mid) 40%, var(--border));
@@ -1005,7 +1005,7 @@
   border: none;
   color: var(--text3);
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 10px;
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1078,13 +1078,13 @@
 .work-surface > .work-a2ui-button { margin-top: 14px; }
 .work-a2ui-text {
   color: var(--text2);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--type-body-sm);
+  line-height: var(--leading-body);
 }
 .work-a2ui-text > * { margin: 0; }
 .work-a2ui-text.is-caption {
   color: var(--text3);
-  font-size: 11.5px;
+  font-size: var(--type-caption);
 }
 .work-a2ui-field {
   display: flex;
@@ -1095,7 +1095,7 @@
 .work-a2ui-label {
   color: var(--text3);
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 10.5px;
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -1110,7 +1110,7 @@
   border-radius: 9px;
   outline: none;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--type-body);
   line-height: 1.35;
   transition: border-color 0.14s ease, box-shadow 0.14s ease;
 }
@@ -1127,7 +1127,7 @@ textarea.work-a2ui-input { resize: vertical; }
   align-items: center;
   gap: 8px;
   color: var(--text2);
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   cursor: pointer;
 }
 .work-a2ui-checkbox input,
@@ -1162,7 +1162,7 @@ textarea.work-a2ui-input { resize: vertical; }
   background: transparent;
   border: 0;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--type-caption);
   font-weight: 600;
 }
 .work-a2ui-tab[aria-selected="true"] { color: var(--text); }
@@ -1188,7 +1188,7 @@ textarea.work-a2ui-input { resize: vertical; }
   border: 1px solid var(--border);
   border-radius: 9px;
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   font-weight: 600;
   max-width: 100%;
   overflow-wrap: anywhere;
@@ -1222,7 +1222,7 @@ textarea.work-a2ui-input { resize: vertical; }
   border-radius: 999px;
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .work-openapi-mode button[aria-selected="true"] {
   color: var(--text);
@@ -1230,7 +1230,7 @@ textarea.work-a2ui-input { resize: vertical; }
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }
 .work-openapi-file { padding-block: 6px; }
-.work-openapi-error { color: var(--danger, #b42318); font-size: 12px; }
+.work-openapi-error { color: var(--danger, #b42318); font-size: var(--type-caption); }
 .work-openapi-summary {
   padding: 12px;
   background: var(--card);
@@ -1239,18 +1239,18 @@ textarea.work-a2ui-input { resize: vertical; }
 }
 .work-openapi-summary-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .work-openapi-summary-head > div { min-width: 0; }
-.work-openapi-summary-head strong { display: block; color: var(--text); font-size: 13px; overflow-wrap: anywhere; }
-.work-openapi-summary-head span { color: var(--text3); font-size: 11px; }
+.work-openapi-summary-head strong { display: block; color: var(--text); font-size: var(--type-body-sm); overflow-wrap: anywhere; }
+.work-openapi-summary-head span { color: var(--text3); font-size: var(--type-label); }
 .work-openapi-summary-head .work-openapi-ready { color: var(--good, #067647); font-weight: 700; }
 .work-openapi-summary dl { display: grid; gap: 7px; margin: 12px 0 0; }
 .work-openapi-summary dl > div { display: grid; grid-template-columns: minmax(90px, 0.3fr) 1fr; gap: 10px; }
-.work-openapi-summary dt { color: var(--text3); font-size: 11px; }
-.work-openapi-summary dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text2); font-size: 11.5px; }
-.work-openapi-checksum { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.work-openapi-summary ul { margin: 10px 0 0; padding-left: 18px; color: var(--text3); font-size: 11.5px; }
+.work-openapi-summary dt { color: var(--text3); font-size: var(--type-label); }
+.work-openapi-summary dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text2); font-size: var(--type-caption); }
+.work-openapi-checksum { font-family: var(--font-mono); }
+.work-openapi-summary ul { margin: 10px 0 0; padding-left: 18px; color: var(--text3); font-size: var(--type-caption); }
 .work-managed-files-note {
   color: var(--text3);
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   line-height: 1.55;
 }
 .work-managed-files-list { display: grid; gap: 5px; }
@@ -1259,8 +1259,8 @@ textarea.work-a2ui-input { resize: vertical; }
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
 }
 
 @media (max-width: 520px) {

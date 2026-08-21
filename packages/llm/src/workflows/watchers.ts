@@ -1,5 +1,6 @@
 import { and, data_source, db, desc, eq, watcher } from "@neko/db";
 import { graphjinQuery } from "../graphjin/client";
+import { mintGraphjinToken } from "../graphjin/token";
 
 /**
  * OL4 — watchers, polling v1. A watcher runs a GraphJin query on its
@@ -25,6 +26,10 @@ export type WatcherRecord = {
   threshold: unknown;
   cadenceSeconds: number;
   debounceSeconds: number;
+  cooldownSeconds: number;
+  dedupeKey: string | null;
+  activation: string | null;
+  variables: Record<string, unknown>;
   severity: string;
   lastCheckedAt: Date | null;
   lastFiredAt: Date | null;
@@ -63,6 +68,10 @@ function toRecord(row: typeof watcher.$inferSelect): WatcherRecord {
     threshold: row.threshold,
     cadenceSeconds: row.cadence_seconds,
     debounceSeconds: row.debounce_seconds,
+    cooldownSeconds: row.cooldown_seconds,
+    dedupeKey: row.dedupe_key,
+    activation: row.activation,
+    variables: row.variables_json,
     severity: row.severity,
     lastCheckedAt: row.last_checked_at,
     lastFiredAt: row.last_fired_at,
@@ -216,6 +225,42 @@ export function watcherConditionMet(
   return false;
 }
 
+export function resolveWatcherVariables(
+  definition: Record<string, unknown> | null | undefined,
+  now: Date,
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  for (const [name, raw] of Object.entries(definition ?? {})) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error(`watcher variable ${name} must be a descriptor`);
+    }
+    const descriptor = raw as Record<string, unknown>;
+    if (descriptor.kind === "now") {
+      resolved[name] = now.toISOString();
+      continue;
+    }
+    if (descriptor.kind === "seconds_ago") {
+      const seconds = Number(descriptor.seconds);
+      if (!Number.isFinite(seconds) || seconds < 0) {
+        throw new Error(`watcher variable ${name}.seconds must be non-negative`);
+      }
+      resolved[name] = new Date(now.getTime() - seconds * 1_000).toISOString();
+      continue;
+    }
+    if (descriptor.kind === "literal") {
+      resolved[name] = descriptor.value;
+      continue;
+    }
+    throw new Error(`watcher variable ${name} uses unsupported kind ${String(descriptor.kind)}`);
+  }
+  return resolved;
+}
+
+function graphjinEndpoint(url: string): string {
+  const clean = url.replace(/\/+$/, "");
+  return clean.endsWith("/api/v1/graphql") ? clean : `${clean}/api/v1/graphql`;
+}
+
 export type WatcherSweepDeps = {
   query?: typeof graphjinQuery;
   enqueueFire?: (payload: {
@@ -265,9 +310,9 @@ export async function sweepWatchers(
   if (due.length === 0) return { checked: 0, fired: [] };
 
   const [src] = await db()
-    .select({ graphqlUrl: data_source.graphql_url })
+    .select({ graphqlUrl: data_source.graphql_url, authMode: data_source.auth_mode })
     .from(data_source)
-    .where(eq(data_source.org_id, orgId))
+    .where(and(eq(data_source.org_id, orgId), eq(data_source.enabled, true)))
     .orderBy(desc(data_source.is_default), data_source.created_at)
     .limit(1);
   if (!src?.graphqlUrl) return { checked: 0, fired: [] };
@@ -277,7 +322,24 @@ export async function sweepWatchers(
     let value: unknown;
     let error: string | null = null;
     try {
-      const result = await query({ baseUrl: src.graphqlUrl, query: row.query });
+      const result = await query({
+        baseUrl: graphjinEndpoint(src.graphqlUrl),
+        query: row.query,
+        variables: resolveWatcherVariables(row.variables_json, now),
+        role: "service",
+        ...(src.authMode === "jwt"
+          ? {
+              headers: {
+                authorization: `Bearer ${mintGraphjinToken({
+                  orgId,
+                  userId: null,
+                  role: "service",
+                })}`,
+              },
+            }
+          : {}),
+        signal: AbortSignal.timeout(30_000),
+      });
       if (result.errors?.length) {
         error = result.errors.map((e) => e.message).join("; ").slice(0, 500);
       } else {
@@ -290,9 +352,10 @@ export async function sweepWatchers(
     const met =
       error === null &&
       watcherConditionMet(row.op as WatcherOp, value, row.threshold, row.last_value);
+    const suppressionSeconds = Math.max(row.debounce_seconds, row.cooldown_seconds);
     const outsideDebounce =
       !row.last_fired_at ||
-      row.last_fired_at.getTime() + row.debounce_seconds * 1000 <= now.getTime();
+      row.last_fired_at.getTime() + suppressionSeconds * 1000 <= now.getTime();
     const fires = met && outsideDebounce;
 
     await db()

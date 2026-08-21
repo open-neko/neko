@@ -5,6 +5,7 @@ import {
   Plus,
   RefreshCw,
 } from "lucide-react";
+import { buttonClassName } from "@/components/ui/Button";
 import type { RecordAppNavItem } from "@/lib/records";
 
 const CREATE_APP_PROMPT =
@@ -45,7 +46,13 @@ export function AppsOverview({
           </p>
         </div>
         {canCreate && !unavailable && (
-          <Link className="apps-overview-create" href={createHref}>
+          <Link
+            className={buttonClassName({
+              variant: "primary",
+              className: "apps-overview-create",
+            })}
+            href={createHref}
+          >
             <Plus aria-hidden="true" />
             Create app
           </Link>
@@ -57,7 +64,12 @@ export function AppsOverview({
           <span className="apps-overview-empty-icon"><RefreshCw aria-hidden="true" /></span>
           <h2 id="apps-unavailable-title">Apps are temporarily unavailable</h2>
           <p>The app registry could not be reached. Your access has not changed.</p>
-          <Link href="/apps">Try again</Link>
+          <Link
+            href="/apps"
+            className={buttonClassName({ size: "sm", className: "mt-[18px]" })}
+          >
+            Try again
+          </Link>
         </section>
       ) : apps.length > 0 ? (
         <section className="apps-overview-section" aria-labelledby="accessible-apps-title">
@@ -101,7 +113,13 @@ export function AppsOverview({
             <li><span>2</span><strong>Review the design</strong><small>OpenNeko proposes objects, fields, and relationships.</small></li>
             <li><span>3</span><strong>Approve and launch</strong><small>The governed schema change is applied after approval.</small></li>
           </ol>
-          <Link className="apps-overview-create" href={createHref}>
+          <Link
+            className={buttonClassName({
+              variant: "primary",
+              className: "apps-overview-create",
+            })}
+            href={createHref}
+          >
             <Plus aria-hidden="true" />
             Describe an app
           </Link>

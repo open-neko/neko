@@ -106,6 +106,17 @@ state dir under `$HOME` automatically (see Deployment); on Linux it uses
 connecting binary all self-derive from your `/settings` model config on first
 boot — the env table below is only for manual / advanced setups.
 
+A full source build uses the checked-in overlay and an absolute state path so
+the host Docker daemon and gateway container resolve the same files:
+
+```sh
+export OPENSHELL_STATE_DIR="$PWD/.openneko/openshell"
+docker compose -f compose.yml -f compose.openshell.yml up -d --build
+```
+
+The overlay builds the matching agent image and does not start web or worker
+until an authenticated gateway readiness call succeeds.
+
 ## Deployment
 
 - **Host-process gateway** (brew on macOS / binary + systemd on Linux) — the

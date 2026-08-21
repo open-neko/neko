@@ -1,0 +1,5 @@
+query MagentoWatchDataFreshness($staleBefore: String!, $storeIds: [Int!]) {
+  sales_order(where: {created_at: {gte: $staleBefore}, store_id: {in: $storeIds}}) {
+    count: count_entity_id
+  }
+}

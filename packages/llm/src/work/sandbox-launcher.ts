@@ -1002,6 +1002,31 @@ export async function ensureOpenShellProvider(opts: {
 }
 
 /**
+ * Prove that the configured OpenShell gateway is reachable over its real mTLS
+ * control-plane path. `openshell status` is not suitable for readiness: it
+ * exits successfully even when no gateway is configured. Listing providers is
+ * a read-only gateway RPC, so a successful call proves both registration and
+ * connectivity without creating a sandbox or exposing credentials.
+ */
+export async function verifyOpenShellGateway(opts: {
+  cli?: string;
+  gatewayName?: string;
+  gatewayEndpoint?: string;
+} = {}): Promise<void> {
+  const cli = opts.cli ?? "openshell";
+  const gatewayArgs = opts.gatewayName
+    ? ["--gateway", opts.gatewayName]
+    : opts.gatewayEndpoint
+      ? ["--gateway-endpoint", opts.gatewayEndpoint]
+      : [];
+  await runProcessOnce(
+    cli,
+    [...gatewayArgs, "provider", "list", "--names"],
+    15_000,
+  );
+}
+
+/**
  * Mirror a host HERMES_HOME into `destination` KEYLESS: copy
  * config.yaml, write an empty `.env`. hermes reads `.env` before the process
  * env, so an empty `.env` lets the proxy-injected key (keyAliases) win — and

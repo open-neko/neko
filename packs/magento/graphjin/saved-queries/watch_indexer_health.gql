@@ -1,0 +1,3 @@
+query MagentoWatchIndexerHealth($staleBefore: String!) {
+  indexer_state(where: {or: [{status: {neq: "valid"}}, {updated: {lt: $staleBefore}}]}) { count: count_indexer_id }
+}

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Database,
   LayoutGrid,
@@ -266,6 +266,7 @@ export default function AppRail() {
   const router = useRouter();
   const hidden = hideAppChrome(pathname);
   const pending = useApprovalsCount();
+  const navRef = useRef<HTMLElement>(null);
   const [user, setUser] = useState<SessionUser | null>(
     RECORDS_VISUAL_TEST
       ? { email: "kavya@example.com", name: "Kavya M." }
@@ -330,6 +331,15 @@ export default function AppRail() {
       clearInterval(id);
     };
   }, [hidden]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      navRef.current
+        ?.querySelector<HTMLElement>('[aria-current="page"]')
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pathname, recordApps.length, sessionMode]);
 
   useEffect(() => {
     if (hidden || RECORDS_VISUAL_TEST) return;
@@ -425,7 +435,7 @@ export default function AppRail() {
         )}
       </div>
 
-      <nav className="app-rail-nav">
+      <nav ref={navRef} className="app-rail-nav">
         <div className="app-rail-group">
           {grouped.primary.map((item) => (
             <RailLink

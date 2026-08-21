@@ -4,9 +4,9 @@ import { cn } from "@/lib/cn";
 const VARIANTS = {
   live: "bg-success/15 text-success-ink border-success/30",
   watch: "bg-watch-soft text-warn-ink border-watch/30",
-  danger: "bg-danger-soft text-danger border-transparent",
+  danger: "bg-danger-soft text-danger border-danger/15",
   muted: "bg-neutral text-text2 border-border",
-  success: "bg-success-soft text-success-mid border-transparent",
+  success: "bg-success-soft text-success-ink border-success-mid/15",
 } as const;
 
 export type PillVariant = keyof typeof VARIANTS;
@@ -28,7 +28,7 @@ export function Pill({
       className={cn(
         "inline-flex min-w-0 max-w-full min-h-6 shrink-0 items-center px-2.5 py-1 rounded-full",
         "overflow-hidden text-ellipsis whitespace-nowrap leading-none",
-        "text-[11px] font-extrabold tracking-[0.08em] uppercase",
+        "text-ui-label font-extrabold tracking-[0.08em] uppercase",
         "border",
         VARIANTS[variant],
         className,

@@ -15,6 +15,7 @@ import type {
   RecordIdentityAdminMapping,
   RecordIdentityAdminModel,
 } from "@/lib/records-identity";
+import { Button } from "@/components/ui/Button";
 
 type IdentityStatus = RecordIdentityAdminMapping["status"];
 
@@ -107,19 +108,23 @@ function MappingControl({
           </option>
         ))}
       </select>
-      <button type="submit" disabled={pending !== null || !appUserId}>
+      <Button
+        variant="primary"
+        size="sm"
+        type="submit"
+        disabled={pending !== null || !appUserId}
+      >
         {pending === "link" ? <LoaderCircle className="records-spin" /> : <Link2 />}
         Link
-      </button>
-      <button
-        className="is-quiet"
-        type="button"
+      </Button>
+      <Button
+        size="sm"
         disabled={pending !== null}
         onClick={() => void decide("ignore")}
       >
         {pending === "ignore" ? <LoaderCircle className="records-spin" /> : <UserRoundX />}
         Ignore
-      </button>
+      </Button>
       {message && <span role="alert">{message}</span>}
     </form>
   );
@@ -184,10 +189,14 @@ function BackfillControl({ appId, sources }: { appId: string; sources: string[] 
           ))
         )}
       </select>
-      <button type="submit" disabled={pending || !sourceInstanceId}>
+      <Button
+        size="sm"
+        type="submit"
+        disabled={pending || !sourceInstanceId}
+      >
         {pending ? <LoaderCircle className="records-spin" /> : <RefreshCcw />}
         Re-run ownership
-      </button>
+      </Button>
       {message && <span role="status">{message}</span>}
     </form>
   );

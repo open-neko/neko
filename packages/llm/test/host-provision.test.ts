@@ -37,8 +37,12 @@ import {
   provisionHostConfig,
   resolveHermesModelBinary,
   shouldReconcileDemoSourceAuthMode,
+  verifyAgentRuntimeReady,
 } from "../src/host-provision";
-import { ensureOpenShellProvider } from "../src/work/sandbox-launcher";
+import {
+  ensureOpenShellProvider,
+  verifyOpenShellGateway,
+} from "../src/work/sandbox-launcher";
 import { graphjinSigningSecretB64 } from "../src/graphjin/token";
 
 vi.mock("../src/work/sandbox-launcher", async (importOriginal) => {
@@ -46,6 +50,7 @@ vi.mock("../src/work/sandbox-launcher", async (importOriginal) => {
   return {
     ...actual,
     ensureOpenShellProvider: vi.fn().mockResolvedValue(undefined),
+    verifyOpenShellGateway: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -83,6 +88,7 @@ const ORIGINAL_DELEGATION_ENV = Object.fromEntries(
   DELEGATION_ENV_KEYS.map((key) => [key, process.env[key]]),
 );
 const ensureOpenShellProviderMock = vi.mocked(ensureOpenShellProvider);
+const verifyOpenShellGatewayMock = vi.mocked(verifyOpenShellGateway);
 
 describe("resolveHermesModelBinary", () => {
   it("returns the exact interpreter behind Hermes' uv entrypoint", async () => {
@@ -222,6 +228,8 @@ describeIfDb("provisionHostConfig", () => {
   beforeEach(async () => {
     ensureOpenShellProviderMock.mockReset();
     ensureOpenShellProviderMock.mockResolvedValue(undefined);
+    verifyOpenShellGatewayMock.mockReset();
+    verifyOpenShellGatewayMock.mockResolvedValue(undefined);
     tempHome = await mkdtemp(join(tmpdir(), "neko-test-home-"));
     hermesHome = join(tempHome, ".hermes");
     process.env.HOME = tempHome;
@@ -512,6 +520,39 @@ describeIfDb("provisionHostConfig", () => {
 
     const yaml = await readFile(join(hermesHome, "config.yaml"), "utf8");
     expect(yaml).toContain('provider: "gemini"');
+  });
+
+  it("verifies the gateway and syncs the provider before an agent job", async () => {
+    await seedProvider(orgId, {
+      scope: "agent",
+      provider: "hermes",
+      config: { backend: "hermes" },
+    });
+    await seedProvider(orgId, {
+      scope: "primary",
+      provider: "google-gemini",
+      model: "gemini-pro-latest",
+      secrets: { apiKey: "test-gemini-key" },
+    });
+
+    await verifyAgentRuntimeReady(orgId);
+
+    expect(verifyOpenShellGatewayMock).toHaveBeenCalledWith({
+      gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
+      gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
+    });
+    expect(ensureOpenShellProviderMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails readiness when the gateway RPC fails", async () => {
+    verifyOpenShellGatewayMock.mockRejectedValueOnce(
+      new Error("No active gateway"),
+    );
+
+    await expect(verifyAgentRuntimeReady(orgId)).rejects.toThrow(
+      "No active gateway",
+    );
+    expect(ensureOpenShellProviderMock).not.toHaveBeenCalled();
   });
 
   it("retries memoized provisioning after an OpenShell provider sync failure", async () => {

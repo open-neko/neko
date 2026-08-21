@@ -51,9 +51,9 @@ export default function HoursSavedHero({
         </span>
         <span className="font-display text-[26px] font-extrabold tracking-[-0.03em] text-accent tabular-nums leading-none">
           {hero.value}
-          <span className="text-[13px] font-bold ml-1 opacity-70">{hero.unit}</span>
+          <span className="text-ui-body-sm font-bold ml-1 opacity-70">{hero.unit}</span>
         </span>
-        <span className="text-[12.5px] leading-[1.4] text-text2">
+        <span className="text-ui-body-sm leading-[1.4] text-text2">
           saved {sinceLabel(value.sinceISO)}
           {windowLabel ? (
             <>
@@ -73,14 +73,14 @@ export default function HoursSavedHero({
             <Sparkline values={daily} width={64} height={18} />
           </span>
         )}
-        <span className="ml-1 font-mono text-[11px] font-semibold text-accent opacity-70 group-hover:opacity-100 whitespace-nowrap">
+        <span className="ml-1 font-mono text-ui-label font-semibold text-accent opacity-70 group-hover:opacity-100 whitespace-nowrap">
           how? {open ? "▾" : "→"}
         </span>
       </button>
 
       {open && (
-        <div className="mt-2.5 max-w-[640px] bg-card border border-border rounded-2xl px-5 py-4 shadow-soft text-[13.5px] leading-[1.55] text-text2">
-          <div className="font-display text-[11px] font-bold tracking-[0.13em] uppercase text-text3 mb-2.5">
+        <div className="mt-2.5 max-w-[640px] bg-card border border-border rounded-2xl px-5 py-4 shadow-soft text-ui-body leading-[1.55] text-text2">
+          <div className="font-display text-ui-label font-bold tracking-[0.13em] uppercase text-text3 mb-2.5">
             How we estimate hours saved
           </div>
           <p className="m-0 mb-2.5">
@@ -97,12 +97,12 @@ export default function HoursSavedHero({
 
           {detailed.length > 0 && (
             <div className="mt-3.5 pt-3.5 border-t border-border">
-              <div className="font-display text-[11px] font-bold tracking-[0.13em] uppercase text-text3 mb-2">
+              <div className="font-display text-ui-label font-bold tracking-[0.13em] uppercase text-text3 mb-2">
                 Recent
               </div>
               <ul className="list-none m-0 p-0 grid gap-1.5">
                 {detailed.map((item, i) => (
-                  <li key={i} className="flex items-baseline gap-2.5 text-[12.5px]">
+                  <li key={i} className="flex items-baseline gap-2.5 text-ui-body-sm">
                     <span className="font-mono text-accent tabular-nums flex-none w-[58px]">
                       {formatSavedShort(item.minutes)}
                     </span>

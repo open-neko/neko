@@ -149,6 +149,7 @@ COPY packages/db/package.json packages/db/package.json
 COPY packages/evals/package.json packages/evals/package.json
 COPY packages/interaction/package.json packages/interaction/package.json
 COPY packages/llm/package.json packages/llm/package.json
+COPY packages/packs/package.json packages/packs/package.json
 COPY packages/plugin-install/package.json packages/plugin-install/package.json
 COPY packages/plugin-types/package.json packages/plugin-types/package.json
 COPY packages/records/package.json packages/records/package.json
@@ -257,7 +258,8 @@ CMD ["node", "apps/web/server.js"]
 # web/Next, keeps src + tsx + @neko/llm (with assets) + onnxruntime. Same
 # mechanism as agent-deploy; rooted at /app, so the entry is /app/src/index.ts.
 FROM build AS worker-deploy
-RUN pnpm --filter @neko/worker deploy --prod /out/worker-app
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm --filter @neko/worker deploy --prod /out/worker-app
 
 # The worker runs from source via tsx (not a build step). It serves /health +
 # admin endpoints on port 4100 for liveness probes.
@@ -297,6 +299,8 @@ COPY --from=worker-deploy --chown=neko:neko /out/worker-app ./
 # Whole db/ (not just migrations): seeds + load-adventureworks-baked.sh
 # are needed for `openneko start --mode demo`'s adventureworks-init step.
 COPY --chown=neko:neko db ./db
+# Embedded first-party solution packs are loaded and validated by the worker.
+COPY --chown=neko:neko packs ./packs
 COPY --chown=neko:neko entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 # Vendor the openneko Go binary so the agent's Bash tool inside the worker
@@ -327,7 +331,8 @@ CMD ["node", "--import", "tsx/esm", "src/index.ts"]
 # Trimmed prod closure of @neko/worker: drops web/Next.js + devDeps + other
 # apps' sources; keeps tsx, @neko/llm (with its assets), and the claude SDK.
 FROM build AS agent-deploy
-RUN pnpm --filter @neko/worker deploy --prod /out/agent-app
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm --filter @neko/worker deploy --prod /out/agent-app
 # OpenNeko's logical MCP servers share one multiplexed bridge process per
 # agent run. Bundle it to plain JS as well: that avoids tsx startup/RSS and
 # lets entry.ts launch it from arbitrary sandbox working directories.

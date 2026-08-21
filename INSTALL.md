@@ -234,8 +234,9 @@ OPENNEKO_PORT=3001 OPENNEKO_DB_PORT=55432 OPENNEKO_GRAPHJIN_PORT=8090 \
 ```bash
 git clone https://github.com/open-neko/openneko.git
 cd neko
-docker compose -f compose.yml -f compose.adventureworks.yml up -d --build
-docker compose -f compose.yml -f compose.adventureworks.yml run --rm neko-adventureworks-seed
+export OPENSHELL_STATE_DIR="$PWD/.openneko/openshell"
+docker compose -f compose.yml -f compose.openshell.yml -f compose.adventureworks.yml up -d --build
+docker compose -f compose.yml -f compose.openshell.yml -f compose.adventureworks.yml run --rm neko-adventureworks-seed
 ```
 
 ### Live trial data
@@ -244,7 +245,7 @@ The source compose trickles fresh sales orders into the sample DB every 10 minut
 
 ```bash
 AW_SIM_INTERVAL_SEC=300 AW_SIM_ORDERS_MIN=1 AW_SIM_ORDERS_MAX=5 \
-  docker compose -f compose.yml -f compose.adventureworks.yml up -d
+  docker compose -f compose.yml -f compose.openshell.yml -f compose.adventureworks.yml up -d
 ```
 
 Disable the trickle: `AW_SIM_ENABLED=0`. Wire real webhooks past trial: `NEKO_ACTIONS_DRY_RUN=false`.
@@ -260,7 +261,7 @@ The seed pre-loads three watchers:
 To see the loop without waiting for an organic dip, fire the Germany scenario (stops new orders for territory 8 for three hours):
 
 ```bash
-docker compose -f compose.yml -f compose.adventureworks.yml \
+docker compose -f compose.yml -f compose.openshell.yml -f compose.adventureworks.yml \
   exec adventureworks-scenario-injector \
   /scripts/scenario-injector.sh fire germany-revenue-drop
 ```

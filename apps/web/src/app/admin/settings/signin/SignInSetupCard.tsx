@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/Button";
 
 const MAGIC_LINK_PLUGIN = "@open-neko/plugin-magic-link";
 
@@ -54,7 +55,8 @@ export default function SignInSetupCard() {
   }, []);
 
   useEffect(() => {
-    void reload();
+    const initial = window.setTimeout(() => void reload(), 0);
+    return () => window.clearTimeout(initial);
   }, [reload]);
 
   if (loadError) {
@@ -301,13 +303,13 @@ function DeliverySection({
             className="w-72 rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
           />
         </label>
-        <button
+        <Button
           type="submit"
+          variant="primary"
           disabled={busy}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-ink disabled:opacity-50"
         >
           {busy ? "Saving…" : "Save delivery settings"}
-        </button>
+        </Button>
       </form>
       <p className="mt-2 text-xs text-text3">
         The From address must be a sender verified with the provider you
@@ -416,13 +418,13 @@ function UsersSection({
             <option value="member">member</option>
           </select>
         </label>
-        <button
+        <Button
           type="submit"
+          variant="primary"
           disabled={busy}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-ink disabled:opacity-50"
         >
           {busy ? "Adding…" : "Add user"}
-        </button>
+        </Button>
       </form>
     </section>
   );
@@ -500,13 +502,12 @@ function TestSection({ status }: { status: Status }) {
             className="w-72 rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
           />
         </label>
-        <button
+        <Button
           type="submit"
           disabled={busy}
-          className="rounded-md border border-border px-4 py-2 text-sm font-semibold text-text2 hover:text-text disabled:opacity-50"
         >
           {busy ? "Sending…" : "Send test email"}
-        </button>
+        </Button>
       </form>
     </section>
   );

@@ -87,7 +87,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
   // Lineage: if subscription-triggered, surface the upstream output's title
   // and originating workflow so the operator can walk backwards.
-  let lineage: {
+  const lineage: {
     triggeredBySubscriptionId: string | null;
     triggeredByOutputId: string | null;
     triggeredByObservationId: string | null;

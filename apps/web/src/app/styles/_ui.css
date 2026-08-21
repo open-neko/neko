@@ -1,0 +1,39 @@
+/* Shared interaction contracts. Visual composition stays with components;
+   this file owns only cross-page behavior that must not drift. */
+
+[data-ui-field-control] {
+  min-height: var(--control-md);
+}
+
+[data-ui-action-group] {
+  min-width: 0;
+}
+
+@media (max-width: 720px), (pointer: coarse) {
+  :where([data-ui-button], .ui-button),
+  [data-ui-tab],
+  [data-ui-segment],
+  [data-ui-menu-trigger],
+  [data-ui-menu-item],
+  [data-ui-disclosure],
+  [data-ui-field-control],
+  [data-ui-stat-link] {
+    min-height: var(--control-touch);
+  }
+
+  :where([data-ui-button], .ui-button)[data-size="icon-sm"],
+  :where([data-ui-button], .ui-button)[data-size="icon"] {
+    width: var(--control-touch);
+    min-width: var(--control-touch);
+    height: var(--control-touch);
+  }
+
+  [data-ui-action-group][data-mobile="stack"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-ui-action-group][data-mobile="stack"] > :where([data-ui-button], .ui-button) {
+    width: 100%;
+  }
+}

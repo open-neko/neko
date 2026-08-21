@@ -7,6 +7,7 @@ import CreatorCredit from "@/components/CreatorCredit";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import { cn } from "@/lib/cn";
+import { Segment, SegmentedControl } from "@/components/ui/Tabs";
 
 type StatusFilter = "active" | "completed" | "failed" | "all";
 
@@ -75,7 +76,7 @@ function statusLabel(status: string): string {
 function statusClass(status: string): string {
   switch (status) {
     case "completed":
-      return "bg-success-soft text-success-mid";
+      return "bg-success-soft text-success-ink";
     case "failed":
     case "cancelled":
       return "bg-danger-soft text-danger";
@@ -145,7 +146,8 @@ function RunsPageInner() {
   }, [filter]);
 
   useEffect(() => {
-    void load();
+    const initialLoadId = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(initialLoadId);
   }, [load]);
 
   useEffect(() => {
@@ -181,23 +183,17 @@ function RunsPageInner() {
           meta={data ? `${data.runs.length} shown` : undefined}
         />
 
-        <div className="flex gap-1.5 flex-wrap mb-5">
+        <SegmentedControl aria-label="Run status filter" className="mb-5">
           {TABS.map((tab) => (
-            <button
+            <Segment
               key={tab.key}
-              type="button"
+              selected={filter === tab.key}
               onClick={() => switchFilter(tab.key)}
-              className={cn(
-                "px-3.5 py-1.5 rounded-full border font-body text-[12.5px] font-semibold cursor-pointer transition",
-                filter === tab.key
-                  ? "bg-text text-bg border-text"
-                  : "bg-white/60 text-text2 border-border hover:border-accent hover:text-accent hover:bg-accent-soft",
-              )}
             >
               {tab.label}
-            </button>
+            </Segment>
           ))}
-        </div>
+        </SegmentedControl>
 
         {error ? (
           <div className="py-[50px] text-center text-sm text-danger">
@@ -226,27 +222,27 @@ function RunsPageInner() {
                         <span className="font-semibold text-text">
                           {run.workflow.name}
                         </span>
-                        <span className="font-mono text-[11.5px] text-text3">
+                        <span className="font-mono text-ui-caption text-text3">
                           {run.triggerKind}
                           {run.chainDepth > 0
                             ? ` · chain ${run.chainDepth}`
                             : ""}
                         </span>
                       </div>
-                      <p className="mt-1.5 mb-0 text-[13px] leading-[1.45] text-text2 line-clamp-2">
+                      <p className="mt-1.5 mb-0 text-ui-body-sm leading-[1.45] text-text2 line-clamp-2">
                         {describeRun(run)}
                       </p>
                     </div>
                     <span
                       className={cn(
-                        "shrink-0 uppercase text-[10.5px] tracking-[0.12em] font-bold px-2 py-0.5 rounded-full",
+                        "shrink-0 uppercase text-ui-label tracking-[0.12em] font-bold px-2 py-0.5 rounded-full",
                         statusClass(run.status),
                       )}
                     >
                       {statusLabel(run.status)}
                     </span>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11.5px] text-text3">
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5 text-ui-caption text-text3">
                     <span className="font-mono">
                       {formatRelative(run.createdAt)}
                     </span>
@@ -272,7 +268,7 @@ function RunsPageInner() {
                         </span>
                       </>
                     )}
-                    <span className="ml-auto font-mono text-[11.5px] text-text3">
+                    <span className="ml-auto font-mono text-ui-caption text-text3">
                       →
                     </span>
                   </div>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import EntryShell from "@/components/EntryShell";
+import { Button } from "@/components/ui/Button";
 
 /**
  * Per-user onboarding (CV3): every SSO identity describes its own role and
@@ -88,14 +89,14 @@ export default function PersonaStep({
         ) : null}
       </div>
       <div className="entry-actions is-end">
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="lg"
           onClick={() => void submit()}
           disabled={submitting || !roleTemplate.trim()}
-          className="entry-button is-primary"
         >
           {submitting ? "Saving…" : "Open my workspace"}
-        </button>
+        </Button>
       </div>
     </EntryShell>
   );

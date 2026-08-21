@@ -7,6 +7,7 @@ import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import EditableMarkdown from "@/components/EditableMarkdown";
 import { Button } from "@/components/ui/Button";
+import { Segment, SegmentedControl } from "@/components/ui/Tabs";
 import { useDebouncedSave } from "@/hooks/useDebouncedSave";
 import type { StageKind } from "@/lib/db";
 
@@ -272,21 +273,22 @@ export default function ProcessingPage() {
         meta={insightsPending ? "research running" : "ready"}
       />
 
-      <div
-        className="pills"
+      <SegmentedControl
+        aria-label="Business context section"
+        className="mb-6"
         style={{ animation: "fadeUp 0.5s ease 0.12s both" }}
       >
-        <button
-          className={`pill${tab === "profile" ? " on" : ""}`}
+        <Segment
+          selected={tab === "profile"}
           onClick={async () => {
             await flushAll();
             setTab("profile");
           }}
         >
           Business Profile
-        </button>
-        <button
-          className={`pill${tab === "insights" ? " on" : ""}`}
+        </Segment>
+        <Segment
+          selected={tab === "insights"}
           onClick={async () => {
             await flushAll();
             setTab("insights");
@@ -297,15 +299,15 @@ export default function ProcessingPage() {
             <span
               style={{
                 marginLeft: 8,
-                fontSize: 12,
+                fontSize: "var(--type-caption)",
                 opacity: 0.75,
               }}
             >
               · running
             </span>
           )}
-        </button>
-      </div>
+        </Segment>
+      </SegmentedControl>
 
       <div className="profile-card" style={{ animation: "fadeUp 0.6s ease 0.3s both" }}>
         {tab === "profile" ? (
@@ -335,7 +337,7 @@ export default function ProcessingPage() {
         <div
           style={{
             marginTop: 8,
-            fontSize: 12,
+            fontSize: "var(--type-caption)",
             color: "var(--text3)",
             textAlign: "right",
           }}
@@ -357,7 +359,7 @@ export default function ProcessingPage() {
       >
         <Button
           variant="primary"
-          className="px-8 py-3.5 text-[15px]"
+          className="px-8 py-3.5 text-ui-body-lg"
           onClick={async () => {
             await flushAll();
             router.replace(needsPersona ? "/onboarding" : "/");
@@ -417,13 +419,13 @@ function StageStrip({ current }: { current: StageKind | null }) {
               border: "1px solid var(--border)",
               background: state === "active" ? "var(--accent-soft)" : "transparent",
               color: state === "done" ? "var(--text2)" : state === "active" ? "var(--accent)" : "var(--text3)",
-              fontSize: 13,
+              fontSize: "var(--type-body-sm)",
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
             }}
           >
-            <span aria-hidden style={{ fontSize: 11 }}>{dot}</span>
+            <span aria-hidden style={{ fontSize: "var(--type-label)" }}>{dot}</span>
             <span>{STAGE_LABELS[kind]}</span>
           </div>
         );
@@ -432,11 +434,11 @@ function StageStrip({ current }: { current: StageKind | null }) {
   );
 }
 
-const PM_H2_CLS = "font-display text-[22px] font-bold leading-[1.3] tracking-[-0.3px] mb-4 text-text";
-const PM_H3_CLS = "font-display text-[13px] font-semibold uppercase tracking-[0.8px] text-text3 mt-6 mb-2 first:mt-0";
-const PM_P_CLS = "text-base leading-[1.65] text-text2 mb-1.5";
+const PM_H2_CLS = "font-display text-ui-section font-bold leading-[1.3] tracking-[-0.3px] mb-4 text-text";
+const PM_H3_CLS = "font-display text-ui-label font-semibold uppercase tracking-[0.8px] text-text3 mt-6 mb-2 first:mt-0";
+const PM_P_CLS = "text-ui-body leading-[1.65] text-text2 mb-1.5";
 const PM_CITE_CLS =
-  "text-[11px] font-semibold text-accent no-underline bg-accent-soft rounded-[4px] px-[5px] py-px mx-px align-super leading-none transition-all duration-150 hover:bg-accent hover:text-white";
+  "text-ui-label font-semibold text-accent no-underline bg-accent-soft rounded-[4px] px-[5px] py-px mx-px align-super leading-none transition-all duration-150 hover:bg-accent hover:text-white";
 
 function InsightsLoading() {
   return (

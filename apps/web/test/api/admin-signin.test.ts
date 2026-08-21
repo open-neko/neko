@@ -5,10 +5,14 @@ const mocks = vi.hoisted(() => ({
     provider: null as unknown,
     pending: null as unknown,
   },
-  setAuthPluginSecrets: vi.fn(async (_values: unknown) => undefined),
-  beginAuth: vi.fn(async (_params: unknown) => ({
-    authorizationUrl: "https://x",
-  })),
+  setAuthPluginSecrets: vi.fn(async (values: unknown) => {
+    void values;
+    return undefined;
+  }),
+  beginAuth: vi.fn(async (params: unknown) => {
+    void params;
+    return { authorizationUrl: "https://x" };
+  }),
 }));
 
 vi.mock("@/lib/admin-auth", () => ({

@@ -168,6 +168,123 @@ describe("worker admin HTTP handler", () => {
   });
 });
 
+describe("worker solution-pack admin routes", () => {
+  it("routes the supported pack lifecycle without filtering artifacts", async () => {
+    const surface = {
+      list: vi.fn(async () => [{ id: "magento", installed: false }]),
+      inspect: vi.fn(async (packId: string) => ({ packId })),
+      plan: vi.fn(async (packId: string) => ({ packId, entries: [{ key: "action.add_internal_order_comment" }] })),
+      status: vi.fn(async (packId: string) => ({ packId, status: "installed" })),
+      doctor: vi.fn(async (packId: string) => ({ packId, status: "degraded" })),
+      install: vi.fn(async (packId: string, input: Record<string, unknown>) => ({
+        packId,
+        status: "installed",
+        input,
+      })),
+      configure: vi.fn(async (packId: string, input: Record<string, unknown>) => ({
+        packId,
+        status: "installed",
+        input,
+      })),
+      upgrade: vi.fn(async (packId: string, input: Record<string, unknown>) => ({
+        packId,
+        status: "installed",
+        input,
+      })),
+      uninstall: vi.fn(async (packId: string, input: Record<string, unknown>) => ({
+        packId,
+        status: "removed",
+        input,
+      })),
+    };
+    const srv = await startServer(createAdminHandler({ packs: surface }));
+    try {
+      const list = await fetch(`http://127.0.0.1:${srv.port}/admin/packs`);
+      expect(list.status).toBe(200);
+      expect(await list.json()).toEqual({ packs: [{ id: "magento", installed: false }] });
+
+      for (const [suffix, method] of [
+        ["", "inspect"],
+        ["/plan", "plan"],
+        ["/status", "status"],
+        ["/doctor", "doctor"],
+      ] as const) {
+        const response = await fetch(
+          `http://127.0.0.1:${srv.port}/admin/packs/magento${suffix}`,
+        );
+        expect(response.status).toBe(200);
+        expect(surface[method]).toHaveBeenCalledWith("magento");
+      }
+
+      const input = {
+        inputs: { "magento.base_url": "http://magento.test" },
+        secrets: { "database.analytics_username": "analytics" },
+      };
+      const install = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/packs/magento/install`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        },
+      );
+      expect(install.status).toBe(200);
+      expect(surface.install).toHaveBeenCalledWith("magento", input);
+
+      for (const action of ["configure", "upgrade", "uninstall"] as const) {
+        const response = await fetch(
+          `http://127.0.0.1:${srv.port}/admin/packs/magento/${action}`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(input),
+          },
+        );
+        expect(response.status).toBe(200);
+        expect(surface[action]).toHaveBeenCalledWith("magento", input);
+      }
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("fails closed when no pack surface is wired", async () => {
+    const srv = await startServer(createAdminHandler());
+    try {
+      const response = await fetch(`http://127.0.0.1:${srv.port}/admin/packs`);
+      expect(response.status).toBe(503);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("does not accept trailing junk as a pack lifecycle route", async () => {
+    const inspect = vi.fn(async () => ({ packId: "magento" }));
+    const srv = await startServer(createAdminHandler({
+      packs: {
+        list: async () => [],
+        inspect,
+        plan: async () => ({}),
+        status: async () => ({}),
+        doctor: async () => ({}),
+        install: async () => ({}),
+        configure: async () => ({}),
+        upgrade: async () => ({}),
+        uninstall: async () => ({}),
+      },
+    }));
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/packs/magento/status-extra`,
+      );
+      expect(response.status).toBe(404);
+      expect(inspect).not.toHaveBeenCalled();
+    } finally {
+      await srv.close();
+    }
+  });
+});
+
 describe("worker native records-watch ingress", () => {
   const secret = "records-watch-test-secret-that-is-at-least-thirty-two-bytes";
   const body = JSON.stringify({

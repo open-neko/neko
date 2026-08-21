@@ -213,7 +213,7 @@ function AdminCardGroup({
 }) {
   return (
     <section className="mt-7">
-      <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-text3">
+      <div className="mb-3 text-ui-label font-bold uppercase tracking-[0.14em] text-text3">
         {title}
       </div>
       <div className="grid gap-3 md:grid-cols-2">
@@ -270,7 +270,7 @@ function SummaryStat({
         : "text-text";
   return (
     <div className="rounded-[14px] border border-border bg-card px-4 py-3 shadow-soft">
-      <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-text3">
+      <div className="text-ui-label font-bold uppercase tracking-[0.12em] text-text3">
         {label}
       </div>
       <div className={`mt-2 font-display text-2xl font-bold ${toneClass}`}>

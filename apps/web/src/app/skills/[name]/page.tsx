@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, FileText } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import PageHeading from "@/components/PageHeading";
+import { Button, buttonClassName } from "@/components/ui/Button";
 
 function stripFrontmatter(markdown: string): string {
   return markdown.replace(/^---\n[\s\S]*?\n---\n?/, "").trimStart();
@@ -106,11 +107,18 @@ export default function SkillDetailPage({ params }: PageProps) {
                 </span>
               </div>
               {state === "error" ? (
-                <button type="button" onClick={() => void load()}>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => void load()}
+                >
                   Retry
-                </button>
+                </Button>
               ) : (
-                <Link href="/skills">All skills</Link>
+                <Link href="/skills" className={buttonClassName({ size: "sm" })}>
+                  All skills
+                </Link>
               )}
             </div>
           )}

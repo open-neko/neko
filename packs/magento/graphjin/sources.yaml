@@ -1,0 +1,114 @@
+sources:
+  - key: source.magento_analytics
+    name: magento_analytics
+    kind: database
+    default: true
+    type: "{{database.type}}"
+    host: "{{database.host}}"
+    port: "{{database.port}}"
+    dbname: "{{database.name}}"
+    user: "{{secret.database.analytics_username}}"
+    password: "{{secret.database.analytics_password}}"
+    read_only: true
+    analytics_mode: true
+    capabilities:
+      data.read: true
+      data.write: false
+      schema.read: true
+      schema.write: false
+    access:
+      read: authenticated
+      write: blocked
+      delete: blocked
+    allowlist:
+      tables:
+        - sales_order
+        - sales_order_item
+        - sales_invoice
+        - sales_invoice_item
+        - sales_creditmemo
+        - sales_creditmemo_item
+        - sales_shipment
+        - sales_shipment_item
+        - catalog_product_entity
+        - catalog_product_entity_decimal
+        - catalog_product_entity_int
+        - catalog_product_entity_varchar
+        - catalog_category_product
+        - inventory_source_item
+        - inventory_reservation
+        - cataloginventory_stock_item
+        - store
+        - store_group
+        - store_website
+        - cron_schedule
+        - indexer_state
+    blocklist:
+      tables:
+        - admin_user
+        - admin_passwords
+        - authorization_role
+        - authorization_rule
+        - oauth_token
+        - oauth_consumer
+        - password_reset_request_event
+        - quote_payment
+        - sales_order_payment
+        - vault_payment_token
+        - customer_entity
+        - customer_address_entity
+      columns:
+        - password_hash
+        - rp_token
+        - token
+        - email
+        - telephone
+        - protect_code
+        - customer_id
+        - billing_address_id
+        - shipping_address_id
+        - quote_address_id
+        - quote_id
+        - customer_dob
+        - customer_firstname
+        - customer_lastname
+        - customer_middlename
+        - customer_prefix
+        - customer_suffix
+        - customer_taxvat
+        - ext_customer_id
+        - remote_ip
+        - x_forwarded_for
+        - customer_note
+        - customer_gender
+        - gift_message_id
+        - product_options
+        - additional_data
+        - transaction_id
+        - packages
+        - shipping_label
+
+  # This source is installed unconditionally but cannot execute writes until
+  # pack readiness validates the released GraphJin capability, token, and ACL.
+  - key: source.magento_operator
+    name: magento_operator
+    kind: api
+    default: false
+    base_url: "{{magento.base_url}}"
+    openapi: graphjin/specs/magento-operator-v1.yaml
+    auth:
+      type: bearer
+      token: "{{secret.magento.integration_token}}"
+    read_only: true
+    capabilities:
+      api.read: true
+      api.write: false
+      api.delete: false
+    access:
+      read: authenticated
+      write: blocked
+      delete: blocked
+    readiness:
+      capability: operator
+      enable_when: [graphjin-mutations, magento-api-token, magento-api-acl]
+      write_role: magento_action_executor

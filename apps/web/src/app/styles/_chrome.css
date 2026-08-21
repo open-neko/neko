@@ -59,7 +59,7 @@ html {
   bottom: 100px;
   right: 16px;
   font-family: var(--font-body), 'Manrope', sans-serif;
-  font-size: 11px;
+  font-size: var(--type-label);
   font-weight: 600;
   color: var(--success-ink);
   background: var(--success);
@@ -101,7 +101,7 @@ html {
 .settings-backlink {
   text-decoration: none;
   color: var(--text2);
-  font-size: 13.5px;
+  font-size: var(--type-body);
   font-weight: 500;
   border: 1px solid transparent;
   border-radius: 999px;
@@ -175,7 +175,7 @@ html {
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: var(--font-body), 'Manrope', sans-serif;
-  font-size: 13.5px;
+  font-size: var(--type-body);
   font-weight: 600;
   color: var(--text2);
   background: var(--card);

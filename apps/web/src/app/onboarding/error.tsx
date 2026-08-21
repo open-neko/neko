@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { Button } from "@/components/ui/Button";
 import OnboardingUnavailable from "./OnboardingUnavailable";
 
 export default function OnboardingError({
@@ -17,13 +18,13 @@ export default function OnboardingError({
   return (
     <OnboardingUnavailable
       retryAction={
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="lg"
           onClick={reset}
-          className="entry-button is-primary"
         >
           Retry
-        </button>
+        </Button>
       }
     />
   );

@@ -19,7 +19,7 @@ type Props = {
 };
 
 const TRIGGER_BASE =
-  "px-3.5 py-3 rounded-xl border-[1.5px] border-border bg-bg text-text text-[15px] font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
+  "min-h-10 px-3.5 py-2.5 rounded-control border-[1.5px] border-border bg-card text-text text-ui-body font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.10)]";
 
 export default function Select({
   value,
@@ -113,6 +113,7 @@ export default function Select({
         ref={buttonRef}
         id={id}
         type="button"
+        data-ui-field-control=""
         className={cn(
           TRIGGER_BASE,
           "flex items-center justify-between gap-2.5 w-full text-left cursor-pointer",
@@ -161,16 +162,17 @@ export default function Select({
           id={listboxId}
           role="listbox"
           tabIndex={-1}
-          className="select-panel absolute z-30 top-[calc(100%+6px)] left-0 right-0 m-0 p-1.5 list-none bg-bg border-[1.5px] border-border rounded-[14px] max-h-80 overflow-y-auto"
+          className="select-panel absolute z-30 top-[calc(100%+6px)] left-0 right-0 m-0 p-1.5 list-none bg-card border-[1.5px] border-border rounded-inner max-h-80 overflow-y-auto shadow-lift"
         >
           {options.map((opt, idx) => (
             <li
               key={opt.value}
               role="option"
+              data-ui-menu-item=""
               aria-selected={opt.value === value}
               data-idx={idx}
               data-focused={idx === focusIdx ? "true" : undefined}
-              className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-[10px] text-[15px] text-text cursor-pointer select-none data-[focused=true]:bg-accent-soft data-[focused=true]:text-accent aria-selected:font-semibold"
+              className="flex min-h-10 items-center justify-between gap-3 px-3 py-2.5 rounded-[8px] text-ui-body text-text cursor-pointer select-none data-[focused=true]:bg-accent-soft data-[focused=true]:text-accent aria-selected:font-semibold"
               onMouseEnter={() => setFocusIdx(idx)}
               onMouseDown={(e) => {
                 e.preventDefault();

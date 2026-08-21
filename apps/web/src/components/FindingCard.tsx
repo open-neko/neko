@@ -138,7 +138,7 @@ export default function FindingCard({
       }}
     >
       <div className="flex items-start justify-between gap-3 mb-1.5">
-        <h3 className="min-w-0 font-display text-[17px] font-bold tracking-[-0.01em] text-text leading-snug m-0 [overflow-wrap:anywhere]">
+        <h3 className="min-w-0 font-display text-ui-subsection font-bold tracking-[-0.01em] text-text leading-snug m-0 [overflow-wrap:anywhere]">
           {data.title}
         </h3>
         <Pill variant={pillVariant} className="flex-shrink-0">
@@ -185,7 +185,7 @@ export default function FindingCard({
         {data.pinId && onUnpin && (
           <button
             type="button"
-            className="bg-transparent border-0 text-text3 font-[inherit] text-[11.5px] p-0 cursor-pointer hover:text-danger hover:underline underline-offset-2"
+            className="bg-transparent border-0 text-text3 font-[inherit] text-ui-caption p-0 cursor-pointer hover:text-danger hover:underline underline-offset-2"
             onClick={(e) => {
               e.stopPropagation();
               onUnpin(data.pinId as string);
@@ -217,14 +217,14 @@ export default function FindingCard({
             style={{ left: muteMenu.x, top: muteMenu.y }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-3 py-1 text-[11px] text-text3">
+            <div className="px-3 py-1 text-ui-label text-text3">
               Mute <span className="font-mono">{data.scope}</span>
             </div>
             {MUTE_DURATIONS.map((d) => (
               <button
                 key={d}
                 type="button"
-                className="block w-full text-left bg-transparent border-0 px-3 py-1.5 text-[13px] text-text cursor-pointer hover:bg-bg2 font-[inherit]"
+                className="block w-full text-left bg-transparent border-0 px-3 py-1.5 text-ui-body-sm text-text cursor-pointer hover:bg-bg2 font-[inherit]"
                 onClick={(e) => {
                   e.stopPropagation();
                   void muteScope(d);

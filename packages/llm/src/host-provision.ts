@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { and, data_source, db, desc, eq, llm_provider_config } from "@neko/db";
 import { isAgentBackendId } from "./agent-backend";
 import { maybeDecryptSecret } from "./secrets";
-import { ensureOpenShellProvider } from "./work/sandbox-launcher";
+import {
+  ensureOpenShellProvider,
+  verifyOpenShellGateway,
+} from "./work/sandbox-launcher";
 
 const HERMES_DEFAULT_MAX_TURNS = 25;
 const HERMES_DELEGATION_DEFAULT_MAX_ITERATIONS = 50;
@@ -521,6 +524,32 @@ async function provisionOpenShellRuntime(orgId: string, backend: string): Promis
   );
 }
 
+async function resolveAgentBackendForOrg(orgId: string): Promise<string> {
+  const agentRow = await loadProviderRow(orgId, "agent");
+  const backendCfg = (agentRow?.config ?? {}) as { backend?: unknown };
+  return typeof backendCfg.backend === "string" &&
+    isAgentBackendId(backendCfg.backend)
+    ? backendCfg.backend
+    : "hermes";
+}
+
+/**
+ * Readiness gate for any operation that is about to launch an agent sandbox.
+ * This deliberately performs a fresh gateway RPC instead of consulting a
+ * process-local flag: the gateway may have failed or been omitted from a
+ * Compose invocation after the web/worker process itself became healthy.
+ *
+ * Once connectivity is proven, re-sync the org's model provider so the exact
+ * path onboarding will use is configured before work is enqueued.
+ */
+export async function verifyAgentRuntimeReady(orgId: string): Promise<void> {
+  await verifyOpenShellGateway({
+    gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
+    gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
+  });
+  await provisionOpenShellRuntime(orgId, await resolveAgentBackendForOrg(orgId));
+}
+
 const provisionedOrgs = new Map<string, Promise<void>>();
 
 type ProvisionHostConfigOptions = {
@@ -566,12 +595,7 @@ export async function provisionHostConfig(
     );
   }
 
-  const agentRow = await loadProviderRow(orgId, "agent");
-  const backendCfg = (agentRow?.config ?? {}) as { backend?: unknown };
-  const backend =
-    typeof backendCfg.backend === "string" && isAgentBackendId(backendCfg.backend)
-      ? backendCfg.backend
-      : "hermes";
+  const backend = await resolveAgentBackendForOrg(orgId);
 
   let openShellError: unknown;
   try {

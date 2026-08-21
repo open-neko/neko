@@ -21,6 +21,7 @@ describe("metadata DB pool config", () => {
     "NEKO_PG_PASSWORD",
     "NEKO_PG_DATABASE",
     "NEKO_PG_SSLMODE",
+    "OPENNEKO_PG_ENV_OVERRIDE",
   ] as const;
   const ORIGINAL_PG_ENV = Object.fromEntries(
     PG_ENV_KEYS.map((key) => [key, process.env[key]]),
@@ -73,6 +74,18 @@ describe("metadata DB pool config", () => {
     expect(buildPoolConfig()).toMatchObject({
       host: "localhost",
       port: 5433,
+    });
+  });
+
+  it("can prefer explicit host-development environment values", () => {
+    process.env.NEKO_PG_HOST = "127.0.0.1";
+    process.env.NEKO_PG_PORT = "56432";
+    process.env.OPENNEKO_PG_ENV_OVERRIDE = "1";
+    writeLocalConfig({ pg: { host: "neko-db", port: 5432 } });
+
+    expect(buildPoolConfig()).toMatchObject({
+      host: "127.0.0.1",
+      port: 56432,
     });
   });
 

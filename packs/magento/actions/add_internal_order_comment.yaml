@@ -1,0 +1,40 @@
+key: action.add_internal_order_comment
+targetRef: magento.add_internal_order_comment
+kind: magento.add_internal_order_comment
+description: Add a private note to a Magento order after an administrator approves it.
+readiness:
+  capability: operator
+  unavailableReasons:
+    - graphjin_version_unsupported
+    - integration_token_missing
+    - integration_token_invalid
+    - acl_missing
+inputSchema:
+  type: object
+  additionalProperties: false
+  required: [order_id, comment]
+  properties:
+    order_id: { type: string, pattern: "^[1-9][0-9]*$" }
+    comment: { type: string, minLength: 1, maxLength: 1000 }
+adapter:
+  kind: graphjin_api_operation
+  source: magento_operator
+  operationId: magentoAddInternalOrderComment
+  mutationRoot: magento_add_order_comment
+  preconditionQuery: action_order_precondition
+  mutationQuery: action_add_internal_order_comment
+  reconciliationQuery: action_order_reconciliation
+  request:
+    path:
+      id: { input: order_id }
+      storeCode: { packInput: magento.store_code }
+    body:
+      statusHistory:
+        comment: { input: comment }
+        is_customer_notified: { const: 0 }
+        is_visible_on_front: { const: 0 }
+  receipt:
+    fields: [order_id, increment_id, request_id, status_code, comment_created_at]
+    redact: [response_json]
+  ambiguousOutcome: reconcile_required
+  retry: never

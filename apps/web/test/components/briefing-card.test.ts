@@ -44,7 +44,8 @@ describe("BriefingCard deep-dive button", () => {
       onDeepDive: () => {},
     });
     expect(html).toContain('aria-label="Deep dive in Work"');
-    expect(html).toContain('class="ipin ipin-deep"');
+    expect(html).toContain('data-ui-button=""');
+    expect(html).toContain('data-size="icon-sm"');
   });
 
   it("hides the Deep dive button when onDeepDive is not provided", () => {

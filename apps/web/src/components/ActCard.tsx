@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 import { Pill, type PillVariant } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
 import { formatSavedShort } from "@/lib/hours-saved";
@@ -103,7 +104,7 @@ export default function ActCard({
         <Pill variant={STATE_PILL_VARIANT[data.state]}>
           {STATE_LABEL[data.state]}
         </Pill>
-        <span className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-text3">
+        <span className="font-mono text-ui-label font-bold uppercase tracking-[0.08em] text-text3">
           {formatTime(data.runAt)}
         </span>
       </header>
@@ -153,7 +154,7 @@ export default function ActCard({
                 )}
               />
               <div className="flex-1 min-w-0 grid gap-1">
-                <p className="m-0 text-[14.5px] font-semibold text-text leading-snug tracking-[-0.005em]">
+                <p className="m-0 text-ui-body font-semibold text-text leading-snug tracking-[-0.005em]">
                   {row.headline}
                 </p>
                 {row.target && (
@@ -162,7 +163,7 @@ export default function ActCard({
                   </p>
                 )}
                 {row.detail && (
-                  <p className="m-0 text-[13px] leading-[1.55] text-text2">
+                  <p className="m-0 text-ui-body-sm leading-[1.55] text-text2">
                     {row.detail}
                   </p>
                 )}
@@ -173,12 +174,12 @@ export default function ActCard({
                   policyContext={isPending ? row.approverPhrase : null}
                 />
                 {row.rejectionReason && (
-                  <p className="m-0 text-[13px] leading-[1.55] text-text2 italic">
+                  <p className="m-0 text-ui-body-sm leading-[1.55] text-text2 italic">
                     {row.rejectionReason}
                   </p>
                 )}
                 {data.state === "live" && (row.approverPhrase || (row.minutesSaved ?? 0) > 0) && (
-                  <p className="mt-1 text-[11.5px] text-text3 flex items-center gap-2 flex-wrap">
+                  <p className="mt-1 text-ui-caption text-text3 flex items-center gap-2 flex-wrap">
                     {row.approverPhrase && (
                       <span>
                         <span className="text-text2 font-medium">
@@ -203,7 +204,7 @@ export default function ActCard({
                     onClick={(e) => e.stopPropagation()}
                   >
                     <textarea
-                      className="border border-border rounded-[10px] px-3 py-2 text-[13px] text-text bg-card resize-y min-h-[50px] outline-none focus:border-accent"
+                      className="border border-border rounded-[10px] px-3 py-2 text-ui-body-sm text-text bg-card resize-y min-h-[50px] outline-none focus:border-accent"
                       value={rejectReason ?? ""}
                       placeholder="Why are you rejecting this? (optional)"
                       onChange={(e) => onRejectReasonChange?.(e.target.value)}
@@ -268,21 +269,19 @@ type RowButtonProps = {
 
 function RowButton({ tone, disabled, onClick, children }: RowButtonProps) {
   return (
-    <button
-      type="button"
+    <Button
+      size="sm"
+      variant={
+        tone === "primary"
+          ? "primary"
+          : tone === "destructive"
+            ? "danger"
+            : "secondary"
+      }
       disabled={disabled}
       onClick={onClick}
-      className={cn(
-        "px-3 py-1.5 rounded-lg border text-[12.5px] font-semibold cursor-pointer",
-        "disabled:opacity-55 disabled:cursor-not-allowed",
-        !tone && "bg-card border-border text-text hover:not-disabled:border-text3",
-        tone === "primary" &&
-          "bg-accent border-accent text-white hover:not-disabled:bg-[var(--accent-hover)] hover:not-disabled:border-[var(--accent-hover)]",
-        tone === "destructive" &&
-          "bg-danger border-danger text-white hover:not-disabled:bg-[var(--danger-hover)] hover:not-disabled:border-[var(--danger-hover)]",
-      )}
     >
       {children}
-    </button>
+    </Button>
   );
 }

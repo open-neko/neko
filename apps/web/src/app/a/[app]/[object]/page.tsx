@@ -14,6 +14,7 @@ import { RecordTable } from "@/components/records/RecordTable";
 import { RecordViewBar } from "@/components/records/RecordViewBar";
 import { RecordsUnavailable } from "@/components/records/RecordsNotice";
 import { SubstrateStrip } from "@/components/records/SubstrateStrip";
+import { buttonClassName } from "@/components/ui/Button";
 import {
   normalizeRecordSavedViewDefinition,
   type RecordFilterExpression,
@@ -230,19 +231,35 @@ export default async function RecordObjectPage({
           {query.view && <input type="hidden" name="view" value={query.view} />}
         </form>
         {result.view.permission.canCreate && (
-          <Link className="records-primary-action" href={`${base}/new`}>
+          <Link
+            className={buttonClassName({
+              variant: "primary",
+              size: "sm",
+              className: "records-primary-action",
+            })}
+            href={`${base}/new`}
+          >
             <Plus aria-hidden="true" /> New {result.view.object.label.toLowerCase()}
           </Link>
         )}
         {actor.role === "admin" && (
           <Link
-            className="records-secondary-action"
+            className={buttonClassName({
+              size: "sm",
+              className: "records-secondary-action",
+            })}
             href={`/a/${result.app.appId}/admin?object=${encodeURIComponent(result.view.object.apiName)}`}
           >
             <Upload aria-hidden="true" /> Import
           </Link>
         )}
-        <Link className="records-secondary-action" href={`${base}/recycle`}>
+        <Link
+          className={buttonClassName({
+            size: "sm",
+            className: "records-secondary-action",
+          })}
+          href={`${base}/recycle`}
+        >
           <Trash2 aria-hidden="true" /> Recycle bin
         </Link>
       </header>

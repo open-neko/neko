@@ -27,6 +27,7 @@ import {
 } from "@neko/db/test-helpers";
 import {
   and,
+  data_source,
   db,
   eq,
   metric,
@@ -35,9 +36,10 @@ import {
   processing_job,
 } from "@neko/db";
 
-const { mockRunMetricAgent, mockResolveBackendId } = vi.hoisted(() => ({
+const { mockRunMetricAgent, mockResolveBackendId, mockGraphjinQuery } = vi.hoisted(() => ({
   mockRunMetricAgent: vi.fn(),
   mockResolveBackendId: vi.fn(),
+  mockGraphjinQuery: vi.fn(),
 }));
 
 vi.mock("@neko/llm", async () => {
@@ -46,6 +48,14 @@ vi.mock("@neko/llm", async () => {
     ...actual,
     runMetricAgent: mockRunMetricAgent,
     resolveAgentBackendId: mockResolveBackendId,
+  };
+});
+
+vi.mock("@neko/llm/graphjin", async () => {
+  const actual = await vi.importActual<typeof import("@neko/llm/graphjin")>("@neko/llm/graphjin");
+  return {
+    ...actual,
+    graphjinQuery: mockGraphjinQuery,
   };
 });
 
@@ -180,6 +190,79 @@ describeIfDb("runMetricRefresh", () => {
           runId: jobId,
           status: "completed",
         },
+      });
+    });
+
+    it("runs a reviewed saved query deterministically without an LLM", async () => {
+      await db().insert(data_source).values({
+        org_id: orgId,
+        kind: "customer",
+        name: "magento",
+        graphql_url: "http://magento-graphjin.test",
+        auth_mode: "none",
+        is_default: true,
+        enabled: true,
+      });
+      const definition = {
+        title: "Orders placed",
+        description: "Orders in the selected period.",
+        calculationNote: "Cancellations remain included.",
+        chartHint: "metric",
+        unit: "count",
+        directionGood: "up",
+        execution: {
+          mode: "saved_query",
+          source: "magento_analytics",
+          query: "orders_placed",
+          document: "query Orders($from: String!, $to: String!, $storeIds: [Int!]!) { sales_order { orders: count } }",
+          result: { kind: "scalar", path: "sales_order.0.orders" },
+          freshnessSeconds: 7200,
+          runtime: { storeIds: [1], windowDays: 30 },
+        },
+      };
+      const [card] = await db().insert(metric).values({
+        org_id: orgId,
+        role: "executive",
+        slug: "magento-orders-placed",
+        source: "magento",
+        title: "Orders placed",
+        why: "Reviewed Magento order count.",
+        chart_hint: "metric",
+        active: true,
+        execution_mode: "saved_query",
+        definition_json: definition,
+        definition_version: 1,
+        definition_hash: "definition-hash",
+      }).returning({ id: metric.id });
+      mockGraphjinQuery.mockResolvedValueOnce({
+        data: { sales_order: [{ orders: 42 }] },
+      });
+      const jobId = await insertProcessingJob(orgId, { metricId: card!.id });
+
+      await runMetricRefresh(jobId, orgId);
+
+      expect(mockRunMetricAgent).not.toHaveBeenCalled();
+      expect(mockResolveBackendId).not.toHaveBeenCalled();
+      expect(mockGraphjinQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          baseUrl: "http://magento-graphjin.test/api/v1/graphql",
+          query: definition.execution.document,
+          role: "service",
+          variables: expect.objectContaining({ storeIds: [1] }),
+        }),
+      );
+      const [snapshot] = await db()
+        .select({
+          value: metric_snapshot.value,
+          definitionHash: metric_snapshot.definition_hash,
+          status: metric_snapshot.status,
+        })
+        .from(metric_snapshot)
+        .where(eq(metric_snapshot.metric_id, card!.id));
+      expect(snapshot).toMatchObject({
+        value: "42",
+        definitionHash: "definition-hash",
+        status: "watch",
       });
     });
 

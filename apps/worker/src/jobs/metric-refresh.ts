@@ -1,6 +1,8 @@
 import {
   and,
+  data_source,
   db,
+  desc,
   eq,
   metric,
   metric_snapshot,
@@ -20,6 +22,12 @@ import {
   persistProcessingJobTelemetry,
 } from "../telemetry.js";
 import { observeSafely } from "@neko/telemetry";
+import { graphjinQuery, mintGraphjinToken } from "@neko/llm/graphjin";
+import {
+  buildSavedQueryVariables,
+  mapSavedQueryMetric,
+  parseMetricDefinition,
+} from "./deterministic-metric.js";
 
 /**
  * metric_refresh job — runs the metric agent for ONE card and writes the
@@ -62,6 +70,8 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
 
   let metricRowId: string;
   let input: MetricAgentInput;
+  let savedQueryDefinition: Record<string, unknown> | null = null;
+  let savedQueryDefinitionHash: string | null = null;
 
   if (payload.metricId) {
     // Path 1: bootstrap card — load from metric table.
@@ -73,6 +83,9 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
         title: metric.title,
         why: metric.why,
         chart_hint: metric.chart_hint,
+        execution_mode: metric.execution_mode,
+        definition_json: metric.definition_json,
+        definition_hash: metric.definition_hash,
       })
       .from(metric)
       .where(eq(metric.id, payload.metricId))
@@ -80,6 +93,13 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
     const card = cards[0];
     if (!card) throw new Error(`metric ${payload.metricId} not found`);
     metricRowId = card.id;
+    if (card.execution_mode === "saved_query") {
+      savedQueryDefinition = card.definition_json;
+      savedQueryDefinitionHash = card.definition_hash;
+      if (!savedQueryDefinition || !savedQueryDefinitionHash) {
+        throw new Error(`saved-query metric ${payload.metricId} has no validated definition`);
+      }
+    }
     input = {
       orgId,
       role: card.role as MetricAgentInput["role"],
@@ -161,6 +181,18 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
     throw new Error(
       `metric_refresh job ${jobId} has neither metricId nor question in trigger_payload`,
     );
+  }
+
+  if (savedQueryDefinition && savedQueryDefinitionHash) {
+    await runDeterministicMetricRefresh({
+      jobId,
+      orgId,
+      metricId: metricRowId,
+      slug: input.slug,
+      definition: savedQueryDefinition,
+      definitionHash: savedQueryDefinitionHash,
+    });
+    return;
   }
 
   await updateProgress(jobId, "Running agent");
@@ -314,6 +346,160 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
         `[metric_refresh.telemetry] ${JSON.stringify(summary)}`,
       );
     }
+  }
+}
+
+function graphjinEndpoint(url: string): string {
+  const clean = url.replace(/\/+$/, "");
+  return clean.endsWith("/api/v1/graphql") ? clean : `${clean}/api/v1/graphql`;
+}
+
+async function runDeterministicMetricRefresh(input: {
+  jobId: string;
+  orgId: string;
+  metricId: string;
+  slug: string;
+  definition: Record<string, unknown>;
+  definitionHash: string;
+}): Promise<void> {
+  const startedAt = Date.now();
+  const telemetry = createWorkerHarnessObserver(input.jobId);
+  let failure: unknown;
+  await observeSafely(telemetry.observer, {
+    kind: "run.start",
+    operationId: `metric:${input.jobId}`,
+    attributes: {
+      "openneko.job.kind": "metric_refresh",
+      "openneko.metric.execution_mode": "saved_query",
+    },
+  });
+  try {
+    const definition = parseMetricDefinition(input.definition);
+    await updateProgress(input.jobId, "Running reviewed saved query");
+    const [source] = await db()
+      .select({
+        graphqlUrl: data_source.graphql_url,
+        authMode: data_source.auth_mode,
+      })
+      .from(data_source)
+      .where(and(eq(data_source.org_id, input.orgId), eq(data_source.enabled, true)))
+      .orderBy(desc(data_source.is_default), data_source.created_at)
+      .limit(1);
+    if (!source?.graphqlUrl) throw new Error("saved-query metric has no enabled GraphJin source");
+
+    const [previous] = await db()
+      .select({ value: metric_snapshot.value })
+      .from(metric_snapshot)
+      .where(eq(metric_snapshot.metric_id, input.metricId))
+      .orderBy(desc(metric_snapshot.captured_at))
+      .limit(1);
+    const previousValue = previous?.value === null || previous?.value === undefined
+      ? null
+      : Number(previous.value);
+    const baseline = previousValue !== null && Number.isFinite(previousValue) ? previousValue : null;
+    const now = new Date();
+    const response = await graphjinQuery<Record<string, unknown>>({
+      baseUrl: graphjinEndpoint(source.graphqlUrl),
+      query: definition.execution.document,
+      variables: buildSavedQueryVariables(input.definition, now),
+      role: "service",
+      ...(source.authMode === "jwt"
+        ? {
+            headers: {
+              authorization: `Bearer ${mintGraphjinToken({
+                orgId: input.orgId,
+                userId: null,
+                role: "service",
+              })}`,
+            },
+          }
+        : {}),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (response.errors?.length) {
+      throw new Error(`saved-query metric failed: ${response.errors.map((error) => error.message).join("; ")}`);
+    }
+    if (!response.data) throw new Error("saved-query metric returned no data");
+    const mapped = mapSavedQueryMetric({
+      definition: input.definition,
+      data: response.data,
+      baseline,
+      now,
+    });
+    const validationError = validateResult(mapped.result);
+    await observeSafely(telemetry.observer, {
+      kind: "validation.result",
+      operationId: `metric:${input.jobId}:persisted-contract`,
+      parentOperationId: `metric:${input.jobId}`,
+      status: validationError ? "error" : "ok",
+      ...(validationError ? { errorType: "metric_result_invalid" } : {}),
+      attributes: { "openneko.validation.contract": "deterministic-metric-persistence" },
+    });
+    if (validationError) throw new Error(`saved-query metric output invalid: ${validationError}`);
+
+    await updateProgress(input.jobId, "Saving deterministic snapshot");
+    const durationMs = Date.now() - startedAt;
+    await db().insert(metric_snapshot).values({
+      metric_id: input.metricId,
+      value: mapped.value === null ? null : String(mapped.value),
+      value_json: mapped.valueJson,
+      baseline: mapped.baseline === null ? null : String(mapped.baseline),
+      delta_pct: mapped.deltaPct === null ? null : String(mapped.deltaPct),
+      status: mapped.result.mood,
+      payload: mapped.result,
+      definition_hash: input.definitionHash,
+      source_freshness_at: mapped.sourceFreshnessAt,
+      duration_ms: durationMs,
+      error_class: null,
+    });
+    await db()
+      .update(metric)
+      .set({
+        last_refresh_status: "ok",
+        last_refresh_error: null,
+        last_refresh_job_id: input.jobId,
+        updated_at: new Date(),
+      })
+      .where(eq(metric.id, input.metricId));
+    console.log(
+      `[metric_refresh] org=${input.orgId} metric=${input.slug} mode=saved_query mood=${mapped.result.mood} durationMs=${durationMs}`,
+    );
+  } catch (error) {
+    failure = error;
+    const message = error instanceof Error ? error.message : String(error);
+    await db()
+      .update(metric)
+      .set({
+        last_refresh_status: "failed",
+        last_refresh_error: message.slice(0, 500),
+        last_refresh_job_id: input.jobId,
+        updated_at: new Date(),
+      })
+      .where(eq(metric.id, input.metricId));
+    await observeSafely(telemetry.observer, {
+      kind: "error",
+      operationId: `metric:${input.jobId}:saved-query-error`,
+      parentOperationId: `metric:${input.jobId}`,
+      status: "error",
+      errorType: error instanceof Error ? error.name : "unknown",
+    });
+    throw error;
+  } finally {
+    await observeSafely(telemetry.observer, {
+      kind: "run.end",
+      operationId: `metric:${input.jobId}`,
+      status: failure ? "error" : "ok",
+      ...(failure ? { errorType: failure instanceof Error ? failure.name : "unknown" } : {}),
+      attributes: {
+        "openneko.outcome": failure ? "failed" : "completed",
+        "openneko.metric.execution_mode": "saved_query",
+      },
+      measurements: {
+        durationMs: Date.now() - startedAt,
+        coverage: "unavailable",
+      },
+    });
+    await persistProcessingJobTelemetry(input.jobId, telemetry.snapshot());
   }
 }
 

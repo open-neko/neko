@@ -10,6 +10,7 @@ import { describeSchedule } from "@/lib/cron-english";
 import { formatSavedShort } from "@/lib/hours-saved";
 import { Sparkline } from "@/components/Sparkline";
 import PageHeading from "@/components/PageHeading";
+import { Button, IconButton } from "@/components/ui/Button";
 
 type WorkflowListItem = {
   id: string;
@@ -269,9 +270,8 @@ export default function WorkflowsPage() {
               <strong>{String(grouped.broken.length).padStart(2, "0")}</strong>
               <span>attention</span>
             </div>
-            <button
-              type="button"
-              className="workflows-new-btn"
+            <Button
+              variant="primary"
               onClick={() =>
                 router.push(
                   `/work?seed=${encodeURIComponent("Set up a new workflow that ")}`,
@@ -280,7 +280,7 @@ export default function WorkflowsPage() {
             >
               <Plus aria-hidden="true" />
               New workflow
-            </button>
+            </Button>
           </div>
         }
       />
@@ -549,7 +549,7 @@ function WorkflowRow({
             <ArrowUpRight className="workflows-row-arrow" aria-hidden="true" />
           </div>
           {w.description && (
-            <div className="text-[13px] text-text2 mt-1 leading-[1.45]">{w.description}</div>
+            <div className="text-ui-body-sm text-text2 mt-1 leading-[1.45]">{w.description}</div>
           )}
           <div className="workflows-row-meta">
             <span>
@@ -564,18 +564,19 @@ function WorkflowRow({
           </div>
           </div>
         </button>
-        <button
-          type="button"
+        <IconButton
+          label={`Delete ${w.name}`}
+          size="icon-sm"
+          variant="danger"
           className="workflows-row-delete"
           title="Delete workflow"
-          aria-label={`Delete ${w.name}`}
           onClick={(event) => {
             event.stopPropagation();
             onDelete();
           }}
         >
-          <Trash2 size={14} strokeWidth={2} />
-        </button>
+          <Trash2 aria-hidden="true" strokeWidth={2} />
+        </IconButton>
       </div>
     </li>
   );
@@ -736,9 +737,9 @@ function WorkflowDetail({
   return (
     <div className="workflow-detail">
       <div className="workflow-drawer-actions">
-        <button
-          type="button"
-          className="workflow-drawer-btn is-primary"
+        <Button
+          size="sm"
+          variant="primary"
           onClick={runNow}
           disabled={busy || !workflow.enabled}
           title={
@@ -748,25 +749,23 @@ function WorkflowDetail({
           }
         >
           Run now
-        </button>
-        <button
-          type="button"
-          className="workflow-drawer-btn"
+        </Button>
+        <Button
+          size="sm"
           onClick={togglePause}
           disabled={busy}
         >
           {workflow.enabled ? "Pause" : "Resume"}
-        </button>
+        </Button>
         {workflow.enabled && (
-          <button
-            type="button"
-            className="workflow-drawer-btn"
+          <Button
+            size="sm"
             onClick={pauseForToday}
             disabled={busy}
             title="Pause until midnight UTC; resumes automatically"
           >
             Pause for today
-          </button>
+          </Button>
         )}
       </div>
 
@@ -831,7 +830,7 @@ function WorkflowDetail({
       </Section>
 
       <Section title="Schedule">
-        <div className="flex items-center justify-between gap-3 text-[13px]">
+        <div className="flex items-center justify-between gap-3 text-ui-body-sm">
           <span>
             {describeSchedule(
               workflow.cron,
@@ -883,11 +882,11 @@ function WorkflowDetail({
         ) : (
           <ul className="list-none p-0 mt-0 mb-1.5 flex flex-col gap-1.5">
             {policies.map((p) => (
-              <li key={p.id} className="flex min-w-0 items-start gap-2 text-[12.5px]">
-                <span className="min-w-0 flex-1 font-mono text-[11.5px] text-text2 [overflow-wrap:anywhere]">{p.name}</span>
+              <li key={p.id} className="flex min-w-0 items-start gap-2 text-ui-body-sm">
+                <span className="min-w-0 flex-1 font-mono text-ui-caption text-text2 [overflow-wrap:anywhere]">{p.name}</span>
                 <span
                   className={cn(
-                    "shrink-0 whitespace-nowrap text-[9.5px] font-bold tracking-[0.13em] uppercase px-1.5 py-0.5 rounded-full ml-auto",
+                    "shrink-0 whitespace-nowrap text-ui-label font-bold tracking-[0.13em] uppercase px-1.5 py-0.5 rounded-full ml-auto",
                     policyModeClass(p.mode),
                   )}
                 >
@@ -908,7 +907,7 @@ function WorkflowDetail({
         ) : (
           <ul className="list-none p-0 m-0 flex flex-col gap-1.5">
             {recentRuns.map((r) => (
-              <li key={r.id} className="flex items-baseline gap-2 text-[13px]">
+              <li key={r.id} className="flex items-baseline gap-2 text-ui-body-sm">
                 <button
                   type="button"
                   className="workflow-drawer-run-link"
@@ -926,7 +925,7 @@ function WorkflowDetail({
                     {formatRelative(r.createdAt)} · {r.triggerKind} ·{" "}
                     {formatDuration(r.durationMs)}
                   </span>
-                  <span className="workflow-drawer-run-arrow ml-auto text-text3 font-mono text-[11.5px] transition-[color,transform] duration-[0.18s]" aria-hidden="true">
+                  <span className="workflow-drawer-run-arrow ml-auto text-text3 font-mono text-ui-caption transition-[color,transform] duration-[0.18s]" aria-hidden="true">
                     →
                   </span>
                 </button>
@@ -952,7 +951,7 @@ function WorkflowDetail({
                   )}
                   <span
                     className={cn(
-                      "ml-auto shrink-0 whitespace-nowrap text-[10.5px] font-bold tracking-[0.08em] uppercase px-2 py-0.5 rounded-full",
+                      "ml-auto shrink-0 whitespace-nowrap text-ui-label font-bold tracking-[0.08em] uppercase px-2 py-0.5 rounded-full",
                       actionPillClass(a.status),
                     )}
                   >

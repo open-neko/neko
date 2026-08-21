@@ -92,7 +92,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   color: var(--text2);
   background: color-mix(in srgb, var(--neutral-soft) 70%, var(--card));
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
@@ -132,7 +132,7 @@
   outline: none;
   background: transparent;
   font: inherit;
-  font-size: 14.5px;
+  font-size: var(--type-body-lg);
   line-height: 1.55;
   color: var(--text);
   padding: 14px 12px 6px;
@@ -141,7 +141,7 @@
 .work-input:disabled { color: var(--text2); cursor: progress; }
 
 .work-composer-hint {
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   color: var(--text3);
   letter-spacing: 0.01em;
   display: inline-flex;
@@ -164,7 +164,7 @@
   background: color-mix(in srgb, var(--neutral-soft) 50%, var(--card));
   color: var(--text2);
   font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
+  font-size: var(--type-label);
   line-height: 1;
 }
 .work-composer-hint-sep {
@@ -223,7 +223,7 @@
     var(--success) 100%
   );
   color: var(--success-ink);
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   font-weight: 600;
   letter-spacing: 0.01em;
   cursor: pointer;
@@ -285,8 +285,8 @@
   }
   /* 36px is the practical touch-target floor with surrounding padding. */
   .work-icon-btn { width: 38px; height: 38px; border-radius: 12px; }
-  .work-send-btn { height: 38px; padding: 0 14px 0 16px; font-size: 13.5px; }
-  .work-file-chip { padding: 5px 5px 5px 9px; font-size: 12px; }
+  .work-send-btn { height: 38px; padding: 0 14px 0 16px; font-size: var(--type-body); }
+  .work-file-chip { padding: 5px 5px 5px 9px; font-size: var(--type-caption); }
   .work-file-chip button { width: 22px; height: 22px; }
 }
 /* Hide the keyboard hint text entirely on small phones so the file
@@ -295,7 +295,7 @@
 @media (max-width: 480px) {
   .work-composer-hint kbd,
   .work-composer-hint-sep { display: none; }
-  .work-composer-hint { font-size: 11px; }
+  .work-composer-hint { font-size: var(--type-label); }
 }
 /* Touch devices: hover styles are misleading (sticky tap = sticky hover).
    Strip the lift/glow on hover for anything that can't truly hover. */
@@ -359,7 +359,7 @@
   width: 30px; height: 30px;
   border-radius: 9px; border: 1px solid transparent; background: transparent; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: 13px; color: var(--text3);
+  font-size: var(--type-body-sm); color: var(--text3);
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .ipin.on { color: var(--accent); background: var(--accent-soft); }
@@ -381,7 +381,7 @@
 .idetail { position: relative; z-index: 1; }
 .idetail.open { max-height: 480px; opacity: 1; margin-top: 16px; }
 .dtext {
-  font-size: 14.5px;
+  font-size: var(--type-body-lg);
   color: var(--text2);
   line-height: 1.6;
   margin-bottom: 14px;
@@ -394,4 +394,3 @@
   padding: 14px 12px 8px 12px;
   margin-left: 54px;
 }
-

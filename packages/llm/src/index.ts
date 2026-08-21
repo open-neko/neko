@@ -38,6 +38,7 @@ export {
   ensureHostConfigProvisioned,
   provisionHostConfig,
   resolveHermesModelBinary,
+  verifyAgentRuntimeReady,
 } from "./host-provision";
 export {
   prefetchKnowledgePack,

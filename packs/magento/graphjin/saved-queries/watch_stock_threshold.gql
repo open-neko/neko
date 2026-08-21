@@ -1,0 +1,5 @@
+query MagentoWatchStockThreshold($threshold: Float = 5) {
+  inventory_source_item(where: {or: [{status: {eq: 0}}, {quantity: {lte: $threshold}}]}) {
+    count: count_sku
+  }
+}

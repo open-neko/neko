@@ -1,0 +1,2027 @@
+import { randomUUID } from "node:crypto";
+import {
+  cp,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import {
+  action_policy,
+  and,
+  data_source,
+  db,
+  desc,
+  eq,
+  metric,
+  pack_action_definition,
+  pack_artifact,
+  pack_install,
+  pack_operation,
+  processing_job,
+  pool,
+  watcher,
+  workflow_definition,
+} from "@neko/db";
+import { ensureOrgWorkspace } from "@neko/llm/work";
+import { graphjinQuery, mintGraphjinToken } from "@neko/llm/graphjin";
+import {
+  canonicalHash,
+  loadSolutionPack,
+  planPack,
+  type PackArtifact,
+  type PackPlan,
+  type SolutionPackBundle,
+} from "@neko/packs";
+import {
+  readSecretsStore,
+  writeSecretsStore,
+} from "@open-neko/plugin-install/secrets";
+import { applyPackGraphjinConfig } from "./graphjin-config.js";
+import {
+  MAGENTO_ANALYTICS_TABLES,
+  runMagentoPreflight,
+  type MagentoPreflightResult,
+} from "./magento-preflight.js";
+import {
+  inspectPackArtifactCurrent,
+  inspectInstalledPackArtifactCurrent,
+  nativeArtifactStateHash,
+  packArtifactLocator,
+} from "./artifact-state.js";
+
+const PACK_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const PACK_SECRET_PREFIX = "pack.";
+
+type PackInstallRequest = {
+  inputs?: Record<string, unknown>;
+  secrets?: Record<string, string>;
+  secretRefs?: Record<string, string>;
+  idempotencyKey?: string;
+  actorUserId?: string | null;
+};
+
+type PackUninstallRequest = {
+  idempotencyKey?: string;
+  actorUserId?: string | null;
+};
+
+type PackStatus = {
+  packId: string;
+  version: string;
+  status: string;
+  readiness: Record<string, { status: string; reason: string | null }>;
+  installedAt: string | null;
+  lastError: string | null;
+};
+
+type PackDoctorResult = {
+  packId: string;
+  status: "ready" | "degraded" | "blocked";
+  checks: Array<{
+    id: string;
+    status: "ready" | "optional" | "blocked";
+    detail: string;
+  }>;
+};
+
+function operatorReadinessDetail(
+  reason: MagentoPreflightResult["operatorReadiness"] | null,
+): string {
+  switch (reason) {
+    case "integration_token_missing":
+      return "View only. Add a Magento API token if you later want to allow specific, approval-required changes; store insights and automations are fully available without it.";
+    case "integration_token_invalid":
+      return "View only because Magento rejected the saved API token. Store insights and automations are unaffected.";
+    case "acl_missing":
+      return "View only because the saved API token does not have the required Magento permissions. Store insights and automations are unaffected.";
+    case "graphjin_version_unsupported":
+      return "View only in this version. Store insights and automations are fully available.";
+    default:
+      return "View-only access could not be checked because the reporting connection is unavailable.";
+  }
+}
+
+function artifactRecord(artifact: PackArtifact): Record<string, unknown> {
+  if (!artifact.content || typeof artifact.content !== "object" || Array.isArray(artifact.content)) {
+    throw new Error(`${artifact.kind} artifact ${artifact.path} must be an object`);
+  }
+  return artifact.content as Record<string, unknown>;
+}
+
+function artifactLocatorFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+  fallback?: PackArtifact,
+): Record<string, unknown> {
+  const value = metadata?.locator;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return fallback ? packArtifactLocator(fallback) : {};
+}
+
+function secretEnvKey(key: string): string {
+  return key.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
+}
+
+function graphjinEndpoint(url: string): string {
+  const clean = url.replace(/\/+$/, "");
+  return clean.endsWith("/api/v1/graphql") ? clean : `${clean}/api/v1/graphql`;
+}
+
+async function runMagentoAnalyticsSmoke(endpoint: string, orgId: string): Promise<void> {
+  const headers = {
+    authorization: `Bearer ${mintGraphjinToken({
+      orgId,
+      userId: "pack-health",
+      role: "service",
+      ttlSeconds: 60,
+    })}`,
+  };
+  const result = await graphjinQuery<{ sales_order?: Array<{ entity_id?: string | number }> }>({
+    baseUrl: endpoint,
+    headers,
+    query:
+      'query MagentoPackAnalyticsSmoke { sales_order(where: { created_at: { gte: "1970-01-01 00:00:00" } }, limit: 1) { entity_id } }',
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (result.errors?.length || !Array.isArray(result.data?.sales_order)) {
+    throw new Error(
+      `Magento analytics smoke query failed: ${result.errors?.map((error) => error.message).join("; ") ?? "sales_order result unavailable"}`,
+    );
+  }
+  const sensitive = await graphjinQuery<{ sales_order?: Array<{ customer_email?: string }> }>({
+    baseUrl: endpoint,
+    headers,
+    query:
+      'query MagentoPackSensitiveColumnCanary { sales_order(where: { created_at: { gte: "1970-01-01 00:00:00" } }, limit: 1) { customer_email } }',
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!sensitive.errors?.length) {
+    throw new Error(
+      "Magento analytics privacy check failed: GraphJin did not enforce the sales_order customer_email blocklist",
+    );
+  }
+}
+
+function packRoot(): string {
+  return resolve(process.env.OPENNEKO_PACKS_DIR?.trim() || join(process.cwd(), "packs"));
+}
+
+function renderTemplate(value: string, inputs: Record<string, unknown>): string {
+  return value.replace(/\{\{([^}]+)}}/g, (_match, key: string) => {
+    const resolved = inputs[key.trim()];
+    if (resolved === undefined || resolved === null) {
+      throw new Error(`missing pack template input ${key.trim()}`);
+    }
+    return String(resolved);
+  });
+}
+
+function findSavedQuery(bundle: SolutionPackBundle, name: string): string {
+  const artifact = bundle.artifacts.find(
+    (value) =>
+      value.kind === "saved_query" && basename(value.path, extname(value.path)) === name,
+  );
+  if (!artifact || typeof artifact.content !== "string") {
+    throw new Error(`pack saved query ${name} is missing`);
+  }
+  return artifact.content;
+}
+
+async function enqueuePackMetricRefreshes(
+  orgId: string,
+  bundle: SolutionPackBundle,
+): Promise<number> {
+  const { enqueue, QUEUE } = await import("@neko/db/jobs");
+  let enqueued = 0;
+  for (const artifact of bundle.artifacts.filter((value) => value.kind === "metric")) {
+    const definition = artifactRecord(artifact);
+    const [card] = await db().select({ id: metric.id }).from(metric).where(and(
+      eq(metric.org_id, orgId),
+      eq(metric.role, String(definition.role)),
+      eq(metric.slug, artifact.targetRef),
+    )).limit(1);
+    if (!card) continue;
+    const [job] = await db().insert(processing_job).values({
+      org_id: orgId,
+      kind: "metric_refresh",
+      status: "queued",
+      trigger: "pack_install",
+      trigger_payload: { metricId: card.id },
+    }).returning({ id: processing_job.id });
+    if (!job) continue;
+    await db().update(metric).set({
+      last_refresh_status: "pending",
+      last_refresh_error: null,
+      last_refresh_job_id: job.id,
+      updated_at: new Date(),
+    }).where(eq(metric.id, card.id));
+    try {
+      await enqueue(QUEUE.METRIC_REFRESH, { processingJobId: job.id, orgId });
+      enqueued++;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await db().update(processing_job).set({
+        status: "failed",
+        error: message.slice(0, 1_000),
+        finished_at: new Date(),
+        updated_at: new Date(),
+      }).where(eq(processing_job.id, job.id));
+      await db().update(metric).set({
+        last_refresh_status: "failed",
+        last_refresh_error: message.slice(0, 500),
+        updated_at: new Date(),
+      }).where(eq(metric.id, card.id));
+      console.warn(
+        `[packs] could not schedule initial refresh for ${artifact.targetRef}: ${message}`,
+      );
+    }
+  }
+  return enqueued;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  return lstat(path).then(() => true).catch(() => false);
+}
+
+async function writeAtomic(
+  path: string,
+  content: string,
+  alreadyOwned: boolean,
+): Promise<() => Promise<void>> {
+  await mkdir(dirname(path), { recursive: true });
+  const existed = await pathExists(path);
+  if (existed && !alreadyOwned) {
+    throw new Error(`pack file target ${path} already exists and is not owned by this pack`);
+  }
+  const previous = existed ? await readFile(path) : null;
+  const temporary = `${path}.${randomUUID()}.pack-stage`;
+  await writeFile(temporary, content, { mode: 0o644 });
+  await rename(temporary, path);
+  return async () => {
+    if (previous) {
+      const rollback = `${path}.${randomUUID()}.pack-rollback`;
+      await writeFile(rollback, previous, { mode: 0o644 });
+      await rename(rollback, path);
+    } else {
+      await rm(path, { force: true });
+    }
+  };
+}
+
+async function stageOwnedRemoval(path: string): Promise<{
+  restore: () => Promise<void>;
+  commit: () => Promise<void>;
+}> {
+  let target;
+  try {
+    target = await lstat(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { restore: async () => {}, commit: async () => {} };
+    }
+    throw error;
+  }
+  if (target.isSymbolicLink()) throw new Error(`pack-owned removal target is a symlink: ${path}`);
+  const backup = `${path}.${randomUUID()}.pack-remove-backup`;
+  await rename(path, backup);
+  return {
+    restore: async () => {
+      if (await pathExists(backup)) await rename(backup, path);
+    },
+    commit: async () => {
+      await rm(backup, { recursive: target.isDirectory(), force: true });
+    },
+  };
+}
+
+function assertOwnedPath(root: string, target: string, label: string): string {
+  const absoluteRoot = resolve(root);
+  const absoluteTarget = resolve(target);
+  const path = relative(absoluteRoot, absoluteTarget);
+  if (!path || path === ".." || path.startsWith(`..${sep}`) || path.startsWith(sep)) {
+    throw new Error(`${label} target escapes its managed root: ${target}`);
+  }
+  return absoluteTarget;
+}
+
+async function installGraphjinFiles(input: {
+  bundle: SolutionPackBundle;
+  configFile: string;
+  values: Record<string, unknown>;
+  ownedTargets: Set<string>;
+}): Promise<{ restore: () => Promise<void>; targets: Map<string, string> }> {
+  const configRoot = dirname(input.configFile);
+  const restorers: Array<() => Promise<void>> = [];
+  const targets = new Map<string, string>();
+  try {
+    for (const artifact of input.bundle.artifacts) {
+      let destination: string | null = null;
+      let content: string | null = null;
+      if (artifact.kind === "spec") {
+        destination = join(configRoot, "specs", basename(artifact.path));
+        content = renderTemplate(await readFile(join(input.bundle.root, artifact.path), "utf8"), input.values);
+      } else if (artifact.kind === "saved_query") {
+        destination = join(
+          configRoot,
+          "queries",
+          `${input.bundle.manifest.metadata.id.replaceAll("-", "_")}_${basename(artifact.path)}`,
+        );
+        content = String(artifact.content);
+      }
+      if (destination && content !== null) {
+        restorers.push(
+          await writeAtomic(destination, content, input.ownedTargets.has(destination)),
+        );
+        targets.set(`${artifact.kind}:${artifact.key}`, destination);
+      }
+    }
+    return {
+      targets,
+      restore: async () => {
+        for (const restore of restorers.reverse()) await restore();
+      },
+    };
+  } catch (error) {
+    for (const restore of restorers.reverse()) await restore().catch(() => {});
+    throw error;
+  }
+}
+
+async function assertNativeTargetsAvailable(input: {
+  orgId: string;
+  bundle: SolutionPackBundle;
+  plan: PackPlan;
+}): Promise<void> {
+  const creates = new Set(
+    input.plan.entries
+      .filter((entry) => entry.action === "create")
+      .map((entry) => `${entry.kind}:${entry.key}`),
+  );
+  for (const artifact of input.bundle.artifacts) {
+    if (!creates.has(`${artifact.kind}:${artifact.key}`)) continue;
+    const value = artifact.content && typeof artifact.content === "object" && !Array.isArray(artifact.content)
+      ? artifact.content as Record<string, unknown>
+      : null;
+    let existing: { id: string } | undefined;
+    if (artifact.kind === "metric" && value) {
+      [existing] = await db().select({ id: metric.id }).from(metric).where(and(
+        eq(metric.org_id, input.orgId),
+        eq(metric.role, String(value.role)),
+        eq(metric.slug, artifact.targetRef),
+      )).limit(1);
+    } else if (artifact.kind === "workflow" && value) {
+      [existing] = await db().select({ id: workflow_definition.id }).from(workflow_definition).where(and(
+        eq(workflow_definition.org_id, input.orgId),
+        eq(workflow_definition.owner_user_id, ""),
+        eq(workflow_definition.name, String(value.name)),
+      )).limit(1);
+    } else if (artifact.kind === "watcher" && value) {
+      [existing] = await db().select({ id: watcher.id }).from(watcher).where(and(
+        eq(watcher.org_id, input.orgId),
+        eq(watcher.name, String(value.name)),
+      )).limit(1);
+    } else if (artifact.kind === "policy" && value) {
+      [existing] = await db().select({ id: action_policy.id }).from(action_policy).where(and(
+        eq(action_policy.org_id, input.orgId),
+        eq(action_policy.name, String(value.name)),
+      )).limit(1);
+    } else if (artifact.kind === "action" && value) {
+      [existing] = await db().select({ id: pack_action_definition.id }).from(pack_action_definition).where(and(
+        eq(pack_action_definition.org_id, input.orgId),
+        eq(pack_action_definition.kind, String(value.kind)),
+      )).limit(1);
+    }
+    if (existing) {
+      throw new Error(
+        `${artifact.kind} target ${artifact.targetRef} already exists and is not owned by pack ${input.bundle.manifest.metadata.id}`,
+      );
+    }
+  }
+}
+
+async function installSkills(input: {
+  orgId: string;
+  bundle: SolutionPackBundle;
+  ownedTargets: Set<string>;
+}): Promise<{
+  targets: Map<string, string>;
+  restore: () => Promise<void>;
+  commit: () => Promise<void>;
+}> {
+  const workspace = await ensureOrgWorkspace(input.orgId);
+  const restorers: Array<() => Promise<void>> = [];
+  const committers: Array<() => Promise<void>> = [];
+  const targets = new Map<string, string>();
+  try {
+    for (const artifact of input.bundle.artifacts.filter((value) => value.kind === "skill")) {
+      const source = join(input.bundle.root, dirname(artifact.path));
+      const target = join(workspace.skillsRoot, artifact.targetRef);
+      const backup = `${target}.${randomUUID()}.pack-backup`;
+      const stage = `${target}.${randomUUID()}.pack-stage`;
+      const existed = await pathExists(target);
+      if (existed && !input.ownedTargets.has(target)) {
+        throw new Error(`skill target ${basename(target)} already exists and is not owned by this pack`);
+      }
+      await cp(source, stage, { recursive: true, force: false, errorOnExist: true });
+      if (existed) await rename(target, backup);
+      await rename(stage, target);
+      targets.set(`${artifact.kind}:${artifact.key}`, target);
+      restorers.push(async () => {
+        await rm(target, { recursive: true, force: true });
+        if (existed) await rename(backup, target);
+      });
+      committers.push(async () => {
+        await rm(backup, { recursive: true, force: true });
+      });
+    }
+    return {
+      targets,
+      restore: async () => {
+        for (const restore of restorers.reverse()) await restore();
+      },
+      commit: async () => {
+        for (const commit of committers) await commit();
+      },
+    };
+  } catch (error) {
+    for (const restore of restorers.reverse()) await restore().catch(() => {});
+    throw error;
+  }
+}
+
+export function resolveInputs(bundle: SolutionPackBundle, supplied: Record<string, unknown>): Record<string, unknown> {
+  const declared = new Map(bundle.manifest.inputs.map((input) => [input.key, input]));
+  for (const key of Object.keys(supplied)) {
+    if (!declared.has(key)) throw new Error(`unknown pack input ${key}`);
+  }
+  const resolved: Record<string, unknown> = {};
+  for (const input of bundle.manifest.inputs) {
+    const value = Object.hasOwn(supplied, input.key) ? supplied[input.key] : input.default;
+    if (value === undefined && input.required) throw new Error(`required pack input ${input.key} is missing`);
+    if (value === undefined) continue;
+    switch (input.type) {
+      case "string":
+      case "timezone":
+      case "url": {
+        if (typeof value !== "string" || (input.type !== "string" && !value.trim())) {
+          throw new Error(`pack input ${input.key} must be ${input.type === "string" ? "a string" : `a non-empty ${input.type}`}`);
+        }
+        const normalized = value.trim();
+        if (input.required && !normalized) {
+          throw new Error(`required pack input ${input.key} must not be empty`);
+        }
+        if (input.type === "url") {
+          let parsed: URL;
+          try {
+            parsed = new URL(normalized);
+          } catch {
+            throw new Error(`pack input ${input.key} must be an absolute URL`);
+          }
+          if (!['http:', 'https:'].includes(parsed.protocol)) {
+            throw new Error(`pack input ${input.key} must use HTTP or HTTPS`);
+          }
+          resolved[input.key] = normalized.replace(/\/+$/, "");
+        } else if (input.type === "timezone") {
+          try {
+            new Intl.DateTimeFormat("en-US", { timeZone: normalized }).format();
+          } catch {
+            throw new Error(`pack input ${input.key} must be a valid IANA timezone`);
+          }
+          resolved[input.key] = normalized;
+        } else {
+          resolved[input.key] = normalized;
+        }
+        break;
+      }
+      case "integer": {
+        const number = typeof value === "number" ? value : Number(value);
+        if (!Number.isInteger(number)) throw new Error(`pack input ${input.key} must be an integer`);
+        resolved[input.key] = number;
+        break;
+      }
+      case "boolean":
+        if (typeof value !== "boolean") throw new Error(`pack input ${input.key} must be a boolean`);
+        resolved[input.key] = value;
+        break;
+      case "enum":
+        if (!input.values?.some((candidate) => candidate === value)) {
+          throw new Error(`pack input ${input.key} must be one of: ${input.values?.join(", ")}`);
+        }
+        resolved[input.key] = value;
+        break;
+    }
+  }
+  const port = resolved["database.port"];
+  if (port !== undefined && (typeof port !== "number" || port < 1 || port > 65535)) {
+    throw new Error("database.port must be an integer from 1 to 65535");
+  }
+  return resolved;
+}
+
+async function resolveSecrets(
+  bundle: SolutionPackBundle,
+  request: PackInstallRequest,
+): Promise<{
+  values: Record<string, string>;
+  cleared: Set<string>;
+  store: Awaited<ReturnType<typeof readSecretsStore>>;
+}> {
+  const store = await readSecretsStore();
+  const section = `${PACK_SECRET_PREFIX}${bundle.manifest.metadata.id}`;
+  const current = store[section] ?? {};
+  const declared = new Set(bundle.manifest.secrets.map((secret) => secret.key));
+  for (const key of [...Object.keys(request.secrets ?? {}), ...Object.keys(request.secretRefs ?? {})]) {
+    if (!declared.has(key)) throw new Error(`unknown pack secret ${key}`);
+  }
+  const values: Record<string, string> = {};
+  const cleared = new Set<string>();
+  for (const secret of bundle.manifest.secrets) {
+    const direct = request.secrets?.[secret.key];
+    const ref = request.secretRefs?.[secret.key];
+    if (direct !== undefined && typeof direct !== "string") {
+      throw new Error(`pack secret ${secret.key} must be a string`);
+    }
+    if (direct !== undefined && !direct.trim() && !secret.required) {
+      cleared.add(secret.key);
+      continue;
+    }
+    const stored = ref ? current[ref] : current[secretEnvKey(secret.key)];
+    const value = direct !== undefined ? direct : stored;
+    if (secret.required && (!value || !value.trim())) {
+      throw new Error(`required pack secret ${secret.key} is missing`);
+    }
+    if (value) values[secret.key] = value;
+  }
+  return { values, cleared, store };
+}
+
+function graphjinTables(prefix: string, available: string[]): Record<string, unknown>[] {
+  const sensitiveColumns: Record<string, string[]> = {
+    sales_order: [
+      "protect_code",
+      "customer_id",
+      "billing_address_id",
+      "quote_address_id",
+      "quote_id",
+      "shipping_address_id",
+      "customer_dob",
+      "customer_email",
+      "customer_firstname",
+      "customer_lastname",
+      "customer_middlename",
+      "customer_prefix",
+      "customer_suffix",
+      "customer_taxvat",
+      "ext_customer_id",
+      "remote_ip",
+      "x_forwarded_for",
+      "customer_note",
+      "customer_gender",
+      "gift_message_id",
+    ],
+    sales_order_item: [
+      "quote_item_id",
+      "product_options",
+      "additional_data",
+      "description",
+      "ext_order_item_id",
+      "gift_message_id",
+    ],
+    sales_invoice: [
+      "billing_address_id",
+      "shipping_address_id",
+      "transaction_id",
+      "customer_note",
+    ],
+    sales_invoice_item: ["additional_data", "description"],
+    sales_creditmemo: [
+      "shipping_address_id",
+      "billing_address_id",
+      "transaction_id",
+      "customer_note",
+    ],
+    sales_creditmemo_item: ["additional_data", "description"],
+    sales_shipment: [
+      "customer_id",
+      "shipping_address_id",
+      "billing_address_id",
+      "packages",
+      "shipping_label",
+      "customer_note",
+    ],
+    sales_shipment_item: ["additional_data", "description"],
+    inventory_reservation: ["metadata"],
+    cron_schedule: ["messages"],
+  };
+  return MAGENTO_ANALYTICS_TABLES.filter((name) => available.includes(name)).map((name) => ({
+    name,
+    table: `${prefix}${name}`,
+    source: "magento_analytics",
+    // GraphJin 3.18.42 normalizes sources before it parses newly supplied
+    // table entries in the same config patch. Keep the derived database
+    // explicit so reload validation routes the table to the new source.
+    database: "magento_analytics",
+    read_only: true,
+    ...(sensitiveColumns[name] ? { blocklist: sensitiveColumns[name] } : {}),
+  }));
+}
+
+function graphjinRelationships(bundle: SolutionPackBundle, available: string[]): Record<string, unknown>[] {
+  const artifact = bundle.artifacts.find((value) => value.kind === "relationships");
+  const relationships = artifactRecord(artifact!).relationships as Array<Record<string, unknown>>;
+  const tables = new Set(available);
+  return relationships
+    .filter((relationship) =>
+      tables.has(String(relationship.left).split(".")[0]) &&
+      tables.has(String(relationship.right).split(".")[0]),
+    )
+    .map((relationship) => ({
+      from: `magento_analytics:${String(relationship.left)}`,
+      to: `magento_analytics:${String(relationship.right)}`,
+    }));
+}
+
+function graphjinUpdate(
+  inputs: Record<string, unknown>,
+  secrets: Record<string, string>,
+  preflight: MagentoPreflightResult,
+  bundle: SolutionPackBundle,
+  retiredSourceNames: string[] = [],
+): Record<string, unknown> {
+  return {
+    update_sources: [
+      {
+        name: "magento_analytics",
+        kind: "database",
+        default: false,
+        type: preflight.databaseType,
+        host: String(inputs["database.host"]),
+        port: Number(inputs["database.port"]),
+        dbname: String(inputs["database.name"]),
+        user: secrets["database.analytics_username"],
+        password: secrets["database.analytics_password"],
+        read_only: true,
+        analytics_mode: true,
+        capabilities: {
+          "data.read": true,
+          "data.write": false,
+          "schema.read": true,
+          "schema.write": false,
+        },
+        access: {
+          read: "authenticated",
+          write: "blocked",
+          delete: "blocked",
+          blocked_tables: preflight.blockedTables,
+        },
+      },
+      {
+        name: "magento_operator",
+        kind: "api",
+        default: false,
+        specs_dir: "specs",
+        specs: {
+          "magento-operator-v1": {
+            base_url: String(inputs["magento.base_url"]),
+            ...(secrets["magento.integration_token"]
+              ? {
+                  auth: {
+                    scheme: "bearer",
+                    token: secrets["magento.integration_token"],
+                  },
+                }
+              : {}),
+          },
+        },
+        read_only: true,
+        capabilities: {
+          "api.read": true,
+          "api.write": false,
+        },
+        access: {
+          read: "authenticated",
+          write: "blocked",
+          delete: "blocked",
+        },
+      },
+    ],
+    ...(retiredSourceNames.length > 0
+      ? {
+          source_patches: retiredSourceNames.map((name) => ({
+            name,
+            read_only: true,
+            access: { read: "blocked", write: "blocked", delete: "blocked" },
+          })),
+        }
+      : {}),
+    tables: graphjinTables(preflight.tablePrefix, preflight.availableAnalyticsTables),
+    relationships: graphjinRelationships(bundle, preflight.availableAnalyticsTables),
+  };
+}
+
+export class PackService {
+  constructor(
+    private readonly orgId: string,
+    private readonly embeddedRoot = packRoot(),
+  ) {}
+
+  private async bundle(packId: string): Promise<SolutionPackBundle> {
+    if (!PACK_ID.test(packId)) throw new Error("invalid pack id");
+    return loadSolutionPack(join(this.embeddedRoot, packId));
+  }
+
+  private async replayIdempotentOperation(
+    packId: string,
+    idempotencyKey: string | undefined,
+  ): Promise<PackStatus | null> {
+    if (!idempotencyKey) return null;
+    const [prior] = await db()
+      .select({
+        packId: pack_install.pack_id,
+        status: pack_operation.status,
+        error: pack_operation.error,
+      })
+      .from(pack_operation)
+      .innerJoin(pack_install, eq(pack_install.id, pack_operation.pack_install_id))
+      .where(
+        and(
+          eq(pack_operation.org_id, this.orgId),
+          eq(pack_operation.idempotency_key, idempotencyKey),
+        ),
+      )
+      .limit(1);
+    if (!prior) return null;
+    if (prior.packId !== packId) {
+      throw new Error(`idempotency key was already used for pack ${prior.packId}`);
+    }
+    if (prior.status === "succeeded") {
+      const status = await this.status(packId);
+      if (!status) throw new Error(`pack ${packId} status is missing for completed operation`);
+      return status;
+    }
+    if (prior.status === "failed") {
+      throw new Error(prior.error || `the previous ${packId} operation failed`);
+    }
+    throw new Error(`the ${packId} operation for this idempotency key is still ${prior.status}`);
+  }
+
+  async list(): Promise<Array<{ id: string; name: string; version: string; installed: boolean }>> {
+    const entries = await readdir(this.embeddedRoot, { withFileTypes: true });
+    const installed = await db()
+      .select({ packId: pack_install.pack_id })
+      .from(pack_install)
+      .where(and(eq(pack_install.org_id, this.orgId), eq(pack_install.status, "installed")));
+    const installedIds = new Set(installed.map((row) => row.packId));
+    const packDirectories: string[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !PACK_ID.test(entry.name)) continue;
+      try {
+        const manifest = await lstat(join(this.embeddedRoot, entry.name, "pack.yaml"));
+        if (manifest.isFile() || manifest.isSymbolicLink()) packDirectories.push(entry.name);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    const bundles = await Promise.all(packDirectories.map((packId) => this.bundle(packId)));
+    return bundles.map((bundle) => ({
+      id: bundle.manifest.metadata.id,
+      name: bundle.manifest.metadata.name,
+      version: bundle.manifest.metadata.version,
+      installed: installedIds.has(bundle.manifest.metadata.id),
+    }));
+  }
+
+  async inspect(packId: string): Promise<Record<string, unknown>> {
+    const bundle = await this.bundle(packId);
+    return {
+      manifest: bundle.manifest,
+      manifestHash: bundle.manifestHash,
+      bundleHash: bundle.bundleHash,
+      permissions: {
+        database: "view-only reporting",
+        apiWrite: "specific Magento changes require approval and must be enabled individually",
+        customerPii: "blocked",
+        paymentData: "blocked",
+      },
+    };
+  }
+
+  async plan(packId: string): Promise<PackPlan> {
+    const bundle = await this.bundle(packId);
+    const [installation] = await db()
+      .select({ id: pack_install.id })
+      .from(pack_install)
+      .where(
+        and(
+          eq(pack_install.org_id, this.orgId),
+          eq(pack_install.pack_id, packId),
+        ),
+      )
+      .orderBy(desc(pack_install.created_at))
+      .limit(1);
+    const artifacts = installation
+      ? await db().select().from(pack_artifact).where(eq(pack_artifact.pack_install_id, installation.id))
+      : [];
+    const desiredByIdentity = new Map(
+      bundle.artifacts.map((artifact) => [`${artifact.kind}:${artifact.key}`, artifact]),
+    );
+    const configFile = process.env.OPENNEKO_GRAPHJIN_CONFIG?.trim() ?? "";
+    const installed = await Promise.all(artifacts.map(async (artifact) => {
+      const desired = desiredByIdentity.get(`${artifact.artifact_kind}:${artifact.artifact_key}`);
+      const metadata = artifact.metadata ?? {};
+      const needsGraphjinConfig = ["source", "relationships", "spec", "saved_query"].includes(
+        artifact.artifact_kind,
+      );
+      const inspected = configFile || !needsGraphjinConfig
+        ? await inspectInstalledPackArtifactCurrent({
+            orgId: this.orgId,
+            kind: artifact.artifact_kind as PackArtifact["kind"],
+            targetRef: artifact.target_ref,
+            metadata,
+            graphjinConfigFile: configFile,
+            ...(desired ? { fallbackArtifact: desired } : {}),
+          })
+        : null;
+      const baseline = metadata.stateHashVersion === 1
+        ? artifact.last_applied_hash
+        : inspected ?? artifact.last_applied_hash;
+      return {
+        kind: artifact.artifact_kind as PackArtifact["kind"],
+        key: artifact.artifact_key,
+        targetRef: artifact.target_ref,
+        desiredHash: artifact.desired_hash,
+        lastAppliedHash: baseline,
+        currentHash: inspected,
+        ownership: artifact.ownership as "managed" | "modified" | "detached" | "retired",
+      };
+    }));
+    return planPack(bundle, installed);
+  }
+
+  private async persistLegacyStateBaselines(
+    installationId: string,
+    plan: PackPlan,
+    bundle: SolutionPackBundle,
+  ): Promise<void> {
+    const rows = await db().select().from(pack_artifact)
+      .where(eq(pack_artifact.pack_install_id, installationId));
+    const entries = new Map(plan.entries.map((entry) => [`${entry.kind}:${entry.key}`, entry]));
+    const desired = new Map(bundle.artifacts.map((artifact) => [`${artifact.kind}:${artifact.key}`, artifact]));
+    await db().transaction(async (tx) => {
+      for (const row of rows) {
+        if (row.metadata?.stateHashVersion === 1) continue;
+        const entry = entries.get(`${row.artifact_kind}:${row.artifact_key}`);
+        if (entry?.action !== "noop" || !entry.currentHash) continue;
+        await tx.update(pack_artifact).set({
+          last_applied_hash: entry.currentHash,
+          metadata: {
+            ...(row.metadata ?? {}),
+            ...(desired.get(`${row.artifact_kind}:${row.artifact_key}`)
+              ? { locator: packArtifactLocator(desired.get(`${row.artifact_kind}:${row.artifact_key}`)!) }
+              : {}),
+            stateHashVersion: 1,
+          },
+          updated_at: new Date(),
+        }).where(eq(pack_artifact.id, row.id));
+      }
+    });
+  }
+
+  async status(packId: string): Promise<PackStatus | null> {
+    const [installation] = await db()
+      .select()
+      .from(pack_install)
+      .where(and(eq(pack_install.org_id, this.orgId), eq(pack_install.pack_id, packId)))
+      .orderBy(desc(pack_install.created_at))
+      .limit(1);
+    if (!installation) return null;
+    const artifacts = await db()
+      .select({ readiness: pack_artifact.readiness, reason: pack_artifact.readiness_reason })
+      .from(pack_artifact)
+      .where(eq(pack_artifact.pack_install_id, installation.id));
+    const readiness: PackStatus["readiness"] = {};
+    for (const artifact of artifacts) {
+      const capability = artifact.reason?.startsWith("operator:") ? "operator" : "analytics";
+      if (!readiness[capability] || artifact.readiness === "blocked") {
+        readiness[capability] = {
+          status: artifact.readiness,
+          reason: artifact.reason?.replace(/^operator:/, "") ?? null,
+        };
+      }
+    }
+    return {
+      packId,
+      version: installation.version,
+      status: installation.status,
+      readiness,
+      installedAt: installation.installed_at?.toISOString() ?? null,
+      lastError: installation.last_error,
+    };
+  }
+
+  async doctor(packId: string): Promise<PackDoctorResult> {
+    const bundle = await this.bundle(packId);
+    const [installation] = await db()
+      .select()
+      .from(pack_install)
+      .where(and(eq(pack_install.org_id, this.orgId), eq(pack_install.pack_id, packId)))
+      .orderBy(desc(pack_install.created_at))
+      .limit(1);
+    if (!installation || installation.status === "removed") {
+      return {
+        packId,
+        status: "blocked",
+        checks: [{ id: "installation", status: "blocked", detail: "pack is not installed" }],
+      };
+    }
+
+    const checks: PackDoctorResult["checks"] = [];
+    const declaredInputs = new Set(bundle.manifest.inputs.map((input) => input.key));
+    const storedInputs = Object.fromEntries(
+      Object.entries(installation.config as Record<string, unknown>)
+        .filter(([key]) => declaredInputs.has(key)),
+    );
+    let preflight: MagentoPreflightResult | null = null;
+    try {
+      const inputs = resolveInputs(bundle, storedInputs);
+      const resolvedSecrets = await resolveSecrets(bundle, {});
+      preflight = await runMagentoPreflight({
+        host: String(inputs["database.host"]),
+        port: Number(inputs["database.port"]),
+        database: String(inputs["database.name"]),
+        username: resolvedSecrets.values["database.analytics_username"]!,
+        password: resolvedSecrets.values["database.analytics_password"]!,
+        tablePrefix: String(inputs["magento.table_prefix"] ?? ""),
+        baseUrl: String(inputs["magento.base_url"]),
+        storeCode: String(inputs["magento.store_code"] ?? "all"),
+        integrationToken: resolvedSecrets.values["magento.integration_token"] ?? null,
+      });
+      checks.push({
+        id: "analytics",
+        status: "ready",
+        detail: `${preflight.databaseType} ${preflight.databaseVersion}; SELECT-only grants verified`,
+      });
+      checks.push({
+        id: "magento",
+        status: "ready",
+        detail: `${preflight.magentoVersion}; store IDs ${preflight.storeIds.join(", ")}`,
+      });
+    } catch (error) {
+      checks.push({
+        id: "analytics",
+        status: "blocked",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const [source] = await db()
+      .select({ graphqlUrl: data_source.graphql_url })
+      .from(data_source)
+      .where(and(eq(data_source.org_id, this.orgId), eq(data_source.enabled, true)))
+      .orderBy(desc(data_source.is_default), data_source.created_at)
+      .limit(1);
+    const configFile = process.env.OPENNEKO_GRAPHJIN_CONFIG?.trim();
+    if (!source?.graphqlUrl || !configFile || !(await pathExists(configFile))) {
+      checks.push({
+        id: "graphjin",
+        status: "blocked",
+        detail: "customer GraphJin endpoint/config volume is unavailable",
+      });
+    } else {
+      try {
+        const result = await graphjinQuery<{ gj_config?: { catalog_revision?: string } }>({
+          baseUrl: graphjinEndpoint(source.graphqlUrl),
+          headers: {
+            authorization: `Bearer ${mintGraphjinToken({
+              orgId: this.orgId,
+              userId: "pack-doctor",
+              role: "admin",
+              ttlSeconds: 60,
+            })}`,
+          },
+          query: 'query { gj_config(id: "current") { catalog_revision } }',
+        });
+        if (result.errors?.length || !result.data?.gj_config?.catalog_revision) {
+          throw new Error(result.errors?.map((value) => value.message).join("; ") || "catalog revision unavailable");
+        }
+        await runMagentoAnalyticsSmoke(graphjinEndpoint(source.graphqlUrl), this.orgId);
+        checks.push({
+          id: "graphjin",
+          status: "ready",
+          detail: `catalog ${result.data.gj_config.catalog_revision}`,
+        });
+        checks.push({
+          id: "analytics-query",
+          status: "ready",
+          detail: "Magento sales_order smoke query succeeded",
+        });
+      } catch (error) {
+        checks.push({
+          id: "graphjin",
+          status: "blocked",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    checks.push({
+      id: "operator",
+      status: "optional",
+      detail: operatorReadinessDetail(preflight?.operatorReadiness ?? null),
+    });
+    const requiredBlocked = checks.some(
+      (check) => check.id !== "operator" && check.status === "blocked",
+    );
+    return {
+      packId,
+      status: requiredBlocked ? "blocked" : "ready",
+      checks,
+    };
+  }
+
+  async install(packId: string, request: PackInstallRequest = {}): Promise<PackStatus> {
+    return this.apply(packId, request, "install");
+  }
+
+  async configure(packId: string, request: PackInstallRequest = {}): Promise<PackStatus> {
+    const current = await this.status(packId);
+    if (!current || current.status !== "installed") {
+      throw new Error(`pack ${packId} must be installed before it can be configured`);
+    }
+    return this.apply(packId, request, "configure");
+  }
+
+  async upgrade(packId: string, request: PackInstallRequest = {}): Promise<PackStatus> {
+    const current = await this.status(packId);
+    if (!current || current.status !== "installed") {
+      throw new Error(`pack ${packId} must be installed before it can be upgraded`);
+    }
+    return this.apply(packId, request, "upgrade");
+  }
+
+  async uninstall(packId: string, request: PackUninstallRequest = {}): Promise<PackStatus> {
+    const bundle = await this.bundle(packId);
+    const replay = await this.replayIdempotentOperation(packId, request.idempotencyKey);
+    if (replay) return replay;
+    let [installation] = await db().select().from(pack_install).where(and(
+      eq(pack_install.org_id, this.orgId),
+      eq(pack_install.pack_id, packId),
+    )).orderBy(desc(pack_install.created_at)).limit(1);
+    if (!installation) throw new Error(`pack ${packId} is not installed`);
+    if (installation.status === "removed") {
+      const removed = await this.status(packId);
+      if (!removed) throw new Error(`pack ${packId} removal status is missing`);
+      return removed;
+    }
+
+    const client = await pool().connect();
+    let operationId: string | null = null;
+    let graphjinRestore: (() => Promise<void>) | null = null;
+    let secretsRestore: (() => Promise<void>) | null = null;
+    const stagedRemovals: Array<{
+      restore: () => Promise<void>;
+      commit: () => Promise<void>;
+    }> = [];
+    try {
+      await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [`pack:${this.orgId}:${packId}`]);
+      const lockedReplay = await this.replayIdempotentOperation(packId, request.idempotencyKey);
+      if (lockedReplay) return lockedReplay;
+      [installation] = await db().select().from(pack_install).where(and(
+        eq(pack_install.org_id, this.orgId),
+        eq(pack_install.pack_id, packId),
+      )).orderBy(desc(pack_install.created_at)).limit(1);
+      if (!installation) throw new Error(`pack ${packId} is not installed`);
+      if (installation.status === "removed") {
+        const removed = await this.status(packId);
+        if (!removed) throw new Error(`pack ${packId} removal status is missing`);
+        return removed;
+      }
+      if (["installing", "upgrading", "removing"].includes(installation.status)) {
+        throw new Error(`pack ${packId} already has an operation in progress`);
+      }
+      const plan = await this.plan(packId);
+      const conflicts = plan.entries.filter((entry) => entry.action === "conflict");
+      if (conflicts.length > 0) {
+        const conflictKeys = new Set(conflicts.map((entry) => `${entry.kind}:${entry.key}`));
+        const rows = await db().select().from(pack_artifact)
+          .where(eq(pack_artifact.pack_install_id, installation.id));
+        await db().transaction(async (tx) => {
+          for (const row of rows) {
+            if (!conflictKeys.has(`${row.artifact_kind}:${row.artifact_key}`)) continue;
+            await tx.update(pack_artifact).set({ ownership: "modified", updated_at: new Date() })
+              .where(eq(pack_artifact.id, row.id));
+          }
+        });
+        throw new Error(`pack uninstall has ${conflicts.length} drift conflict(s); modified artifacts were preserved`);
+      }
+      await db().update(pack_install).set({
+        status: "removing",
+        last_error: null,
+        updated_at: new Date(),
+      }).where(eq(pack_install.id, installation.id));
+      const [operation] = await db().insert(pack_operation).values({
+        pack_install_id: installation.id,
+        org_id: this.orgId,
+        operation_type: "uninstall",
+        actor_user_id: request.actorUserId ?? null,
+        status: "running",
+        requested_version: installation.version,
+        idempotency_key: request.idempotencyKey ?? randomUUID(),
+        plan: plan as unknown as Record<string, unknown>,
+        plan_hash: plan.hash,
+        phase: "removing_graphjin",
+        started_at: new Date(),
+      }).returning({ id: pack_operation.id });
+      operationId = operation!.id;
+      await db().update(pack_install).set({ operation_id: operationId })
+        .where(eq(pack_install.id, installation.id));
+
+      const [source] = await db().select({ graphqlUrl: data_source.graphql_url })
+        .from(data_source)
+        .where(and(eq(data_source.org_id, this.orgId), eq(data_source.enabled, true)))
+        .orderBy(desc(data_source.is_default), data_source.created_at)
+        .limit(1);
+      const configFile = process.env.OPENNEKO_GRAPHJIN_CONFIG?.trim();
+      if (!source?.graphqlUrl || !configFile) {
+        throw new Error("customer GraphJin endpoint/config volume is unavailable");
+      }
+      const provenance = await db().select().from(pack_artifact)
+        .where(eq(pack_artifact.pack_install_id, installation.id));
+      const desiredByIdentity = new Map(
+        bundle.artifacts.map((artifact) => [`${artifact.kind}:${artifact.key}`, artifact]),
+      );
+      const sourceNames = provenance
+        .filter((artifact) => artifact.artifact_kind === "source")
+        .map((artifact) => artifact.target_ref);
+      // GraphJin 3.18 cannot remove a source while tables still reference it,
+      // does not expose remove_tables through gj_config, and treats tables: []
+      // as a no-op. Revoke every source capability instead. The disabled
+      // source/table metadata is retained so uninstall is fail closed and a
+      // later pack install can safely reclaim it.
+      const revoked = await applyPackGraphjinConfig({
+        endpoint: graphjinEndpoint(source.graphqlUrl),
+        orgId: this.orgId,
+        configFile,
+        update: {
+          source_patches: sourceNames.map((name) => ({
+            name,
+            read_only: true,
+            access: {
+              read: "blocked",
+              write: "blocked",
+              delete: "blocked",
+            },
+          })),
+        },
+        ownedSourceNames: new Set(sourceNames),
+      });
+      graphjinRestore = revoked.restore;
+
+      const configRoot = dirname(configFile);
+      const workspace = await ensureOrgWorkspace(this.orgId);
+      for (const artifact of provenance) {
+        const target = artifact.metadata?.materializedTarget;
+        if (typeof target !== "string") continue;
+        if (artifact.artifact_kind === "spec" || artifact.artifact_kind === "saved_query") {
+          stagedRemovals.push(
+            await stageOwnedRemoval(assertOwnedPath(configRoot, target, "GraphJin pack file")),
+          );
+        } else if (artifact.artifact_kind === "skill") {
+          stagedRemovals.push(
+            await stageOwnedRemoval(assertOwnedPath(workspace.skillsRoot, target, "pack skill")),
+          );
+        }
+      }
+
+      const currentSecrets = await readSecretsStore();
+      const secretSection = `${PACK_SECRET_PREFIX}${packId}`;
+      const nextSecrets = { ...currentSecrets };
+      delete nextSecrets[secretSection];
+      await writeSecretsStore(nextSecrets);
+      secretsRestore = () => writeSecretsStore(currentSecrets);
+
+      const retiredHashes = new Map<string, string>();
+      for (const artifact of provenance.filter(
+        (value) => value.artifact_kind === "source" || value.artifact_kind === "relationships",
+      )) {
+        const identity = `${artifact.artifact_kind}:${artifact.artifact_key}`;
+        const current = await inspectInstalledPackArtifactCurrent({
+          orgId: this.orgId,
+          kind: artifact.artifact_kind as "source" | "relationships",
+          targetRef: artifact.target_ref,
+          metadata: artifact.metadata ?? {},
+          graphjinConfigFile: configFile,
+          ...(desiredByIdentity.get(identity)
+            ? { fallbackArtifact: desiredByIdentity.get(identity)! }
+            : {}),
+        });
+        if (!current) throw new Error(`pack GraphJin artifact ${identity} disappeared during uninstall`);
+        retiredHashes.set(identity, current);
+      }
+      await db().transaction(async (tx) => {
+        for (const artifact of provenance) {
+          const identity = `${artifact.artifact_kind}:${artifact.artifact_key}`;
+          const locator = artifactLocatorFromMetadata(
+            artifact.metadata,
+            desiredByIdentity.get(identity),
+          );
+          if (artifact.artifact_kind === "metric") {
+            const role = String(locator.role ?? "");
+            if (!role) throw new Error(`pack metric ${artifact.artifact_key} has no uninstall locator`);
+            const [row] = await tx.select().from(metric).where(and(
+              eq(metric.org_id, this.orgId),
+              eq(metric.role, role),
+              eq(metric.slug, String(locator.slug ?? artifact.target_ref)),
+            )).limit(1);
+            if (!row) throw new Error(`pack metric ${artifact.target_ref} disappeared during uninstall`);
+            await tx.update(metric).set({ active: false, updated_at: new Date() }).where(eq(metric.id, row.id));
+            retiredHashes.set(identity, nativeArtifactStateHash("metric", { ...row, active: false } as unknown as Record<string, unknown>));
+          } else if (artifact.artifact_kind === "watcher") {
+            const [row] = await tx.select().from(watcher).where(and(
+              eq(watcher.org_id, this.orgId),
+              eq(watcher.name, String(locator.name ?? artifact.target_ref)),
+            )).limit(1);
+            if (!row) throw new Error(`pack watcher ${artifact.target_ref} disappeared during uninstall`);
+            await tx.update(watcher).set({ enabled: false, updated_at: new Date() }).where(eq(watcher.id, row.id));
+            retiredHashes.set(identity, nativeArtifactStateHash("watcher", { ...row, enabled: false } as unknown as Record<string, unknown>));
+          } else if (artifact.artifact_kind === "workflow") {
+            const [row] = await tx.select().from(workflow_definition).where(and(
+              eq(workflow_definition.org_id, this.orgId),
+              eq(workflow_definition.owner_user_id, ""),
+              eq(workflow_definition.name, String(locator.name ?? artifact.target_ref)),
+            )).limit(1);
+            if (!row) throw new Error(`pack workflow ${artifact.target_ref} disappeared during uninstall`);
+            await tx.update(workflow_definition).set({
+              enabled: false,
+              cron_enabled: false,
+              updated_at: new Date(),
+            }).where(eq(workflow_definition.id, row.id));
+            retiredHashes.set(identity, nativeArtifactStateHash("workflow", {
+              ...row,
+              enabled: false,
+              cron_enabled: false,
+            } as unknown as Record<string, unknown>));
+          } else if (artifact.artifact_kind === "policy") {
+            const [row] = await tx.select().from(action_policy).where(and(
+              eq(action_policy.org_id, this.orgId),
+              eq(action_policy.name, String(locator.name ?? artifact.target_ref)),
+            )).limit(1);
+            if (!row) throw new Error(`pack policy ${artifact.target_ref} disappeared during uninstall`);
+            await tx.update(action_policy).set({ enabled: false, updated_at: new Date() })
+              .where(eq(action_policy.id, row.id));
+            retiredHashes.set(identity, nativeArtifactStateHash("policy", { ...row, enabled: false } as unknown as Record<string, unknown>));
+          } else if (artifact.artifact_kind === "action") {
+            const [row] = await tx.select().from(pack_action_definition).where(and(
+              eq(pack_action_definition.org_id, this.orgId),
+              eq(pack_action_definition.kind, String(locator.kind ?? artifact.target_ref)),
+            )).limit(1);
+            if (!row) throw new Error(`pack action ${artifact.target_ref} disappeared during uninstall`);
+            await tx.update(pack_action_definition).set({
+              enabled: false,
+              readiness: "blocked",
+              readiness_reason: "pack_uninstalled",
+              updated_at: new Date(),
+            }).where(eq(pack_action_definition.id, row.id));
+            retiredHashes.set(identity, nativeArtifactStateHash("action", { ...row, enabled: false } as unknown as Record<string, unknown>));
+          }
+
+          const materializedHash = retiredHashes.get(identity) ?? canonicalHash({ retired: true, identity });
+          await tx.update(pack_artifact).set({
+            last_applied_hash: materializedHash,
+            ownership: "retired",
+            readiness: "not_applicable",
+            readiness_reason: null,
+            metadata: {
+              ...(artifact.metadata ?? {}),
+              stateHashVersion: 1,
+              retiredMissing: !retiredHashes.has(identity),
+              ...(
+                artifact.artifact_kind === "source" || artifact.artifact_kind === "relationships"
+                  ? { retainedForGraphjinCompatibility: true }
+                  : {}
+              ),
+            },
+            updated_at: new Date(),
+          }).where(eq(pack_artifact.id, artifact.id));
+        }
+        await tx.update(pack_install).set({
+          status: "removed",
+          removed_at: new Date(),
+          updated_at: new Date(),
+        }).where(eq(pack_install.id, installation.id));
+        await tx.update(pack_operation).set({
+          status: "succeeded",
+          phase: "complete",
+          compensation_status: "not_required",
+          completed_at: new Date(),
+          updated_at: new Date(),
+        }).where(eq(pack_operation.id, operationId!));
+      });
+
+      for (const removal of stagedRemovals) {
+        await removal.commit().catch((error) => {
+          console.warn(`[packs] uninstall cleanup warning: ${error instanceof Error ? error.message : String(error)}`);
+        });
+      }
+      const removed = await this.status(packId);
+      if (!removed) throw new Error("pack status missing after uninstall");
+      return removed;
+    } catch (error) {
+      let compensationFailed = false;
+      if (secretsRestore) await secretsRestore().catch(() => { compensationFailed = true; });
+      for (const removal of stagedRemovals.reverse()) {
+        await removal.restore().catch(() => { compensationFailed = true; });
+      }
+      if (graphjinRestore) await graphjinRestore().catch(() => { compensationFailed = true; });
+      const message = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
+      if (operationId) {
+        await db().update(pack_operation).set({
+          status: "failed",
+          failure_phase: "uninstall",
+          error: message,
+          compensation_status: compensationFailed ? "failed" : "succeeded",
+          completed_at: new Date(),
+          updated_at: new Date(),
+        }).where(eq(pack_operation.id, operationId)).catch(() => {});
+      }
+      await db().update(pack_install).set({
+        status: compensationFailed ? "failed" : installation.status,
+        operation_id: installation.operation_id,
+        last_error: message,
+        updated_at: new Date(),
+      }).where(eq(pack_install.id, installation.id)).catch(() => {});
+      throw error;
+    } finally {
+      await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [`pack:${this.orgId}:${packId}`]).catch(() => {});
+      client.release();
+    }
+  }
+
+  private async apply(
+    packId: string,
+    request: PackInstallRequest,
+    operationType: "install" | "configure" | "upgrade",
+  ): Promise<PackStatus> {
+    const bundle = await this.bundle(packId);
+    const replay = await this.replayIdempotentOperation(packId, request.idempotencyKey);
+    if (replay) return replay;
+    if (packId !== "magento") throw new Error(`no installer adapter for pack ${packId}`);
+    const secretSection = `${PACK_SECRET_PREFIX}${packId}`;
+    const client = await pool().connect();
+    let priorInstallation: typeof pack_install.$inferSelect | undefined;
+    let installationId: string | null = null;
+    let operationId: string | null = null;
+    let graphjinRestore: (() => Promise<void>) | null = null;
+    let filesRestore: (() => Promise<void>) | null = null;
+    let skillRestore: (() => Promise<void>) | null = null;
+    let skillCommit: (() => Promise<void>) | null = null;
+    let retiredRestore: (() => Promise<void>) | null = null;
+    let retiredCommit: (() => Promise<void>) | null = null;
+    let secretsRestore: (() => Promise<void>) | null = null;
+    try {
+      await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [`pack:${this.orgId}:${packId}`]);
+      const lockedReplay = await this.replayIdempotentOperation(packId, request.idempotencyKey);
+      if (lockedReplay) return lockedReplay;
+      const [existing] = await db()
+        .select()
+        .from(pack_install)
+        .where(and(eq(pack_install.org_id, this.orgId), eq(pack_install.pack_id, packId)))
+        .orderBy(desc(pack_install.created_at))
+        .limit(1);
+      priorInstallation = existing;
+      if (operationType !== "install" && existing?.status !== "installed") {
+        throw new Error(`pack ${packId} must be installed before it can be ${operationType}d`);
+      }
+      if (existing && ["installing", "upgrading", "removing"].includes(existing.status)) {
+        throw new Error(`pack ${packId} already has an operation in progress`);
+      }
+
+      const declaredInputs = new Set(bundle.manifest.inputs.map((input) => input.key));
+      const priorInputs = Object.fromEntries(
+        Object.entries((existing?.config ?? {}) as Record<string, unknown>)
+          .filter(([key]) => declaredInputs.has(key)),
+      );
+      const inputs = resolveInputs(bundle, { ...priorInputs, ...(request.inputs ?? {}) });
+      const resolvedSecrets = await resolveSecrets(bundle, request);
+      const preflight = await runMagentoPreflight({
+        host: String(inputs["database.host"]),
+        port: Number(inputs["database.port"]),
+        database: String(inputs["database.name"]),
+        username: resolvedSecrets.values["database.analytics_username"]!,
+        password: resolvedSecrets.values["database.analytics_password"]!,
+        tablePrefix: String(inputs["magento.table_prefix"] ?? ""),
+        baseUrl: String(inputs["magento.base_url"]),
+        storeCode: String(inputs["magento.store_code"] ?? "all"),
+        integrationToken: resolvedSecrets.values["magento.integration_token"] ?? null,
+      });
+      inputs["database.type"] = preflight.databaseType;
+      inputs["magento.table_prefix"] = preflight.tablePrefix;
+      inputs["magento.base_currency"] = inputs["magento.base_currency"] ?? preflight.baseCurrency;
+      inputs["magento.timezone"] = inputs["magento.timezone"] ?? preflight.timezone;
+
+      const plan = await this.plan(packId);
+      const conflicts = plan.entries.filter((entry) => entry.action === "conflict");
+      if (conflicts.length > 0) {
+        throw new Error(`pack install has ${conflicts.length} drift conflict(s); run pack plan for details`);
+      }
+      const storedSecrets = resolvedSecrets.store[secretSection] ?? {};
+      const secretsChanged = Object.entries(resolvedSecrets.values).some(
+        ([key, value]) => storedSecrets[secretEnvKey(key)] !== value,
+      ) || [...resolvedSecrets.cleared].some((key) => storedSecrets[secretEnvKey(key)] !== undefined);
+      const priorNormalizedInputs = existing ? resolveInputs(bundle, priorInputs) : null;
+      const configChanged = !priorNormalizedInputs ||
+        canonicalHash(priorNormalizedInputs) !== canonicalHash(inputs);
+      if (
+        existing?.status === "installed" &&
+        existing.version === bundle.manifest.metadata.version &&
+        existing.manifest_hash === bundle.manifestHash &&
+        plan.entries.every((entry) => entry.action === "noop") &&
+        !configChanged &&
+        !secretsChanged
+      ) {
+        await this.persistLegacyStateBaselines(existing.id, plan, bundle);
+        const current = await this.status(packId);
+        if (!current) throw new Error(`pack ${packId} status is missing after no-op plan`);
+        return current;
+      }
+      const priorArtifacts = existing
+        ? await db().select({
+            id: pack_artifact.id,
+            kind: pack_artifact.artifact_kind,
+            key: pack_artifact.artifact_key,
+            targetRef: pack_artifact.target_ref,
+            metadata: pack_artifact.metadata,
+          }).from(pack_artifact).where(eq(pack_artifact.pack_install_id, existing.id))
+        : [];
+      const retireIdentities = new Set(
+        plan.entries
+          .filter((entry) => entry.action === "retire")
+          .map((entry) => `${entry.kind}:${entry.key}`),
+      );
+      const retiredArtifacts = priorArtifacts.filter((artifact) =>
+        retireIdentities.has(`${artifact.kind}:${artifact.key}`),
+      );
+      await assertNativeTargetsAvailable({ orgId: this.orgId, bundle, plan });
+      const ownedFileTargets = new Set(
+        priorArtifacts.filter((artifact) => artifact.kind !== "skill").flatMap((artifact) => {
+          const target = artifact.metadata?.materializedTarget;
+          return typeof target === "string" ? [target] : [];
+        }),
+      );
+      const ownedSkillTargets = new Set(
+        priorArtifacts.filter((artifact) => artifact.kind === "skill").flatMap((artifact) => {
+          const target = artifact.metadata?.materializedTarget;
+          return typeof target === "string" ? [target] : [];
+        }),
+      );
+      const ownedSourceNames = new Set(
+        priorArtifacts
+          .filter((artifact) => artifact.kind === "source")
+          .map((artifact) => artifact.targetRef),
+      );
+      if (existing) {
+        installationId = existing.id;
+        await db().update(pack_install).set({
+          version: bundle.manifest.metadata.version,
+          status: operationType === "upgrade" ? "upgrading" : "installing",
+          manifest_hash: bundle.manifestHash,
+          config: inputs,
+          last_error: null,
+          removed_at: null,
+          updated_at: new Date(),
+        }).where(eq(pack_install.id, existing.id));
+      } else {
+        const [created] = await db().insert(pack_install).values({
+          org_id: this.orgId,
+          pack_id: packId,
+          version: bundle.manifest.metadata.version,
+          status: "installing",
+          manifest_hash: bundle.manifestHash,
+          config: inputs,
+          installed_by_user_id: request.actorUserId ?? null,
+        }).returning({ id: pack_install.id });
+        installationId = created!.id;
+      }
+      const [operation] = await db().insert(pack_operation).values({
+        pack_install_id: installationId,
+        org_id: this.orgId,
+        operation_type: operationType,
+        actor_user_id: request.actorUserId ?? null,
+        status: "running",
+        requested_version: bundle.manifest.metadata.version,
+        idempotency_key: request.idempotencyKey ?? randomUUID(),
+        plan: plan as unknown as Record<string, unknown>,
+        plan_hash: plan.hash,
+        phase: "preflight_complete",
+        started_at: new Date(),
+      }).returning({ id: pack_operation.id });
+      operationId = operation!.id;
+      await db().update(pack_install).set({ operation_id: operationId }).where(eq(pack_install.id, installationId));
+
+      const nextPackSecrets = { ...storedSecrets };
+      for (const key of resolvedSecrets.cleared) delete nextPackSecrets[secretEnvKey(key)];
+      for (const [key, value] of Object.entries(resolvedSecrets.values)) {
+        nextPackSecrets[secretEnvKey(key)] = value;
+      }
+      const nextSecrets = {
+        ...resolvedSecrets.store,
+        [secretSection]: nextPackSecrets,
+      };
+      await writeSecretsStore(nextSecrets);
+      secretsRestore = () => writeSecretsStore(resolvedSecrets.store);
+
+      const [source] = await db()
+        .select({ graphqlUrl: data_source.graphql_url })
+        .from(data_source)
+        .where(and(eq(data_source.org_id, this.orgId), eq(data_source.enabled, true)))
+        .orderBy(desc(data_source.is_default), data_source.created_at)
+        .limit(1);
+      const configFile = process.env.OPENNEKO_GRAPHJIN_CONFIG?.trim();
+      if (!source?.graphqlUrl || !configFile) {
+        throw new Error("customer GraphJin endpoint/config volume is unavailable");
+      }
+      const retiredRemovals: Array<{
+        restore: () => Promise<void>;
+        commit: () => Promise<void>;
+      }> = [];
+      const configRoot = dirname(configFile);
+      const workspace = retiredArtifacts.some((artifact) => artifact.kind === "skill")
+        ? await ensureOrgWorkspace(this.orgId)
+        : null;
+      try {
+        for (const artifact of retiredArtifacts) {
+          const target = artifact.metadata?.materializedTarget;
+          if (typeof target !== "string") continue;
+          if (artifact.kind === "spec" || artifact.kind === "saved_query") {
+            retiredRemovals.push(
+              await stageOwnedRemoval(assertOwnedPath(configRoot, target, "GraphJin pack file")),
+            );
+          } else if (artifact.kind === "skill" && workspace) {
+            retiredRemovals.push(
+              await stageOwnedRemoval(assertOwnedPath(workspace.skillsRoot, target, "pack skill")),
+            );
+          }
+        }
+      } catch (error) {
+        for (const removal of retiredRemovals.reverse()) await removal.restore().catch(() => {});
+        throw error;
+      }
+      retiredRestore = async () => {
+        for (const removal of retiredRemovals.reverse()) await removal.restore();
+      };
+      retiredCommit = async () => {
+        for (const removal of retiredRemovals) await removal.commit();
+      };
+      const desiredSourceNames = new Set(
+        bundle.artifacts.filter((artifact) => artifact.kind === "source").map((artifact) => artifact.targetRef),
+      );
+      const retiredSourceNames = retiredArtifacts
+        .filter((artifact) => artifact.kind === "source" && !desiredSourceNames.has(artifact.targetRef))
+        .map((artifact) => artifact.targetRef);
+      await db().update(pack_operation).set({ phase: "graphjin_files", updated_at: new Date() }).where(eq(pack_operation.id, operationId));
+      const files = await installGraphjinFiles({
+        bundle,
+        configFile,
+        values: inputs,
+        ownedTargets: ownedFileTargets,
+      });
+      filesRestore = files.restore;
+
+      const applied = await applyPackGraphjinConfig({
+        endpoint: graphjinEndpoint(source.graphqlUrl),
+        orgId: this.orgId,
+        configFile,
+        update: graphjinUpdate(inputs, resolvedSecrets.values, preflight, bundle, retiredSourceNames),
+        ownedSourceNames,
+      });
+      graphjinRestore = applied.restore;
+      await runMagentoAnalyticsSmoke(graphjinEndpoint(source.graphqlUrl), this.orgId);
+
+      const retiredHashes = new Map<string, string>();
+      for (const artifact of retiredArtifacts.filter(
+        (value) => value.kind === "source" || value.kind === "relationships",
+      )) {
+        const current = await inspectInstalledPackArtifactCurrent({
+          orgId: this.orgId,
+          kind: artifact.kind as "source" | "relationships",
+          targetRef: artifact.targetRef,
+          metadata: artifact.metadata ?? {},
+          graphjinConfigFile: configFile,
+        });
+        if (current) retiredHashes.set(`${artifact.kind}:${artifact.key}`, current);
+      }
+
+      const skills = await installSkills({ orgId: this.orgId, bundle, ownedTargets: ownedSkillTargets });
+      skillRestore = skills.restore;
+      skillCommit = skills.commit;
+
+      const materializedHashes = new Map<string, string>();
+      for (const artifact of bundle.artifacts.filter((value) =>
+        value.kind === "source" ||
+        value.kind === "relationships" ||
+        value.kind === "spec" ||
+        value.kind === "saved_query" ||
+        value.kind === "skill"
+      )) {
+        const target = files.targets.get(`${artifact.kind}:${artifact.key}`) ??
+          skills.targets.get(`${artifact.kind}:${artifact.key}`) ?? artifact.targetRef;
+        const currentHash = await inspectPackArtifactCurrent({
+          orgId: this.orgId,
+          artifact,
+          metadata: { materializedTarget: target, locator: packArtifactLocator(artifact) },
+          graphjinConfigFile: configFile,
+        });
+        if (!currentHash) throw new Error(`pack artifact ${artifact.key} was not materialized`);
+        materializedHashes.set(`${artifact.kind}:${artifact.key}`, currentHash);
+      }
+
+      await db().transaction(async (tx) => {
+        for (const artifact of retiredArtifacts) {
+          const identity = `${artifact.kind}:${artifact.key}`;
+          const locatorValue = artifact.metadata?.locator;
+          const locator = locatorValue && typeof locatorValue === "object" && !Array.isArray(locatorValue)
+            ? locatorValue as Record<string, unknown>
+            : {};
+          if (artifact.kind === "metric") {
+            const role = String(locator.role ?? "");
+            if (!role) throw new Error(`pack metric ${artifact.key} has no retirement locator`);
+            const [row] = await tx.select().from(metric).where(and(
+              eq(metric.org_id, this.orgId),
+              eq(metric.role, role),
+              eq(metric.slug, String(locator.slug ?? artifact.targetRef)),
+            )).limit(1);
+            if (!row) throw new Error(`pack metric ${artifact.targetRef} disappeared during upgrade`);
+            await tx.update(metric).set({ active: false, updated_at: new Date() }).where(eq(metric.id, row.id));
+            retiredHashes.set(identity, nativeArtifactStateHash("metric", { ...row, active: false } as unknown as Record<string, unknown>));
+          } else if (artifact.kind === "workflow") {
+            const [row] = await tx.select().from(workflow_definition).where(and(
+              eq(workflow_definition.org_id, this.orgId),
+              eq(workflow_definition.owner_user_id, ""),
+              eq(workflow_definition.name, String(locator.name ?? artifact.targetRef)),
+            )).limit(1);
+            if (!row) throw new Error(`pack workflow ${artifact.targetRef} disappeared during upgrade`);
+            await tx.update(workflow_definition).set({
+              enabled: false,
+              cron_enabled: false,
+              updated_at: new Date(),
+            }).where(eq(workflow_definition.id, row.id));
+            retiredHashes.set(identity, nativeArtifactStateHash("workflow", {
+              ...row,
+              enabled: false,
+              cron_enabled: false,
+            } as unknown as Record<string, unknown>));
+          } else if (artifact.kind === "watcher") {
+            const [row] = await tx.select().from(watcher).where(and(
+              eq(watcher.org_id, this.orgId),
+              eq(watcher.name, String(locator.name ?? artifact.targetRef)),
+            )).limit(1);
+            if (!row) throw new Error(`pack watcher ${artifact.targetRef} disappeared during upgrade`);
+            await tx.update(watcher).set({ enabled: false, updated_at: new Date() }).where(eq(watcher.id, row.id));
+            retiredHashes.set(identity, nativeArtifactStateHash("watcher", { ...row, enabled: false } as unknown as Record<string, unknown>));
+          } else if (artifact.kind === "policy") {
+            const [row] = await tx.select().from(action_policy).where(and(
+              eq(action_policy.org_id, this.orgId),
+              eq(action_policy.name, String(locator.name ?? artifact.targetRef)),
+            )).limit(1);
+            if (!row) throw new Error(`pack policy ${artifact.targetRef} disappeared during upgrade`);
+            await tx.update(action_policy).set({ enabled: false, updated_at: new Date() }).where(eq(action_policy.id, row.id));
+            retiredHashes.set(identity, nativeArtifactStateHash("policy", { ...row, enabled: false } as unknown as Record<string, unknown>));
+          } else if (artifact.kind === "action") {
+            const [row] = await tx.select().from(pack_action_definition).where(and(
+              eq(pack_action_definition.org_id, this.orgId),
+              eq(pack_action_definition.kind, String(locator.kind ?? artifact.targetRef)),
+            )).limit(1);
+            if (!row) throw new Error(`pack action ${artifact.targetRef} disappeared during upgrade`);
+            await tx.update(pack_action_definition).set({
+              enabled: false,
+              readiness: "blocked",
+              readiness_reason: "removed_from_pack",
+              updated_at: new Date(),
+            }).where(eq(pack_action_definition.id, row.id));
+            retiredHashes.set(identity, nativeArtifactStateHash("action", { ...row, enabled: false } as unknown as Record<string, unknown>));
+          }
+
+          const retiredHash = retiredHashes.get(identity) ?? canonicalHash({ retired: true, identity });
+          await tx.update(pack_artifact).set({
+            last_applied_hash: retiredHash,
+            ownership: "retired",
+            readiness: "not_applicable",
+            readiness_reason: null,
+            metadata: {
+              ...(artifact.metadata ?? {}),
+              stateHashVersion: 1,
+              retiredMissing: !retiredHashes.has(identity),
+              ...(
+                artifact.kind === "source" || artifact.kind === "relationships"
+                  ? { retainedForGraphjinCompatibility: true }
+                  : {}
+              ),
+            },
+            updated_at: new Date(),
+          }).where(eq(pack_artifact.id, artifact.id));
+        }
+
+        const workflows = new Map<string, string>();
+        for (const artifact of bundle.artifacts.filter((value) => value.kind === "workflow")) {
+          const value = artifactRecord(artifact);
+          const name = String(value.name);
+          const [existingWorkflow] = await tx.select({ id: workflow_definition.id }).from(workflow_definition)
+            .where(and(eq(workflow_definition.org_id, this.orgId), eq(workflow_definition.owner_user_id, ""), eq(workflow_definition.name, name))).limit(1);
+          const schedule = value.schedule as Record<string, unknown> | null;
+          const rowValues = {
+            description: String(value.description ?? ""),
+            enabled: Boolean(value.enabled),
+            status: String(value.status),
+            goal: String(value.goal),
+            cron: schedule ? String(schedule.cron) : null,
+            cron_timezone: String(inputs["magento.timezone"] ?? "UTC"),
+            cron_enabled: Boolean(schedule?.enabled),
+            output_contract: value.outputContract as Record<string, unknown>,
+            updated_at: new Date(),
+          };
+          const [row] = existingWorkflow
+            ? await tx.update(workflow_definition).set(rowValues).where(eq(workflow_definition.id, existingWorkflow.id)).returning({ id: workflow_definition.id })
+            : await tx.insert(workflow_definition).values({ org_id: this.orgId, owner_user_id: "", name, ...rowValues }).returning({ id: workflow_definition.id });
+          workflows.set(artifact.key, row!.id);
+          materializedHashes.set(
+            `${artifact.kind}:${artifact.key}`,
+            nativeArtifactStateHash("workflow", { name, ...rowValues }),
+          );
+        }
+
+        for (const artifact of bundle.artifacts.filter((value) => value.kind === "metric")) {
+          const value = artifactRecord(artifact);
+          const execution = value.execution as Record<string, unknown>;
+          const definition = {
+            ...value,
+            execution: {
+              ...execution,
+              document: findSavedQuery(bundle, String(execution.query)),
+              runtime: {
+                storeIds: preflight.storeIds,
+                windowDays: 30,
+                staleAfterSeconds: 2 * 60 * 60,
+                agedAfterSeconds: 2 * 24 * 60 * 60,
+                stockThreshold: 5,
+                currency: String(inputs["magento.base_currency"] ?? "USD"),
+                timezone: String(inputs["magento.timezone"] ?? "UTC"),
+              },
+            },
+          };
+          const set = {
+            source: `pack:${packId}`,
+            title: String(value.title),
+            description: String(value.description),
+            why: String(value.calculationNote),
+            chart_hint: String(value.chartHint),
+            unit: String(value.unit),
+            direction_good: String(value.directionGood),
+            cadence: String(value.cadence),
+            active: true,
+            execution_mode: "saved_query",
+            definition_json: definition,
+            definition_version: 1,
+            definition_hash: canonicalHash(definition),
+            updated_at: new Date(),
+          };
+          await tx.insert(metric).values({
+            org_id: this.orgId,
+            role: String(value.role),
+            slug: String(value.targetRef),
+            ...set,
+          }).onConflictDoUpdate({
+            target: [metric.org_id, metric.role, metric.slug],
+            set,
+          });
+          materializedHashes.set(
+            `${artifact.kind}:${artifact.key}`,
+            nativeArtifactStateHash("metric", { role: String(value.role), slug: String(value.targetRef), ...set }),
+          );
+        }
+
+        for (const artifact of bundle.artifacts.filter((value) => value.kind === "watcher")) {
+          const value = artifactRecord(artifact);
+          const workflowId = workflows.get(String(value.workflow));
+          if (!workflowId) throw new Error(`watcher ${artifact.key} references missing workflow ${String(value.workflow)}`);
+          const query = findSavedQuery(bundle, String(value.query));
+          const set = {
+            workflow_id: workflowId,
+            description: String(value.description),
+            enabled: Boolean(value.enabled),
+            query,
+            value_path: String(value.valuePath),
+            op: String(value.operator),
+            threshold: value.threshold,
+            cadence_seconds: Number(value.cadenceSeconds),
+            debounce_seconds: Number(value.debounceSeconds),
+            cooldown_seconds: Number(value.cooldownSeconds),
+            dedupe_key: String(value.dedupeKey),
+            activation: String(value.activation),
+            variables_json: {
+              from: { kind: "seconds_ago", seconds: 30 * 24 * 60 * 60 },
+              to: { kind: "now" },
+              staleBefore: { kind: "seconds_ago", seconds: 2 * 60 * 60 },
+              olderThan: { kind: "seconds_ago", seconds: 2 * 24 * 60 * 60 },
+              storeIds: { kind: "literal", value: preflight.storeIds },
+              threshold: { kind: "literal", value: 5 },
+            },
+            severity: String(value.severity),
+            updated_at: new Date(),
+          };
+          await tx.insert(watcher).values({ org_id: this.orgId, name: String(value.name), ...set })
+            .onConflictDoUpdate({ target: [watcher.org_id, watcher.name], set });
+          materializedHashes.set(
+            `${artifact.kind}:${artifact.key}`,
+            nativeArtifactStateHash("watcher", { name: String(value.name), ...set }),
+          );
+        }
+
+        for (const artifact of bundle.artifacts.filter((value) => value.kind === "policy")) {
+          const value = artifactRecord(artifact);
+          const [existingPolicy] = await tx.select({ id: action_policy.id }).from(action_policy)
+            .where(and(eq(action_policy.org_id, this.orgId), eq(action_policy.name, String(value.name)))).limit(1);
+          const set = {
+            description: String(value.description),
+            applies_to_kinds: value.appliesToKinds as string[],
+            applies_to_scopes: value.appliesToScopes as string[],
+            mode: value.mode === "ask" ? "approval_required" : String(value.mode),
+            allowed_targets: value.allowedTargets as Record<string, unknown>,
+            limits: value.limits as Record<string, unknown>,
+            approver_role: String(value.approverRole),
+            priority: Number(value.priority),
+            enabled: Boolean(value.enabled),
+            updated_at: new Date(),
+          };
+          if (existingPolicy) await tx.update(action_policy).set(set).where(eq(action_policy.id, existingPolicy.id));
+          else await tx.insert(action_policy).values({ org_id: this.orgId, name: String(value.name), ...set });
+          materializedHashes.set(
+            `${artifact.kind}:${artifact.key}`,
+            nativeArtifactStateHash("policy", { name: String(value.name), ...set }),
+          );
+        }
+
+        for (const artifact of bundle.artifacts.filter((value) => value.kind === "action")) {
+          const value = artifactRecord(artifact);
+          const reason = preflight.operatorReadiness;
+          await tx.insert(pack_action_definition).values({
+            org_id: this.orgId,
+            kind: String(value.kind),
+            description: String(value.description),
+            definition: value,
+            definition_hash: artifact.hash,
+            readiness: "blocked",
+            readiness_reason: reason,
+            enabled: true,
+          }).onConflictDoUpdate({
+            target: [pack_action_definition.org_id, pack_action_definition.kind],
+            set: {
+              description: String(value.description),
+              definition: value,
+              definition_hash: artifact.hash,
+              readiness: "blocked",
+              readiness_reason: reason,
+              enabled: true,
+              updated_at: new Date(),
+            },
+          });
+          materializedHashes.set(
+            `${artifact.kind}:${artifact.key}`,
+            nativeArtifactStateHash("action", {
+              kind: String(value.kind),
+              description: String(value.description),
+              definition: value,
+              definition_hash: artifact.hash,
+              enabled: true,
+            }),
+          );
+        }
+
+        for (const artifact of bundle.artifacts) {
+          const operatorArtifact =
+            artifact.key === "source.magento_operator" ||
+            artifact.kind === "spec" ||
+            artifact.kind === "action" ||
+            (artifact.kind === "saved_query" && basename(artifact.path).startsWith("action_"));
+          const readiness = operatorArtifact ? "blocked" : "ready";
+          const reason = operatorArtifact ? `operator:${preflight.operatorReadiness}` : null;
+          const target = files.targets.get(`${artifact.kind}:${artifact.key}`) ??
+            skills.targets.get(`${artifact.kind}:${artifact.key}`) ?? artifact.targetRef;
+          const materializedHash = materializedHashes.get(`${artifact.kind}:${artifact.key}`);
+          if (!materializedHash) throw new Error(`pack artifact ${artifact.key} has no materialized state hash`);
+          await tx.insert(pack_artifact).values({
+            pack_install_id: installationId!,
+            org_id: this.orgId,
+            artifact_kind: artifact.kind,
+            artifact_key: artifact.key,
+            target_ref: artifact.targetRef,
+            desired_hash: artifact.hash,
+            last_applied_hash: materializedHash,
+            ownership: "managed",
+            readiness,
+            readiness_reason: reason,
+            metadata: {
+              path: artifact.path,
+              materializedTarget: target,
+              locator: packArtifactLocator(artifact),
+              stateHashVersion: 1,
+            },
+          }).onConflictDoUpdate({
+            target: [pack_artifact.org_id, pack_artifact.artifact_kind, pack_artifact.target_ref],
+            set: {
+              pack_install_id: installationId!,
+              artifact_key: artifact.key,
+              desired_hash: artifact.hash,
+              last_applied_hash: materializedHash,
+              ownership: "managed",
+              readiness,
+              readiness_reason: reason,
+              metadata: {
+                path: artifact.path,
+                materializedTarget: target,
+                locator: packArtifactLocator(artifact),
+                stateHashVersion: 1,
+              },
+              updated_at: new Date(),
+            },
+          });
+        }
+        await tx.update(pack_install).set({
+          status: "installed",
+          config: { ...inputs, magentoVersion: preflight.magentoVersion },
+          installed_at: new Date(),
+          updated_at: new Date(),
+        }).where(eq(pack_install.id, installationId!));
+        await tx.update(pack_operation).set({
+          status: "succeeded",
+          phase: "complete",
+          compensation_status: "not_required",
+          completed_at: new Date(),
+          updated_at: new Date(),
+        }).where(eq(pack_operation.id, operationId!));
+      });
+
+      await skillCommit?.().catch((error) => {
+        console.warn(
+          `[packs] installed ${packId}, but could not remove the skill backup: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+      await retiredCommit?.().catch((error) => {
+        console.warn(
+          `[packs] installed ${packId}, but could not remove a retired-artifact backup: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+      await enqueuePackMetricRefreshes(this.orgId, bundle).catch((error) => {
+        console.warn(`[packs] initial metric refresh setup failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+      const status = await this.status(packId);
+      if (!status) throw new Error("pack status missing after install");
+      return status;
+    } catch (error) {
+      let compensationFailed = false;
+      for (const restore of [skillRestore, graphjinRestore, filesRestore, retiredRestore, secretsRestore]) {
+        if (!restore) continue;
+        await restore().catch(() => {
+          compensationFailed = true;
+        });
+      }
+      const message = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
+      if (operationId) {
+        await db().update(pack_operation).set({
+          status: "failed",
+          failure_phase: "apply",
+          error: message,
+          compensation_status: compensationFailed ? "failed" : "succeeded",
+          completed_at: new Date(),
+          updated_at: new Date(),
+        }).where(eq(pack_operation.id, operationId)).catch(() => {});
+      }
+      if (installationId) {
+        const restorePrior =
+          (priorInstallation?.status === "installed" || priorInstallation?.status === "removed") &&
+          !compensationFailed;
+        await db().update(pack_install).set(restorePrior ? {
+          status: priorInstallation!.status,
+          version: priorInstallation!.version,
+          manifest_hash: priorInstallation!.manifest_hash,
+          config: priorInstallation!.config,
+          operation_id: priorInstallation!.operation_id,
+          installed_at: priorInstallation!.installed_at,
+          removed_at: priorInstallation!.removed_at,
+          last_error: message,
+          updated_at: new Date(),
+        } : { status: "failed", last_error: message, updated_at: new Date() })
+          .where(eq(pack_install.id, installationId)).catch(() => {});
+      }
+      throw error;
+    } finally {
+      await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [`pack:${this.orgId}:${packId}`]).catch(() => {});
+      client.release();
+    }
+  }
+}

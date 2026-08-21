@@ -43,7 +43,7 @@
 .library-head-title > p {
   margin: 0;
   color: color-mix(in srgb, var(--bg) 58%, var(--text));
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.15em;
   line-height: 1.35;
@@ -95,7 +95,7 @@
 .library-head-stats span {
   margin-top: 7px;
   color: color-mix(in srgb, var(--bg) 56%, var(--text));
-  font-size: 8px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.14em;
   line-height: 1;
@@ -143,7 +143,7 @@
 .skill-instructions > header > span {
   display: block;
   color: var(--text3);
-  font-size: 8px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.16em;
   line-height: 1.2;
@@ -155,7 +155,7 @@
   margin: 3px 0 0;
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 19px;
+  font-size: var(--type-section);
   font-weight: 800;
   letter-spacing: -0.035em;
   line-height: 1.1;
@@ -163,8 +163,8 @@
 
 .library-section-head > strong {
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--type-caption);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.1em;
@@ -172,8 +172,8 @@
 
 .library-index {
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
@@ -203,37 +203,14 @@
 
 .library-error strong {
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--type-body-sm);
   font-weight: 800;
 }
 
 .library-error span {
   color: var(--text2);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.library-error :where(button, a) {
-  min-width: 72px;
-  min-height: 40px;
-  display: inline-grid;
-  place-items: center;
-  flex: none;
-  padding: 8px 14px;
-  border: 1px solid var(--danger);
-  border-radius: 0;
-  background: transparent;
-  color: var(--danger);
-  font: inherit;
-  font-size: 10px;
-  font-weight: 800;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.library-error :where(button, a):hover {
-  background: var(--danger);
-  color: white;
+  font-size: var(--type-caption);
+  line-height: var(--leading-compact);
 }
 
 .library-loading {
@@ -281,7 +258,7 @@
 .library-empty strong {
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 18px;
+  font-size: var(--type-section);
   font-weight: 800;
   letter-spacing: -0.03em;
 }
@@ -289,8 +266,8 @@
 .library-empty span {
   max-width: 62ch;
   color: var(--text2);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 
 /* ─── Memory review queue ─── */
@@ -338,8 +315,8 @@
 
 .memory-review-meta span {
   color: var(--watch);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -348,53 +325,23 @@
 .memory-review-copy p {
   margin: 0;
   color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.5;
+  font-size: var(--type-subsection);
+  font-weight: 700;
+  line-height: var(--leading-heading);
 }
 
 .memory-review-copy small {
   display: block;
   margin-top: 6px;
   color: var(--text2);
-  font-size: 10px;
-  line-height: 1.5;
+  font-size: var(--type-body-sm);
+  line-height: var(--leading-compact);
 }
 
 .memory-review-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.memory-review-actions button {
-  min-height: 44px;
-  padding: 9px 14px;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  background: transparent;
-  color: var(--text2);
-  font: inherit;
-  font-size: 10px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.memory-review-actions button:hover:not(:disabled) {
-  border-color: var(--text);
-  color: var(--text);
-}
-
-.memory-review-actions button.is-primary {
-  border-color: var(--text);
-  background: var(--text);
-  color: var(--bg);
-}
-
-.memory-review-actions button.is-primary:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: white;
 }
 
 /* ─── Saved-memory index ─── */
@@ -422,7 +369,7 @@
 .memory-table-head span,
 .skills-table-head span {
   color: var(--text3);
-  font-size: 7px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -481,7 +428,7 @@
 .memory-usage > span {
   overflow: hidden;
   color: var(--text);
-  font-size: 10px;
+  font-size: var(--type-body-sm);
   font-weight: 800;
   text-overflow: ellipsis;
   text-transform: capitalize;
@@ -497,7 +444,7 @@
   gap: 4px;
   overflow: hidden;
   color: var(--text3);
-  font-size: 8px;
+  font-size: var(--type-caption);
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -517,36 +464,9 @@
   min-width: 0;
   margin: 0;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--type-body);
   font-weight: 600;
   line-height: 1.52;
-}
-
-.memory-archive,
-.skill-delete {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 1px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text3);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
-}
-
-.memory-archive svg,
-.skill-delete svg {
-  width: 16px;
-  height: 16px;
-}
-
-.memory-archive:hover:not(:disabled),
-.skill-delete:hover:not(:disabled) {
-  border-color: var(--danger);
-  background: var(--danger-soft);
-  color: var(--danger);
 }
 
 /* ─── Skill inventory ─── */
@@ -590,7 +510,7 @@
   overflow: hidden;
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 14px;
+  font-size: var(--type-subsection);
   font-weight: 800;
   letter-spacing: -0.025em;
   text-overflow: ellipsis;
@@ -603,8 +523,8 @@
   overflow: hidden;
   margin: 0;
   color: var(--text2);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--type-body-sm);
+  line-height: var(--leading-compact);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -614,8 +534,8 @@
   align-items: center;
   gap: 6px;
   color: var(--text2);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: var(--type-caption);
   font-variant-numeric: tabular-nums;
 }
 
@@ -626,8 +546,8 @@
 
 .skill-updated {
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -645,7 +565,7 @@
   color: var(--accent);
 }
 
-.skill-delete {
+.skill-delete-control {
   position: absolute;
   top: 50%;
   right: 4px;
@@ -670,7 +590,7 @@
   overflow: visible;
   color: color-mix(in srgb, var(--bg) 76%, var(--text));
   font-family: var(--font-body), "Manrope", sans-serif;
-  font-size: clamp(12px, 1vw, 14px);
+  font-size: var(--type-body);
   font-weight: 550;
   letter-spacing: 0;
   line-height: 1.52;
@@ -687,7 +607,7 @@
   gap: 7px;
   margin-bottom: 5px;
   color: var(--success);
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.13em;
   text-decoration: none;
@@ -745,7 +665,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text);
-  font-size: 9px;
+  font-size: var(--type-caption);
   font-weight: 700;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -754,8 +674,8 @@
 
 .skill-manifest li small {
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -768,7 +688,7 @@
   max-width: 76ch;
   margin: 0 0 24px;
   color: var(--text2);
-  font-size: 14px;
+  font-size: var(--type-body);
   font-weight: 550;
   line-height: 1.58;
 }
@@ -781,7 +701,7 @@
 
 .skill-instructions > header h2 {
   margin-top: 5px;
-  font-size: 25px;
+  font-size: var(--type-page);
 }
 
 .library-markdown {
@@ -791,8 +711,8 @@
   border-radius: 0;
   background: transparent;
   color: var(--text);
-  font-size: 13px;
-  line-height: 1.68;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 
 .library-markdown > :first-child {
@@ -811,17 +731,17 @@
 }
 
 .library-markdown h1 {
-  font-size: 27px;
+  font-size: var(--type-page);
 }
 
 .library-markdown h2 {
   padding-bottom: 7px;
   border-bottom: 1px solid var(--border);
-  font-size: 20px;
+  font-size: var(--type-section);
 }
 
 .library-markdown h3 {
-  font-size: 15px;
+  font-size: var(--type-subsection);
 }
 
 .library-markdown p {
@@ -857,7 +777,7 @@
   border-left: 3px solid var(--accent);
   background: var(--text);
   color: var(--bg);
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.62;
 }
 
@@ -900,19 +820,19 @@
 
 .library-markdown th {
   color: var(--text2);
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
-.library-page :where(button, a):focus-visible {
+.library-page :where(a:not([data-ui-button]), .library-concept-title):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 
-.library-page :where(button:disabled) {
+.library-page button:not([data-ui-button]):disabled {
   opacity: 0.42;
   cursor: wait;
 }
@@ -971,7 +891,7 @@
     grid-area: usage;
   }
 
-  .memory-archive {
+  .memory-archive-control {
     grid-area: action;
   }
 }
@@ -1111,7 +1031,7 @@
     justify-self: end;
   }
 
-  .skill-delete {
+  .skill-delete-control {
     right: 0;
   }
 
@@ -1136,16 +1056,13 @@
   }
 
   .memory-review-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .memory-review-actions button {
-    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
 
   .library-markdown {
-    font-size: 12px;
+    font-size: var(--type-body);
   }
 }
 
@@ -1157,7 +1074,7 @@
   }
 
   .library-head-title > span {
-    font-size: 8px;
+    font-size: var(--type-label);
   }
 
   .library-head-stats {
@@ -1176,10 +1093,6 @@
       ". memory memory"
       ". scope scope"
       ". usage usage";
-  }
-
-  .memory-review-actions {
-    grid-template-columns: 1fr;
   }
 
   .skill-manifest li {
@@ -1259,7 +1172,7 @@
 .library-page .library-head-stats strong {
   overflow: hidden;
   color: var(--text);
-  font-size: 16px;
+  font-size: var(--type-subsection);
   font-weight: 850;
   letter-spacing: -0.035em;
   line-height: 1;
@@ -1270,7 +1183,7 @@
 .library-page .library-head-stats span {
   margin: 0;
   color: var(--text3);
-  font-size: 7.5px;
+  font-size: var(--type-label);
 }
 
 .library-page .library-head-stats [data-state="clear"] strong {
@@ -1305,8 +1218,8 @@
 
   .skill-detail-summary {
     margin-bottom: 20px;
-    font-size: 13px;
-    line-height: 1.55;
+    font-size: var(--type-body);
+    line-height: var(--leading-body);
   }
 }
 
@@ -1325,19 +1238,20 @@
   }
 
   .library-page .library-head-stats > div {
-    min-width: 58px;
-    flex-direction: column;
-    gap: 3px;
-    padding-inline: 8px;
+    min-width: 0;
+    flex: 1;
+    flex-direction: row;
+    gap: 6px;
+    padding: 7px 10px;
   }
 
   .library-page .library-head-stats strong {
-    font-size: 14px;
+    font-size: var(--type-body);
   }
 
   .library-page .library-head-stats span {
     display: block;
-    font-size: 7px;
+    font-size: var(--type-label);
   }
 
   .skill-detail-page .skill-manifest {
@@ -1361,28 +1275,6 @@
 
 /* ─── Document library (/library) ─── */
 
-.document-library .memory-review-actions span[data-status] {
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text2);
-}
-
-.document-library .memory-review-actions span[data-status="cataloged"],
-.document-library .memory-review-actions span[data-status="stable"] {
-  border-color: var(--text);
-  color: var(--text);
-}
-
-.document-library .memory-review-actions span[data-status="failed"] {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.document-library .memory-review-actions button svg,
 .document-library .memory-review-meta svg {
   vertical-align: -2px;
   margin-right: 4px;
@@ -1413,7 +1305,7 @@
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.6;
 }
 

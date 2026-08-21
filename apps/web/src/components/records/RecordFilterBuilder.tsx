@@ -7,6 +7,7 @@ import type {
   RecordFilterExpression,
   RecordListFilter,
 } from "@neko/records";
+import { Button } from "@/components/ui/Button";
 
 export type RecordFilterField = {
   apiName: string;
@@ -190,7 +191,9 @@ export function RecordFilterBuilder({
             )}
           </label>
         )}
-        <button type="submit">Apply filter</button>
+        <Button variant="primary" size="sm" type="submit">
+          Apply filter
+        </Button>
       </form>
     </details>
   );

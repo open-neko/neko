@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FileText, RefreshCw, Share2, Trash2, Upload } from "lucide-react";
 import { confirmDialog } from "@/components/ConfirmModal";
 import PageHeading from "@/components/PageHeading";
+import { ActionGroup } from "@/components/ui/ActionGroup";
+import { Button } from "@/components/ui/Button";
+import { MenuItem, OverflowMenu } from "@/components/ui/OverflowMenu";
+import { Pill, type PillVariant } from "@/components/ui/Pill";
 
 type DocumentRow = {
   id: string;
@@ -55,6 +59,19 @@ async function fetchLibraryData(signal?: AbortSignal): Promise<LibraryData> {
     team: data.team ?? [],
     pending: data.pending ?? [],
   };
+}
+
+function statusVariant(status: string): PillVariant {
+  if (["cataloged", "stable", "approved", "ready"].includes(status)) {
+    return "success";
+  }
+  if (["failed", "declined", "deprecated"].includes(status)) {
+    return "danger";
+  }
+  if (["pending", "processing", "review"].includes(status)) {
+    return "watch";
+  }
+  return "muted";
 }
 
 export default function LibraryPage() {
@@ -360,7 +377,7 @@ export default function LibraryPage() {
           </div>
         ) : null}
       </div>
-      <div className="memory-review-actions">{actions}</div>
+      <ActionGroup className="memory-review-actions">{actions}</ActionGroup>
     </li>
   );
 
@@ -390,9 +407,14 @@ export default function LibraryPage() {
               <strong>Library unavailable</strong>
               <span>{error}</span>
             </div>
-            <button type="button" onClick={() => void refresh()}>
+            <Button
+              variant="danger"
+              size="sm"
+              className="shrink-0"
+              onClick={() => void refresh()}
+            >
               Retry
-            </button>
+            </Button>
           </div>
         ) : null}
 
@@ -411,21 +433,21 @@ export default function LibraryPage() {
                   concept,
                   index,
                   <>
-                    <button
-                      type="button"
-                      className="is-primary"
+                    <Button
+                      variant="primary"
+                      size="sm"
                       disabled={busyId === concept.id}
                       onClick={() => void decide(concept.id, "approve")}
                     >
                       Approve
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                      size="sm"
                       disabled={busyId === concept.id}
                       onClick={() => void decide(concept.id, "decline")}
                     >
                       Decline
-                    </button>
+                    </Button>
                   </>,
                 ),
               )}
@@ -439,7 +461,7 @@ export default function LibraryPage() {
               <span>Uploads</span>
               <h2>Your documents</h2>
             </div>
-            <div className="memory-review-actions">
+            <ActionGroup className="memory-review-actions">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -447,16 +469,15 @@ export default function LibraryPage() {
                 hidden
                 onChange={(event) => void upload(event.target.files)}
               />
-              <button
-                type="button"
-                className="is-primary"
+              <Button
+                variant="primary"
                 disabled={uploading}
                 onClick={() => fileInputRef.current?.click()}
               >
-                <Upload aria-hidden="true" strokeWidth={2} size={12} />{" "}
+                <Upload aria-hidden="true" strokeWidth={2} />
                 {uploading ? "Uploading…" : "Upload"}
-              </button>
-            </div>
+              </Button>
+            </ActionGroup>
           </header>
           {loading ? (
             <div className="library-loading" role="status" aria-label="Loading library">
@@ -495,28 +516,32 @@ export default function LibraryPage() {
                       <small>{doc.error}</small>
                     ) : null}
                   </div>
-                  <div className="memory-review-actions">
-                    <span data-status={doc.status}>{humanize(doc.status)}</span>
+                  <ActionGroup className="memory-review-actions">
+                    <Pill variant={statusVariant(doc.status)}>
+                      {humanize(doc.status)}
+                    </Pill>
                     {doc.status === "failed" || doc.status === "skipped" ? (
-                      <button
-                        type="button"
+                      <Button
+                        size="sm"
                         disabled={busyId === doc.id}
                         onClick={() => void retryDocument(doc.id)}
                         title="Distill this document (bypasses triage)"
                       >
-                        <RefreshCw aria-hidden="true" strokeWidth={2} size={12} />{" "}
+                        <RefreshCw aria-hidden="true" strokeWidth={2} />
                         Retry
-                      </button>
+                      </Button>
                     ) : null}
-                    <button
-                      type="button"
-                      disabled={busyId === doc.id}
-                      onClick={() => void removeDocument(doc.id)}
-                      title="Remove from library"
-                    >
-                      <Trash2 aria-hidden="true" strokeWidth={2} size={12} />
-                    </button>
-                  </div>
+                    <OverflowMenu label={`Actions for ${doc.filename}`}>
+                      <MenuItem
+                        danger
+                        disabled={busyId === doc.id}
+                        onClick={() => void removeDocument(doc.id)}
+                      >
+                        <Trash2 aria-hidden="true" strokeWidth={2} />
+                        Remove from library
+                      </MenuItem>
+                    </OverflowMenu>
+                  </ActionGroup>
                 </li>
               ))}
             </ol>
@@ -546,22 +571,24 @@ export default function LibraryPage() {
                   concept,
                   index,
                   <>
-                    <button
-                      type="button"
+                    <Button
+                      size="sm"
                       disabled={busyId === concept.id}
                       onClick={() => void share(concept.id)}
                     >
-                      <Share2 aria-hidden="true" strokeWidth={2} size={12} /> Share
-                      with team
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyId === concept.id}
-                      onClick={() => void archiveConcept(concept.id)}
-                      title="Archive concept"
-                    >
-                      <Trash2 aria-hidden="true" strokeWidth={2} size={12} />
-                    </button>
+                      <Share2 aria-hidden="true" strokeWidth={2} />
+                      Share with team
+                    </Button>
+                    <OverflowMenu label={`Actions for ${concept.title}`}>
+                      <MenuItem
+                        danger
+                        disabled={busyId === concept.id}
+                        onClick={() => void archiveConcept(concept.id)}
+                      >
+                        <Trash2 aria-hidden="true" strokeWidth={2} />
+                        Archive concept
+                      </MenuItem>
+                    </OverflowMenu>
                   </>,
                 ),
               )}
@@ -592,16 +619,21 @@ export default function LibraryPage() {
                   concept,
                   index,
                   <>
-                    <span data-status={concept.status}>{humanize(concept.status)}</span>
+                    <Pill variant={statusVariant(concept.status)}>
+                      {humanize(concept.status)}
+                    </Pill>
                     {isAdmin && concept.status === "stable" ? (
-                      <button
-                        type="button"
-                        disabled={busyId === concept.id}
-                        onClick={() => void decide(concept.id, "deprecate")}
-                        title="Retire from the assistant's knowledge"
-                      >
-                        Deprecate
-                      </button>
+                      <OverflowMenu label={`Actions for ${concept.title}`}>
+                        <MenuItem
+                          danger
+                          disabled={busyId === concept.id}
+                          onClick={() => void decide(concept.id, "deprecate")}
+                          title="Retire from the assistant's knowledge"
+                        >
+                          <Trash2 aria-hidden="true" strokeWidth={2} />
+                          Deprecate concept
+                        </MenuItem>
+                      </OverflowMenu>
                     ) : null}
                   </>,
                 ),
@@ -617,10 +649,13 @@ export default function LibraryPage() {
                 <h2>Portability &amp; starter packs</h2>
               </div>
             </header>
-            <div className="memory-review-actions library-portability">
-              <button type="button" onClick={() => void exportBundle()}>
+            <ActionGroup
+              align="start"
+              className="memory-review-actions library-portability"
+            >
+              <Button size="sm" onClick={() => void exportBundle()}>
                 Export OKF bundle
-              </button>
+              </Button>
               <input
                 ref={importInputRef}
                 type="file"
@@ -628,10 +663,13 @@ export default function LibraryPage() {
                 hidden
                 onChange={(event) => void importBundle(event.target.files)}
               />
-              <button type="button" onClick={() => importInputRef.current?.click()}>
+              <Button
+                size="sm"
+                onClick={() => importInputRef.current?.click()}
+              >
                 Import bundle
-              </button>
-            </div>
+              </Button>
+            </ActionGroup>
             {packs.length > 0 ? (
               <ol className="memory-review-list">
                 {packs.map((pack, index) => (
@@ -647,15 +685,16 @@ export default function LibraryPage() {
                       <p>{pack.title}</p>
                       {pack.description ? <small>{pack.description}</small> : null}
                     </div>
-                    <div className="memory-review-actions">
-                      <button
-                        type="button"
+                    <ActionGroup className="memory-review-actions">
+                      <Button
+                        variant="primary"
+                        size="sm"
                         disabled={busyId === pack.id}
                         onClick={() => void installPack(pack.id)}
                       >
                         Install
-                      </button>
-                    </div>
+                      </Button>
+                    </ActionGroup>
                   </li>
                 ))}
               </ol>

@@ -76,8 +76,8 @@ html[data-density="compact"] .operations-root .operations-layout {
 .work-gate-state p {
   max-width: 48ch;
   color: var(--text2);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 
 .work-gate-state button {
@@ -89,7 +89,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   background: var(--text);
   color: var(--bg);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--type-caption);
   font-weight: 800;
   cursor: pointer;
 }
@@ -122,8 +122,8 @@ html[data-density="compact"] .operations-root .operations-layout {
   top: 20px;
   right: 28px;
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: 0.17em;
 }
@@ -139,7 +139,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   margin-bottom: 15px;
   color: var(--text2);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 10px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -199,8 +199,8 @@ html[data-density="compact"] .operations-root .operations-layout {
   max-width: 54ch;
   margin: 17px 0 0;
   color: var(--text2);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 
 .work-phase-rail {
@@ -248,7 +248,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   gap: 10px;
   color: var(--text3);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 9px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -309,7 +309,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   gap: 12px;
   padding: 42px 0;
   color: var(--text2);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 
 .work-loading-state > span {
@@ -333,7 +333,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   border-left: 3px solid var(--danger);
   background: linear-gradient(90deg, var(--danger-soft), transparent 74%);
   color: var(--danger);
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   line-height: 1.5;
 }
 
@@ -355,8 +355,8 @@ html[data-density="compact"] .operations-root .operations-layout {
   display: block;
   margin-bottom: 15px;
   color: var(--accent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.12em;
 }
@@ -376,8 +376,8 @@ html[data-density="compact"] .operations-root .operations-layout {
   max-width: 38ch;
   margin: 20px 0 0;
   color: var(--text2);
-  font-size: 13px;
-  line-height: 1.62;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 
 .work-empty-prompts {
@@ -422,8 +422,8 @@ html[data-density="compact"] .operations-root .operations-layout {
   align-self: start;
   padding-top: 2px;
   color: var(--text3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
   font-weight: 700;
 }
 
@@ -440,15 +440,15 @@ html[data-density="compact"] .operations-root .operations-layout {
 .work-empty-prompt-copy strong {
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 14px;
+  font-size: var(--type-subsection);
   font-weight: 800;
   letter-spacing: -0.015em;
 }
 
 .work-empty-prompt-copy > span {
   color: var(--text2);
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-size: var(--type-body-sm);
+  line-height: var(--leading-compact);
 }
 
 .work-empty-prompt:hover .work-empty-prompt-copy strong,
@@ -539,7 +539,7 @@ html[data-density="compact"] .operations-root .operations-layout {
 
 .work-surface-title {
   max-width: 22ch;
-  font-size: clamp(22px, 3vw, 32px);
+  font-size: var(--type-page);
   letter-spacing: -0.04em;
   line-height: 1.05;
 }
@@ -621,7 +621,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   align-self: center;
   color: var(--text3);
   font-family: var(--font-display), 'Archivo', sans-serif;
-  font-size: 10px;
+  font-size: var(--type-label);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -656,7 +656,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   color: var(--text2);
   cursor: pointer;
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--type-caption);
   font-weight: 700;
   padding: 7px 11px;
   transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
@@ -697,7 +697,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   border: 0;
   background: transparent;
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-label);
   padding: 4px 2px;
 }
 
@@ -720,7 +720,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   background: var(--card);
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--type-body-sm);
   padding: 8px 10px;
 }
 
@@ -732,7 +732,7 @@ html[data-density="compact"] .operations-root .operations-layout {
 .work-action-row-error {
   padding: 0 14px 11px 44px;
   color: var(--danger);
-  font-size: 11.5px;
+  font-size: var(--type-caption);
 }
 
 .work-confirm {
@@ -780,14 +780,14 @@ html[data-density="compact"] .operations-root .operations-layout {
 .work-command-surface .work-input {
   min-height: 68px;
   padding: 16px 14px 8px;
-  font-size: 15px;
+  font-size: var(--type-body-lg);
 }
 
 .work-command-surface .work-send-btn {
   height: 36px;
   padding-inline: 15px 13px;
   border: 1px solid var(--text);
-  border-radius: 2px 12px 2px 12px;
+  border-radius: var(--radius-control);
   background: var(--success);
   color: var(--success-ink);
   box-shadow: none;
@@ -801,7 +801,7 @@ html[data-density="compact"] .operations-root .operations-layout {
 
 .work-command-surface .work-send-btn:disabled {
   border-color: var(--border);
-  border-radius: 2px 12px 2px 12px;
+  border-radius: var(--radius-control);
   background: var(--neutral);
 }
 
@@ -847,7 +847,7 @@ html[data-density="compact"] .operations-root .operations-layout {
 .operations-root .wcr-h {
   margin-bottom: 15px;
   color: var(--text);
-  font-size: 9px;
+  font-size: var(--type-label);
 }
 
 .operations-root .wcr-h::after {
@@ -1021,7 +1021,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   margin-bottom: 17px;
   color: var(--text3);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 9.5px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.15em;
   text-transform: uppercase;
@@ -1063,7 +1063,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   z-index: 1;
   margin: 24px 0 0;
   color: var(--text3);
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
 }
 
 .workflows-ops-status {
@@ -1107,7 +1107,7 @@ html[data-density="compact"] .operations-root .operations-layout {
 .workflows-ops-status > div span {
   color: var(--text3);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 8.5px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -1124,7 +1124,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   border-radius: 0;
   background: var(--success);
   color: var(--success-ink);
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   font-weight: 800;
 }
 
@@ -1172,7 +1172,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   min-height: 30px;
   margin-left: 52px;
   color: var(--text2);
-  font-size: 9px;
+  font-size: var(--type-label);
 }
 
 .operations-root.is-workflows .workflow-group-head::after {
@@ -1283,7 +1283,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   padding-top: 2px;
   color: var(--text3);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
+  font-size: var(--type-caption);
   font-weight: 700;
 }
 
@@ -1297,22 +1297,22 @@ html[data-density="compact"] .operations-root .operations-layout {
 
 .operations-root.is-workflows .workflows-row-title {
   padding-right: 18px;
-  font-size: 17px;
-  font-weight: 850;
+  font-size: var(--type-subsection);
+  font-weight: 800;
   letter-spacing: -0.03em;
 }
 
 .operations-root.is-workflows .workflows-row-main .text-text2 {
   max-width: 48ch;
   margin-top: 7px;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--type-body-sm);
+  line-height: var(--leading-compact);
 }
 
 .operations-root.is-workflows .workflows-row-meta {
   margin-top: 13px;
   color: var(--text3);
-  font-size: 9.5px;
+  font-size: var(--type-label);
   letter-spacing: 0.02em;
 }
 
@@ -1359,7 +1359,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   padding-top: 3px;
   color: var(--success);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.08em;
 }
@@ -1466,7 +1466,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   border-right: 1px solid var(--border);
   border-radius: 0;
   background: var(--card);
-  font-size: 11.5px;
+  font-size: var(--type-body-sm);
   font-weight: 800;
 }
 
@@ -1509,8 +1509,8 @@ html[data-density="compact"] .operations-root .operations-layout {
   padding-left: 28px;
   color: var(--text2);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 9px;
-  font-weight: 850;
+  font-size: var(--type-label);
+  font-weight: 800;
   letter-spacing: 0.13em;
   line-height: 1.45;
   text-transform: uppercase;
@@ -1522,15 +1522,15 @@ html[data-density="compact"] .operations-root .operations-layout {
   top: 0;
   left: 0;
   color: var(--accent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
 }
 
 .workflow-detail-section-body {
   min-width: 0;
   color: var(--text);
-  font-size: 13px;
-  line-height: 1.58;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
 }
 
 .workflow-impact {
@@ -1609,7 +1609,7 @@ html[data-density="compact"] .operations-root .operations-layout {
 .workflow-budget-copy strong {
   color: var(--text2);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 
 .workflow-budget-copy strong[data-state="watch"] {
@@ -1648,7 +1648,7 @@ html[data-density="compact"] .operations-root .operations-layout {
 .workflow-action-kind {
   min-width: 0;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
   font-weight: 750;
   overflow-wrap: anywhere;
 }
@@ -1657,14 +1657,14 @@ html[data-density="compact"] .operations-root .operations-layout {
   min-width: 0;
   color: var(--text2);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10.5px;
+  font-size: var(--type-caption);
   overflow-wrap: anywhere;
 }
 
 .workflow-action-meta {
   margin-top: 5px;
   color: var(--text3);
-  font-size: 10.5px;
+  font-size: var(--type-caption);
 }
 
 .workflow-detail-foot {
@@ -1977,11 +1977,11 @@ html[data-density="compact"] .operations-root .operations-layout {
   }
 
   .work-command-head p {
-    font-size: 12px;
+    font-size: var(--type-body);
   }
 
   .work-phase-rail li {
-    font-size: 8px;
+    font-size: var(--type-label);
   }
 
   .work-empty h2 {
@@ -2149,14 +2149,15 @@ html[data-density="compact"] .operations-root .operations-layout {
 
 .work-command-head h1 {
   max-width: none;
-  overflow: hidden;
+  overflow: visible;
   color: var(--text);
-  font-size: 17px;
+  font-size: var(--type-page);
   font-weight: 800;
   letter-spacing: -0.025em;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: var(--leading-page);
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .work-command-head p {
@@ -2171,7 +2172,7 @@ html[data-density="compact"] .operations-root .operations-layout {
 
 .work-phase-rail li {
   gap: 6px;
-  font-size: 8px;
+  font-size: var(--type-label);
 }
 
 .work-command-actions {
@@ -2188,11 +2189,11 @@ html[data-density="compact"] .operations-root .operations-layout {
   gap: 7px;
   padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: 3px 11px 3px 11px;
+  border-radius: var(--radius-control);
   background: var(--card);
   color: var(--text2);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-weight: 750;
   white-space: nowrap;
   cursor: pointer;
@@ -2267,8 +2268,8 @@ html[data-density="compact"] .operations-root .operations-layout {
 
 .work-empty h2 {
   max-width: 8ch;
-  font-size: clamp(36px, 4vw, 48px);
-  line-height: 0.94;
+  font-size: var(--type-display);
+  line-height: var(--leading-display);
 }
 
 .work-empty-statement p {
@@ -2337,8 +2338,8 @@ html[data-density="compact"] .operations-root .operations-layout {
 
 .work-history-drawer-head span {
   color: var(--accent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -2348,16 +2349,16 @@ html[data-density="compact"] .operations-root .operations-layout {
   margin: 8px 0 0;
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
-  font-size: 31px;
+  font-size: var(--type-page);
   font-weight: 900;
   letter-spacing: -0.05em;
-  line-height: 1;
+  line-height: var(--leading-page);
 }
 
 .work-history-drawer-head p {
   margin: 7px 0 0;
   color: var(--text2);
-  font-size: 11px;
+  font-size: var(--type-body-sm);
 }
 
 .work-history-close {
@@ -2398,7 +2399,7 @@ html[data-density="compact"] .operations-root .operations-layout {
 
 .work-history-panel .ask-history-title {
   color: var(--text);
-  font-size: 10px;
+  font-size: var(--type-label);
 }
 
 .work-history-panel .ask-history-new {
@@ -2437,12 +2438,12 @@ html[data-density="compact"] .operations-root .operations-layout {
 }
 
 .work-history-panel .ask-history-row-title {
-  font-size: 12.5px;
+  font-size: var(--type-body-sm);
 }
 
 .work-history-panel .ask-history-row-time {
   margin-top: 2px;
-  font-size: 9px;
+  font-size: var(--type-label);
 }
 
 .work-history-panel .ask-history-delete {
@@ -2469,6 +2470,12 @@ html[data-density="compact"] .operations-root .operations-layout {
 }
 
 @media (max-width: 680px) {
+  .work-command-surface {
+    min-height: calc(
+      100svh - var(--phone-dock-offset) - env(safe-area-inset-bottom, 0px)
+    );
+  }
+
   .work-command-head {
     min-height: 62px;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -2486,7 +2493,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   }
 
   .work-command-head h1 {
-    font-size: 15px;
+    font-size: var(--type-page);
   }
 
   .work-command-actions {
@@ -2494,7 +2501,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   }
 
   .work-command-action {
-    min-height: 40px;
+    min-height: var(--control-touch);
     padding-inline: 10px;
   }
 
@@ -2504,15 +2511,16 @@ html[data-density="compact"] .operations-root .operations-layout {
   }
 
   .work-transcript {
-    padding: 25px 0 28px;
+    padding: 25px 0 14px;
   }
 
   .work-empty {
+    grid-template-columns: minmax(0, 1fr);
     gap: 26px;
   }
 
   .work-empty h2 {
-    font-size: 36px;
+    font-size: var(--type-display);
   }
 
   .work-empty-statement p {
@@ -2521,6 +2529,23 @@ html[data-density="compact"] .operations-root .operations-layout {
 
   .work-empty-prompt {
     min-height: 70px;
+  }
+
+  .work-command-surface > .work-composer {
+    bottom: calc(
+      var(--phone-dock-offset) + env(safe-area-inset-bottom, 0px)
+    );
+  }
+
+  .work-command-surface .work-icon-btn,
+  .work-command-surface .work-send-btn {
+    min-width: var(--control-touch);
+    height: var(--control-touch);
+    min-height: var(--control-touch);
+  }
+
+  .work-command-surface .work-icon-btn {
+    width: var(--control-touch);
   }
 
   .work-history-scrim {
@@ -2533,9 +2558,36 @@ html[data-density="compact"] .operations-root .operations-layout {
   }
 }
 
+@media (max-width: 1024px) and (min-width: 681px) {
+  .operations-root.is-workflows .page-heading {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+  }
+
+  .operations-root.is-workflows .page-heading-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (pointer: coarse) {
+  .work-command-action,
+  .work-command-surface .work-icon-btn,
+  .work-command-surface .work-send-btn {
+    min-height: var(--control-touch);
+  }
+
+  .work-command-surface .work-icon-btn {
+    width: var(--control-touch);
+    min-width: var(--control-touch);
+    height: var(--control-touch);
+  }
+}
+
 @media (max-width: 440px) {
   .work-command-head h1 {
-    font-size: 14px;
+    font-size: var(--type-page);
   }
 
   .work-command-action.is-primary span {
@@ -2659,7 +2711,7 @@ html[data-density="compact"] .operations-root .operations-layout {
 }
 
 .workflows-ops-status > div span {
-  font-size: 7.5px;
+  font-size: var(--type-label);
 }
 
 .workflows-ops-status .workflows-new-btn {
@@ -2671,7 +2723,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   padding: 0 22px;
   border-top: 0;
   border-left: 1px solid var(--text);
-  font-size: 11.5px;
+  font-size: var(--type-body-sm);
 }
 
 .operations-root.is-workflows .workflows-workspace {
@@ -2719,20 +2771,20 @@ html[data-density="compact"] .operations-root .operations-layout {
 
 .workflow-inspector-index {
   padding-top: 1px;
-  font-size: 9px;
+  font-size: var(--type-label);
 }
 
 .operations-root.is-workflows .workflow-inspector-head h2 {
   max-width: none;
   margin-top: 7px;
-  font-size: clamp(24px, 2.5vw, 32px);
+  font-size: var(--type-section);
   letter-spacing: -0.045em;
   line-height: 1;
 }
 
 .operations-root.is-workflows .workflow-inspector-head p {
   margin-top: 7px;
-  font-size: 11px;
+  font-size: var(--type-body-sm);
 }
 
 .operations-root.is-workflows .workflow-inspector-close {
@@ -2988,7 +3040,7 @@ html[data-density="compact"] .operations-root .operations-layout {
 
 .operations-root.is-workflows .page-heading .workflows-ops-status strong {
   color: var(--text);
-  font-size: 16px;
+  font-size: var(--type-subsection);
   font-weight: 850;
   letter-spacing: -0.035em;
   line-height: 1;
@@ -3008,7 +3060,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   > div
   span {
   color: var(--text3);
-  font-size: 7.5px;
+  font-size: var(--type-label);
 }
 
 .operations-root.is-workflows
@@ -3028,7 +3080,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   border-radius: 10px;
   background: var(--success);
   color: var(--success-ink);
-  font-size: 11px;
+  font-size: var(--type-body-sm);
 }
 
 .operations-root.is-workflows
@@ -3077,11 +3129,11 @@ html[data-density="compact"] .operations-root .operations-layout {
     > div
     span {
     display: block;
-    font-size: 6.5px;
+    font-size: var(--type-label);
   }
 
   .operations-root.is-workflows .page-heading .workflows-ops-status strong {
-    font-size: 14px;
+    font-size: var(--type-body);
   }
 
   .operations-root.is-workflows

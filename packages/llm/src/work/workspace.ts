@@ -22,8 +22,21 @@ import type { AgentWorkspace } from "../agent-backend";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BUILTIN_SKILLS_ROOT = resolve(HERE, "..", "..", "assets", "builtin-skills");
 
+function useHostWebDevelopmentHome(): boolean {
+  return (
+    process.env.OPENNEKO_HOST_WEB_DEV === "1" &&
+    process.env.NODE_ENV === "development" &&
+    process.env.OPENNEKO_STACK_MODE !== "demo" &&
+    process.env.NEXT_PUBLIC_DEMO !== "true" &&
+    process.env.DEMO !== "true"
+  );
+}
+
 function getHome(): string {
-  return process.env.HOME || homedir();
+  const developmentHome = useHostWebDevelopmentHome()
+    ? process.env.OPENNEKO_AGENT_HOME?.trim()
+    : undefined;
+  return developmentHome || process.env.HOME || homedir();
 }
 
 function safeSegment(raw: string): string {

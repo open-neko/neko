@@ -1,0 +1,9 @@
+query MagentoOrderCommentReconciliation($request: JSON!) {
+  magento_get_order(call: $request) {
+    ok
+    status_code
+    operation_id
+    request_id
+    response_json
+  }
+}

@@ -193,6 +193,27 @@ describeIfDb("/api/briefing GET", () => {
     ]);
   });
 
+  it("shows organization-wide pack metrics in every team role briefing", async () => {
+    await db().insert(metric).values({
+      org_id: orgId,
+      role: "operations",
+      slug: "magento-fulfillment-backlog",
+      source: "pack:magento",
+      title: "Fulfillment backlog",
+      why: "Magento operations signal",
+      chart_hint: "kpi",
+      active: true,
+      last_refresh_status: "pending",
+    });
+
+    const res = await callRoute(GET, { url: "http://localhost/api/briefing?role=CEO" });
+    const messages = res.body as A2UIMessage[];
+    const data = (
+      messages[1] as Extract<A2UIMessage, { updateDataModel: unknown }>
+    ).updateDataModel.value as { insights: Record<string, unknown> };
+    expect(data.insights["magento-fulfillment-backlog"]).toBeDefined();
+  });
+
   it("renders state='pending' when a metric has no snapshot yet", async () => {
     await db().insert(metric).values({
       org_id: orgId,

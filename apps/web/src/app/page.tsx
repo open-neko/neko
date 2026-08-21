@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import { applyMessage, getResolvedComponents } from "@/a2ui/surface";
 import type { SurfaceState, A2UIComponent } from "@/a2ui/types";
@@ -23,6 +29,8 @@ import HoursSavedHero, {
   type HoursSavedValue,
 } from "@/components/HoursSavedHero";
 import AgentLauncher from "@/components/AgentLauncher";
+import { Button } from "@/components/ui/Button";
+import { Segment, SegmentedControl } from "@/components/ui/Tabs";
 import { formatSavedShort } from "@/lib/hours-saved";
 import { cn } from "@/lib/cn";
 import {
@@ -78,6 +86,46 @@ type ReceiptRow = {
   trigger: string | null;
   payload: unknown;
 };
+
+function ProgressiveList({
+  count,
+  label,
+  className,
+  children,
+}: {
+  count: number;
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const remaining = Math.max(0, count - 3);
+
+  return (
+    <>
+      <div
+        className={cn(
+          "mobile-progressive-list",
+          expanded && "is-expanded",
+          className,
+        )}
+      >
+        {children}
+      </div>
+      {remaining > 0 ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="mobile-progressive-toggle"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? "Show fewer" : `View ${remaining} more ${label}`}
+        </Button>
+      ) : null}
+    </>
+  );
+}
 
 type RecentActionsPayload = {
   receipts: ReceiptRow[];
@@ -483,12 +531,13 @@ export default function Dashboard() {
                 the connection is back.
               </p>
             </div>
-            <button
+            <Button
+              variant="danger"
+              size="sm"
               onClick={() => { setGateError(null); setGateChecked(false); setLoading(true); window.location.reload(); }}
-              type="button"
             >
               Retry
-            </button>
+            </Button>
           </div>
         ) : loading ? (
           <div className="dash-system-state is-loading" role="status">
@@ -521,19 +570,17 @@ export default function Dashboard() {
                 !personalMode && roles.length > 0 ? (
                   <div className="dash-role-control" aria-label="Briefing role">
                     <span>Briefing view</span>
-                    <div className="dash-role-list">
+                    <SegmentedControl className="dash-role-list">
                       {roles.map((kind) => (
-                        <button
+                        <Segment
                           key={kind}
-                          type="button"
-                          className={cn(role === kind && "is-active")}
-                          aria-pressed={role === kind}
+                          selected={role === kind}
                           onClick={() => setRole(kind)}
                         >
                           {kind}
-                        </button>
+                        </Segment>
                       ))}
-                    </div>
+                    </SegmentedControl>
                   </div>
                 ) : null
               }
@@ -569,7 +616,7 @@ export default function Dashboard() {
                 style={{ animation: "fadeUp 0.5s ease 0.15s both" }}
               >
                 <p className="m-0">{findings.summary.summaryMd}</p>
-                <div className="mt-2 font-mono text-[11.5px] text-text3 italic">
+                <div className="mt-2 font-mono text-ui-caption text-text3 italic">
                   as of {new Date(findings.summary.createdAt).toLocaleTimeString("en-IN", {
                     hour: "numeric",
                     minute: "2-digit",
@@ -623,10 +670,14 @@ export default function Dashboard() {
                 className="mb-7"
                 style={{ animation: "fadeUp 0.5s ease 0.21s both" }}
               >
-                <div className="text-[11px] font-bold tracking-[0.13em] uppercase text-text3 mb-3">
+                <div className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3 mb-3">
                   Worth your read
                 </div>
-                <div className="flex flex-col gap-3">
+                <ProgressiveList
+                  count={findings.awaitingYou.actFindings.length}
+                  label="findings"
+                  className="flex flex-col gap-3"
+                >
                   {findings.awaitingYou.actFindings.map((f, i) => (
                     <FindingCard
                       key={f.id}
@@ -635,7 +686,7 @@ export default function Dashboard() {
                       onMuted={fetchFindings}
                     />
                   ))}
-                </div>
+                </ProgressiveList>
               </section>
             )}
 
@@ -644,10 +695,14 @@ export default function Dashboard() {
                 className="mb-7"
                 style={{ animation: "fadeUp 0.5s ease 0.22s both" }}
               >
-                <div className="text-[11px] font-bold tracking-[0.13em] uppercase text-text3 mb-3">
+                <div className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3 mb-3">
                   Pinned
                 </div>
-                <div className="flex flex-col gap-3">
+                <ProgressiveList
+                  count={findings.pinned.length}
+                  label="findings"
+                  className="flex flex-col gap-3"
+                >
                   {findings.pinned.map((f, i) => (
                     <FindingCard
                       key={f.pinId ?? f.id}
@@ -661,7 +716,7 @@ export default function Dashboard() {
                       }}
                     />
                   ))}
-                </div>
+                </ProgressiveList>
               </section>
             )}
 
@@ -670,10 +725,14 @@ export default function Dashboard() {
                 className="mb-7"
                 style={{ animation: "fadeUp 0.5s ease 0.25s both" }}
               >
-                <div className="text-[11px] font-bold tracking-[0.13em] uppercase text-text3 mb-3">
+                <div className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3 mb-3">
                   Worth knowing
                 </div>
-                <div className="flex flex-col gap-3">
+                <ProgressiveList
+                  count={findings.worthKnowing.length}
+                  label="findings"
+                  className="flex flex-col gap-3"
+                >
                   {findings.worthKnowing.map((f, i) => (
                     <FindingCard
                       key={f.id}
@@ -682,7 +741,7 @@ export default function Dashboard() {
                       onMuted={fetchFindings}
                     />
                   ))}
-                </div>
+                </ProgressiveList>
               </section>
             )}
 
@@ -691,10 +750,14 @@ export default function Dashboard() {
                 className="mb-7"
                 style={{ animation: "fadeUp 0.5s ease 0.27s both" }}
               >
-                <div className="text-[11px] font-bold tracking-[0.13em] uppercase text-text3 mb-3">
+                <div className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3 mb-3">
                   Elevated
                 </div>
-                <div className="flex flex-col gap-3">
+                <ProgressiveList
+                  count={findings.elevated.length}
+                  label="findings"
+                  className="flex flex-col gap-3"
+                >
                   {findings.elevated.map((c, i) => (
                     <FindingCard
                       key={c.id}
@@ -711,13 +774,13 @@ export default function Dashboard() {
                       index={i}
                     />
                   ))}
-                </div>
+                </ProgressiveList>
               </section>
             )}
 
             {findings && findings.quiet.goodOutputs > 0 && (
               <div
-                className="-mt-1.5 mb-7 text-[13px] text-text3 italic"
+                className="-mt-1.5 mb-7 text-ui-body-sm text-text3 italic"
                 style={{ animation: "fadeUp 0.5s ease 0.3s both" }}
               >
                 {findings.quiet.goodOutputs} healthy run
@@ -730,7 +793,7 @@ export default function Dashboard() {
               metricsProgress.completed + metricsProgress.failed < metricsProgress.total && (
                 <div
                   role="status"
-                  className="mt-4 px-3.5 py-2.5 rounded-[10px] border border-border bg-accent-soft text-accent text-[13px] inline-block"
+                  className="mt-4 px-3.5 py-2.5 rounded-[10px] border border-border bg-accent-soft text-accent text-ui-body-sm inline-block"
                 >
                   Building your briefing — {metricsProgress.completed + metricsProgress.failed} of {metricsProgress.total} cards complete
                 </div>
@@ -738,7 +801,11 @@ export default function Dashboard() {
 
             <div className="mb-6">
               <div className="label">Today&apos;s Briefing</div>
-              <div className="brief-grid">
+              <ProgressiveList
+                count={briefingCards.length}
+                label="cards"
+                className="brief-grid"
+              >
                 {briefingCards.map((ins, i) => (
                   <BriefingCard
                     key={ins.id}
@@ -749,7 +816,7 @@ export default function Dashboard() {
                     onDeepDive={deepDiveCard}
                   />
                 ))}
-              </div>
+              </ProgressiveList>
             </div>
 
             {recentActions && recentActions.receipts.length > 0 && (
