@@ -71,16 +71,22 @@ describe("session encode/decode", () => {
     expect(decodeSession("a.b.c.d")).toBeNull();
   });
 
-  it("throws when the session secret is missing or too short", () => {
+  it("derives a stable per-install secret when the env var is unset", () => {
+    // No compose file sets OPENNEKO_SESSION_SECRET; falling back to a
+    // secret derived from the deployment secret-key keeps sessions valid
+    // across restarts instead of throwing on every SSO deployment.
     delete process.env.OPENNEKO_SESSION_SECRET;
-    expect(() =>
-      encodeSession({
-        userId: "u",
-        email: "",
-        name: null,
-        expiresAt: Math.floor(Date.now() / 1000) + 60,
-      }),
-    ).toThrow(/OPENNEKO_SESSION_SECRET/);
+    const session = {
+      userId: "u",
+      email: "",
+      name: null,
+      expiresAt: Math.floor(Date.now() / 1000) + 60,
+    };
+    const encoded = encodeSession(session);
+    expect(decodeSession(encoded)?.userId).toBe("u");
+  });
+
+  it("throws when the session secret is explicitly set but too short", () => {
     process.env.OPENNEKO_SESSION_SECRET = "tooshort";
     expect(() =>
       encodeSession({

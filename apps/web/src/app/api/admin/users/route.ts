@@ -68,14 +68,29 @@ export async function POST(request: NextRequest) {
   }
 
   const id = `usr_${randomBytes(9).toString("base64url")}`;
-  await db().insert(app_user).values({
-    id,
-    sub: null,
-    email,
-    name,
-    org_id: orgId,
-    role,
-  });
+  try {
+    await db().insert(app_user).values({
+      id,
+      sub: null,
+      email,
+      name,
+      org_id: orgId,
+      role,
+    });
+  } catch (e) {
+    // app_user_org_email_unique: a concurrent provision (double-click,
+    // second admin tab) won the race between our lookup and this insert.
+    const code =
+      (e as { code?: string })?.code ??
+      ((e as { cause?: { code?: string } })?.cause?.code);
+    if (code === "23505") {
+      return NextResponse.json(
+        { error: `a user with email ${email} already exists` },
+        { status: 409 },
+      );
+    }
+    throw e;
+  }
   return NextResponse.json(
     { user: { id, email, name, role } },
     { status: 201 },

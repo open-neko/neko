@@ -23,6 +23,14 @@
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { deriveSigningSecret } from "@neko/secret-crypt";
+import {
+  readAuthGateMarker,
+  registerAuthGateCacheReset,
+  resetAuthGateCaches,
+  writeAuthGateMarker,
+  type PersistedAuthProvider,
+} from "./auth-gate-marker";
 import { cookies } from "next/headers";
 import {
   and,
@@ -100,17 +108,21 @@ function workerAdminBase(): string {
 }
 
 function sessionSecret(): string {
-  // OPENNEKO_SESSION_SECRET is the HMAC key for session cookies. We
-  // refuse to start an SSO flow without one — silently falling back to
-  // a process-random secret would invalidate sessions on every restart
-  // and (worse) let a misconfigured deployment look like it's working.
+  // OPENNEKO_SESSION_SECRET is the HMAC key for session cookies. When it
+  // is not set (no compose file sets it), derive a stable per-install
+  // secret from the deployment secret-key: consistent across restarts and
+  // across web instances sharing the config volume — a process-random
+  // fallback would invalidate sessions on every restart. An explicitly
+  // set but too-short value is still a hard error: that is a
+  // misconfiguration, not an absence.
   const secret = process.env.OPENNEKO_SESSION_SECRET;
-  if (!secret || secret.length < 32) {
+  if (secret !== undefined && secret.length < 32) {
     throw new Error(
-      "OPENNEKO_SESSION_SECRET must be set to a value at least 32 characters long for SSO sessions",
+      "OPENNEKO_SESSION_SECRET must be at least 32 characters long for SSO sessions",
     );
   }
-  return secret;
+  if (secret) return secret;
+  return deriveSigningSecret("session-cookie:v1").toString("base64");
 }
 
 /**
@@ -141,30 +153,57 @@ export async function getAuthGateStatus(): Promise<AuthGateStatus> {
       signal: AbortSignal.timeout(2000),
     });
     if (!res.ok) {
-      providerCache = { value: NO_GATE, at: now };
-      return NO_GATE;
+      providerCache = { value: gateWhileWorkerUnavailable(), at: now };
+      return providerCache.value;
     }
     const body = (await res.json()) as AuthGateStatus;
     providerCache = {
       value: { provider: body.provider ?? null, pending: body.pending ?? null },
       at: now,
     };
+    writeAuthGateMarker({
+      provider: (body.provider as PersistedAuthProvider | null) ?? null,
+    });
     return providerCache.value;
   } catch {
-    // Worker unreachable — treat as "no provider". The dashboard
-    // gracefully degrades to local auth in that case.
-    providerCache = { value: NO_GATE, at: now };
-    return NO_GATE;
+    providerCache = { value: gateWhileWorkerUnavailable(), at: now };
+    return providerCache.value;
   }
+}
+
+/**
+ * Worker unreachable (booting, restarting, or slow): the last persisted
+ * live answer decides. An install where SSO was ever live fails CLOSED —
+ * synthesizing the persisted provider keeps requireAdminActor denying
+ * session-less requests while valid session cookies verify locally. An
+ * install that never configured SSO keeps the solo-operator behavior.
+ */
+function gateWhileWorkerUnavailable(): AuthGateStatus {
+  const marker = readAuthGateMarker();
+  if (marker?.provider) {
+    return {
+      provider: marker.provider as unknown as AuthProviderInfo,
+      pending: null,
+    };
+  }
+  return NO_GATE;
 }
 
 export async function getAuthProvider(): Promise<AuthProviderInfo | null> {
   return (await getAuthGateStatus()).provider;
 }
 
-/** Test seam — clears the provider cache between tests. */
-export function _resetAuthProviderCache() {
+registerAuthGateCacheReset(() => {
   providerCache = null;
+});
+
+/**
+ * Clears every auth-gate cache (this module's, the proxy's, and the
+ * persisted-marker copy) — SSO settings changes must be visible on the
+ * very next request in all of them.
+ */
+export function _resetAuthProviderCache() {
+  resetAuthGateCaches();
 }
 
 /**
@@ -349,98 +388,94 @@ export async function upsertUserFromIdentity(
   const providerInfo = gate.provider ?? gate.pending;
   const provider = providerInfo?.pluginName ?? "oidc";
   const mapped = await resolveGroupRole(orgId, provider, identity.groups ?? []);
-  // Primary lookup: sub. Anything matching wins, regardless of email
-  // changes (people get married, change addresses — sub doesn't).
-  const bySub = await db()
-    .select({
-      id: app_user.id,
-      email: app_user.email,
-      name: app_user.name,
-      role: app_user.role,
-    })
-    .from(app_user)
-    .where(and(eq(app_user.org_id, orgId), eq(app_user.sub, identity.sub)))
-    .limit(1);
-  if (bySub[0]) {
-    // A configured group mapping is authoritative on every sign-in; when
-    // none is configured, leave the existing role untouched.
-    const role = mapped.role ?? bySub[0].role;
-    await db()
-      .update(app_user)
-      .set({
-        email: identity.email,
-        name: identity.name ?? null,
-        role,
-        last_login_at: new Date(),
-        updated_at: new Date(),
-      })
-      .where(eq(app_user.id, bySub[0].id));
-    await syncSsoGroups({ orgId, userId: bySub[0].id, identity });
-    await provisionPersona({ orgId, userId: bySub[0].id, identity, mapped });
-    return {
-      id: bySub[0].id,
-      email: identity.email,
-      name: identity.name ?? null,
-    };
-  }
-  // Migration lookup: same email, no sub yet. Attach the sub.
-  const byEmail = await db()
-    .select({
-      id: app_user.id,
-      email: app_user.email,
-      name: app_user.name,
-      sub: app_user.sub,
-      role: app_user.role,
-    })
-    .from(app_user)
-    .where(and(eq(app_user.org_id, orgId), eq(app_user.email, identity.email)))
-    .limit(1);
-  if (byEmail[0] && !byEmail[0].sub) {
-    const role = mapped.role ?? byEmail[0].role;
-    await db()
-      .update(app_user)
-      .set({
-        sub: identity.sub,
-        name: identity.name ?? byEmail[0].name ?? null,
-        role,
-        last_login_at: new Date(),
-        updated_at: new Date(),
-      })
-      .where(eq(app_user.id, byEmail[0].id));
-    await syncSsoGroups({ orgId, userId: byEmail[0].id, identity });
-    await provisionPersona({ orgId, userId: byEmail[0].id, identity, mapped });
-    return {
-      id: byEmail[0].id,
-      email: identity.email,
-      name: identity.name ?? byEmail[0].name ?? null,
-    };
-  }
-  if (byEmail[0]) {
-    // Same email, *different* sub already on file. Refuse rather than
-    // silently take over — the operator should resolve this manually
-    // (likely two IdP accounts pointing at the same mailbox).
-    throw new Error(
-      `app_user.email ${identity.email} is already bound to a different SSO subject; remove the row or update sub manually before re-attempting`,
+  // Serialize sign-ins per org. Two concurrent first sign-ins (two tabs,
+  // an IdP callback retry) could each miss both lookups AND both pass the
+  // has-admin check — minting duplicate identities and duplicate admins,
+  // after which later sign-ins threw permanently. Under the lock the
+  // second caller simply finds the first's row; the unique indexes from
+  // migration 0061 are the loud backstop should the lock ever be bypassed.
+  const resolved = await db().transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${"openneko.app_user:" + orgId}))`,
     );
-  }
-  if (providerInfo?.provisioning === "manual") {
-    // Self-asserted identity (e.g. magic link) with no pre-provisioned
-    // user. The begin route already drops unknown emails silently; this
-    // is the defense-in-depth backstop.
-    throw new Error(
-      `no user is provisioned for ${identity.email} — ask an administrator to add you`,
-    );
-  }
-  // Brand new user. Bootstrap the first active admin so installing an SSO
-  // plugin cannot leave an org with no administrator.
-  const newId = `usr_${randomBytes(9).toString("base64url")}`;
-  const fallbackRole = heuristicRoleForGroups(identity.groups ?? []);
-  const role = (await orgHasActiveAdmin(orgId))
-    ? (mapped.role ?? fallbackRole)
-    : "admin";
-  await db()
-    .insert(app_user)
-    .values({
+    // Primary lookup: sub. Anything matching wins, regardless of email
+    // changes (people get married, change addresses — sub doesn't).
+    const bySub = await tx
+      .select({
+        id: app_user.id,
+        email: app_user.email,
+        name: app_user.name,
+        role: app_user.role,
+      })
+      .from(app_user)
+      .where(and(eq(app_user.org_id, orgId), eq(app_user.sub, identity.sub)))
+      .limit(1);
+    if (bySub[0]) {
+      // A configured group mapping is authoritative on every sign-in; when
+      // none is configured, leave the existing role untouched.
+      const role = mapped.role ?? bySub[0].role;
+      await tx
+        .update(app_user)
+        .set({
+          email: identity.email,
+          name: identity.name ?? null,
+          role,
+          last_login_at: new Date(),
+          updated_at: new Date(),
+        })
+        .where(eq(app_user.id, bySub[0].id));
+      return { id: bySub[0].id, name: identity.name ?? null };
+    }
+    // Migration lookup: same email, no sub yet. Attach the sub.
+    const byEmail = await tx
+      .select({
+        id: app_user.id,
+        email: app_user.email,
+        name: app_user.name,
+        sub: app_user.sub,
+        role: app_user.role,
+      })
+      .from(app_user)
+      .where(and(eq(app_user.org_id, orgId), eq(app_user.email, identity.email)))
+      .limit(1);
+    if (byEmail[0] && !byEmail[0].sub) {
+      const role = mapped.role ?? byEmail[0].role;
+      await tx
+        .update(app_user)
+        .set({
+          sub: identity.sub,
+          name: identity.name ?? byEmail[0].name ?? null,
+          role,
+          last_login_at: new Date(),
+          updated_at: new Date(),
+        })
+        .where(eq(app_user.id, byEmail[0].id));
+      return { id: byEmail[0].id, name: identity.name ?? byEmail[0].name ?? null };
+    }
+    if (byEmail[0]) {
+      // Same email, *different* sub already on file. Refuse rather than
+      // silently take over — the operator should resolve this manually
+      // (likely two IdP accounts pointing at the same mailbox).
+      throw new Error(
+        `app_user.email ${identity.email} is already bound to a different SSO subject; remove the row or update sub manually before re-attempting`,
+      );
+    }
+    if (providerInfo?.provisioning === "manual") {
+      // Self-asserted identity (e.g. magic link) with no pre-provisioned
+      // user. The begin route already drops unknown emails silently; this
+      // is the defense-in-depth backstop.
+      throw new Error(
+        `no user is provisioned for ${identity.email} — ask an administrator to add you`,
+      );
+    }
+    // Brand new user. Bootstrap the first active admin so installing an SSO
+    // plugin cannot leave an org with no administrator.
+    const newId = `usr_${randomBytes(9).toString("base64url")}`;
+    const fallbackRole = heuristicRoleForGroups(identity.groups ?? []);
+    const role = (await orgHasActiveAdmin(orgId, tx))
+      ? (mapped.role ?? fallbackRole)
+      : "admin";
+    await tx.insert(app_user).values({
       id: newId,
       sub: identity.sub,
       email: identity.email,
@@ -449,17 +484,22 @@ export async function upsertUserFromIdentity(
       role,
       last_login_at: new Date(),
     });
-  await syncSsoGroups({ orgId, userId: newId, identity });
-  await provisionPersona({ orgId, userId: newId, identity, mapped });
+    return { id: newId, name: identity.name ?? null };
+  });
+  await syncSsoGroups({ orgId, userId: resolved.id, identity });
+  await provisionPersona({ orgId, userId: resolved.id, identity, mapped });
   return {
-    id: newId,
+    id: resolved.id,
     email: identity.email,
-    name: identity.name ?? null,
+    name: resolved.name,
   };
 }
 
-async function orgHasActiveAdmin(orgId: string): Promise<boolean> {
-  const [admin] = await db()
+async function orgHasActiveAdmin(
+  orgId: string,
+  runner: Pick<ReturnType<typeof db>, "select"> = db(),
+): Promise<boolean> {
+  const [admin] = await runner
     .select({ id: app_user.id })
     .from(app_user)
     .where(

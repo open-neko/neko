@@ -39,6 +39,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { get as httpGet } from "node:http";
 import { get as httpsGet } from "node:https";
+import { deriveSigningSecret } from "@neko/secret-crypt";
+import {
+  readAuthGateMarker,
+  registerAuthGateCacheReset,
+  resetAuthGateCaches,
+  writeAuthGateMarker,
+} from "./lib/auth-gate-marker";
 
 const SESSION_COOKIE_NAME = "openneko_session";
 const PROVIDER_CACHE_TTL_MS = 1_000;
@@ -112,10 +119,12 @@ function workerAdminBase(): string {
  * second to keep proxy overhead negligible under load while still
  * picking up `openneko install` within a second of the manifest write.
  *
- * Fails OPEN (treats as "no plugin") when the worker is unreachable —
- * a dev environment with no worker running shouldn't be locked out.
- * If an operator has actually configured SSO and their worker is down,
- * action execution is already broken and that's where they'll notice.
+ * When the worker is unreachable, the persisted auth-gate marker decides:
+ * an install where SSO was ever live fails CLOSED (valid session cookies
+ * still verify locally below; everything else goes to /signin), because
+ * "worker restarting" must not drop the gate. An install that never
+ * configured SSO keeps failing open — a dev environment with no worker
+ * running shouldn't be locked out.
  */
 export async function isAuthPluginInstalled(): Promise<boolean> {
   const now = Date.now();
@@ -127,22 +136,31 @@ export async function isAuthPluginInstalled(): Promise<boolean> {
       `${workerAdminBase()}/admin/auth/status`,
     );
     if (!res.ok) {
-      providerCache = { installed: false, at: now };
-      return false;
+      providerCache = { installed: installedWhileWorkerUnavailable(), at: now };
+      return providerCache.installed;
     }
     const body = (await res.json()) as { provider: { pluginName: string } | null };
     const installed = body.provider != null;
     providerCache = { installed, at: now };
+    writeAuthGateMarker({ provider: body.provider ?? null });
     return installed;
   } catch {
-    providerCache = { installed: false, at: now };
-    return false;
+    providerCache = { installed: installedWhileWorkerUnavailable(), at: now };
+    return providerCache.installed;
   }
 }
 
-/** Test seam — clears the provider cache between tests. */
-export function _resetProviderCache(): void {
+function installedWhileWorkerUnavailable(): boolean {
+  return readAuthGateMarker()?.provider != null;
+}
+
+registerAuthGateCacheReset(() => {
   providerCache = null;
+});
+
+/** Test seam — clears this cache, lib/auth's, and the marker copy. */
+export function _resetProviderCache(): void {
+  resetAuthGateCaches();
 }
 
 /**
@@ -153,8 +171,19 @@ export function _resetProviderCache(): void {
  */
 export function verifySessionCookie(value: string | undefined): boolean {
   if (!value) return false;
-  const secret = process.env.OPENNEKO_SESSION_SECRET;
-  if (!secret || secret.length < 32) return false;
+  // Same resolution as lib/auth's sessionSecret(): explicit env wins;
+  // otherwise a stable secret derived from the deployment secret-key.
+  // (This copy still never throws — the proxy treats any failure as "no
+  // valid session".)
+  let secret = process.env.OPENNEKO_SESSION_SECRET;
+  if (!secret) {
+    try {
+      secret = deriveSigningSecret("session-cookie:v1").toString("base64");
+    } catch {
+      return false;
+    }
+  }
+  if (secret.length < 32) return false;
   const parts = value.split(".");
   if (parts.length !== 3) return false;
   const [userId, expiresAtRaw, mac] = parts;

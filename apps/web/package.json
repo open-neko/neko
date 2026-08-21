@@ -20,6 +20,7 @@
     "@neko/interaction": "workspace:*",
     "@neko/llm": "workspace:*",
     "@neko/records": "workspace:*",
+    "@neko/secret-crypt": "workspace:*",
     "@neko/telemetry": "workspace:*",
     "clsx": "^2.1.1",
     "lucide-react": "^1.14.0",
