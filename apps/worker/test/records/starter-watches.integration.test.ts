@@ -146,6 +146,21 @@ describeIfDb("records starter watch lifecycle", () => {
         token: "watch-service-token",
       }),
     );
+
+    // Transport failures must REJECT (not resolve partially): the worker's
+    // boot path relies on that contract to catch, warn, and retry in the
+    // background instead of crash-looping while records-watch-graphjin is
+    // still coming up.
+    const down = vi.fn(async () => {
+      throw new Error("connect ECONNREFUSED records-watch-graphjin:8090");
+    });
+    await expect(
+      reconcileRecordsNativeWatchDeliveries({
+        graphjin: { execute: down },
+        token: () => "watch-service-token",
+        webhookUrl: "http://172.19.0.8:4100/admin/events/records-watch",
+      }),
+    ).rejects.toThrow(/ECONNREFUSED/);
   });
 
   it("runs the same deterministic evaluator for native and scheduled triggers", async () => {
