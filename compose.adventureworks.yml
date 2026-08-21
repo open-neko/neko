@@ -57,6 +57,13 @@ services:
         chmod -R a+rwX /config
     restart: "no"
 
+  # Legacy anonymous dev config — no JWT secret to reconcile. The one-shot
+  # still runs (core wires graphjin/worker/web behind it) so org-row
+  # creation stays serialized for host dev processes.
+  graphjin-secret-init:
+    environment:
+      GRAPHJIN_SOURCES_CONFIG: ""
+
   graphjin:
     image: dosco/graphjin:3.18.42
     restart: unless-stopped

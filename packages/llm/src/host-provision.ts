@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { mkdir, writeFile, chmod } from "node:fs/promises";
+import { mkdir, chmod } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
@@ -95,51 +95,28 @@ async function provisionGraphJin(orgId: string): Promise<void> {
 
   const path = graphjinConfigPath();
   await mkdir(join(path, ".."), { recursive: true });
-  await writeFile(
+  await atomicWriteFile(
     path,
     JSON.stringify(
       { server, token: "", expires_at: "0001-01-01T00:00:00Z" },
       null,
       2,
     ),
-    "utf8",
   );
 }
 
-const SOURCES_SECRET_PLACEHOLDER = "REPLACE_WITH_PER_ORG_SECRET_B64";
-const SOURCES_JWT_SECRET_RE =
-  /(^auth:\s*\n\s+type:\s*jwt\s*\n\s+jwt:\s*\n(?:\s+#.*\n)*\s+secret:\s*")([^"]*)(")/m;
-const LEGACY_PACKAGED_DEMO_GRAPHJIN_CONFIG = "/graphjin-config/agentic.yml";
-
-export function patchGraphjinSourcesJwtSecret(
-  raw: string,
-  secret: string,
-): { content: string; changed: boolean } {
-  let content = raw.replaceAll(SOURCES_SECRET_PLACEHOLDER, secret);
-  if (content !== raw) return { content, changed: true };
-
-  const match = SOURCES_JWT_SECRET_RE.exec(raw);
-  if (!match || match[2] === secret) return { content: raw, changed: false };
-
-  content = raw.replace(SOURCES_JWT_SECRET_RE, `$1${secret}$3`);
-  return { content, changed: content !== raw };
-}
-
-/**
- * Existing v2.25 demo installs do not carry OPENNEKO_STACK_MODE because their
- * compose file is embedded in the older host CLI. The dedicated demo mount is
- * therefore retained as a backward-compatible discriminator. Production uses
- * /config/graphjin/agentic.yml and must keep its capability-probe behavior.
- */
-export function shouldReconcileDemoSourceAuthMode(
-  configPath: string | undefined,
-  configContent: string,
-  stackMode?: string,
-): boolean {
-  const isDemo =
-    stackMode === "demo" || configPath === LEGACY_PACKAGED_DEMO_GRAPHJIN_CONFIG;
-  return isDemo && SOURCES_JWT_SECRET_RE.test(configContent);
-}
+export {
+  SOURCES_SECRET_PLACEHOLDER,
+  SOURCES_JWT_SECRET_RE,
+  LEGACY_PACKAGED_DEMO_GRAPHJIN_CONFIG,
+  patchGraphjinSourcesJwtSecret,
+  shouldReconcileDemoSourceAuthMode,
+} from "./graphjin/sources-config";
+import {
+  atomicWriteFile,
+  patchGraphjinSourcesJwtSecret,
+  shouldReconcileDemoSourceAuthMode,
+} from "./graphjin/sources-config";
 
 /**
  * Sources-mode (agentic) bootstrap. Two halves, both idempotent:
@@ -175,7 +152,7 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
         process.env.OPENNEKO_STACK_MODE,
       );
       if (patched.changed) {
-        await writeFile(cfgPath, patched.content, "utf8");
+        await atomicWriteFile(cfgPath, patched.content);
         wroteSecret = true;
         console.log(
           `[host-provision] reconciled per-org JWT secret in ${cfgPath} (sources mode)`,
@@ -222,10 +199,14 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
   const { mintGraphjinToken } = await import("./graphjin/token");
   const token = mintGraphjinToken({ orgId, userId: null, role: "service" });
   // Only when WE just wrote the secret does the server need a reload
-  // window (reload_on_config_change, observed ~10s on 3.18.37). For an
-  // unmanaged source a single quick probe is enough — an unreachable or
-  // legacy endpoint must not stall boot.
-  const maxAttempts = wroteSecret ? 6 : 1;
+  // window (reload_on_config_change, observed ~10s on 3.18.37). An
+  // in-stack GraphJin may simply still be starting alongside us, so give
+  // it a few short attempts; an unmanaged external or legacy endpoint
+  // gets a single quick probe — an unreachable one must not stall boot.
+  const inStackGraphjin = /^https?:\/\/(graphjin|neko-graphjin|records-graphjin)[:/]/.test(
+    src.graphqlUrl,
+  );
+  const maxAttempts = wroteSecret ? 6 : inStackGraphjin ? 4 : 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const res = await fetch(src.graphqlUrl, {
@@ -430,10 +411,10 @@ async function provisionHermes(orgId: string): Promise<void> {
   yamlLines.push(...hermesDelegationConfigLines());
   yamlLines.push("");
 
-  await writeFile(join(hermesHome, "config.yaml"), yamlLines.join("\n"), "utf8");
+  await atomicWriteFile(join(hermesHome, "config.yaml"), yamlLines.join("\n"));
 
   const envContent = apiKey ? `${keyVar}=${apiKey}\n` : "";
-  await writeFile(join(hermesHome, ".env"), envContent, { encoding: "utf8", mode: 0o600 });
+  await atomicWriteFile(join(hermesHome, ".env"), envContent, { mode: 0o600 });
   await chmod(join(hermesHome, ".env"), 0o600);
 }
 

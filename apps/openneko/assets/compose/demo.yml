@@ -55,9 +55,10 @@ services:
         set -eu
         if [ ! -f /config/agentic.yml ]; then
           # Sources (agentic) mode is the default. The per-org JWT secret
-          # placeholder is substituted by the worker at boot
-          # (OPENNEKO_GRAPHJIN_CONFIG) — the org id only exists then. The
-          # keystore key must be real at boot, so generate it here once.
+          # placeholder is substituted by the graphjin-secret-init one-shot
+          # (which creates the org row if needed) before GraphJin starts;
+          # the worker re-verifies at boot. The keystore key must be real
+          # at boot, so generate it here once.
           cp /app/db/graphjin/dev.sources.example.yml /config/agentic.yml
           KEY=$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64"))')
           sed -i "s|REPLACE_WITH_BASE64_32_BYTE_KEY|$$KEY|" /config/agentic.yml
@@ -66,6 +67,18 @@ services:
     volumes:
       - graphjin-config:/config
     restart: "no"
+
+  # The demo keeps its GraphJin config on the dedicated graphjin-config
+  # volume; point the secret one-shot's /config/graphjin mount there
+  # (Compose replaces the core mount for the same container path). Running
+  # after the seed keeps the demo's 'adventureworks' org the first (and
+  # only) org row, so the derived secret matches the org the demo uses.
+  graphjin-secret-init:
+    depends_on:
+      neko-adventureworks-seed:
+        condition: service_completed_successfully
+    volumes:
+      - graphjin-config:/config/graphjin
 
   graphjin:
     # Data-source GraphJin over the AdventureWorks DB. This is what the
