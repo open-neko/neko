@@ -93,3 +93,28 @@ func contains(s []string, v string) bool {
 	}
 	return false
 }
+
+// With prod and demo both running, `docker ps` order used to decide which
+// stack a plugin install landed in. Ambiguity must refuse, not guess.
+func TestSelectWorker(t *testing.T) {
+	if name, amb := selectWorker([]string{""}); name != "" || amb != nil {
+		t.Fatalf("empty input: got %q %v", name, amb)
+	}
+	if name, amb := selectWorker([]string{
+		"openneko-demo-web-1",
+		"openneko-demo-worker-1",
+		"unrelated-worker-1",
+	}); name != "openneko-demo-worker-1" || amb != nil {
+		t.Fatalf("single match: got %q %v", name, amb)
+	}
+	name, amb := selectWorker([]string{
+		"openneko-prod-worker-1",
+		"openneko-demo-worker-1",
+	})
+	if name != "" {
+		t.Fatalf("ambiguous match must refuse, got %q", name)
+	}
+	if len(amb) != 2 || amb[0] != "openneko-demo-worker-1" {
+		t.Fatalf("ambiguous candidates = %v", amb)
+	}
+}

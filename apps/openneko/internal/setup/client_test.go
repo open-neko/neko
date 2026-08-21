@@ -80,3 +80,28 @@ func TestClientReady(t *testing.T) {
 		t.Fatal("expected Ready=false for a down app")
 	}
 }
+
+// An SSO-gated install answers 401/403 to an unauthenticated CLI probe.
+// That is a SERVING stack: treating it as down made re-running setup burn
+// the whole WaitReady budget and then fail with a misleading port error.
+func TestReadyCountsAuthGatedResponses(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		ready  bool
+	}{
+		{http.StatusOK, true},
+		{http.StatusUnauthorized, true},
+		{http.StatusForbidden, true},
+		{http.StatusBadGateway, false},
+		{http.StatusNotFound, false},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+		}))
+		got := NewClient(srv.URL).Ready(context.Background())
+		srv.Close()
+		if got != tc.ready {
+			t.Errorf("status %d: Ready = %v, want %v", tc.status, got, tc.ready)
+		}
+	}
+}

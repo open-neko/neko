@@ -84,6 +84,17 @@ at the prompt) to finish at the web UI. Credential flags
 			// since a live OpenNeko legitimately holds those ports.
 			if alreadyUp {
 				ui.Info(out, "Existing OpenNeko detected — skipping preflight and bring-up.")
+				// The wizard configures WHATEVER stack answers on this port.
+				// `setup --mode demo` next to a live prod stack silently
+				// configured prod with demo defaults; refuse the mismatch.
+				if project := runningWebProject(); project != "" {
+					if detected, ok := compose.ModeFromProjectName(project); ok && detected != m {
+						return fmt.Errorf(
+							"the stack answering %s is %q (mode %s), but --mode %s was requested; stop that stack first or re-run with --mode %s",
+							baseURL, project, detected, m, detected,
+						)
+					}
+				}
 			} else {
 				if err := runPreflight(out); err != nil {
 					return err
@@ -311,6 +322,27 @@ func matchPlugins(tokens []string, plugins []marketplace.Plugin) []string {
 
 // webBaseURL resolves the local web app URL from the published port (matching
 // status.go's probeWeb).
+// runningWebProject returns the compose project of the running web
+// container, or "" when none is found / docker is unreachable. Used to
+// detect which stack actually owns the port setup is about to configure.
+func runningWebProject() string {
+	out, err := exec.Command(
+		"docker", "ps",
+		"--filter", "status=running",
+		"--filter", "label=com.docker.compose.service=web",
+		"--format", `{{.Label "com.docker.compose.project"}}`,
+	).Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
 func webBaseURL() string {
 	port := strings.TrimSpace(os.Getenv("OPENNEKO_PORT"))
 	if port == "" {
