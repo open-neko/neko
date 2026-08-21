@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.28.1](https://github.com/open-neko/openneko/compare/v2.28.0...v2.28.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* **auth:** fail closed on unknown SSO state and make identity bootstrap race-safe ([e7f35e6](https://github.com/open-neko/openneko/commit/e7f35e6381fb9df4d0342982bc5bcb93166c9167))
+* **cli:** honest readiness, unambiguous stack targeting, preflight for start ([83adb82](https://github.com/open-neko/openneko/commit/83adb82922edb17e27312086ebb390333edb0801))
+* **compose:** seed GraphJin JWT secret via one-shot, breaking the demo/dev cycle ([6e3d855](https://github.com/open-neko/openneko/commit/6e3d855188615be7e77061fa608618f803534614))
+* **demo:** stop demo-data failures from sinking the product ([a832b70](https://github.com/open-neko/openneko/commit/a832b70fa82371918c0aa544279046d3e89fd8d7))
+* **onboarding:** serialize password rotation and wizard submits ([2b377dd](https://github.com/open-neko/openneko/commit/2b377dd90db47170ab034b50a38f6359f3d7b728))
+* **openshell:** survive PKI re-runs, gateway restarts, and first-use pulls ([9018bc0](https://github.com/open-neko/openneko/commit/9018bc0c6c5b9904004456d9a6619ca6566bf756))
+* **secrets:** make org and secret-key bootstrap race-safe ([8c345fb](https://github.com/open-neko/openneko/commit/8c345fba2ee7ee04ce4574b3d9ba9d1b57c469aa))
+* **startup:** eliminate startup and onboarding races across all stack modes ([d6b608b](https://github.com/open-neko/openneko/commit/d6b608b8dfaa8f2294457b021221a7b3c9a9ea38))
+* **worker:** never crash-loop boot on the records-watch reconcile ([a485796](https://github.com/open-neko/openneko/commit/a4857968f5ed13a9161c077f177d23a323675f67))
+
 ## [2.28.0](https://github.com/open-neko/openneko/compare/v2.27.0...v2.28.0) (2026-08-21)
 
 
