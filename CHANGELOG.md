@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.28.2](https://github.com/open-neko/openneko/compare/v2.28.1...v2.28.2) (2026-08-21)
+
+
+### Bug Fixes
+
+* **compose:** tolerate release images that predate the secret-init script ([ed08aa6](https://github.com/open-neko/openneko/commit/ed08aa6ae44bd1ea661403a852ca03c2b68148a5))
+* **compose:** tolerate release images that predate the secret-init script ([bb29a92](https://github.com/open-neko/openneko/commit/bb29a92dd8fb861c9b86c5663440f84c81b69ea8))
+
 ## [2.28.1](https://github.com/open-neko/openneko/compare/v2.28.0...v2.28.1) (2026-08-21)
 
 
