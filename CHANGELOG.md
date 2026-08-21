@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.28.3](https://github.com/open-neko/openneko/compare/v2.28.2...v2.28.3) (2026-08-21)
+
+
+### Bug Fixes
+
+* **ci:** unwrap parametrized image refs in post-release smoke pre-pull ([6be7c25](https://github.com/open-neko/openneko/commit/6be7c25044392cbb0be3062db51f26175e70fda9))
+* **ci:** unwrap parametrized image refs in post-release smoke pre-pull ([f2aeb9f](https://github.com/open-neko/openneko/commit/f2aeb9f02132c421ae1926fab5538d0be5315a9d))
+
 ## [2.28.2](https://github.com/open-neko/openneko/compare/v2.28.1...v2.28.2) (2026-08-21)
 
 
