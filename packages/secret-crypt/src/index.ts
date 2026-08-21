@@ -5,7 +5,7 @@ import {
   createHmac,
   randomBytes,
 } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -42,18 +42,67 @@ function generateAndPersist(): string {
   const path = appSecretKeyPath();
   mkdirSync(join(path, ".."), { recursive: true });
   const value = randomBytes(32).toString("base64");
-  writeFileSync(path, value, { encoding: "utf8" });
-  chmodSync(path, 0o600);
-  return value;
+  // Exclusive publish: write the complete key to a private temp file, then
+  // link(2) it into place. link fails with EEXIST when a concurrent process
+  // won the race — their key is then THE deployment key and ours is
+  // discarded. A plain truncate-and-write here let two processes cache
+  // different keys, and exposed an empty/partial file to concurrent readers.
+  const tmp = `${path}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+  writeFileSync(tmp, value, { encoding: "utf8", mode: 0o600 });
+  try {
+    linkSync(tmp, path);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "EPERM" || code === "ENOSYS" || code === "EXDEV") {
+      // Filesystem without hardlink support: fall back to exclusive create.
+      try {
+        writeFileSync(path, value, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      } catch (e2) {
+        if ((e2 as NodeJS.ErrnoException).code !== "EEXIST") {
+          rmSync(tmp, { force: true });
+          throw e2;
+        }
+      }
+    } else if (code !== "EEXIST") {
+      rmSync(tmp, { force: true });
+      throw e;
+    }
+  }
+  rmSync(tmp, { force: true });
+  // Re-read whatever actually landed — ours, or the race winner's.
+  const stored = readFileSync(path, "utf8").trim();
+  if (!stored) {
+    throw new Error(
+      `secret-key at ${path} exists but is empty; remove the file to let OpenNeko generate a new key`,
+    );
+  }
+  return stored;
 }
 
 function readSecret(): string {
   const path = appSecretKeyPath();
+  let raw: string | null = null;
   try {
-    const stored = readFileSync(path, "utf8").trim();
+    raw = readFileSync(path, "utf8");
+  } catch (e) {
+    // ONLY a missing file may trigger generation. Every stored secret —
+    // LLM API keys, plugin secrets, the rotated DB password — and every
+    // derived signing secret is keyed by this file, so regenerating on a
+    // transient read failure (EACCES during an init chown, EISDIR from a
+    // bad mount, ...) would silently orphan all of them.
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error(
+        `secret-key unreadable at ${path} (${(e as NodeJS.ErrnoException).code}); refusing to regenerate — fix access to the existing key file`,
+        { cause: e },
+      );
+    }
+  }
+  if (raw !== null) {
+    const stored = raw.trim();
     if (stored) return stored;
-  } catch {
-    // file missing or unreadable — fall through to generate.
+    throw new Error(
+      `secret-key at ${path} exists but is empty; remove the file to let OpenNeko generate a new key`,
+    );
   }
   return generateAndPersist();
 }

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Mirrors packages/llm/src/secrets.ts exactly: AES-256-GCM, key =
@@ -50,10 +51,44 @@ func loadOrCreateKey(overrideDir string) ([]byte, error) {
 		return nil, err
 	}
 	secret := base64.StdEncoding.EncodeToString(fresh)
-	if err := os.WriteFile(path, []byte(secret), 0o600); err != nil {
+	// Exclusive create: two overlapping CLI invocations (a deploy `upgrade`
+	// racing a cron `status`) must never mint different keys — the derived
+	// openshell DB role password and every enc:v1 value hang off this file.
+	// The loser of O_EXCL re-reads the winner's key.
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err == nil {
+		_, werr := f.WriteString(secret)
+		cerr := f.Close()
+		if werr != nil {
+			return nil, werr
+		}
+		if cerr != nil {
+			return nil, cerr
+		}
+		sum := sha256.Sum256([]byte(secret))
+		return sum[:], nil
+	}
+	if !errors.Is(err, fs.ErrExist) {
 		return nil, err
 	}
-	sum := sha256.Sum256([]byte(secret))
+	// The race winner created the file but may not have written it yet;
+	// give it a moment to land before declaring the file corrupt.
+	var existing string
+	for attempt := 0; attempt < 20; attempt++ {
+		raw, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return nil, rerr
+		}
+		existing = strings.TrimSpace(string(raw))
+		if existing != "" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if existing == "" {
+		return nil, fmt.Errorf("secret-key at %s exists but is empty; remove the file to let openneko generate a new key", path)
+	}
+	sum := sha256.Sum256([]byte(existing))
 	return sum[:], nil
 }
 
