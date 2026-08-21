@@ -356,17 +356,46 @@ services:
       - ./db/graphjin/customer.sources.example.yml:/seed/customer.sources.yml:ro
     restart: "no"
 
+  # One-shot: resolves (or creates, under an advisory lock) the single org
+  # row and reconciles the per-org JWT secret into the customer GraphJin
+  # sources config BEFORE the server's first start. GraphJin 3.18 does not
+  # hot-reload auth keys; expressing that as `graphjin -> worker` cycled
+  # against the adventureworks overlay's `worker -> graphjin` edge, so this
+  # one-shot carries the ordering instead. Reconciles unconditionally, so
+  # key rotation, restores, and partial volume wipes self-heal on the next
+  # stack start.
+  graphjin-secret-init:
+    build:
+      context: .
+      target: worker
+    working_dir: /app
+    command: ["node", "--import", "tsx/esm", "node_modules/@neko/llm/src/graphjin/init-secret.mjs"]
+    depends_on:
+      neko-migrate:
+        condition: service_completed_successfully
+      openneko-config-init:
+        condition: service_completed_successfully
+      graphjin-config-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *neko-app-env
+      GRAPHJIN_SOURCES_CONFIG: /config/graphjin/agentic.yml
+    volumes:
+      - ${OPENNEKO_CONFIG_VOLUME:-openneko-config}:/config/openneko
+      - openneko-graphjin-cli:/config/graphjin
+    restart: "no"
+
   graphjin:
     image: ${OPENNEKO_GRAPHJIN_IMAGE:-dosco/graphjin:3.18.42}
     restart: unless-stopped
     depends_on:
       graphjin-config-init:
         condition: service_completed_successfully
-      # The worker reconciles the per-org JWT secret into agentic.yml during
-      # startup. GraphJin 3.18 does not hot-reload auth keys, so start it only
-      # after that reconciliation has completed.
-      worker:
-        condition: service_healthy
+      # The per-org JWT secret is reconciled into agentic.yml by the
+      # graphjin-secret-init one-shot. GraphJin 3.18 does not hot-reload
+      # auth keys, so start only after that reconciliation has completed.
+      graphjin-secret-init:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:${GRAPHJIN_PORT:-8080}:8080"
     environment:
@@ -429,7 +458,7 @@ services:
       neko-migrate:
         condition: service_completed_successfully
     volumes:
-      - openneko-config:/config/openneko
+      - ${OPENNEKO_CONFIG_VOLUME:-openneko-config}:/config/openneko
     restart: "no"
 
   neko-graphjin:
@@ -484,6 +513,8 @@ services:
         condition: service_started
       graphjin:
         condition: service_started
+      graphjin-secret-init:
+        condition: service_completed_successfully
       # Web is the user-facing readiness boundary. Do not serve the temporary
       # recovery screen while the control plane is still starting.
       worker:
@@ -497,7 +528,10 @@ services:
     ports:
       - "${OPENNEKO_WEB_BIND_ADDRESS:-0.0.0.0}:${OPENNEKO_PORT:-3000}:8080"
     volumes:
-      - openneko-config:/config/openneko
+      # Honors OPENNEKO_CONFIG_VOLUME like neko-migrate/neko-graphjin, so the
+      # host-hybrid dev layout shares one physical config dir (and one
+      # secret-key) instead of splitting it across a named volume.
+      - ${OPENNEKO_CONFIG_VOLUME:-openneko-config}:/config/openneko
       - openneko-graphjin-cli:/config/graphjin
       - openneko-agent-home:/tmp/openneko-home
       - openneko-agent-tmp:/tmp/openneko-tmp
@@ -521,9 +555,12 @@ services:
         condition: service_started
       records-watch-graphjin:
         condition: service_started
-      # The worker must patch the per-org JWT secret before customer GraphJin
-      # starts; depending on the one-shot seed avoids a startup cycle.
+      # The per-org JWT secret is seeded by graphjin-secret-init before
+      # either GraphJin or the worker starts; the worker's own boot pass is
+      # a re-verify. Depending on the one-shots avoids a startup cycle.
       graphjin-config-init:
+        condition: service_completed_successfully
+      graphjin-secret-init:
         condition: service_completed_successfully
     environment:
       <<: *neko-app-env
@@ -549,7 +586,7 @@ services:
     expose:
       - "4100"
     volumes:
-      - openneko-config:/config/openneko
+      - ${OPENNEKO_CONFIG_VOLUME:-openneko-config}:/config/openneko
       - openneko-graphjin-cli:/config/graphjin
       - openneko-records-graphjin:/config/records-graphjin
       - openneko-agent-home:/tmp/openneko-home

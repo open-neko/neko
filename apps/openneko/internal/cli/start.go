@@ -17,6 +17,7 @@ import (
 	"github.com/open-neko/neko/apps/openneko/internal/compose"
 	"github.com/open-neko/neko/apps/openneko/internal/config"
 	"github.com/open-neko/neko/apps/openneko/internal/db"
+	"github.com/open-neko/neko/apps/openneko/internal/setup"
 	"github.com/open-neko/neko/apps/openneko/internal/version"
 )
 
@@ -38,6 +39,15 @@ Modes:
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
+			// Same host checks setup runs; `start` used to skip them and race
+			// straight into an opaque compose failure (port conflict with a
+			// neighboring stack, docker gone away). A stack already answering
+			// legitimately holds the ports, so only a fresh bring-up checks.
+			if !setup.NewClient(webBaseURL()).Ready(ctx) {
+				if err := runPreflight(cmd.OutOrStdout()); err != nil {
+					return err
+				}
+			}
 			return bringUpStack(ctx, cmd, compose.Mode(mode), bringUpOptions{
 				detach:      detach,
 				skipMigrate: skipMigrate,
@@ -162,15 +172,22 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 		return WithExit(code, fmt.Errorf("database preparation failed"))
 	}
 
-	// Pre-pull the agent sandbox image at install time so the gateway's first
-	// sandbox-create (the user's first chat) never blocks on a large pull.
+	// Pre-pull the sandbox images at install time so the gateway's first
+	// sandbox-create (the user's first chat, or the first plugin RPC) never
+	// blocks on a large pull inside the create timeout. `upgrade` already
+	// pulled both; `start`/`setup` used to pull only the agent image, so a
+	// fresh install's first plugin call raced a lazy multi-GB pull.
 	// Best-effort: a failure just falls back to a lazy pull.
-	agentImg := agentImageRef(os.Getenv("OPENNEKO_AGENT_IMAGE"), os.Getenv("OPENNEKO_VERSION"))
-	if !opts.quiet {
-		fmt.Fprintf(os.Stderr, "Pre-pulling agent sandbox image %s ...\n", agentImg)
-	}
-	if err := sup.EnsureImage(ctx, agentImg, os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: agent image pre-pull failed (%v); it will pull on first use\n", err)
+	for _, img := range []string{
+		agentImageRef(os.Getenv("OPENNEKO_AGENT_IMAGE"), os.Getenv("OPENNEKO_VERSION")),
+		pluginBaseImageRef(os.Getenv("OPENNEKO_PLUGIN_BASE_IMAGE"), os.Getenv("OPENNEKO_VERSION")),
+	} {
+		if !opts.quiet {
+			fmt.Fprintf(os.Stderr, "Pre-pulling sandbox image %s ...\n", img)
+		}
+		if err := sup.EnsureImage(ctx, img, os.Stdout, os.Stderr); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: image pre-pull failed for %s (%v); it will pull on first use\n", img, err)
+		}
 	}
 
 	// Stage 2: bring up the rest.

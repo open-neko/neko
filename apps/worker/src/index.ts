@@ -645,15 +645,45 @@ if (!recordsWatchWebhookUrl) {
 console.log(
   `[worker] records schema runtime ready (reconciled=${recordsSchemaRuntime.reconciliation.projected.length}, failed=${recordsSchemaRuntime.reconciliation.failed.length})`,
 );
-const reboundRecordsWatches = await reconcileRecordsNativeWatchDeliveries({
-  graphjin: recordsWatchGraphjin,
-  token: recordsWatchServiceToken,
-  webhookUrl: recordsWatchWebhookUrl,
-});
-if (reboundRecordsWatches > 0) {
-  console.log(
-    `[worker] rebound ${reboundRecordsWatches} durable records watch delivery target(s)`,
+// records-watch-graphjin deliberately exits until its generated config
+// exists and can still be mid-restart during an upgrade. This reconcile is
+// idempotent and only matters for installs with active bindings, so it must
+// never kill boot: an unguarded throw here crash-looped the whole worker
+// (with Docker's growing restart backoff) whenever the watch plane was a
+// few seconds behind. Failures retry in the background instead.
+const reconcileWatchDeliveries = async (): Promise<void> => {
+  const rebound = await reconcileRecordsNativeWatchDeliveries({
+    graphjin: recordsWatchGraphjin,
+    token: recordsWatchServiceToken,
+    webhookUrl: recordsWatchWebhookUrl,
+  });
+  if (rebound > 0) {
+    console.log(
+      `[worker] rebound ${rebound} durable records watch delivery target(s)`,
+    );
+  }
+};
+try {
+  await reconcileWatchDeliveries();
+} catch (e) {
+  console.warn(
+    `[worker] records watch delivery reconcile failed at boot; retrying in background: ${e instanceof Error ? e.message : e}`,
   );
+  void (async () => {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, attempt * 5_000));
+      try {
+        await reconcileWatchDeliveries();
+        console.log("[worker] records watch delivery reconcile recovered");
+        return;
+      } catch {
+        // next attempt
+      }
+    }
+    console.warn(
+      "[worker] records watch delivery reconcile did not recover; existing deliveries keep their previous targets until the next restart",
+    );
+  })();
 }
 
 await seedDefaultActionPolicies(ADMIN_ORG_ID);

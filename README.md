@@ -82,6 +82,26 @@ openneko install @open-neko/plugin-scalekit
 - **Agent in a sandbox by default.** The agent loop itself runs inside an OpenShell policy sandbox — default-deny egress, and the model API key never enters the box (the gateway proxy injects it on the wire). See [OPENSHELL.md](OPENSHELL.md).
 - **Apache-2.0.** Read the source, self-host, fork, and build on it. OpenNeko trademarks are separately controlled — see [LICENSING.md](LICENSING.md) and [TRADEMARKS.md](TRADEMARKS.md).
 
+## Stack modes
+
+`openneko start|setup|upgrade --mode prod|dev|demo` picks which Compose layers the
+CLI deploys. Every mode shares the same core: app + records Postgres, migrations,
+backup/restore, web, worker, three internal GraphJin instances (app
+subscriptions, records, records-watch), plus the customer-facing GraphJin in
+sources (agentic) mode. The OpenShell sandbox runtime (gateway, registry,
+certgen) is always layered on top — it is the only way agents and plugins run,
+in every mode.
+
+| Mode | Layers on top of core | What's different |
+|------|----------------------|------------------|
+| **prod** (default) | none | Core stack only. You connect your own data source; actions run for real. |
+| **demo** | AdventureWorks sample DB, seed job, order simulator, scenario injector | Customer GraphJin points at the sample data; external actions default to dry-run (`NEKO_ACTIONS_DRY_RUN=true`). What `openneko setup --mode demo` gives you. |
+| **dev** | none (reserved overlay) | For working on OpenNeko itself: Docker runs only the dependency services while web and worker hot-reload as host processes (`pnpm dev:setup && pnpm dev`, using the repo's root `compose.yml`) — see [CONTRIBUTING.md](CONTRIBUTING.md). |
+
+**Solution packs** (e.g. `openneko pack install magento`) are not a mode: they
+layer onto a running stack in any mode, adding sources, specs, and saved queries
+to the customer GraphJin config at runtime.
+
 ## Docs
 
 - [INSTALL.md](INSTALL.md) — install, [upgrade](INSTALL.md#upgrade), requirements, troubleshooting, connecting your data, full demo trial

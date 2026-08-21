@@ -69,6 +69,16 @@ export const app_user = pgTable(
   },
   (t) => ({
     org_idx: index("app_user_org_idx").on(t.org_id),
+    // One row per SSO subject and per mailbox within an org — the backstop
+    // that makes the concurrent first-sign-in race fail loudly instead of
+    // leaving duplicate identities behind (migration 0061).
+    org_sub_unique: uniqueIndex("app_user_org_sub_unique")
+      .on(t.org_id, t.sub)
+      .where(sql`${t.sub} is not null`),
+    org_email_unique: uniqueIndex("app_user_org_email_unique").on(
+      t.org_id,
+      sql`lower(${t.email})`,
+    ),
   }),
 );
 

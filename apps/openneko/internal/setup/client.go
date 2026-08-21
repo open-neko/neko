@@ -115,7 +115,11 @@ type ProviderDraft struct {
 // ----- readiness -----
 
 // Ready does one short-timeout probe (GET change-password is config-file
-// backed, so it answers as soon as the web process is serving).
+// backed, so it answers as soon as the web process is serving). 401/403
+// count as ready too: an SSO-gated install answers exactly that for an
+// unauthenticated CLI, and treating it as "down" made re-running setup
+// burn the whole WaitReady budget against a perfectly healthy stack and
+// then fail preflight with a misleading port-in-use error.
 func (c *Client) Ready(ctx context.Context) bool {
 	probe := &http.Client{Timeout: 2 * time.Second}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/api/admin/change-password", nil)
@@ -125,7 +129,12 @@ func (c *Client) Ready(ctx context.Context) bool {
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode == http.StatusOK
+	switch resp.StatusCode {
+	case http.StatusOK, http.StatusUnauthorized, http.StatusForbidden:
+		return true
+	default:
+		return false
+	}
 }
 
 // WaitReady polls Ready until the web app answers. Bring-up has already waited

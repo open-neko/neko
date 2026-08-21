@@ -92,7 +92,9 @@ func runInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config) (
 		return o, nil
 	}
 	if err != nil {
-		return Outcome{}, err
+		// A rotation that succeeded before the failing step must still reach
+		// the caller — the host config needs the new password either way.
+		return Outcome{PasswordSet: pw}, err
 	}
 	return Outcome{Configured: true, PasswordSet: pw}, nil
 }
@@ -354,40 +356,40 @@ func runHeadless(ctx context.Context, c *Client, cfg Config) (Outcome, error) {
 	passwordSet := ""
 	changed, err := c.PasswordChanged(ctx)
 	if err != nil {
-		return Outcome{}, err
+		return Outcome{PasswordSet: passwordSet}, err
 	}
 	if !changed {
 		if cfg.AdminPassword == "" {
-			return Outcome{}, errors.New("setup: --admin-password is required (database still has the bootstrap default)")
+			return Outcome{PasswordSet: passwordSet}, errors.New("setup: --admin-password is required (database still has the bootstrap default)")
 		}
 		if err := validatePassword(cfg.AdminPassword); err != nil {
-			return Outcome{}, err
+			return Outcome{PasswordSet: passwordSet}, err
 		}
 		if err := c.ChangePassword(ctx, cfg.AdminPassword); err != nil {
-			return Outcome{}, err
+			return Outcome{PasswordSet: passwordSet}, err
 		}
 		passwordSet = cfg.AdminPassword
 	}
 
 	ds, err := c.GetDataSource(ctx)
 	if err != nil {
-		return Outcome{}, err
+		return Outcome{PasswordSet: passwordSet}, err
 	}
 	gql, mcp := DeriveEndpoints(defaultDataURL(cfg, ds))
 	if _, err := c.TestDataSource(ctx, gql, mcp); err != nil {
-		return Outcome{}, fmt.Errorf("data source test failed: %w", err)
+		return Outcome{PasswordSet: passwordSet}, fmt.Errorf("data source test failed: %w", err)
 	}
 	if err := c.SaveDataSource(ctx, gql, mcp, "primary"); err != nil {
-		return Outcome{}, err
+		return Outcome{PasswordSet: passwordSet}, err
 	}
 
 	agent, err := c.GetAgent(ctx)
 	if err != nil {
-		return Outcome{}, err
+		return Outcome{PasswordSet: passwordSet}, err
 	}
 	prov, err := c.GetProvider(ctx)
 	if err != nil {
-		return Outcome{}, err
+		return Outcome{PasswordSet: passwordSet}, err
 	}
 	backend := cfg.Backend
 	if backend == "" {
@@ -398,10 +400,10 @@ func runHeadless(ctx context.Context, c *Client, cfg Config) (Outcome, error) {
 		provider = "anthropic"
 	}
 	if provider == "" {
-		return Outcome{}, errors.New("setup: --provider is required")
+		return Outcome{PasswordSet: passwordSet}, errors.New("setup: --provider is required")
 	}
 	if cfg.ProviderKey == "" {
-		return Outcome{}, errors.New("setup: --provider-key is required")
+		return Outcome{PasswordSet: passwordSet}, errors.New("setup: --provider-key is required")
 	}
 	model := cfg.Model
 	if model == "" {
@@ -420,10 +422,10 @@ func runHeadless(ctx context.Context, c *Client, cfg Config) (Outcome, error) {
 		return Outcome{}, fmt.Errorf("provider key test failed: %w", err)
 	}
 	if err := c.SaveAgent(ctx, backend, capJobs); err != nil {
-		return Outcome{}, err
+		return Outcome{PasswordSet: passwordSet}, err
 	}
 	if err := c.SaveProvider(ctx, draft); err != nil {
-		return Outcome{}, err
+		return Outcome{PasswordSet: passwordSet}, err
 	}
 
 	if !cfg.NoResearch && cfg.ResearchProvider != "" && cfg.ResearchKey != "" {
@@ -437,14 +439,14 @@ func runHeadless(ctx context.Context, c *Client, cfg Config) (Outcome, error) {
 			return Outcome{}, fmt.Errorf("research key test failed: %w", err)
 		}
 		if err := c.SaveProvider(ctx, rdraft); err != nil {
-			return Outcome{}, err
+			return Outcome{PasswordSet: passwordSet}, err
 		}
 	} else if err := c.SaveProvider(ctx, disabledResearch()); err != nil {
-		return Outcome{}, err
+		return Outcome{PasswordSet: passwordSet}, err
 	}
 
 	if err := c.Finish(ctx); err != nil {
-		return Outcome{}, err
+		return Outcome{PasswordSet: passwordSet}, err
 	}
 	return Outcome{Configured: true, PasswordSet: passwordSet}, nil
 }

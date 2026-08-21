@@ -7,6 +7,14 @@
 #     -f compose.yml -f compose.adventureworks.yml \
 #     -f compose.graphjin-agent.yml up -d --build
 services:
+  # This overlay switches the demo back to sources (agentic) mode, so the
+  # per-org JWT secret must again be reconciled before GraphJin starts.
+  graphjin-secret-init:
+    environment:
+      GRAPHJIN_SOURCES_CONFIG: /config/graphjin/agentic.yml
+    volumes:
+      - graphjin-config:/config/graphjin
+
   graphjin-config-init:
     volumes:
       - graphjin-config:/config

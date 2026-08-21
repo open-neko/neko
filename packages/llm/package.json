@@ -16,6 +16,7 @@
     "./workflows/fences": "./src/workflows/fence-parsers.ts",
     "./workflows/fence-schemas": "./src/workflows/fence-schemas.ts",
     "./graphjin": "./src/graphjin/index.ts",
+    "./graphjin/sources-config": "./src/graphjin/sources-config.ts",
     "./graphjin/client": "./src/graphjin/client.ts",
     "./graphjin/file-source-assets": "./src/graphjin/file-source-assets.ts",
     "./graphjin/openapi-assets": "./src/graphjin/openapi-assets.ts",

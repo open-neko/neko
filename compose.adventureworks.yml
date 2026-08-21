@@ -57,6 +57,13 @@ services:
         chmod -R a+rwX /config
     restart: "no"
 
+  # Legacy anonymous dev config — no JWT secret to reconcile. The one-shot
+  # still runs (core wires graphjin/worker/web behind it) so org-row
+  # creation stays serialized for host dev processes.
+  graphjin-secret-init:
+    environment:
+      GRAPHJIN_SOURCES_CONFIG: ""
+
   graphjin:
     image: dosco/graphjin:3.18.42
     restart: unless-stopped
@@ -166,6 +173,11 @@ services:
       neko-migrate:
         condition: service_completed_successfully
       adventureworks-init:
+        condition: service_completed_successfully
+      # openneko-config-init repairs the config volume's ownership; reading
+      # config.json / the secret-key before that chown returned EACCES, which
+      # older secret-crypt turned into a destructive key regeneration.
+      openneko-config-init:
         condition: service_completed_successfully
     environment:
       XDG_CONFIG_HOME: /config

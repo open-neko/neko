@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"golang.org/x/term"
@@ -27,7 +28,10 @@ const EnvMarker = "OPENNEKO_PROXIED"
 
 // FindRunningWorker returns the name of a running openneko-{prod,dev,demo}-
 // worker-1 container, or "" if none / docker unreachable / we are already
-// inside a proxied invocation.
+// inside a proxied invocation. With prod and demo both up, `docker ps`
+// order used to pick an arbitrary stack — plugin installs then landed in
+// the wrong install's config volume — so an ambiguous match now refuses
+// (falls back to the local implementation) and says why.
 func FindRunningWorker() string {
 	if os.Getenv(EnvMarker) == "1" {
 		return ""
@@ -40,13 +44,35 @@ func FindRunningWorker() string {
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	name, ambiguous := selectWorker(strings.Split(strings.TrimSpace(string(out)), "\n"))
+	if len(ambiguous) > 0 {
+		fmt.Fprintf(os.Stderr,
+			"[openneko] multiple running stacks found (%s); refusing to guess — stop the stack you don't mean, or pass --local\n",
+			strings.Join(ambiguous, ", "))
+	}
+	return name
+}
+
+// selectWorker picks the single matching worker container from `docker ps`
+// output lines. With more than one match it returns "" plus the sorted
+// candidates so the caller can explain the refusal.
+func selectWorker(lines []string) (string, []string) {
+	var workers []string
+	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "openneko-") && strings.HasSuffix(line, "-worker-1") {
-			return line
+			workers = append(workers, line)
 		}
 	}
-	return ""
+	switch len(workers) {
+	case 0:
+		return "", nil
+	case 1:
+		return workers[0], nil
+	default:
+		sort.Strings(workers)
+		return "", workers
+	}
 }
 
 // ProxyToWorker re-executes `openneko <args>` inside the named container,

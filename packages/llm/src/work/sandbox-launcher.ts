@@ -648,12 +648,7 @@ function makeSandboxCore(
         "node",
         "--version",
       ];
-      try {
-        await run(createArgs, 180_000);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!message.includes("already exists")) throw error;
-
+      const reclaimAndCreate = async () => {
         // Run names are deterministic so a durable queue retry can collide
         // with an OpenShell sandbox orphaned by a worker restart or deploy.
         // Replace only that exact run sandbox, then let the normal finally
@@ -661,6 +656,33 @@ function makeSandboxCore(
         log(`replacing stale agent sandbox after name collision: ${name}`);
         await runCleanup(["sandbox", "delete", name], 60_000);
         await run(createArgs, 180_000);
+      };
+      try {
+        await run(createArgs, 180_000);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("already exists")) {
+          await reclaimAndCreate();
+        } else {
+          // Not a name collision: a transient gateway hiccup (restart mid
+          // deploy) or a first-use image pull that outran the timeout — the
+          // gateway-side pull keeps going, so a second attempt usually rides
+          // its cache. Retry once before surfacing the real error; a timed-out
+          // first attempt may have half-registered the name, which the retry
+          // then reclaims.
+          log(
+            `agent sandbox create failed (${message.slice(0, 200)}); retrying once`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 3_000));
+          try {
+            await run(createArgs, 180_000);
+          } catch (retryError) {
+            const retryMessage =
+              retryError instanceof Error ? retryError.message : String(retryError);
+            if (!retryMessage.includes("already exists")) throw retryError;
+            await reclaimAndCreate();
+          }
+        }
       }
       sandboxCreated = true;
 
@@ -978,27 +1000,45 @@ export async function ensureOpenShellProvider(opts: {
     runProcessOnce(cli, [...gatewayArgs, ...args], 60_000);
 
   const dir = await mkdtemp(path.join(tmpdir(), "oss-profile-"));
+  let profileImportError: unknown;
   try {
     const file = path.join(dir, `${OPENNEKO_AGENT_PROFILE_ID}.yaml`);
     await writeFile(file, OPENNEKO_AGENT_PROFILE_YAML);
-    // Import is upsert-ish; tolerate "already registered".
-    await run(["provider", "profile", "import", "--file", file]).catch(() => {});
+    // Import is upsert-ish; "already registered" is fine. But a swallowed
+    // TRANSPORT failure (gateway restarting) means the profile type the
+    // create below references may not exist — remember the failure so the
+    // create's error path can surface the real cause instead of a cryptic
+    // unknown-profile error.
+    await run(["provider", "profile", "import", "--file", file]).catch((e) => {
+      profileImportError = e;
+    });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 
   const credential = `api_key=${opts.apiKey}`;
   // create on first run; update (refresh key) when it already exists.
-  await run([
-    "provider",
-    "create",
-    "--name",
-    opts.providerName,
-    "--type",
-    OPENNEKO_AGENT_PROFILE_ID,
-    "--credential",
-    credential,
-  ]).catch(() => run(["provider", "update", opts.providerName, "--credential", credential]));
+  try {
+    await run([
+      "provider",
+      "create",
+      "--name",
+      opts.providerName,
+      "--type",
+      OPENNEKO_AGENT_PROFILE_ID,
+      "--credential",
+      credential,
+    ]);
+  } catch (createError) {
+    try {
+      await run(["provider", "update", opts.providerName, "--credential", credential]);
+    } catch (updateError) {
+      // Neither path landed: prefer the profile-import failure as the root
+      // cause when there was one (the create's unknown-profile error is a
+      // symptom of it).
+      throw profileImportError ?? updateError ?? createError;
+    }
+  }
 }
 
 /**

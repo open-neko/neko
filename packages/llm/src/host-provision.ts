@@ -1,9 +1,9 @@
 import { realpathSync } from "node:fs";
-import { mkdir, writeFile, chmod } from "node:fs/promises";
+import { mkdir, chmod } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
-import { and, data_source, db, desc, eq, llm_provider_config } from "@neko/db";
+import { and, data_source, db, desc, eq, like, llm_provider_config, or } from "@neko/db";
 import { isAgentBackendId } from "./agent-backend";
 import { maybeDecryptSecret } from "./secrets";
 import {
@@ -95,51 +95,28 @@ async function provisionGraphJin(orgId: string): Promise<void> {
 
   const path = graphjinConfigPath();
   await mkdir(join(path, ".."), { recursive: true });
-  await writeFile(
+  await atomicWriteFile(
     path,
     JSON.stringify(
       { server, token: "", expires_at: "0001-01-01T00:00:00Z" },
       null,
       2,
     ),
-    "utf8",
   );
 }
 
-const SOURCES_SECRET_PLACEHOLDER = "REPLACE_WITH_PER_ORG_SECRET_B64";
-const SOURCES_JWT_SECRET_RE =
-  /(^auth:\s*\n\s+type:\s*jwt\s*\n\s+jwt:\s*\n(?:\s+#.*\n)*\s+secret:\s*")([^"]*)(")/m;
-const LEGACY_PACKAGED_DEMO_GRAPHJIN_CONFIG = "/graphjin-config/agentic.yml";
-
-export function patchGraphjinSourcesJwtSecret(
-  raw: string,
-  secret: string,
-): { content: string; changed: boolean } {
-  let content = raw.replaceAll(SOURCES_SECRET_PLACEHOLDER, secret);
-  if (content !== raw) return { content, changed: true };
-
-  const match = SOURCES_JWT_SECRET_RE.exec(raw);
-  if (!match || match[2] === secret) return { content: raw, changed: false };
-
-  content = raw.replace(SOURCES_JWT_SECRET_RE, `$1${secret}$3`);
-  return { content, changed: content !== raw };
-}
-
-/**
- * Existing v2.25 demo installs do not carry OPENNEKO_STACK_MODE because their
- * compose file is embedded in the older host CLI. The dedicated demo mount is
- * therefore retained as a backward-compatible discriminator. Production uses
- * /config/graphjin/agentic.yml and must keep its capability-probe behavior.
- */
-export function shouldReconcileDemoSourceAuthMode(
-  configPath: string | undefined,
-  configContent: string,
-  stackMode?: string,
-): boolean {
-  const isDemo =
-    stackMode === "demo" || configPath === LEGACY_PACKAGED_DEMO_GRAPHJIN_CONFIG;
-  return isDemo && SOURCES_JWT_SECRET_RE.test(configContent);
-}
+export {
+  SOURCES_SECRET_PLACEHOLDER,
+  SOURCES_JWT_SECRET_RE,
+  LEGACY_PACKAGED_DEMO_GRAPHJIN_CONFIG,
+  patchGraphjinSourcesJwtSecret,
+  shouldReconcileDemoSourceAuthMode,
+} from "./graphjin/sources-config";
+import {
+  atomicWriteFile,
+  patchGraphjinSourcesJwtSecret,
+  shouldReconcileDemoSourceAuthMode,
+} from "./graphjin/sources-config";
 
 /**
  * Sources-mode (agentic) bootstrap. Two halves, both idempotent:
@@ -175,7 +152,7 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
         process.env.OPENNEKO_STACK_MODE,
       );
       if (patched.changed) {
-        await writeFile(cfgPath, patched.content, "utf8");
+        await atomicWriteFile(cfgPath, patched.content);
         wroteSecret = true;
         console.log(
           `[host-provision] reconciled per-org JWT secret in ${cfgPath} (sources mode)`,
@@ -199,7 +176,14 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
       reconcileDemoAuthMode
         ? and(
             eq(data_source.org_id, orgId),
-            eq(data_source.label, "AdventureWorks"),
+            // The seeded label ("AdventureWorks") is renamed by the setup
+            // wizard's data-source save, which permanently disabled this
+            // reconcile. The in-stack customer GraphJin URL is the stable
+            // identity of the packaged demo's source, so match either.
+            or(
+              eq(data_source.label, "AdventureWorks"),
+              like(data_source.graphql_url, "http://graphjin:8080/%"),
+            ),
           )
         : eq(data_source.org_id, orgId),
     )
@@ -222,10 +206,14 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
   const { mintGraphjinToken } = await import("./graphjin/token");
   const token = mintGraphjinToken({ orgId, userId: null, role: "service" });
   // Only when WE just wrote the secret does the server need a reload
-  // window (reload_on_config_change, observed ~10s on 3.18.37). For an
-  // unmanaged source a single quick probe is enough — an unreachable or
-  // legacy endpoint must not stall boot.
-  const maxAttempts = wroteSecret ? 6 : 1;
+  // window (reload_on_config_change, observed ~10s on 3.18.37). An
+  // in-stack GraphJin may simply still be starting alongside us, so give
+  // it a few short attempts; an unmanaged external or legacy endpoint
+  // gets a single quick probe — an unreachable one must not stall boot.
+  const inStackGraphjin = /^https?:\/\/(graphjin|neko-graphjin|records-graphjin)[:/]/.test(
+    src.graphqlUrl,
+  );
+  const maxAttempts = wroteSecret ? 6 : inStackGraphjin ? 4 : 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const res = await fetch(src.graphqlUrl, {
@@ -430,10 +418,10 @@ async function provisionHermes(orgId: string): Promise<void> {
   yamlLines.push(...hermesDelegationConfigLines());
   yamlLines.push("");
 
-  await writeFile(join(hermesHome, "config.yaml"), yamlLines.join("\n"), "utf8");
+  await atomicWriteFile(join(hermesHome, "config.yaml"), yamlLines.join("\n"));
 
   const envContent = apiKey ? `${keyVar}=${apiKey}\n` : "";
-  await writeFile(join(hermesHome, ".env"), envContent, { encoding: "utf8", mode: 0o600 });
+  await atomicWriteFile(join(hermesHome, ".env"), envContent, { mode: 0o600 });
   await chmod(join(hermesHome, ".env"), 0o600);
 }
 
@@ -490,17 +478,35 @@ function deriveAgentEgress(
  * wire (the key never enters the box). Replaces the manual `openshell
  * provider create` + hand-set egress env.
  */
+// Operator-supplied values (compose env) win permanently; empty or unset
+// means "derive from the org's provider config". Snapshotted at module load,
+// BEFORE any provisioning pass mutates process.env — the previous `||=`
+// writes made the FIRST pass's derived values permanent, so a provider
+// switch left the sandbox egress allowlist and key env var pinned to the old
+// provider until the process restarted.
+const OPERATOR_AGENT_ENV = {
+  provider: process.env.OPENNEKO_AGENT_MODEL_PROVIDER || "",
+  host: process.env.OPENNEKO_AGENT_MODEL_HOST || "",
+  binary: process.env.OPENNEKO_AGENT_MODEL_BINARY || "",
+  keyEnv: process.env.OPENNEKO_AGENT_MODEL_KEY_ENV || "",
+  hermesHome: process.env.OPENNEKO_AGENT_HERMES_HOME || "",
+};
+
+function setAgentEnv(key: string, operator: string, derived: string): void {
+  const value = operator || derived;
+  if (value) process.env[key] = value;
+  else delete process.env[key];
+}
+
 async function provisionOpenShellRuntime(orgId: string, backend: string): Promise<void> {
   const row = await loadProviderRow(orgId, "primary");
   if (!row || !row.enabled) return;
 
   const { hosts, binary, keyEnv } = deriveAgentEgress(row, backend);
-  process.env.OPENNEKO_AGENT_MODEL_PROVIDER ||= "openneko-agent";
-  if (!process.env.OPENNEKO_AGENT_MODEL_HOST && hosts.length > 0) {
-    process.env.OPENNEKO_AGENT_MODEL_HOST = hosts.join(",");
-  }
-  process.env.OPENNEKO_AGENT_MODEL_BINARY ||= binary;
-  process.env.OPENNEKO_AGENT_MODEL_KEY_ENV ||= keyEnv;
+  setAgentEnv("OPENNEKO_AGENT_MODEL_PROVIDER", OPERATOR_AGENT_ENV.provider, "openneko-agent");
+  setAgentEnv("OPENNEKO_AGENT_MODEL_HOST", OPERATOR_AGENT_ENV.host, hosts.join(","));
+  setAgentEnv("OPENNEKO_AGENT_MODEL_BINARY", OPERATOR_AGENT_ENV.binary, binary);
+  setAgentEnv("OPENNEKO_AGENT_MODEL_KEY_ENV", OPERATOR_AGENT_ENV.keyEnv, keyEnv);
   // hermes reads its model + provider from config.yaml under HERMES_HOME. In the
   // sandbox that config must be MIRRORED in — the launcher does so when
   // OPENNEKO_AGENT_HERMES_HOME points at the host home provisionHermes writes.
@@ -508,17 +514,42 @@ async function provisionOpenShellRuntime(orgId: string, backend: string): Promis
   // default model that 404s. (claude takes the model via its backend args, so
   // it needs no hermes home.)
   if (backend !== "claude-agent") {
-    process.env.OPENNEKO_AGENT_HERMES_HOME ||= hermesHomeForOrg(orgId);
+    setAgentEnv(
+      "OPENNEKO_AGENT_HERMES_HOME",
+      OPERATOR_AGENT_ENV.hermesHome,
+      hermesHomeForOrg(orgId),
+    );
   }
 
   const apiKey = decryptSecrets(row.secrets).apiKey;
   if (!apiKey) return;
-  await ensureOpenShellProvider({
-    providerName: process.env.OPENNEKO_AGENT_MODEL_PROVIDER,
-    apiKey,
-    gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
-    gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
-  });
+  // The gateway can be restarting exactly while we register the provider
+  // (deploys recreate it alongside the worker). A single failed attempt
+  // used to be swallowed upstream, leaving a healthy worker with no
+  // provider on the gateway and every channel run broken until a restart.
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await ensureOpenShellProvider({
+        providerName: process.env.OPENNEKO_AGENT_MODEL_PROVIDER ?? "openneko-agent",
+        apiKey,
+        gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
+        gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
+      });
+      lastError = undefined;
+      break;
+    } catch (e) {
+      lastError = e;
+      if (attempt < 3) {
+        console.warn(
+          `[host-provision] OpenShell provider sync attempt ${attempt} failed; retrying: ${e instanceof Error ? e.message : e}`,
+        );
+        const base = Number(process.env.OPENNEKO_PROVISION_RETRY_BASE_MS ?? 2_000);
+        await new Promise((resolve) => setTimeout(resolve, attempt * base));
+      }
+    }
+  }
+  if (lastError !== undefined) throw lastError;
   console.log(
     `[host-provision] OpenShell agent runtime self-configured: provider="${process.env.OPENNEKO_AGENT_MODEL_PROVIDER}" egress="${hosts.join(",")}" binary="${process.env.OPENNEKO_AGENT_MODEL_BINARY}" keyEnv=${keyEnv}`,
   );

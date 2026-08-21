@@ -219,3 +219,41 @@ func TestPureHelpers(t *testing.T) {
 		t.Errorf("filterOut = %+v", got)
 	}
 }
+
+// A rotation that succeeded before a later step failed must still surface
+// through the Outcome — the CLI persists it to the host config either way.
+// Dropping it left the remote role rotated while the host kept the stale
+// bootstrap password: a lockout on the next host-side connection.
+func TestHeadlessErrorAfterPasswordRotationCarriesPasswordSet(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		enc := json.NewEncoder(w)
+		switch r.Method + " " + r.URL.Path {
+		case "GET /api/admin/change-password":
+			_ = enc.Encode(map[string]bool{"changed": false})
+		case "POST /api/admin/change-password":
+			_ = enc.Encode(map[string]bool{"ok": true})
+		case "GET /api/settings/data-source":
+			_ = enc.Encode(map[string]any{"source": "unset"})
+		case "POST /api/settings/data-source/test":
+			// The step after the rotation fails.
+			w.WriteHeader(http.StatusBadGateway)
+			_ = enc.Encode(map[string]string{"error": "graphjin still starting"})
+		default:
+			_ = enc.Encode(map[string]any{"ok": true})
+		}
+	}))
+	defer srv.Close()
+
+	out := &bytes.Buffer{}
+	cfg := Config{
+		Mode: "demo", BaseURL: srv.URL, Headless: true,
+		AdminPassword: "supersecret", Provider: "anthropic", ProviderKey: "sk-test", NoResearch: true,
+	}
+	outcome, err := Run(context.Background(), NewClient(srv.URL), out, cfg)
+	if err == nil {
+		t.Fatal("expected the data-source test failure to surface as an error")
+	}
+	if outcome.PasswordSet != "supersecret" {
+		t.Errorf("PasswordSet = %q, want supersecret carried through the error return", outcome.PasswordSet)
+	}
+}

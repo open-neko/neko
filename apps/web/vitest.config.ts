@@ -6,6 +6,7 @@ const here = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
 export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
+    setupFiles: [here("./test/_helpers/setup-config-isolation.ts")],
     // One fork per test file: each file gets a fresh module graph, a fresh
     // @neko/db pool, and a fresh vi.mock registry. Without this, files
     // sharing a fork inherited a singleton pool that earlier files'

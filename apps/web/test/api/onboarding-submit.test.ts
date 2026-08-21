@@ -20,6 +20,7 @@ import {
   uniqueOrgId,
 } from "@neko/db/test-helpers";
 import {
+  and,
   db,
   eq,
   onboarding_wizard,
@@ -167,6 +168,12 @@ describeIfDb("/api/onboarding/submit", () => {
         },
       });
     await submit("first");
+    // The first submit's build must have settled before a re-submit takes
+    // effect; an in-flight build suppresses re-submits (tested below).
+    await db()
+      .update(processing_job)
+      .set({ status: "completed" })
+      .where(eq(processing_job.org_id, orgId));
     await submit("second");
 
     const rows = await db()
@@ -175,6 +182,46 @@ describeIfDb("/api/onboarding/submit", () => {
       .where(eq(onboarding_wizard.org_id, orgId));
     expect(rows).toHaveLength(1);
     expect(rows[0].note).toBe("second");
+  });
+
+  it("suppresses a concurrent submit while a build is in flight", async () => {
+    const submit = (note: string) =>
+      callRoute(POST, {
+        method: "POST",
+        body: {
+          companyName: "AdventureWorks Cycles",
+          companyNote: note,
+          fiscalYearStartMonth: 1,
+          activeSeats: ["CEO"],
+          priorities: [],
+        },
+      });
+    const first = await submit("first");
+    const firstBody = first.body as { jobId?: string };
+    // Double-click / client retry while the first build is still queued:
+    // no second chain, no wizard-row churn, same job reported back.
+    const second = await submit("second");
+    const secondBody = second.body as { jobId?: string };
+    expect(second.status).toBe(200);
+    expect(secondBody.jobId).toBe(firstBody.jobId);
+
+    const rows = await db()
+      .select({ note: onboarding_wizard.company_note })
+      .from(onboarding_wizard)
+      .where(eq(onboarding_wizard.org_id, orgId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].note).toBe("first");
+
+    const jobs = await db()
+      .select({ id: processing_job.id })
+      .from(processing_job)
+      .where(
+        and(
+          eq(processing_job.org_id, orgId),
+          eq(processing_job.kind, "business_profile_build"),
+        ),
+      );
+    expect(jobs).toHaveLength(1);
   });
 
   it("rejects an empty companyName with 400", async () => {

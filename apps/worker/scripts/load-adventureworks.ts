@@ -13,8 +13,9 @@
  *      with cwd set to the CSV dir so install.sql's relative \copy paths
  *      resolve
  *
- * Idempotent: if the database already has 50+ tables in the AdventureWorks
- * schemas, exits without doing anything.
+ * Idempotent: a completion marker table (stamped only after install.sql
+ * finishes) short-circuits re-runs; pre-marker installs are recognized by
+ * schema+data presence and back-stamped.
  *
  * Env:
  *   PGHOST, PGPORT, PGUSER, PGPASSWORD     — adventureworks-db connection
@@ -29,6 +30,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -101,17 +103,45 @@ async function isAlreadyLoaded(): Promise<boolean> {
   }
   const client = await connect(ADVENTUREWORKS_DB);
   try {
+    // Authoritative: the marker written after install.sql completed. A raw
+    // table count turned true as soon as the DDL committed — an interrupted
+    // load (container kill, upgrade --force-recreate mid-\copy) then skipped
+    // forever, leaving AdventureWorks structurally present but empty.
+    const marker = await client.query<{ exists: boolean }>(
+      `select exists(
+         select 1 from information_schema.tables
+          where table_schema = 'public' and table_name = '_openneko_aw_load_complete'
+       ) as exists`,
+    );
+    if (marker.rows[0]?.exists) return true;
+    // Pre-marker installs: only a schema WITH data counts as loaded (and
+    // gets the marker backfilled so the next run takes the fast path).
     const res = await client.query<{ count: string }>(
       `select count(*)::text as count
          from information_schema.tables
         where table_schema in ('person','humanresources','production','purchasing','sales')`,
     );
-    return Number(res.rows[0]?.count ?? "0") >= 50;
+    if (Number(res.rows[0]?.count ?? "0") < 50) return false;
+    const data = await client.query<{ count: string }>(
+      "select count(*)::text as count from sales.salesorderheader",
+    );
+    if (Number(data.rows[0]?.count ?? "0") === 0) return false;
+    await markLoadComplete(client);
+    return true;
   } catch {
     return false;
   } finally {
     await client.end();
   }
+}
+
+async function markLoadComplete(client: Client): Promise<void> {
+  await client.query(
+    `create table if not exists public._openneko_aw_load_complete (
+       loaded_at timestamptz not null default now()
+     )`,
+  );
+  await client.query("insert into public._openneko_aw_load_complete default values");
 }
 
 async function createDatabase(): Promise<void> {
@@ -136,7 +166,21 @@ function ensureMsZip(): void {
   }
   mkdirSync(WORK_DIR, { recursive: true });
   log(`downloading ${MS_ZIP_URL}`);
-  run("curl", ["-sSL", "--fail", "-o", ZIP_PATH, MS_ZIP_URL]);
+  // The whole demo stack (worker and web included) gates on this one-shot,
+  // so a transient network blip must not take the product down with it.
+  // Download to a temp name and rename only on success, so an interrupted
+  // transfer can never be mistaken for a cached zip on the next run.
+  const partial = `${ZIP_PATH}.partial`;
+  run("curl", [
+    "-sSL",
+    "--fail",
+    "--retry", "5",
+    "--retry-delay", "3",
+    "--retry-all-errors",
+    "-o", partial,
+    MS_ZIP_URL,
+  ]);
+  renameSync(partial, ZIP_PATH);
 }
 
 function ensureExtracted(): void {
@@ -293,6 +337,15 @@ async function main(): Promise<void> {
   convertAllCsvs();
   await createDatabase();
   runInstallSql();
+  {
+    // Stamp completion only after install.sql (DDL + \copy data) finished.
+    const client = await connect(ADVENTUREWORKS_DB);
+    try {
+      await markLoadComplete(client);
+    } finally {
+      await client.end();
+    }
+  }
   log("done");
 }
 
