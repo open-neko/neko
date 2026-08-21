@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.28.0](https://github.com/open-neko/openneko/compare/v2.27.0...v2.28.0) (2026-08-21)
+
+
+### Features
+
+* **packs:** add Magento solution pack ([39965b6](https://github.com/open-neko/openneko/commit/39965b62016171671c8299dcc171374fdd8347ea))
+* **packs:** add Magento solution pack and web UI system ([4293b51](https://github.com/open-neko/openneko/commit/4293b511148ae1180977dbed6695f6ca9abbd60e))
+
 ## [2.27.0](https://github.com/open-neko/openneko/compare/v2.26.4...v2.27.0) (2026-08-18)
 
 
