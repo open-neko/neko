@@ -450,6 +450,45 @@ describeIfDb("provisionHostConfig", () => {
     expect(source?.authMode).toBe("jwt");
   });
 
+  it("still reconciles the demo source after the wizard renamed its label", async () => {
+    const configPath = join(tempHome, "agentic.yml");
+    await writeFile(
+      configPath,
+      `auth:
+  type: jwt
+  jwt:
+    secret: "${graphjinSigningSecretB64(orgId)}"
+`,
+      "utf8",
+    );
+    // The setup wizard saves the data source with label "primary", renaming
+    // the seeded AdventureWorks row in place. The in-stack GraphJin URL is
+    // the stable identity the reconcile must key on.
+    await seedDataSource(orgId, {
+      label: "primary",
+      graphqlUrl: "http://graphjin:8080/api/v1/graphql",
+    });
+
+    const previousPath = process.env.OPENNEKO_GRAPHJIN_CONFIG;
+    const previousMode = process.env.OPENNEKO_STACK_MODE;
+    process.env.OPENNEKO_GRAPHJIN_CONFIG = configPath;
+    process.env.OPENNEKO_STACK_MODE = "demo";
+    try {
+      await provisionHostConfig(orgId);
+    } finally {
+      if (previousPath === undefined) delete process.env.OPENNEKO_GRAPHJIN_CONFIG;
+      else process.env.OPENNEKO_GRAPHJIN_CONFIG = previousPath;
+      if (previousMode === undefined) delete process.env.OPENNEKO_STACK_MODE;
+      else process.env.OPENNEKO_STACK_MODE = previousMode;
+    }
+
+    const [source] = await db()
+      .select({ authMode: data_source.auth_mode })
+      .from(data_source)
+      .where(eq(data_source.org_id, orgId));
+    expect(source?.authMode).toBe("jwt");
+  });
+
   it("writes hermes config under ~/.config/openneko/hermes/{orgId} when HERMES_HOME is unset", async () => {
     delete process.env.HERMES_HOME;
     await seedDataSource(orgId);

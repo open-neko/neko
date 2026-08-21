@@ -118,6 +118,11 @@ services:
         condition: service_completed_successfully
       adventureworks-init:
         condition: service_completed_successfully
+      # openneko-config-init repairs the config volume's ownership; reading
+      # config.json / the secret-key before that chown returned EACCES, which
+      # older secret-crypt turned into a destructive key regeneration.
+      openneko-config-init:
+        condition: service_completed_successfully
     environment:
       XDG_CONFIG_HOME: /config
       NEKO_PG_HOST: neko-db

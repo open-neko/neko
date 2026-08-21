@@ -67,8 +67,15 @@ const client = new pg.Client({
 
 await client.connect();
 
+// Same advisory lock as getOrgId() and graphjin-secret-init: on a fresh
+// database several processes can race to create the single org row, and
+// nothing in the schema forbids a second one.
+await client.query("begin");
+await client.query(
+  "select pg_advisory_xact_lock(hashtext('openneko.organization.bootstrap'))",
+);
 const existingOrg = await client.query(
-  "select id, name from organization order by created_at asc limit 1",
+  "select id, name from organization order by created_at asc, id asc limit 1",
 );
 let orgId = existingOrg.rows[0]?.id;
 if (!orgId) {
@@ -87,6 +94,7 @@ if (!orgId) {
 } else {
   console.log(`[seed-adventureworks] keeping existing organization ${orgId}`);
 }
+await client.query("commit");
 
 const sourceRows = await client.query(
   `select id, label
@@ -105,7 +113,8 @@ if (sourceRows.rowCount === 0) {
   await client.query(
     `insert into data_source (
        org_id, kind, graphql_url, subscription_url, mcp_url, label, auth_mode
-     ) values ($1, 'graphjin', $2, $3, $4, 'AdventureWorks', $5)`,
+     ) values ($1, 'graphjin', $2, $3, $4, 'AdventureWorks', $5)
+     on conflict (org_id, name) do nothing`,
     [orgId, ...graphjinUrls, AUTH_MODE],
   );
   console.log(
@@ -159,7 +168,8 @@ if (wizardRows.rowCount === 0) {
        priorities,
        step
      )
-     values ($1, $2, $3, $4, $5, 'company')`,
+     values ($1, $2, $3, $4, $5, 'company')
+     on conflict (org_id) do nothing`,
     [
       orgId,
       DEFAULT_COMPANY_NOTE,
@@ -178,8 +188,11 @@ if (wizardRows.rowCount === 0) {
 // produces real outputs against the AdventureWorks data within minutes
 // of first run. Idempotent: only inserts when no workflows exist yet
 // for the org, so a re-seed never clobbers operator-authored workflows.
+// Guard on operator/seed workflows only: the worker upserts its own
+// 'OpenNeko operations' system workflow on every boot, and counting it
+// here made a partially-failed first seed permanently skip the trial set.
 const wfRows = await client.query(
-  "select id from workflow_definition where org_id = $1 limit 1",
+  "select id from workflow_definition where org_id = $1 and name <> 'OpenNeko operations' limit 1",
   [orgId],
 );
 if (wfRows.rowCount === 0) {
@@ -233,13 +246,24 @@ if (wfRows.rowCount === 0) {
     );
   }
   console.log(`[seed-adventureworks] inserted ${trialWorkflows.length} trial workflows`);
+} else {
+  console.log("[seed-adventureworks] workflows already exist; leaving them unchanged");
+}
 
-  const stockWatchRows = await client.query(
-    "select id from workflow_definition where org_id = $1 and name = 'Stock Reorder Watch' limit 1",
-    [orgId],
+// Wired outside the workflow guard and self-guarded, so a first run that
+// died between the workflow insert and this point heals on the next run
+// instead of skipping forever.
+const stockWatchRows = await client.query(
+  "select id from workflow_definition where org_id = $1 and name = 'Stock Reorder Watch' limit 1",
+  [orgId],
+);
+const stockWatchWorkflowId = stockWatchRows.rows[0]?.id;
+if (stockWatchWorkflowId) {
+  const existingSub = await client.query(
+    "select id from subscription where org_id = $1 and workflow_id = $2 and source_kind = 'source_change' limit 1",
+    [orgId, stockWatchWorkflowId],
   );
-  const stockWatchWorkflowId = stockWatchRows.rows[0]?.id;
-  if (stockWatchWorkflowId) {
+  if (existingSub.rowCount === 0) {
     await client.query(
       `insert into subscription (
          org_id, workflow_id, source_kind, filter, enabled,
@@ -260,8 +284,6 @@ if (wfRows.rowCount === 0) {
     );
     console.log("[seed-adventureworks] wired Stock Reorder Watch subscription");
   }
-} else {
-  console.log("[seed-adventureworks] workflows already exist; leaving them unchanged");
 }
 
 const policyRows = await client.query(

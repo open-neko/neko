@@ -3,7 +3,7 @@ import { mkdir, chmod } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
-import { and, data_source, db, desc, eq, llm_provider_config } from "@neko/db";
+import { and, data_source, db, desc, eq, like, llm_provider_config, or } from "@neko/db";
 import { isAgentBackendId } from "./agent-backend";
 import { maybeDecryptSecret } from "./secrets";
 import {
@@ -176,7 +176,14 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
       reconcileDemoAuthMode
         ? and(
             eq(data_source.org_id, orgId),
-            eq(data_source.label, "AdventureWorks"),
+            // The seeded label ("AdventureWorks") is renamed by the setup
+            // wizard's data-source save, which permanently disabled this
+            // reconcile. The in-stack customer GraphJin URL is the stable
+            // identity of the packaged demo's source, so match either.
+            or(
+              eq(data_source.label, "AdventureWorks"),
+              like(data_source.graphql_url, "http://graphjin:8080/%"),
+            ),
           )
         : eq(data_source.org_id, orgId),
     )
