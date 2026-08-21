@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.28.4](https://github.com/open-neko/openneko/compare/v2.28.3...v2.28.4) (2026-08-21)
+
+
+### Bug Fixes
+
+* **deploy:** verify ghcr images exist before main-supervisor deploy ([4d98a18](https://github.com/open-neko/openneko/commit/4d98a18a07b1f76c4712f9624146e4eae142cc09))
+* **deploy:** verify ghcr images exist before main-supervisor deploy ([e6ef082](https://github.com/open-neko/openneko/commit/e6ef0820da3358ec810899ee07e24e5ff79ef17e))
+
 ## [2.28.3](https://github.com/open-neko/openneko/compare/v2.28.2...v2.28.3) (2026-08-21)
 
 
