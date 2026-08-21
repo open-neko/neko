@@ -298,7 +298,21 @@ services:
   graphjin-secret-init:
     image: ghcr.io/open-neko/neko-worker:${OPENNEKO_VERSION:-latest}
     working_dir: /app
-    command: ["node", "--import", "tsx/esm", "node_modules/@neko/llm/src/graphjin/init-secret.mjs"]
+    # Guarded for supervisor/image version skew: the main-supervisor deploy
+    # path pairs a supervisor (and this embedded compose) built from main
+    # with application images from the latest smoked RELEASE, which may
+    # predate the init script. Older images fall back to the worker's
+    # boot-time reconcile — the pre-secret-init behavior every released
+    # worker still carries — instead of failing the whole bring-up.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        SCRIPT=node_modules/@neko/llm/src/graphjin/init-secret.mjs
+        if [ -f "$$SCRIPT" ]; then
+          exec node --import tsx/esm "$$SCRIPT"
+        fi
+        echo "[graphjin-secret-init] image predates the embedded secret-init script; the worker reconciles the per-org JWT secret at boot instead"
     depends_on:
       neko-migrate:
         condition: service_completed_successfully
