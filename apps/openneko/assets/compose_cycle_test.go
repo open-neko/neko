@@ -122,6 +122,7 @@ func TestSourceComposeOverlaysAreAcyclic(t *testing.T) {
 		"base":           {"compose.yml"},
 		"adventureworks": {"compose.yml", "compose.adventureworks.yml"},
 		"graphjin-agent": {"compose.yml", "compose.adventureworks.yml", "compose.graphjin-agent.yml"},
+		"openshell":      {"compose.yml", "compose.openshell.yml"},
 		"openshell-host": {"compose.yml", "compose.openshell-host.yml"},
 	}
 	for name, files := range combos {

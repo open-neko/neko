@@ -1,4 +1,4 @@
-import type { AgentEvent } from "@neko/llm";
+import { ensureHostConfigProvisioned, type AgentEvent } from "@neko/llm";
 import {
   agentRuntimeDepsFromEnv,
   appendWorkRunEvent,
@@ -84,6 +84,12 @@ export async function runWorkRun(
   const pluginActions = includeRecordActionDescriptors(
     getPluginRegistryInstance()?.getRegisteredActionDescriptors() ?? [],
   );
+
+  // Same gate the workflow job runs: if the boot-time provider sync lost a
+  // race with a gateway restart, this is the retry — memoized on success, so
+  // the healthy path costs nothing. Without it, channel-triggered runs
+  // stayed broken until a settings save or a worker restart.
+  await ensureHostConfigProvisioned(orgId);
 
   const broker = await ensureAgentBroker();
   const unregisterBrokerEvents = registerAgentBrokerEventSink(runId, emit);

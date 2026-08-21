@@ -478,17 +478,35 @@ function deriveAgentEgress(
  * wire (the key never enters the box). Replaces the manual `openshell
  * provider create` + hand-set egress env.
  */
+// Operator-supplied values (compose env) win permanently; empty or unset
+// means "derive from the org's provider config". Snapshotted at module load,
+// BEFORE any provisioning pass mutates process.env — the previous `||=`
+// writes made the FIRST pass's derived values permanent, so a provider
+// switch left the sandbox egress allowlist and key env var pinned to the old
+// provider until the process restarted.
+const OPERATOR_AGENT_ENV = {
+  provider: process.env.OPENNEKO_AGENT_MODEL_PROVIDER || "",
+  host: process.env.OPENNEKO_AGENT_MODEL_HOST || "",
+  binary: process.env.OPENNEKO_AGENT_MODEL_BINARY || "",
+  keyEnv: process.env.OPENNEKO_AGENT_MODEL_KEY_ENV || "",
+  hermesHome: process.env.OPENNEKO_AGENT_HERMES_HOME || "",
+};
+
+function setAgentEnv(key: string, operator: string, derived: string): void {
+  const value = operator || derived;
+  if (value) process.env[key] = value;
+  else delete process.env[key];
+}
+
 async function provisionOpenShellRuntime(orgId: string, backend: string): Promise<void> {
   const row = await loadProviderRow(orgId, "primary");
   if (!row || !row.enabled) return;
 
   const { hosts, binary, keyEnv } = deriveAgentEgress(row, backend);
-  process.env.OPENNEKO_AGENT_MODEL_PROVIDER ||= "openneko-agent";
-  if (!process.env.OPENNEKO_AGENT_MODEL_HOST && hosts.length > 0) {
-    process.env.OPENNEKO_AGENT_MODEL_HOST = hosts.join(",");
-  }
-  process.env.OPENNEKO_AGENT_MODEL_BINARY ||= binary;
-  process.env.OPENNEKO_AGENT_MODEL_KEY_ENV ||= keyEnv;
+  setAgentEnv("OPENNEKO_AGENT_MODEL_PROVIDER", OPERATOR_AGENT_ENV.provider, "openneko-agent");
+  setAgentEnv("OPENNEKO_AGENT_MODEL_HOST", OPERATOR_AGENT_ENV.host, hosts.join(","));
+  setAgentEnv("OPENNEKO_AGENT_MODEL_BINARY", OPERATOR_AGENT_ENV.binary, binary);
+  setAgentEnv("OPENNEKO_AGENT_MODEL_KEY_ENV", OPERATOR_AGENT_ENV.keyEnv, keyEnv);
   // hermes reads its model + provider from config.yaml under HERMES_HOME. In the
   // sandbox that config must be MIRRORED in — the launcher does so when
   // OPENNEKO_AGENT_HERMES_HOME points at the host home provisionHermes writes.
@@ -496,17 +514,42 @@ async function provisionOpenShellRuntime(orgId: string, backend: string): Promis
   // default model that 404s. (claude takes the model via its backend args, so
   // it needs no hermes home.)
   if (backend !== "claude-agent") {
-    process.env.OPENNEKO_AGENT_HERMES_HOME ||= hermesHomeForOrg(orgId);
+    setAgentEnv(
+      "OPENNEKO_AGENT_HERMES_HOME",
+      OPERATOR_AGENT_ENV.hermesHome,
+      hermesHomeForOrg(orgId),
+    );
   }
 
   const apiKey = decryptSecrets(row.secrets).apiKey;
   if (!apiKey) return;
-  await ensureOpenShellProvider({
-    providerName: process.env.OPENNEKO_AGENT_MODEL_PROVIDER,
-    apiKey,
-    gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
-    gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
-  });
+  // The gateway can be restarting exactly while we register the provider
+  // (deploys recreate it alongside the worker). A single failed attempt
+  // used to be swallowed upstream, leaving a healthy worker with no
+  // provider on the gateway and every channel run broken until a restart.
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await ensureOpenShellProvider({
+        providerName: process.env.OPENNEKO_AGENT_MODEL_PROVIDER ?? "openneko-agent",
+        apiKey,
+        gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
+        gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
+      });
+      lastError = undefined;
+      break;
+    } catch (e) {
+      lastError = e;
+      if (attempt < 3) {
+        console.warn(
+          `[host-provision] OpenShell provider sync attempt ${attempt} failed; retrying: ${e instanceof Error ? e.message : e}`,
+        );
+        const base = Number(process.env.OPENNEKO_PROVISION_RETRY_BASE_MS ?? 2_000);
+        await new Promise((resolve) => setTimeout(resolve, attempt * base));
+      }
+    }
+  }
+  if (lastError !== undefined) throw lastError;
   console.log(
     `[host-provision] OpenShell agent runtime self-configured: provider="${process.env.OPENNEKO_AGENT_MODEL_PROVIDER}" egress="${hosts.join(",")}" binary="${process.env.OPENNEKO_AGENT_MODEL_BINARY}" keyEnv=${keyEnv}`,
   );

@@ -539,8 +539,44 @@ describeIfDb("provisionHostConfig", () => {
     expect(env).toBe("");
   });
 
+  it("re-derives the sandbox egress env on a provider switch", async () => {
+    await seedDataSource(orgId);
+    await seedProvider(orgId, {
+      scope: "agent",
+      provider: "hermes",
+      config: { backend: "hermes" },
+    });
+    await seedProvider(orgId, {
+      scope: "primary",
+      provider: "google-gemini",
+      model: "gemini-pro-latest",
+      secrets: { apiKey: "key-a" },
+    });
+    await provisionHostConfig(orgId);
+    const firstHost = process.env.OPENNEKO_AGENT_MODEL_HOST;
+    expect(firstHost).toBeTruthy();
+
+    // Operator switches provider; the old `||=` writes pinned the first
+    // pass's derived values for the process lifetime, leaving the egress
+    // allowlist and key env var on the previous provider.
+    await clearProvider(orgId, "primary");
+    await seedProvider(orgId, {
+      scope: "primary",
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+      secrets: { apiKey: "key-b" },
+    });
+    await provisionHostConfig(orgId);
+    expect(process.env.OPENNEKO_AGENT_MODEL_HOST).toBeTruthy();
+    expect(process.env.OPENNEKO_AGENT_MODEL_HOST).not.toBe(firstHost);
+    expect(process.env.OPENNEKO_AGENT_MODEL_KEY_ENV).toContain("ANTHROPIC");
+  });
+
   it("keeps direct provisioning best-effort when OpenShell provider sync fails", async () => {
-    ensureOpenShellProviderMock.mockRejectedValueOnce(new Error("gateway unavailable"));
+    // Persistent failure: the sync now retries in place (3 attempts) before
+    // giving up, so a single rejection would be healed by the retry.
+    process.env.OPENNEKO_PROVISION_RETRY_BASE_MS = "10";
+    ensureOpenShellProviderMock.mockRejectedValue(new Error("gateway unavailable"));
     await seedDataSource(orgId);
     await seedProvider(orgId, {
       scope: "agent",
@@ -555,10 +591,11 @@ describeIfDb("provisionHostConfig", () => {
     });
 
     await expect(provisionHostConfig(orgId)).resolves.toBeUndefined();
-    expect(ensureOpenShellProviderMock).toHaveBeenCalledTimes(1);
+    expect(ensureOpenShellProviderMock).toHaveBeenCalledTimes(3);
 
     const yaml = await readFile(join(hermesHome, "config.yaml"), "utf8");
     expect(yaml).toContain('provider: "gemini"');
+    delete process.env.OPENNEKO_PROVISION_RETRY_BASE_MS;
   });
 
   it("verifies the gateway and syncs the provider before an agent job", async () => {
@@ -610,16 +647,19 @@ describeIfDb("provisionHostConfig", () => {
         model: "gemini-pro-latest",
         secrets: { apiKey: "test-gemini-key" },
       });
-      ensureOpenShellProviderMock
-        .mockRejectedValueOnce(new Error("gateway unavailable"))
-        .mockResolvedValueOnce(undefined);
+      // Persistently down first (all 3 in-place retries fail), then back.
+      process.env.OPENNEKO_PROVISION_RETRY_BASE_MS = "10";
+      ensureOpenShellProviderMock.mockRejectedValue(new Error("gateway unavailable"));
 
       await expect(ensureHostConfigProvisioned(retryOrgId)).rejects.toThrow(
         "gateway unavailable",
       );
-      await expect(ensureHostConfigProvisioned(retryOrgId)).resolves.toBeUndefined();
+      expect(ensureOpenShellProviderMock).toHaveBeenCalledTimes(3);
 
-      expect(ensureOpenShellProviderMock).toHaveBeenCalledTimes(2);
+      ensureOpenShellProviderMock.mockResolvedValue(undefined);
+      await expect(ensureHostConfigProvisioned(retryOrgId)).resolves.toBeUndefined();
+      expect(ensureOpenShellProviderMock).toHaveBeenCalledTimes(4);
+      delete process.env.OPENNEKO_PROVISION_RETRY_BASE_MS;
     } finally {
       await deleteTestOrg(retryOrgId);
     }
