@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  and,
   db,
   eq,
+  inArray,
   onboarding_wizard,
   organization,
   processing_job,
+  sql,
 } from "@neko/db";
 import { enqueue, QUEUE } from "@neko/db/jobs";
+import { isDenied, requireAdminActor } from "@/lib/admin-auth";
 import { getOrgId } from "@/lib/db";
 import {
   AGENT_RUNTIME_UNAVAILABLE_CODE,
@@ -16,6 +20,12 @@ import {
 import { hasPrimaryProviderSetup } from "@/lib/provider-settings";
 
 export async function POST(request: NextRequest) {
+  // Same gate as /settings/finish: onboarding writes org-level state and
+  // kicks off a profile build — not something an unauthenticated visitor
+  // may do once SSO is live.
+  const allowed = await requireAdminActor();
+  if (isDenied(allowed)) return allowed;
+
   const body = await request.json();
   const {
     companyName,
@@ -64,32 +74,62 @@ export async function POST(request: NextRequest) {
     throw error;
   }
 
-  await db()
-    .update(organization)
-    .set({ name: trimmedName, updated_at: new Date() })
-    .where(eq(organization.id, orgId));
+  // One transaction for the whole submit: the wizard-row replace was a
+  // delete + insert in separate statements (org_id is the PK — two
+  // concurrent submits hit a duplicate-key 500 or lost the row), and
+  // nothing stopped a second submit from stacking a second profile-build
+  // chain. The advisory lock serializes double-clicks and client retries;
+  // the in-flight check makes the second one a no-op.
+  const outcome = await db().transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${"openneko.onboarding:" + orgId}))`,
+    );
+    const inflight = await tx
+      .select({ id: processing_job.id })
+      .from(processing_job)
+      .where(
+        and(
+          eq(processing_job.org_id, orgId),
+          eq(processing_job.kind, "business_profile_build"),
+          inArray(processing_job.status, ["queued", "running"]),
+        ),
+      )
+      .limit(1);
+    if (inflight[0]) return { inflightJobId: inflight[0].id };
 
-  await db().delete(onboarding_wizard).where(eq(onboarding_wizard.org_id, orgId));
-  await db().insert(onboarding_wizard).values({
-    org_id: orgId,
-    company_note: companyNote,
-    fiscal_year_start_month: fiscalYearStartMonth,
-    active_seats: activeSeats,
-    priorities,
-    step: "submitting",
-    submitted_at: new Date(),
+    await tx
+      .update(organization)
+      .set({ name: trimmedName, updated_at: new Date() })
+      .where(eq(organization.id, orgId));
+
+    await tx.delete(onboarding_wizard).where(eq(onboarding_wizard.org_id, orgId));
+    await tx.insert(onboarding_wizard).values({
+      org_id: orgId,
+      company_note: companyNote,
+      fiscal_year_start_month: fiscalYearStartMonth,
+      active_seats: activeSeats,
+      priorities,
+      step: "submitting",
+      submitted_at: new Date(),
+    });
+
+    const inserted = await tx
+      .insert(processing_job)
+      .values({
+        org_id: orgId,
+        kind: "business_profile_build",
+        status: "queued",
+        trigger: "wizard_submit",
+      })
+      .returning({ id: processing_job.id });
+    return { jobId: inserted[0]?.id };
   });
 
-  const inserted = await db()
-    .insert(processing_job)
-    .values({
-      org_id: orgId,
-      kind: "business_profile_build",
-      status: "queued",
-      trigger: "wizard_submit",
-    })
-    .returning({ id: processing_job.id });
-  const jobId = inserted[0]?.id;
+  if ("inflightJobId" in outcome) {
+    // A concurrent submit already queued the build; report it as ours.
+    return NextResponse.json({ ok: true, jobId: outcome.inflightJobId });
+  }
+  const jobId = outcome.jobId;
   if (!jobId) {
     return NextResponse.json(
       { error: "failed to record job" },

@@ -128,23 +128,25 @@ at the prompt) to finish at the web UI. Credential flags
 				ResearchKey:      researchKey,
 				NoResearch:       noResearch,
 			}
-			outcome, err := setup.Run(ctx, client, out, cfg)
-			if err != nil {
-				return err
-			}
+			outcome, runErr := setup.Run(ctx, client, out, cfg)
 
 			// Persist the rotated password to the host config (the source the
 			// CLI's own `neko` connection reads on later `start`/`migrate`
 			// runs). The web wizard writes it only to the in-container config
 			// volume, so without this the next host-side `neko` connection would
-			// fall back to the stale bootstrap default. The gateway itself is
-			// unaffected by the rotation — it runs on its dedicated `openshell`
-			// role (see ensureOpenShellGatewayRole), so no gateway restart is
-			// needed.
+			// fall back to the stale bootstrap default. This must happen even
+			// when a LATER wizard step failed — the remote rotation has already
+			// committed by then, and dropping it here locked the host CLI out.
+			// The gateway itself is unaffected by the rotation — it runs on its
+			// dedicated `openshell` role (see ensureOpenShellGatewayRole), so no
+			// gateway restart is needed.
 			if outcome.PasswordSet != "" {
 				if err := config.WriteLocalDatabasePasswords("", outcome.PasswordSet, outcome.PasswordSet); err != nil {
 					ui.Info(out, "warning: couldn't persist the DB password to the host config: %v", err)
 				}
+			}
+			if runErr != nil {
+				return runErr
 			}
 
 			if outcome.Configured {

@@ -58,6 +58,14 @@ async function rotateDatabaseRoles(password: string): Promise<void> {
   const records = await getWebRecordsPool().connect();
   const recordsRole = roleIdentifier(buildRecordsPoolConfig().user, "records");
   try {
+    // Session-level advisory lock held across BOTH the role rotation and
+    // the config-file write below (released in the finally). Two
+    // concurrent rotations used to interleave: ALTER order A,B but
+    // config-write order B,A left the file holding one password and the
+    // role the other — a full-stack lockout recoverable only out-of-band.
+    await metadata.query(
+      "select pg_advisory_lock(hashtext('openneko.password-rotation'))",
+    );
     await metadata.query("begin");
     await records.query("begin");
     await metadata.query(`alter role neko with password '${password}'`);
@@ -68,6 +76,12 @@ async function rotateDatabaseRoles(password: string): Promise<void> {
     // connection.
     await records.query("commit");
     await metadata.query("commit");
+    // Persist while still inside the critical section, so the file always
+    // records the password of the LAST committed rotation.
+    writeLocalConfig({
+      pg: { password },
+      recordsPg: { password },
+    });
   } catch (error) {
     await Promise.allSettled([
       records.query("rollback"),
@@ -75,6 +89,9 @@ async function rotateDatabaseRoles(password: string): Promise<void> {
     ]);
     throw error;
   } finally {
+    await metadata
+      .query("select pg_advisory_unlock(hashtext('openneko.password-rotation'))")
+      .catch(() => {});
     records.release();
     metadata.release();
   }
@@ -107,37 +124,42 @@ export async function POST(request: NextRequest) {
     }
 
     // ALTER ROLE takes a literal; we vetted the string above because Postgres
-    // does not accept a bind parameter in this DDL position.
+    // does not accept a bind parameter in this DDL position. The rotation
+    // also persists the config file inside its critical section.
     await rotateDatabaseRoles(password);
-
-    writeLocalConfig({
-      pg: { password },
-      recordsPg: { password },
-    });
 
     // Drain both pools so subsequent queries use the new password.
     await reconnectWebRecordsRuntime();
     await reconnectPool();
 
     // Tell the worker process to restart so its pg-boss singleton
-    // (created at boot with old creds) gets rebuilt. Best-effort —
-    // the worker may not be running yet during /setup, and that's fine.
+    // (created at boot with old creds) gets rebuilt. The worker may
+    // legitimately not be running yet during /setup — but a SILENT drop
+    // here left pg-boss on stale credentials with jobs quietly stalled,
+    // so the outcome is reported to the caller and logged.
+    let workerNotified = false;
     try {
       const workerAdminUrl = (process.env.WORKER_ADMIN_URL ?? "http://127.0.0.1:4100")
         .replace(/\/+$/, "");
-      await fetch(`${workerAdminUrl}/admin/reconnect`, {
+      const res = await fetch(`${workerAdminUrl}/admin/reconnect`, {
         method: "POST",
-        signal: AbortSignal.timeout(2000),
+        signal: AbortSignal.timeout(5000),
       });
+      workerNotified = res.ok;
     } catch {
-      // worker down / not yet listening / network blip — non-fatal
+      workerNotified = false;
+    }
+    if (!workerNotified) {
+      console.warn(
+        "[change-password] worker reconnect notification failed; its job runner keeps the old credentials until it restarts",
+      );
     }
 
     if (process.env.OPENNEKO_RESTART_WEB_ON_PASSWORD_CHANGE === "1") {
       setTimeout(() => process.exit(0), 250).unref();
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, workerNotified });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: message }, { status: 500 });

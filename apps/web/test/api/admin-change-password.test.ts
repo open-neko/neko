@@ -67,9 +67,13 @@ describe("admin database password rotation", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.metadata.query.mock.calls.map(([sql]) => sql)).toEqual([
+      // The advisory lock brackets rotation AND config persistence, so two
+      // concurrent rotations can't leave the file and the role divergent.
+      "select pg_advisory_lock(hashtext('openneko.password-rotation'))",
       "begin",
       "alter role neko with password 'A-safe-passphrase-2026'",
       "commit",
+      "select pg_advisory_unlock(hashtext('openneko.password-rotation'))",
     ]);
     expect(mocks.records.query.mock.calls.map(([sql]) => sql)).toEqual([
       "begin",
