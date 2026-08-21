@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 import { Pill, type PillVariant } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
 import { formatSavedShort } from "@/lib/hours-saved";
@@ -268,21 +269,19 @@ type RowButtonProps = {
 
 function RowButton({ tone, disabled, onClick, children }: RowButtonProps) {
   return (
-    <button
-      type="button"
+    <Button
+      size="sm"
+      variant={
+        tone === "primary"
+          ? "primary"
+          : tone === "destructive"
+            ? "danger"
+            : "secondary"
+      }
       disabled={disabled}
       onClick={onClick}
-      className={cn(
-        "px-3 py-1.5 rounded-lg border text-ui-body-sm font-semibold cursor-pointer",
-        "disabled:opacity-55 disabled:cursor-not-allowed",
-        !tone && "bg-card border-border text-text hover:not-disabled:border-text3",
-        tone === "primary" &&
-          "bg-accent border-accent text-white hover:not-disabled:bg-[var(--accent-hover)] hover:not-disabled:border-[var(--accent-hover)]",
-        tone === "destructive" &&
-          "bg-danger border-danger text-white hover:not-disabled:bg-[var(--danger-hover)] hover:not-disabled:border-[var(--danger-hover)]",
-      )}
     >
       {children}
-    </button>
+    </Button>
   );
 }

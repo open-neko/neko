@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { RecycledRecordSummary } from "@neko/records";
 import type { RecordOwnerIdentity } from "@/lib/records";
+import { buttonClassName } from "@/components/ui/Button";
 
 function dateLabel(value: string): string {
   const date = new Date(value);
@@ -104,7 +105,10 @@ export function RecordRecycleTable({
         </span>
         {hasMore && (
           <Link
-            className="records-page-button"
+            className={buttonClassName({
+              size: "sm",
+              className: "records-page-button",
+            })}
             href={hrefWith(base, query, {
               after: cursor,
               page: String(page + 1),

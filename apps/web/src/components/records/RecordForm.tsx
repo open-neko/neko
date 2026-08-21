@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { CheckCircle2, LoaderCircle, LockKeyhole } from "lucide-react";
 import type { RecordViewColumn } from "@neko/records";
+import { Button, buttonClassName } from "@/components/ui/Button";
 
 type SubmitResponse = {
   status?: "executed" | "queued";
@@ -367,17 +368,29 @@ export function RecordForm({
           <LockKeyhole aria-hidden="true" />
           Submitted through action policy, registry validation, and durable audit history.
         </p>
-        <Link className="records-form-cancel" href={recordId ? `${base}/${encodeURIComponent(recordId)}` : base}>
+        <Link
+          className={buttonClassName({
+            size: "sm",
+            className: "records-form-cancel",
+          })}
+          href={recordId ? `${base}/${encodeURIComponent(recordId)}` : base}
+        >
           Cancel
         </Link>
-        <button className="records-primary-action" type="submit" disabled={submitting || fields.length === 0}>
+        <Button
+          className="records-primary-action"
+          variant="primary"
+          size="sm"
+          type="submit"
+          disabled={submitting || fields.length === 0}
+        >
           {submitting ? (
             <LoaderCircle className="records-spin" aria-hidden="true" />
           ) : (
             <CheckCircle2 aria-hidden="true" />
           )}
           {submitting ? "Submitting…" : `${operation === "create" ? "Create" : "Save"} ${objectLabel.toLowerCase()}`}
-        </button>
+        </Button>
       </footer>
     </form>
   );

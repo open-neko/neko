@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircle, RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 
 export function RecordRestoreButton({
   appId,
@@ -53,9 +54,10 @@ export function RecordRestoreButton({
 
   return (
     <div className="records-restore-control">
-      <button
+      <Button
         className="records-primary-action"
-        type="button"
+        variant="primary"
+        size="sm"
         onClick={restore}
         disabled={submitting}
       >
@@ -65,7 +67,7 @@ export function RecordRestoreButton({
           <RotateCcw aria-hidden="true" />
         )}
         {submitting ? "Restoring…" : "Restore"}
-      </button>
+      </Button>
       {message && <span role="status">{message}</span>}
     </div>
   );

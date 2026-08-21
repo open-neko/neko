@@ -10,6 +10,7 @@ import { describeSchedule } from "@/lib/cron-english";
 import { formatSavedShort } from "@/lib/hours-saved";
 import { Sparkline } from "@/components/Sparkline";
 import PageHeading from "@/components/PageHeading";
+import { Button, IconButton } from "@/components/ui/Button";
 
 type WorkflowListItem = {
   id: string;
@@ -269,9 +270,8 @@ export default function WorkflowsPage() {
               <strong>{String(grouped.broken.length).padStart(2, "0")}</strong>
               <span>attention</span>
             </div>
-            <button
-              type="button"
-              className="workflows-new-btn"
+            <Button
+              variant="primary"
               onClick={() =>
                 router.push(
                   `/work?seed=${encodeURIComponent("Set up a new workflow that ")}`,
@@ -280,7 +280,7 @@ export default function WorkflowsPage() {
             >
               <Plus aria-hidden="true" />
               New workflow
-            </button>
+            </Button>
           </div>
         }
       />
@@ -564,18 +564,19 @@ function WorkflowRow({
           </div>
           </div>
         </button>
-        <button
-          type="button"
+        <IconButton
+          label={`Delete ${w.name}`}
+          size="icon-sm"
+          variant="danger"
           className="workflows-row-delete"
           title="Delete workflow"
-          aria-label={`Delete ${w.name}`}
           onClick={(event) => {
             event.stopPropagation();
             onDelete();
           }}
         >
-          <Trash2 size={14} strokeWidth={2} />
-        </button>
+          <Trash2 aria-hidden="true" strokeWidth={2} />
+        </IconButton>
       </div>
     </li>
   );
@@ -736,9 +737,9 @@ function WorkflowDetail({
   return (
     <div className="workflow-detail">
       <div className="workflow-drawer-actions">
-        <button
-          type="button"
-          className="workflow-drawer-btn is-primary"
+        <Button
+          size="sm"
+          variant="primary"
           onClick={runNow}
           disabled={busy || !workflow.enabled}
           title={
@@ -748,25 +749,23 @@ function WorkflowDetail({
           }
         >
           Run now
-        </button>
-        <button
-          type="button"
-          className="workflow-drawer-btn"
+        </Button>
+        <Button
+          size="sm"
           onClick={togglePause}
           disabled={busy}
         >
           {workflow.enabled ? "Pause" : "Resume"}
-        </button>
+        </Button>
         {workflow.enabled && (
-          <button
-            type="button"
-            className="workflow-drawer-btn"
+          <Button
+            size="sm"
             onClick={pauseForToday}
             disabled={busy}
             title="Pause until midnight UTC; resumes automatically"
           >
             Pause for today
-          </button>
+          </Button>
         )}
       </div>
 

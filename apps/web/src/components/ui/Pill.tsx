@@ -4,9 +4,9 @@ import { cn } from "@/lib/cn";
 const VARIANTS = {
   live: "bg-success/15 text-success-ink border-success/30",
   watch: "bg-watch-soft text-warn-ink border-watch/30",
-  danger: "bg-danger-soft text-danger border-transparent",
+  danger: "bg-danger-soft text-danger border-danger/15",
   muted: "bg-neutral text-text2 border-border",
-  success: "bg-success-soft text-success-mid border-transparent",
+  success: "bg-success-soft text-success-ink border-success-mid/15",
 } as const;
 
 export type PillVariant = keyof typeof VARIANTS;

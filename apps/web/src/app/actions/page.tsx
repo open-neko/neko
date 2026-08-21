@@ -18,6 +18,9 @@ import {
   parseRecordUpdatePayload,
   RecordActionDiff,
 } from "@/components/records/RecordActionDiff";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Tab, Tabs } from "@/components/ui/Tabs";
 
 type Filter = "awaiting" | "fired" | "rejected" | "all";
 
@@ -249,33 +252,27 @@ function ActionsPageInner() {
           }
         />
 
-        <div className="flex gap-1 -mt-3 mb-[18px] border-b border-border">
+        <Tabs aria-label="Review queue filter" className="-mt-2 mb-[18px]">
           {TABS.map((t) => {
             const active = filter === t.key;
             return (
-              <button
+              <Tab
                 key={t.key}
-                type="button"
-                className={cn(
-                  "font-body text-ui-body-sm font-semibold px-3.5 py-2 -mb-px border-b-2 transition-[color,border-color] duration-[120ms] ease-out cursor-pointer",
-                  active
-                    ? "text-text border-accent"
-                    : "text-text3 border-transparent hover:text-text2",
-                )}
+                selected={active}
                 onClick={() => switchFilter(t.key)}
               >
                 {t.label}
-              </button>
+              </Tab>
             );
           })}
-        </div>
+        </Tabs>
 
         {error ? (
           <div className="py-[60px] text-center text-danger text-ui-body">{error}</div>
         ) : data === null ? (
           <div className="py-[60px] text-center text-text3 text-ui-body">Loading…</div>
         ) : data.actions.length === 0 ? (
-          <EmptyState filter={filter} onBack={() => router.push("/")} />
+          <ActionsEmptyState filter={filter} onBack={() => router.push("/")} />
         ) : (
           <div className="triage-layout">
             <div className="act-list triage-queue">
@@ -435,29 +432,27 @@ function ActionReadingPane({
         )}
 
         <div className="flex items-center gap-2.5 mt-[18px] pt-4 border-t border-border">
-          <button
-            type="button"
+          <Button
+            variant="primary"
             disabled={busy}
             onClick={onApprove}
-            className="px-[18px] py-2.5 rounded-[11px] bg-accent text-white font-display font-bold text-ui-body tracking-[-0.01em] hover:bg-[#5a4cd1] disabled:opacity-50 cursor-pointer"
           >
             Approve
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="danger"
             disabled={busy}
             onClick={onReject}
-            className="px-[18px] py-2.5 rounded-[11px] border border-border text-text2 font-semibold text-ui-body hover:border-danger hover:text-danger disabled:opacity-50 cursor-pointer"
           >
             Reject
-          </button>
+          </Button>
         </div>
       </div>
     </aside>
   );
 }
 
-function EmptyState({ filter, onBack }: { filter: Filter; onBack: () => void }) {
+function ActionsEmptyState({ filter, onBack }: { filter: Filter; onBack: () => void }) {
   const copy =
     filter === "awaiting"
       ? {
@@ -479,16 +474,15 @@ function EmptyState({ filter, onBack }: { filter: Filter; onBack: () => void }) 
               sub: "Workflows haven't proposed anything yet. Once they do, the receipts live here.",
             };
   return (
-    <div className="py-20 px-5 text-center text-text3">
-      <p className="font-display text-2xl font-bold text-text tracking-[-0.01em] mb-2">{copy.line}</p>
-      <p className="text-ui-body leading-[1.5] max-w-[400px] mx-auto mb-6">{copy.sub}</p>
-      <button
-        type="button"
-        className="bg-transparent border-0 text-accent [font:inherit] text-ui-body-sm cursor-pointer p-0 hover:underline hover:[text-underline-offset:3px]"
-        onClick={onBack}
-      >
-        ← Back to dashboard
-      </button>
-    </div>
+    <EmptyState
+      title={copy.line}
+      body={copy.sub}
+      className="py-20"
+      action={
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          ← Back to dashboard
+        </Button>
+      }
+    />
   );
 }

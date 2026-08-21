@@ -2,11 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Search } from "lucide-react";
 import AppHeader from "@/components/AppHeader";
 import CreatorCredit from "@/components/CreatorCredit";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
-import { Card } from "@/components/ui/Card";
+import { ActionGroup } from "@/components/ui/ActionGroup";
+import { Button } from "@/components/ui/Button";
+import { Disclosure } from "@/components/ui/Disclosure";
+import { Input } from "@/components/ui/Field";
 import { Pill, type PillVariant } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
 
@@ -138,6 +142,7 @@ export default function RulesClient() {
     PluginActionDescriptor[]
   >([]);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -168,6 +173,17 @@ export default function RulesClient() {
     };
   }, []);
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredPolicies = policies?.filter((policy) =>
+    [
+      policy.name,
+      policy.description,
+      policy.mode,
+      ...policy.appliesToKinds,
+      ...policy.appliesToScopes,
+    ].some((value) => value.toLowerCase().includes(normalizedQuery)),
+  );
+
   return (
     <>
       <div
@@ -183,9 +199,8 @@ export default function RulesClient() {
           title="Rules"
           description="Control what agents may execute automatically, what requires review, and what is never allowed."
           actions={
-          <button
-            type="button"
-            className="px-4 py-2 rounded-full border-[1.5px] border-border bg-white/60 font-body text-sm font-semibold text-text2 cursor-pointer transition-[border-color,color,background,transform] duration-200 hover:border-accent hover:text-accent hover:bg-accent-soft hover:-translate-y-px"
+          <Button
+            variant="primary"
             onClick={() =>
               router.push(
                 `/work?seed=${encodeURIComponent("Add a new rule that ")}`,
@@ -193,9 +208,24 @@ export default function RulesClient() {
             }
           >
             + New rule
-          </button>
+          </Button>
           }
         />
+
+        <label className="relative mb-5 block max-w-[520px]">
+          <span className="sr-only">Search rules and action kinds</span>
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3.5 top-1/2 z-10 size-4 -translate-y-1/2 text-text3"
+          />
+          <Input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search rules and action kinds"
+            className="pl-10"
+          />
+        </label>
 
         {error ? (
           <div className="py-14 text-center text-sm text-danger">{error}</div>
@@ -207,6 +237,7 @@ export default function RulesClient() {
               <InstalledPluginsSection
                 descriptors={pluginDescriptors}
                 policies={policies}
+                query={query}
                 onEditPolicy={(policyId) => {
                   const policy = policies.find((p) => p.id === policyId);
                   const name = policy?.name ?? "this rule";
@@ -222,9 +253,13 @@ export default function RulesClient() {
                 No rules yet. Defaults are seeded automatically the first time a
                 workflow proposes an action that needs gating.
               </div>
+            ) : filteredPolicies?.length === 0 ? (
+              <div className="py-10 text-center text-ui-body-sm text-text2">
+                No rules match “{query}”.
+              </div>
             ) : (
-              <ul className="list-none p-0 m-0 flex flex-col gap-3.5">
-                {policies.map((p) => (
+              <ul className="list-none p-0 m-0 flex flex-col gap-2">
+                {filteredPolicies?.map((p) => (
                   <PolicyCard
                     key={p.id}
                     policy={p}
@@ -270,39 +305,17 @@ function PolicyCard({
   const limits = describeLimits(policy.limits);
 
   return (
-    <Card
-      as="li"
-      className={cn("px-5 py-4.5", !policy.enabled && "opacity-60")}
+    <Disclosure
+      title={policy.name}
+      meta={
+        <Pill variant={modePillVariant(policy.mode)}>
+          {describeMode(policy.mode)}
+        </Pill>
+      }
+      className={cn(!policy.enabled && "opacity-60")}
     >
-      <div className="flex items-center justify-between gap-3 mb-2 max-[560px]:items-start max-[560px]:flex-col">
-        <div className="min-w-0 max-w-full font-display text-ui-subsection font-bold tracking-[-0.01em] text-text [overflow-wrap:anywhere]">
-          {policy.name}
-        </div>
-        <div className="flex max-w-full items-center gap-2 flex-wrap max-[560px]:self-stretch">
-          <Pill variant={modePillVariant(policy.mode)}>
-            {describeMode(policy.mode)}
-          </Pill>
-          <button
-            type="button"
-            className="bg-transparent border-0 text-text3 cursor-pointer font-[inherit] text-xs px-1.5 py-1 hover:text-accent hover:underline underline-offset-2"
-            onClick={onOpen}
-            aria-label={`Open rule ${policy.name}`}
-          >
-            open
-          </button>
-          <button
-            type="button"
-            className="bg-transparent border-0 text-text3 cursor-pointer font-[inherit] text-xs px-1.5 py-1 hover:text-accent hover:underline underline-offset-2"
-            onClick={onEdit}
-            aria-label={`Edit rule ${policy.name}`}
-          >
-            edit
-          </button>
-        </div>
-      </div>
-
       {policy.description && (
-        <p className="text-ui-body text-text2 mt-0 mb-3 leading-[1.55]">
+        <p className="mb-3 text-ui-body text-text2 leading-[1.55]">
           {policy.description}
         </p>
       )}
@@ -324,7 +337,24 @@ function PolicyCard({
         {policy.approverRole && <Row label="Approver">{policy.approverRole}</Row>}
         {!policy.enabled && <Row label="Status">disabled</Row>}
       </dl>
-    </Card>
+      <ActionGroup align="start" className="mt-4">
+        <Button
+          size="sm"
+          onClick={onOpen}
+          aria-label={`Open rule ${policy.name}`}
+        >
+          View details
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onEdit}
+          aria-label={`Edit rule ${policy.name}`}
+        >
+          Edit in Work
+        </Button>
+      </ActionGroup>
+    </Disclosure>
   );
 }
 
@@ -372,10 +402,12 @@ function describeDefaultMode(
 function InstalledPluginsSection({
   descriptors,
   policies,
+  query,
   onEditPolicy,
 }: {
   descriptors: PluginActionDescriptor[];
   policies: Policy[];
+  query: string;
   onEditPolicy: (policyId: string) => void;
 }) {
   // descriptors are flat across plugins; the kind name itself carries
@@ -383,8 +415,13 @@ function InstalledPluginsSection({
   // committed to Option-A namespacing earlier in the design. Group
   // for display by the leading token — close enough until plugins
   // tell us their package name in the descriptor (a small follow-up).
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleDescriptors = descriptors.filter((descriptor) =>
+    [descriptor.kind, descriptor.description, pluginNameFromKind(descriptor.kind)]
+      .some((value) => value.toLowerCase().includes(normalizedQuery)),
+  );
   const groups = new Map<string, PluginActionDescriptor[]>();
-  for (const d of descriptors) {
+  for (const d of visibleDescriptors) {
     const key = pluginNameFromKind(d.kind);
     const list = groups.get(key) ?? [];
     list.push(d);
@@ -398,12 +435,13 @@ function InstalledPluginsSection({
           Installed plugins
         </h2>
         <span className="font-mono text-ui-label text-text3">
-          {descriptors.length} action kind{descriptors.length === 1 ? "" : "s"}
+          {visibleDescriptors.length} of {descriptors.length} action kind
+          {descriptors.length === 1 ? "" : "s"}
         </span>
       </div>
       <p className="text-ui-body-sm leading-[1.5] text-text2 mb-3 max-w-[640px]">
         Plugins contribute action kinds the agent can call from /work. Each
-        kind's effective approval mode comes from the rule whose
+        kind&apos;s effective approval mode comes from the rule whose
         <em> applies-to-kinds </em>
         includes it; everything else falls through to{" "}
         <code className="font-mono text-ui-caption bg-neutral px-1 rounded">
@@ -411,55 +449,64 @@ function InstalledPluginsSection({
         </code>
         . Click a kind to edit the rule that governs it.
       </p>
-      <ul className="list-none p-0 m-0 flex flex-col gap-3">
-        {[...groups.entries()].map(([groupName, kinds]) => (
-          <Card key={groupName} as="li" className="px-5 py-4">
-            <div className="font-display text-ui-label font-bold uppercase tracking-[0.1em] text-text3 mb-2">
-              {groupName}
-            </div>
-            <div className="flex flex-col gap-2">
-              {kinds.map((descriptor) => {
-                const { mode, policyId } = resolveEffectiveMode(
-                  descriptor.kind,
-                  policies,
-                );
-                return (
-                  <div
-                    key={descriptor.kind}
-                    className="flex min-w-0 items-center justify-between gap-3 px-3 py-2 rounded-[10px] bg-neutral-soft max-[640px]:items-stretch max-[640px]:flex-col"
-                  >
-                    <div className="flex flex-col gap-0.5 min-w-0">
-                      <code className="font-mono text-ui-caption text-text [overflow-wrap:anywhere]">
-                        {descriptor.kind}
-                      </code>
-                      <span className="text-ui-caption text-text3 truncate max-[640px]:whitespace-normal max-[640px]:[overflow-wrap:anywhere]">
-                        {descriptor.description}
-                      </span>
-                    </div>
-                    <div className="flex min-w-0 items-center justify-end gap-2 flex-wrap max-[640px]:justify-start">
-                      <Pill variant={modePillVariant(mode)}>
-                        {describeMode(mode)}
-                      </Pill>
-                      <span className="min-w-0 text-ui-label text-text3 [overflow-wrap:anywhere]">
-                        {describeDefaultMode(descriptor.default_mode)}
-                      </span>
-                      {policyId ? (
-                        <button
-                          type="button"
-                          onClick={() => onEditPolicy(policyId)}
-                          className="text-ui-label font-semibold text-text2 hover:text-accent bg-transparent border-0 p-0 cursor-pointer"
-                        >
-                          edit rule →
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        ))}
-      </ul>
+      {groups.size === 0 ? (
+        <div className="border-y border-border py-8 text-center text-ui-body-sm text-text2">
+          No plugin action kinds match “{query}”.
+        </div>
+      ) : (
+        <ul className="list-none p-0 m-0 flex flex-col gap-2">
+          {[...groups.entries()].map(([groupName, kinds]) => (
+            <li key={groupName}>
+              <Disclosure
+                title={groupName}
+                meta={`${kinds.length} kind${kinds.length === 1 ? "" : "s"}`}
+                open={normalizedQuery ? true : undefined}
+              >
+                <div className="flex flex-col gap-2">
+                  {kinds.map((descriptor) => {
+                    const { mode, policyId } = resolveEffectiveMode(
+                      descriptor.kind,
+                      policies,
+                    );
+                    return (
+                      <div
+                        key={descriptor.kind}
+                        className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-1 py-2.5 last:border-0 max-[640px]:items-stretch max-[640px]:flex-col"
+                      >
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          <code className="font-mono text-ui-caption text-text [overflow-wrap:anywhere]">
+                            {descriptor.kind}
+                          </code>
+                          <span className="text-ui-caption text-text3 max-[640px]:whitespace-normal [overflow-wrap:anywhere]">
+                            {descriptor.description}
+                          </span>
+                        </div>
+                        <div className="flex min-w-0 items-center justify-end gap-2 flex-wrap max-[640px]:justify-start">
+                          <Pill variant={modePillVariant(mode)}>
+                            {describeMode(mode)}
+                          </Pill>
+                          <span className="min-w-0 text-ui-label text-text3 [overflow-wrap:anywhere]">
+                            {describeDefaultMode(descriptor.default_mode)}
+                          </span>
+                          {policyId ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onEditPolicy(policyId)}
+                            >
+                              edit rule →
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Disclosure>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

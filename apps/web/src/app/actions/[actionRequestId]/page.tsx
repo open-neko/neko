@@ -11,6 +11,7 @@ import {
   parseRecordUpdatePayload,
   RecordActionDiff,
 } from "@/components/records/RecordActionDiff";
+import { Button } from "@/components/ui/Button";
 
 function actionStatusClasses(status: string): string {
   switch (status) {
@@ -257,14 +258,14 @@ export default function ActionPage() {
             .filter(Boolean)
             .join(" · ")}
           actions={
-            <button
-              type="button"
-              className="shrink-0 px-3.5 py-[7px] rounded-full border-[1.5px] border-border bg-white/60 font-body text-ui-body-sm font-semibold text-text2 cursor-pointer transition hover:border-accent hover:text-accent hover:bg-accent-soft"
+            <Button
+              size="sm"
+              className="shrink-0"
               onClick={askFollowUp}
               title="Open an Ask thread pre-loaded with this action's context"
             >
               Ask a follow-up →
-            </button>
+            </Button>
           }
         />
 
@@ -429,17 +430,16 @@ export default function ActionPage() {
                   rows={2}
                 />
                 <div className="flex gap-2 mt-2.5">
-                  <button
-                    type="button"
-                    className="px-3.5 py-[7px] rounded-[10px] border border-danger bg-danger text-white font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:bg-[#c84545] hover:enabled:border-[#c84545] disabled:opacity-55 disabled:cursor-not-allowed"
+                  <Button
+                    variant="danger"
+                    size="sm"
                     disabled={busy}
                     onClick={() => void submitReject()}
                   >
                     Confirm reject
-                  </button>
-                  <button
-                    type="button"
-                    className="px-3.5 py-[7px] rounded-[10px] border border-border bg-card text-text font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:border-text3 disabled:opacity-55 disabled:cursor-not-allowed"
+                  </Button>
+                  <Button
+                    size="sm"
                     disabled={busy}
                     onClick={() => {
                       setRejecting(false);
@@ -447,27 +447,27 @@ export default function ActionPage() {
                     }}
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (
               <div className="flex gap-2 mt-2.5">
-                <button
-                  type="button"
-                  className="px-3.5 py-[7px] rounded-[10px] border border-accent bg-accent text-white font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:bg-[#5a4cd1] hover:enabled:border-[#5a4cd1] disabled:opacity-55 disabled:cursor-not-allowed"
+                <Button
+                  variant="primary"
+                  size="sm"
                   disabled={busy}
                   onClick={() => void submitDecision("approve")}
                 >
                   Approve
-                </button>
-                <button
-                  type="button"
-                  className="px-3.5 py-[7px] rounded-[10px] border border-border bg-card text-text font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:border-text3 disabled:opacity-55 disabled:cursor-not-allowed"
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
                   disabled={busy}
                   onClick={() => setRejecting(true)}
                 >
                   Reject
-                </button>
+                </Button>
               </div>
             )}
           </Section>

@@ -9,6 +9,7 @@ import AppHeader from "@/components/AppHeader";
 import CreatorCredit from "@/components/CreatorCredit";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
+import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 
 type RunDetailPayload = {
@@ -359,15 +360,15 @@ export default function RunPage() {
           meta={run.status.replace(/_/g, " ")}
           description={`${formatRunTimestamp(run.startedAt ?? run.createdAt)} · ${formatTrigger(run.triggerKind)} · ${formatDuration(durationMs)}`}
           actions={
-            <button
-              type="button"
-              className="run-followup-btn"
+            <Button
+              size="sm"
+              className="run-followup-control"
               onClick={askFollowUp}
               title="Open an Ask thread pre-loaded with this run's context"
             >
               <MessageCircle aria-hidden="true" />
               <span>Ask about this run</span>
-            </button>
+            </Button>
           }
         />
 
@@ -433,9 +434,14 @@ export default function RunPage() {
                         <span>{formatTaxonomy(o.topic)}</span>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      className="run-finding-pin"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        "run-finding-pin-control",
+                        pinnedOutputIds.has(o.id) &&
+                          "disabled:text-success-mid disabled:opacity-100",
+                      )}
                       disabled={
                         pinningOutputId === o.id || pinnedOutputIds.has(o.id)
                       }
@@ -454,7 +460,7 @@ export default function RunPage() {
                             ? "Pinning…"
                             : "Pin to briefing"}
                       </span>
-                    </button>
+                    </Button>
                   </footer>
                 </li>
               ))}
@@ -522,42 +528,41 @@ export default function RunPage() {
                         rows={2}
                       />
                       <div className="flex gap-2 mt-2.5">
-                        <button
-                          type="button"
-                          className="px-3.5 py-[7px] rounded-control border border-danger bg-danger text-white font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:bg-[var(--danger-hover)] hover:enabled:border-[var(--danger-hover)] disabled:opacity-55 disabled:cursor-not-allowed"
+                        <Button
+                          variant="danger"
+                          size="sm"
                           disabled={actionBusyId === a.id}
                           onClick={() => void submitReject()}
                         >
                           Confirm reject
-                        </button>
-                        <button
-                          type="button"
-                          className="px-3.5 py-[7px] rounded-[10px] border border-border bg-card text-text font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:border-text3 disabled:opacity-55 disabled:cursor-not-allowed"
+                        </Button>
+                        <Button
+                          size="sm"
                           disabled={actionBusyId === a.id}
                           onClick={cancelReject}
                         >
                           Cancel
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   ) : a.status === "pending_approval" ? (
                     <div className="flex gap-2 mt-2.5">
-                      <button
-                        type="button"
-                        className="px-3.5 py-[7px] rounded-control border border-accent bg-accent text-white font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:bg-[var(--accent-hover)] hover:enabled:border-[var(--accent-hover)] disabled:opacity-55 disabled:cursor-not-allowed"
+                      <Button
+                        variant="primary"
+                        size="sm"
                         disabled={actionBusyId === a.id}
                         onClick={() => void actOnRequest(a.id, "approve")}
                       >
                         Approve
-                      </button>
-                      <button
-                        type="button"
-                        className="px-3.5 py-[7px] rounded-[10px] border border-border bg-card text-text font-body text-ui-body-sm font-semibold cursor-pointer hover:enabled:border-text3 disabled:opacity-55 disabled:cursor-not-allowed"
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
                         disabled={actionBusyId === a.id}
                         onClick={() => setRejectingId(a.id)}
                       >
                         Reject
-                      </button>
+                      </Button>
                     </div>
                   ) : null}
                   {a.status === "rejected" && a.rejectionReason && (
@@ -640,15 +645,16 @@ export default function RunPage() {
                     </span>
                   </p>
                   {lineage.upstream.workflowRunId && (
-                    <button
-                      type="button"
-                      className="mt-2 bg-transparent border-0 text-accent cursor-pointer font-inherit text-ui-body-sm p-0 hover:underline hover:underline-offset-[3px]"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2"
                       onClick={() =>
                         router.push(`/runs/${lineage.upstream!.workflowRunId}`)
                       }
                     >
                       open upstream run →
-                    </button>
+                    </Button>
                   )}
                 </div>
               )}

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import EntryShell from "@/components/EntryShell";
 import { toast } from "sonner";
 import Select from "@/components/Select";
+import { Button } from "@/components/ui/Button";
 
 // Quick-pick suggestions only — seats are free text (CV3 personas). A
 // custom role flows through metrics, briefing tabs, and the persona
@@ -194,14 +195,14 @@ export default function OnboardingWizard({
             </Field>
           </div>
           <div className="entry-actions is-end">
-            <button
-              type="button"
-              className="entry-button is-primary"
+            <Button
+              variant="primary"
+              size="lg"
               disabled={!companyName.trim() || !companyNote.trim()}
               onClick={() => setStep(1)}
             >
               Continue
-            </button>
+            </Button>
           </div>
         </>
       ) : null}
@@ -245,28 +246,27 @@ export default function OnboardingWizard({
                 }}
                 aria-label="Add a custom decision-maker seat"
               />
-              <button
-                type="button"
+              <Button
+                size="lg"
                 onClick={addCustomSeat}
                 disabled={!customSeat.trim()}
-                className="entry-button"
               >
                 Add role
-              </button>
+              </Button>
             </div>
           </fieldset>
           <div className="entry-actions">
-            <button type="button" className="entry-button" onClick={() => setStep(0)}>
+            <Button size="lg" onClick={() => setStep(0)}>
               Back
-            </button>
-            <button
-              type="button"
-              className="entry-button is-primary"
+            </Button>
+            <Button
+              variant="primary"
+              size="lg"
               disabled={seats.length === 0}
               onClick={() => setStep(2)}
             >
               Continue
-            </button>
+            </Button>
           </div>
         </>
       ) : null}
@@ -302,22 +302,21 @@ export default function OnboardingWizard({
             ) : null}
           </div>
           <div className="entry-actions">
-            <button
-              type="button"
-              className="entry-button"
+            <Button
+              size="lg"
               disabled={submitting}
               onClick={() => setStep(teamMode ? 0 : 1)}
             >
               Back
-            </button>
-            <button
-              type="button"
-              className="entry-button is-primary"
+            </Button>
+            <Button
+              variant="primary"
+              size="lg"
               disabled={!canSubmit}
               onClick={() => void submit()}
             >
               {submitting ? "Building workspace…" : "Build workspace"}
-            </button>
+            </Button>
           </div>
         </>
       ) : null}

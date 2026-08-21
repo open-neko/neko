@@ -16,6 +16,7 @@ import type {
   RecordImportAdminObject,
   RecordImportRunSummary,
 } from "@/lib/records-imports";
+import { Button } from "@/components/ui/Button";
 
 type ApiResponse = {
   error?: string;
@@ -296,10 +297,16 @@ export function RecordImportPanel({
             CSV file
             <input name="file" type="file" accept=".csv,text/csv" required />
           </label>
-          <button className="records-primary-action" type="submit" disabled={previewing || !objectApiName}>
+          <Button
+            className="records-primary-action"
+            variant="primary"
+            size="sm"
+            type="submit"
+            disabled={previewing || !objectApiName}
+          >
             {previewing ? <LoaderCircle className="records-spin" aria-hidden="true" /> : <Upload aria-hidden="true" />}
             {previewing ? "Inspecting…" : "Review mapping"}
-          </button>
+          </Button>
           </form>
         ) : (
           <section className="records-import-principles">
@@ -374,10 +381,16 @@ export function RecordImportPanel({
               <p>
                 <LockKeyhole aria-hidden="true" /> Insert-only. Existing keys are reported, never overwritten.
               </p>
-              <button className="records-primary-action" type="button" onClick={startImport} disabled={starting}>
+              <Button
+                className="records-primary-action"
+                variant="primary"
+                size="sm"
+                onClick={startImport}
+                disabled={starting}
+              >
                 {starting ? <LoaderCircle className="records-spin" aria-hidden="true" /> : <CheckCircle2 aria-hidden="true" />}
                 {starting ? "Approving…" : `Approve and import ${plan.rowCount.toLocaleString("en")} rows`}
-              </button>
+              </Button>
             </footer>
           </section>
         )}
@@ -444,10 +457,15 @@ export function RecordImportPanel({
               <p className="records-import-error">{String(activeRun.error.message ?? "Import failed.")}</p>
             )}
             {["planned", "running"].includes(activeRun.status) && (
-              <button className="records-import-cancel" type="button" onClick={cancelImport} disabled={cancelling}>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={cancelImport}
+                disabled={cancelling}
+              >
                 {cancelling ? <LoaderCircle className="records-spin" aria-hidden="true" /> : <Ban aria-hidden="true" />}
                 {cancelling ? "Cancelling…" : "Cancel at batch boundary"}
-              </button>
+              </Button>
             )}
           </section>
         ) : (

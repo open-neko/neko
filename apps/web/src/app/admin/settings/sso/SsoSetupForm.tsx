@@ -6,21 +6,13 @@ import AppHeader from "@/components/AppHeader";
 import CreatorCredit from "@/components/CreatorCredit";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import type {
   SsoEnvironmentRow,
   SsoOrganizationRow,
   SsoSetupStatus,
   SsoSetupStatusResult,
 } from "@/lib/sso-setup";
-
-const STATUS_LABEL: Record<SsoSetupStatus, string> = {
-  not_started: "Not started",
-  awaiting_portal: "Waiting for the IdP",
-  polling: "Checking the connection",
-  connected: "Connected",
-  failed: "Failed",
-};
 
 const HELP_CLS = "text-ui-body-sm text-text3 leading-[1.45]";
 const INPUT_CLS =
@@ -174,7 +166,11 @@ export default function SsoSetupForm({
   // When the environment picker changes, refresh the organization list.
   useEffect(() => {
     if (envOptions.length > 0 && environmentId) {
-      void loadOrganizations(environmentId);
+      const initial = window.setTimeout(
+        () => void loadOrganizations(environmentId),
+        0,
+      );
+      return () => window.clearTimeout(initial);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [environmentId, envOptions.length]);
@@ -370,12 +366,11 @@ export default function SsoSetupForm({
                   Opens Scalekit in your browser. Sign in or create the account
                   there; the consent screen names the scopes and endpoint.
                 </p>
-                <a
+                <ButtonLink
                   href="/api/integrations/connect/%40open-neko%2Fplugin-scalekit/start?returnTo=%2Fadmin%2Fsettings%2Fsso"
-                  className="inline-flex"
                 >
-                  <Button type="button">Connect Scalekit workspace</Button>
-                </a>
+                  Connect Scalekit workspace
+                </ButtonLink>
               </>
             )}
           </div>
@@ -527,7 +522,7 @@ export default function SsoSetupForm({
                   >
                     {autofilling ? "Fetching…" : "Auto-fill from Scalekit"}
                   </Button>
-                  <a
+                  <ButtonLink
                     href={
                       environmentId
                         ? `https://app.scalekit.com/ws/environments/${encodeURIComponent(environmentId)}/settings/api-credentials`
@@ -535,12 +530,9 @@ export default function SsoSetupForm({
                     }
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex"
                   >
-                    <Button type="button" variant="secondary">
-                      Find the secret in Scalekit ↗
-                    </Button>
-                  </a>
+                    Find the secret in Scalekit ↗
+                  </ButtonLink>
                   <input
                     className={`${INPUT_CLS} flex-1 min-w-[220px]`}
                     placeholder="https://your-app.scalekit.com"
@@ -594,9 +586,9 @@ export default function SsoSetupForm({
               <>
                 <p className={HELP_CLS}>
                   Optional for the trial — sign-in already works through
-                  Scalekit's hosted login. Generate a portal link to connect
-                  your company's own IdP (Okta, Entra ID…): open it, follow the
-                  guided setup, and the agent polls the connection until it's
+                  Scalekit’s hosted login. Generate a portal link to connect
+                  your company’s own IdP (Okta, Entra ID…): open it, follow the
+                  guided setup, and the agent polls the connection until it’s
                   live.
                 </p>
                 {status?.portalLink ? (
@@ -612,9 +604,13 @@ export default function SsoSetupForm({
                       <Button type="button" variant="secondary" onClick={copyLink}>
                         Copy
                       </Button>
-                      <a href={status.portalLink} target="_blank" rel="noreferrer">
-                        <Button type="button">Open</Button>
-                      </a>
+                      <ButtonLink
+                        href={status.portalLink}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open
+                      </ButtonLink>
                     </div>
                   </div>
                 ) : null}

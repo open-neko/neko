@@ -56,3 +56,67 @@ test("non-CRM adversarial fixture stays generic and visually stable", async ({ p
     "support-adversarial-table-tail.png",
   );
 });
+
+for (const viewport of [
+  { name: "tablet", width: 900, height: 1_100 },
+  { name: "phone", width: 390, height: 844 },
+] as const) {
+  test(`generated record pages stay inside the ${viewport.name} viewport`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/a/support_lab/support_case", {
+      waitUntil: "networkidle",
+    });
+
+    const heading = page.getByRole("heading", {
+      name: "Customer support requests requiring coordinated investigation across fulfillment, billing, and field service teams",
+    });
+    await expect(heading).toBeVisible();
+
+    const layout = await page.evaluate(() => {
+      const title = document.querySelector<HTMLElement>(
+        ".records-object-title h1",
+      );
+      const tableScroll = document.querySelector<HTMLElement>(
+        ".records-table-scroll",
+      );
+      const titleStyle = title ? getComputedStyle(title) : null;
+      const titleRect = title?.getBoundingClientRect();
+      const sharedControls = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          ":where([data-ui-button], .ui-button)",
+        ),
+      )
+        .filter((element) => {
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return style.display !== "none" && rect.width > 0 && rect.height > 0;
+        })
+        .map((element) => Math.round(element.getBoundingClientRect().height));
+
+      return {
+        viewportWidth: document.documentElement.clientWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        titleRight: titleRect?.right ?? 0,
+        titleLeft: titleRect?.left ?? 0,
+        titleOverflow: titleStyle?.overflow,
+        titleTextOverflow: titleStyle?.textOverflow,
+        tableOverflowX: tableScroll ? getComputedStyle(tableScroll).overflowX : null,
+        sharedControls,
+      };
+    });
+
+    expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth + 1);
+    expect(layout.titleLeft).toBeGreaterThanOrEqual(0);
+    expect(layout.titleRight).toBeLessThanOrEqual(layout.viewportWidth + 1);
+    expect(layout.titleOverflow).not.toBe("hidden");
+    expect(layout.titleTextOverflow).not.toBe("ellipsis");
+    expect(layout.tableOverflowX).toBe("auto");
+
+    if (viewport.name === "phone") {
+      expect(layout.sharedControls.length).toBeGreaterThan(0);
+      expect(Math.min(...layout.sharedControls)).toBeGreaterThanOrEqual(44);
+    }
+  });
+}

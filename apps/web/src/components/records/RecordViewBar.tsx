@@ -10,6 +10,7 @@ import {
   RecordFilterBuilder,
   type RecordFilterField,
 } from "./RecordFilterBuilder";
+import { Button } from "@/components/ui/Button";
 
 function hrefWith(base: string, current: Record<string, string | undefined>, mine: boolean) {
   const params = new URLSearchParams();
@@ -62,7 +63,7 @@ export function RecordViewBar({
             </option>
           ))}
         </select>
-        <button type="submit">Open</button>
+        <Button size="sm" type="submit">Open</Button>
       </form>
       {query.q && (
         <span className="records-filter-chip">
@@ -103,14 +104,19 @@ export function RecordViewBar({
               Share with this organization
             </label>
           )}
-          <button type="submit">Save</button>
+          <Button variant="primary" size="sm" type="submit">Save</Button>
         </form>
       </details>
       {selectedView && (!selectedView.shared || canShare) && (
         <form action={`${endpoint}/${selectedView.id}`} method="post">
-          <button className="records-view-delete" type="submit" aria-label={`Delete ${selectedView.label}`}>
+          <Button
+            variant="danger"
+            size="sm"
+            type="submit"
+            aria-label={`Delete ${selectedView.label}`}
+          >
             Delete view
-          </button>
+          </Button>
         </form>
       )}
       {ownerScoped && (

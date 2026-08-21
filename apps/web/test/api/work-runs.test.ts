@@ -16,7 +16,6 @@ import {
   uniqueOrgId,
 } from "@neko/db/test-helpers";
 import {
-  and,
   db,
   eq,
   pool,

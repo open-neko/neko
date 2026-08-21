@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import EntryShell from "@/components/EntryShell";
+import { Button } from "@/components/ui/Button";
 
 interface ProviderInfo {
   pluginName: string;
@@ -101,11 +102,11 @@ function SignInBody() {
                 : `Helps ${provider.providerLabel} route you to the correct identity provider.`}
             </span>
           </label>
-          <button type="submit" className="entry-button is-primary is-wide">
+          <Button type="submit" variant="primary" size="lg" className="w-full">
             {provider.loginHintRequired
               ? "Email me a sign-in link"
               : `Sign in with ${provider.providerLabel}`}
-          </button>
+          </Button>
           <p className="entry-provider-note">
             Provided by <code>{provider.pluginName}</code>
           </p>

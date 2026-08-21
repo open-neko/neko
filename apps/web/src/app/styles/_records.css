@@ -51,29 +51,6 @@
   line-height: var(--leading-body);
 }
 
-.apps-overview-create {
-  min-height: 38px;
-  padding: 9px 13px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  flex: none;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-control);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: var(--type-body-sm);
-  font-weight: 700;
-  text-decoration: none;
-  transition: background 150ms ease, transform 150ms ease;
-}
-
-.apps-overview-create:hover {
-  background: var(--accent-hover);
-  transform: translateY(-1px);
-}
-
 .apps-overview-create svg {
   width: 14px;
   height: 14px;
@@ -243,13 +220,6 @@
   color: var(--text2);
   font-size: var(--type-body);
   line-height: var(--leading-body);
-}
-
-.apps-overview-empty > a:not(.apps-overview-create) {
-  margin-top: 18px;
-  color: var(--accent);
-  font-size: var(--type-body-sm);
-  font-weight: 750;
 }
 
 .apps-overview-empty > .apps-overview-create {
@@ -801,36 +771,6 @@
   font-size: var(--type-body);
 }
 
-.records-primary-action,
-.records-secondary-action,
-.records-page-button {
-  min-height: 36px;
-  padding: 7px 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-control);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: var(--type-body-sm);
-  font-weight: 750;
-  line-height: 1;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.records-primary-action:hover {
-  background: var(--accent-hover);
-}
-
-.records-primary-action svg,
-.records-secondary-action svg {
-  width: 14px;
-  height: 14px;
-}
-
 .records-viewbar {
   min-height: 58px;
   padding: 11px 0 9px;
@@ -874,7 +814,6 @@
 }
 
 .records-view-picker select,
-.records-view-picker button,
 .records-view-save > summary {
   min-height: 30px;
   padding: 5px 9px;
@@ -888,7 +827,6 @@
   font-weight: 750;
 }
 
-.records-view-picker button,
 .records-view-save > summary {
   cursor: pointer;
 }
@@ -994,20 +932,6 @@
   background: var(--bg);
   color: var(--text);
   font: inherit;
-}
-
-.records-filter-builder button,
-.records-view-save button,
-.records-view-delete {
-  min-height: 30px;
-  padding: 5px 10px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-control);
-  background: var(--accent);
-  color: white;
-  cursor: pointer;
-  font-size: var(--type-body-sm);
-  font-weight: 750;
 }
 
 .records-home-header {
@@ -1602,16 +1526,7 @@
 }
 
 .records-page-button {
-  min-height: 30px;
   margin-left: auto;
-  border-color: var(--border);
-  background: var(--card);
-  color: var(--text2);
-}
-
-.records-page-button:hover {
-  border-color: var(--text3);
-  color: var(--text);
 }
 
 .records-empty {
@@ -1767,9 +1682,6 @@
 
 .records-secondary-action {
   margin-left: auto;
-  border-color: var(--border);
-  background: var(--card);
-  color: var(--text);
 }
 
 .records-object-header .records-secondary-action {
@@ -2505,19 +2417,6 @@
   color: var(--success-mid);
 }
 
-.records-form-cancel {
-  padding: 8px 10px;
-  color: var(--text2);
-  font-size: var(--type-body-sm);
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.records-primary-action:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
 .records-admin-nav {
   margin-left: auto;
   padding: 3px;
@@ -2681,8 +2580,7 @@
   gap: 6px;
 }
 
-.records-identity-backfill select,
-.records-identity-backfill button {
+.records-identity-backfill select {
   min-height: 32px;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
@@ -2695,29 +2593,6 @@
   outline: 0;
   background: var(--card);
   color: var(--text2);
-}
-
-.records-identity-backfill button {
-  padding: 6px 9px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  background: var(--card);
-  color: var(--text);
-  font-weight: 750;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.records-identity-backfill button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.records-identity-backfill button svg {
-  width: 12px;
-  height: 12px;
 }
 
 .records-identity-backfill > span {
@@ -2895,8 +2770,7 @@
   gap: 6px;
 }
 
-.records-identity-control select,
-.records-identity-control button {
+.records-identity-control select {
   min-height: 32px;
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
@@ -2918,32 +2792,6 @@
 .records-identity-control select:focus {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-soft) 80%, transparent);
-}
-
-.records-identity-control button {
-  padding: 6px 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  background: var(--accent);
-  color: var(--on-accent);
-  cursor: pointer;
-}
-
-.records-identity-control button.is-quiet {
-  background: var(--card);
-  color: var(--text2);
-}
-
-.records-identity-control button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.records-identity-control button svg {
-  width: 11px;
-  height: 11px;
 }
 
 .records-identity-control > span {
@@ -3328,26 +3176,6 @@
   color: var(--danger);
   font-size: var(--type-caption);
   line-height: 1.4;
-}
-
-.records-import-cancel {
-  min-height: 34px;
-  margin-top: 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--card);
-  color: var(--text2);
-  font-size: var(--type-body-sm);
-  font-weight: 750;
-}
-
-.records-import-cancel svg {
-  width: 13px;
-  height: 13px;
 }
 
 .records-import-principles > svg {

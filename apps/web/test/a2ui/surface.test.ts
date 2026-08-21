@@ -272,7 +272,7 @@ describe("bodyChildIds", () => {
   });
 
   it("falls back to top-level orphans without repeating nested form controls", () => {
-    let surfaces = applyMessage(new Map(), {
+    const surfaces = applyMessage(new Map(), {
       version: "v1.0",
       createSurface: {
         surfaceId: "source-form",

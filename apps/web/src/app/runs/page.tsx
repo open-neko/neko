@@ -7,6 +7,7 @@ import CreatorCredit from "@/components/CreatorCredit";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import { cn } from "@/lib/cn";
+import { Segment, SegmentedControl } from "@/components/ui/Tabs";
 
 type StatusFilter = "active" | "completed" | "failed" | "all";
 
@@ -75,7 +76,7 @@ function statusLabel(status: string): string {
 function statusClass(status: string): string {
   switch (status) {
     case "completed":
-      return "bg-success-soft text-success-mid";
+      return "bg-success-soft text-success-ink";
     case "failed":
     case "cancelled":
       return "bg-danger-soft text-danger";
@@ -145,7 +146,8 @@ function RunsPageInner() {
   }, [filter]);
 
   useEffect(() => {
-    void load();
+    const initialLoadId = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(initialLoadId);
   }, [load]);
 
   useEffect(() => {
@@ -181,23 +183,17 @@ function RunsPageInner() {
           meta={data ? `${data.runs.length} shown` : undefined}
         />
 
-        <div className="flex gap-1.5 flex-wrap mb-5">
+        <SegmentedControl aria-label="Run status filter" className="mb-5">
           {TABS.map((tab) => (
-            <button
+            <Segment
               key={tab.key}
-              type="button"
+              selected={filter === tab.key}
               onClick={() => switchFilter(tab.key)}
-              className={cn(
-                "px-3.5 py-1.5 rounded-full border font-body text-ui-body-sm font-semibold cursor-pointer transition",
-                filter === tab.key
-                  ? "bg-text text-bg border-text"
-                  : "bg-white/60 text-text2 border-border hover:border-accent hover:text-accent hover:bg-accent-soft",
-              )}
             >
               {tab.label}
-            </button>
+            </Segment>
           ))}
-        </div>
+        </SegmentedControl>
 
         {error ? (
           <div className="py-[50px] text-center text-sm text-danger">

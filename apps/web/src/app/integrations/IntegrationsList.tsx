@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import AppHeader from "@/components/AppHeader";
 import PageHeading from "@/components/PageHeading";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 
 type Row = {
   pluginId: string;
@@ -95,12 +95,11 @@ export default function IntegrationsList({ initial }: { initial: InitialState })
             {busy === row.pluginName ? "…" : "Disconnect"}
           </Button>
         ) : (
-          <a
+          <ButtonLink
             href={`/api/integrations/connect/${encodeURIComponent(row.pluginName)}/start`}
-            className="inline-flex"
           >
-            <Button>Connect</Button>
-          </a>
+            Connect
+          </ButtonLink>
         )}
       </li>
     );

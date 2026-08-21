@@ -787,7 +787,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   height: 36px;
   padding-inline: 15px 13px;
   border: 1px solid var(--text);
-  border-radius: 2px 12px 2px 12px;
+  border-radius: var(--radius-control);
   background: var(--success);
   color: var(--success-ink);
   box-shadow: none;
@@ -801,7 +801,7 @@ html[data-density="compact"] .operations-root .operations-layout {
 
 .work-command-surface .work-send-btn:disabled {
   border-color: var(--border);
-  border-radius: 2px 12px 2px 12px;
+  border-radius: var(--radius-control);
   background: var(--neutral);
 }
 
@@ -2149,14 +2149,15 @@ html[data-density="compact"] .operations-root .operations-layout {
 
 .work-command-head h1 {
   max-width: none;
-  overflow: hidden;
+  overflow: visible;
   color: var(--text);
   font-size: var(--type-page);
   font-weight: 800;
   letter-spacing: -0.025em;
   line-height: var(--leading-page);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .work-command-head p {
@@ -2188,7 +2189,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   gap: 7px;
   padding: 8px 12px;
   border: 1px solid var(--border);
-  border-radius: 3px 11px 3px 11px;
+  border-radius: var(--radius-control);
   background: var(--card);
   color: var(--text2);
   font: inherit;
@@ -2469,6 +2470,12 @@ html[data-density="compact"] .operations-root .operations-layout {
 }
 
 @media (max-width: 680px) {
+  .work-command-surface {
+    min-height: calc(
+      100svh - var(--phone-dock-offset) - env(safe-area-inset-bottom, 0px)
+    );
+  }
+
   .work-command-head {
     min-height: 62px;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -2494,7 +2501,7 @@ html[data-density="compact"] .operations-root .operations-layout {
   }
 
   .work-command-action {
-    min-height: 40px;
+    min-height: var(--control-touch);
     padding-inline: 10px;
   }
 
@@ -2504,10 +2511,11 @@ html[data-density="compact"] .operations-root .operations-layout {
   }
 
   .work-transcript {
-    padding: 25px 0 28px;
+    padding: 25px 0 14px;
   }
 
   .work-empty {
+    grid-template-columns: minmax(0, 1fr);
     gap: 26px;
   }
 
@@ -2523,6 +2531,23 @@ html[data-density="compact"] .operations-root .operations-layout {
     min-height: 70px;
   }
 
+  .work-command-surface > .work-composer {
+    bottom: calc(
+      var(--phone-dock-offset) + env(safe-area-inset-bottom, 0px)
+    );
+  }
+
+  .work-command-surface .work-icon-btn,
+  .work-command-surface .work-send-btn {
+    min-width: var(--control-touch);
+    height: var(--control-touch);
+    min-height: var(--control-touch);
+  }
+
+  .work-command-surface .work-icon-btn {
+    width: var(--control-touch);
+  }
+
   .work-history-scrim {
     left: 0;
   }
@@ -2530,6 +2555,33 @@ html[data-density="compact"] .operations-root .operations-layout {
   .work-history-drawer {
     width: 100%;
     border-left: 0;
+  }
+}
+
+@media (max-width: 1024px) and (min-width: 681px) {
+  .operations-root.is-workflows .page-heading {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+  }
+
+  .operations-root.is-workflows .page-heading-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (pointer: coarse) {
+  .work-command-action,
+  .work-command-surface .work-icon-btn,
+  .work-command-surface .work-send-btn {
+    min-height: var(--control-touch);
+  }
+
+  .work-command-surface .work-icon-btn {
+    width: var(--control-touch);
+    min-width: var(--control-touch);
+    height: var(--control-touch);
   }
 }
 

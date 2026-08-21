@@ -7,6 +7,7 @@ import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import EditableMarkdown from "@/components/EditableMarkdown";
 import { Button } from "@/components/ui/Button";
+import { Segment, SegmentedControl } from "@/components/ui/Tabs";
 import { useDebouncedSave } from "@/hooks/useDebouncedSave";
 import type { StageKind } from "@/lib/db";
 
@@ -272,21 +273,22 @@ export default function ProcessingPage() {
         meta={insightsPending ? "research running" : "ready"}
       />
 
-      <div
-        className="pills"
+      <SegmentedControl
+        aria-label="Business context section"
+        className="mb-6"
         style={{ animation: "fadeUp 0.5s ease 0.12s both" }}
       >
-        <button
-          className={`pill${tab === "profile" ? " on" : ""}`}
+        <Segment
+          selected={tab === "profile"}
           onClick={async () => {
             await flushAll();
             setTab("profile");
           }}
         >
           Business Profile
-        </button>
-        <button
-          className={`pill${tab === "insights" ? " on" : ""}`}
+        </Segment>
+        <Segment
+          selected={tab === "insights"}
           onClick={async () => {
             await flushAll();
             setTab("insights");
@@ -304,8 +306,8 @@ export default function ProcessingPage() {
               · running
             </span>
           )}
-        </button>
-      </div>
+        </Segment>
+      </SegmentedControl>
 
       <div className="profile-card" style={{ animation: "fadeUp 0.6s ease 0.3s both" }}>
         {tab === "profile" ? (

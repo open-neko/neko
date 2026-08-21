@@ -122,7 +122,8 @@ export default function MagentoPackAdmin() {
   }, []);
 
   useEffect(() => {
-    void refresh(true);
+    const initial = window.setTimeout(() => void refresh(true), 0);
+    return () => window.clearTimeout(initial);
   }, [refresh]);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -347,7 +348,7 @@ export default function MagentoPackAdmin() {
                 <h2 className="settings-card-title">Remove pack</h2>
                 <p className="settings-card-copy">Disables its live configuration and automations. Historical metrics and audit records stay available.</p>
               </div>
-              <Button type="button" variant="secondary" disabled={busy !== null} onClick={() => void runAction("uninstall")}>{busy === "uninstall" ? "Removing…" : "Remove"}</Button>
+              <Button type="button" variant="danger" disabled={busy !== null} onClick={() => void runAction("uninstall")}>{busy === "uninstall" ? "Removing…" : "Remove"}</Button>
             </div>
           </section>
         </div>

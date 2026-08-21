@@ -118,6 +118,7 @@
   width: 4px;
   background: var(--mood-color, var(--accent));
   opacity: 0.85;
+  border-radius: inherit;
 }
 .icard::after {
   content: "";
@@ -126,7 +127,9 @@
   pointer-events: none;
   background: linear-gradient(135deg, var(--mood-tint, transparent) 0%, transparent 45%);
   opacity: 0.55;
+  border-radius: inherit;
 }
+.icard:has([data-ui-menu-trigger][aria-expanded="true"]) { overflow: visible; }
 .icard:hover { box-shadow: var(--shadow-h); transform: translateY(-1px); border-color: var(--mood-color, var(--accent)); }
 .icard.exp { border-color: var(--border); }
 .itop { display: flex; align-items: flex-start; gap: 14px; position: relative; z-index: 1; }
@@ -174,6 +177,56 @@
   border-radius: 50%;
   background: currentColor;
   box-shadow: 0 0 0 3px var(--mood-tint, transparent);
+}
+
+.icard-toggle,
+.mobile-progressive-toggle {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .mobile-progressive-list:not(.is-expanded) > :nth-child(n + 4) {
+    display: none;
+  }
+
+  .mobile-progressive-toggle {
+    display: inline-flex;
+    margin-top: 10px;
+  }
+
+  .icard-toggle {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    min-height: var(--control-touch);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 10px;
+    padding: 8px 0 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+    background: transparent;
+    color: var(--text2);
+    font: 700 var(--type-body-sm)/1.2 var(--font-body), "Manrope", sans-serif;
+    cursor: pointer;
+  }
+
+  .icard-toggle svg {
+    width: 16px;
+    height: 16px;
+    transition: transform 0.18s ease;
+  }
+
+  .icard-toggle svg.is-open {
+    transform: rotate(180deg);
+  }
+
+  .idetail.open[data-mobile-open="false"] {
+    max-height: 0;
+    margin-top: 0;
+    opacity: 0;
+  }
 }
 
 .icard[data-mood="good"] { --mood-color: var(--success-mid); --mood-tint: var(--success-soft); }

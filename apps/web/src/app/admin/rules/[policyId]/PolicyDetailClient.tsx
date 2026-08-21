@@ -6,6 +6,7 @@ import AppHeader from "@/components/AppHeader";
 import CreatorCredit from "@/components/CreatorCredit";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
+import { Button } from "@/components/ui/Button";
 
 type PolicyDetail = {
   policy: {
@@ -149,25 +150,25 @@ export default function PolicyDetailClient({ policyId }: { policyId: string }) {
 
             <div className="mt-6 pt-4 border-t border-border flex items-center justify-between gap-3">
               {policy.createdByThreadId ? (
-                <button
-                  type="button"
-                  className="bg-transparent border-0 text-text3 cursor-pointer text-xs font-semibold py-1 px-0 hover:text-accent hover:underline hover:underline-offset-[3px]"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() =>
                     router.push(`/work/${policy.createdByThreadId}`)
                   }
                 >
                   view conversation
-                </button>
+                </Button>
               ) : (
                 <span />
               )}
-              <button
-                type="button"
-                className="px-3 py-2 rounded-lg border border-accent bg-accent text-white font-body text-ui-body-sm font-semibold cursor-pointer hover:bg-[#5a4cd1] hover:border-[#5a4cd1]"
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={editInWork}
               >
                 edit in /work
-              </button>
+              </Button>
             </div>
           </article>
         )}

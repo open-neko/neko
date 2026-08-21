@@ -213,29 +213,6 @@
   line-height: var(--leading-compact);
 }
 
-.library-error :where(button, a) {
-  min-width: 72px;
-  min-height: 40px;
-  display: inline-grid;
-  place-items: center;
-  flex: none;
-  padding: 8px 14px;
-  border: 1px solid var(--danger);
-  border-radius: 0;
-  background: transparent;
-  color: var(--danger);
-  font: inherit;
-  font-size: var(--type-caption);
-  font-weight: 800;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.library-error :where(button, a):hover {
-  background: var(--danger);
-  color: white;
-}
-
 .library-loading {
   min-height: 174px;
   display: grid;
@@ -367,36 +344,6 @@
   gap: 8px;
 }
 
-.memory-review-actions button {
-  min-height: 44px;
-  padding: 9px 14px;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  background: transparent;
-  color: var(--text2);
-  font: inherit;
-  font-size: var(--type-body-sm);
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.memory-review-actions button:hover:not(:disabled) {
-  border-color: var(--text);
-  color: var(--text);
-}
-
-.memory-review-actions button.is-primary {
-  border-color: var(--text);
-  background: var(--text);
-  color: var(--bg);
-}
-
-.memory-review-actions button.is-primary:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: white;
-}
-
 /* ─── Saved-memory index ─── */
 
 .memory-table-head,
@@ -522,33 +469,6 @@
   line-height: 1.52;
 }
 
-.memory-archive,
-.skill-delete {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border: 1px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text3);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
-}
-
-.memory-archive svg,
-.skill-delete svg {
-  width: 16px;
-  height: 16px;
-}
-
-.memory-archive:hover:not(:disabled),
-.skill-delete:hover:not(:disabled) {
-  border-color: var(--danger);
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
 /* ─── Skill inventory ─── */
 
 .skills-table-head,
@@ -645,7 +565,7 @@
   color: var(--accent);
 }
 
-.skill-delete {
+.skill-delete-control {
   position: absolute;
   top: 50%;
   right: 4px;
@@ -907,12 +827,12 @@
   white-space: nowrap;
 }
 
-.library-page :where(button, a):focus-visible {
+.library-page :where(a:not([data-ui-button]), .library-concept-title):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 
-.library-page :where(button:disabled) {
+.library-page button:not([data-ui-button]):disabled {
   opacity: 0.42;
   cursor: wait;
 }
@@ -971,7 +891,7 @@
     grid-area: usage;
   }
 
-  .memory-archive {
+  .memory-archive-control {
     grid-area: action;
   }
 }
@@ -1111,7 +1031,7 @@
     justify-self: end;
   }
 
-  .skill-delete {
+  .skill-delete-control {
     right: 0;
   }
 
@@ -1136,12 +1056,9 @@
   }
 
   .memory-review-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .memory-review-actions button {
-    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
 
   .library-markdown {
@@ -1176,10 +1093,6 @@
       ". memory memory"
       ". scope scope"
       ". usage usage";
-  }
-
-  .memory-review-actions {
-    grid-template-columns: 1fr;
   }
 
   .skill-manifest li {
@@ -1325,10 +1238,11 @@
   }
 
   .library-page .library-head-stats > div {
-    min-width: 58px;
-    flex-direction: column;
-    gap: 3px;
-    padding-inline: 8px;
+    min-width: 0;
+    flex: 1;
+    flex-direction: row;
+    gap: 6px;
+    padding: 7px 10px;
   }
 
   .library-page .library-head-stats strong {
@@ -1361,28 +1275,6 @@
 
 /* ─── Document library (/library) ─── */
 
-.document-library .memory-review-actions span[data-status] {
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  font-size: var(--type-label);
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text2);
-}
-
-.document-library .memory-review-actions span[data-status="cataloged"],
-.document-library .memory-review-actions span[data-status="stable"] {
-  border-color: var(--text);
-  color: var(--text);
-}
-
-.document-library .memory-review-actions span[data-status="failed"] {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.document-library .memory-review-actions button svg,
 .document-library .memory-review-meta svg {
   vertical-align: -2px;
   margin-right: 4px;

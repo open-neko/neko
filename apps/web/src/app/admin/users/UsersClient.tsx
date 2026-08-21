@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ActionGroup } from "@/components/ui/ActionGroup";
+import { Button } from "@/components/ui/Button";
+import { Field, Input, NativeSelect } from "@/components/ui/Field";
+import { Pill } from "@/components/ui/Pill";
 
 export interface AdminUserRow {
   id: string;
@@ -84,56 +88,53 @@ export function UsersClient({ users }: { users: AdminUserRow[] }) {
   return (
     <>
       {error ? (
-        <div className="mb-4 rounded-md bg-danger-soft px-3 py-2 text-sm text-danger" role="alert">
+        <div className="mb-4 rounded-control bg-danger-soft px-3 py-2 text-sm text-danger" role="alert">
           {error}
         </div>
       ) : null}
 
       <form
         onSubmit={createUser}
-        className="mb-6 flex flex-wrap items-end gap-3"
+        className="mb-6 grid grid-cols-[minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(130px,0.6fr)_auto] items-end gap-3 max-[820px]:grid-cols-2 max-[520px]:grid-cols-1"
       >
-        <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
-          Email
-          <input
+        <Field label="Email" htmlFor="new-user-email">
+          <Input
+            id="new-user-email"
             type="email"
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="person@company.com"
-            className="rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
           />
-        </label>
-        <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
-          Name (optional)
-          <input
+        </Field>
+        <Field label="Name (optional)" htmlFor="new-user-name">
+          <Input
+            id="new-user-name"
             type="text"
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Display name"
-            className="rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
           />
-        </label>
-        <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
-          Role
-          <select
+        </Field>
+        <Field label="Role" htmlFor="new-user-role">
+          <NativeSelect
+            id="new-user-role"
             value={role}
             onChange={(event) =>
               setRole(event.target.value === "admin" ? "admin" : "member")
             }
-            className="rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
           >
             <option value="member">member</option>
             <option value="admin">admin</option>
-          </select>
-        </label>
-        <button
+          </NativeSelect>
+        </Field>
+        <Button
           type="submit"
+          variant="primary"
           disabled={busy === "create"}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-ink disabled:opacity-50"
         >
           {busy === "create" ? "Adding…" : "Add user"}
-        </button>
+        </Button>
       </form>
 
       {users.length === 0 ? (
@@ -176,30 +177,29 @@ export function UsersClient({ users }: { users: AdminUserRow[] }) {
                     {formatDate(user.createdAt)}
                   </td>
                   <td className="px-3 py-3">
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
+                    <ActionGroup align="start" className="flex-nowrap">
+                      <Button
+                        size="sm"
                         disabled={busy === user.id}
                         onClick={() =>
                           patchUser(user.id, {
                             role: user.role === "admin" ? "member" : "admin",
                           })
                         }
-                        className="rounded-md border border-border px-2 py-1 text-xs font-semibold text-text2 hover:text-text disabled:opacity-50"
                       >
                         {user.role === "admin" ? "Make member" : "Make admin"}
-                      </button>
-                      <button
-                        type="button"
+                      </Button>
+                      <Button
+                        variant={user.disabled ? "primary" : "danger"}
+                        size="sm"
                         disabled={busy === user.id}
                         onClick={() =>
                           patchUser(user.id, { disabled: !user.disabled })
                         }
-                        className="rounded-md border border-border px-2 py-1 text-xs font-semibold text-text2 hover:text-text disabled:opacity-50"
                       >
                         {user.disabled ? "Enable" : "Disable"}
-                      </button>
-                    </div>
+                      </Button>
+                    </ActionGroup>
                   </td>
                 </tr>
               ))}
@@ -214,25 +214,17 @@ export function UsersClient({ users }: { users: AdminUserRow[] }) {
 function RoleBadge({ role }: { role: string }) {
   const isAdmin = role === "admin";
   return (
-    <span
-      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-        isAdmin ? "bg-success-soft text-success-ink" : "bg-neutral text-text2"
-      }`}
-    >
+    <Pill variant={isAdmin ? "success" : "muted"}>
       {role}
-    </span>
+    </Pill>
   );
 }
 
 function StatusBadge({ disabled }: { disabled: boolean }) {
   return (
-    <span
-      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-        disabled ? "bg-danger-soft text-danger" : "bg-success-soft text-success-ink"
-      }`}
-    >
+    <Pill variant={disabled ? "danger" : "success"}>
       {disabled ? "Disabled" : "Active"}
-    </span>
+    </Pill>
   );
 }
 

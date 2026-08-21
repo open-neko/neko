@@ -10,10 +10,6 @@ import { getOrgId } from "@/lib/db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type RouteContext = {
-  params: Promise<{ workflowId: string }>;
-};
-
 const DRY_RUN_LIMIT = 5;
 
 /**
@@ -23,7 +19,7 @@ const DRY_RUN_LIMIT = 5;
  *
  * Body: { sourceKind: "source_change", filter: { table, where, primary_key, ... } }
  */
-export async function POST(req: NextRequest, _context: RouteContext) {
+export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const sourceKind = body.sourceKind as string | undefined;
 

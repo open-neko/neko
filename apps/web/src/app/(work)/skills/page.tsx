@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, FileText, Trash2 } from "lucide-react";
 import { confirmDialog } from "@/components/ConfirmModal";
 import PageHeading from "@/components/PageHeading";
+import { Button, IconButton } from "@/components/ui/Button";
 
 type SkillSummary = {
   name: string;
@@ -117,9 +118,14 @@ export default function SkillsPage() {
               <strong>Skills unavailable</strong>
               <span>{error}</span>
             </div>
-            <button type="button" onClick={() => void refresh()}>
+            <Button
+              variant="danger"
+              size="sm"
+              className="shrink-0"
+              onClick={() => void refresh()}
+            >
               Retry
-            </button>
+            </Button>
           </div>
         ) : null}
 
@@ -179,16 +185,15 @@ export default function SkillsPage() {
                         strokeWidth={1.9}
                       />
                     </Link>
-                    <button
-                      type="button"
-                      className="skill-delete"
+                    <IconButton
+                      label={`Delete skill ${skill.name}`}
+                      variant="danger"
+                      className="skill-delete-control"
                       disabled={busyName === skill.name}
                       onClick={() => void remove(skill.name)}
-                      aria-label={`Delete skill ${skill.name}`}
-                      title="Delete skill"
                     >
                       <Trash2 aria-hidden="true" strokeWidth={1.9} />
-                    </button>
+                    </IconButton>
                   </li>
                 ))}
               </ol>

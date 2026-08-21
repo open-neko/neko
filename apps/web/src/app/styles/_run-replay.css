@@ -2,43 +2,6 @@
   --page-width: 1000px;
 }
 
-.run-followup-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 40px;
-  padding: 8px 14px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--card) 72%, transparent);
-  color: var(--text2);
-  font-family: var(--font-body), "Manrope", sans-serif;
-  font-size: var(--type-body-sm);
-  font-weight: 650;
-  cursor: pointer;
-  transition:
-    color 160ms ease,
-    border-color 160ms ease,
-    background 160ms ease;
-}
-
-.run-followup-btn svg {
-  width: 14px;
-  height: 14px;
-  transition: transform 180ms ease;
-}
-
-.run-followup-btn:hover {
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.run-followup-btn:hover svg {
-  transform: translateX(2px);
-}
-
 .run-empty-summary {
   margin: 8px 0 24px;
   padding: 14px 16px;
@@ -252,45 +215,6 @@
   content: "/";
 }
 
-.run-finding-pin {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 9px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text2);
-  font-family: var(--font-body), "Manrope", sans-serif;
-  font-size: var(--type-caption);
-  font-weight: 650;
-  cursor: pointer;
-  transition:
-    color 160ms ease,
-    background 160ms ease;
-}
-
-.run-finding-pin svg {
-  width: 13px;
-  height: 13px;
-  transition: transform 180ms ease;
-}
-
-.run-finding-pin:hover:not(:disabled) {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.run-finding-pin:hover:not(:disabled) svg {
-  transform: translateY(-1px) rotate(-6deg);
-}
-
-.run-finding-pin:disabled {
-  color: var(--success-mid);
-  cursor: default;
-}
-
 .run-empty-state {
   margin: 0;
   color: var(--text3);
@@ -439,13 +363,13 @@
 }
 
 @media (max-width: 600px) {
-  .run-followup-btn {
-    width: 42px;
-    min-height: 42px;
+  .run-followup-control {
+    width: var(--control-touch);
+    min-height: var(--control-touch);
     padding: 0;
   }
 
-  .run-followup-btn span {
+  .run-followup-control span {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -454,7 +378,7 @@
     white-space: nowrap;
   }
 
-  .run-followup-btn svg {
+  .run-followup-control svg {
     width: 16px;
     height: 16px;
   }
@@ -496,7 +420,7 @@
     gap: 7px;
   }
 
-  .run-finding-pin {
+  .run-finding-pin-control {
     align-self: flex-end;
     margin-right: -7px;
   }
@@ -523,8 +447,8 @@
   }
 
   .run-finding-card,
-  .run-followup-btn svg,
-  .run-finding-pin svg {
+  .run-followup-control svg,
+  .run-finding-pin-control svg {
     transition: none;
   }
 }

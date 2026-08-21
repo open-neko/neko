@@ -29,9 +29,12 @@ export default function StatStrip() {
   }, []);
 
   useEffect(() => {
-    void fetchStats();
-    const id = setInterval(() => void fetchStats(), 30_000);
-    return () => clearInterval(id);
+    const initial = window.setTimeout(() => void fetchStats(), 0);
+    const id = window.setInterval(() => void fetchStats(), 30_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(id);
+    };
   }, [fetchStats]);
 
   if (!stats) return null;
@@ -40,16 +43,28 @@ export default function StatStrip() {
     label: string,
     n: number | string,
     onClick?: () => void,
-  ) => (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!onClick}
-      className="bg-transparent border-0 p-0 font-[inherit] text-ui-body-sm text-text2 disabled:cursor-default cursor-pointer enabled:hover:text-text"
-    >
+  ) => {
+    const content = (
+      <>
       <span className="font-mono font-semibold text-text">{n}</span> {label}
-    </button>
-  );
+      </>
+    );
+
+    if (!onClick) {
+      return <span className="text-ui-body-sm text-text2">{content}</span>;
+    }
+
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        data-ui-stat-link
+        className="min-h-8 bg-transparent border-0 p-0 font-[inherit] text-ui-body-sm text-text2 cursor-pointer hover:text-text"
+      >
+        {content}
+      </button>
+    );
+  };
 
   return (
     <div className="flex items-center gap-2 flex-wrap text-text3 mb-4">
@@ -67,7 +82,7 @@ export default function StatStrip() {
       {item(
         stats.pendingApprovals === 1 ? "pending approval" : "pending approvals",
         stats.pendingApprovals,
-        () => router.push("/approvals"),
+        () => router.push("/actions"),
       )}
       {stats.budgetPct !== null && stats.budgetPct >= 40 && (
         <>

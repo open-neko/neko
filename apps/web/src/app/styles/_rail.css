@@ -505,6 +505,52 @@ body {
   }
 }
 
+/* The compact tablet rail must remain discoverable on a 768px viewport.
+   Tighter rhythm keeps common destinations visible, while the slim
+   scrollbar signals that record apps may add more navigation. */
+@media (min-width: 721px) and (max-width: 1024px) {
+  .app-rail-wrap {
+    gap: 10px;
+    padding-block: 12px 10px;
+  }
+
+  .app-rail-nav {
+    gap: 4px;
+    padding-right: 2px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+    scroll-padding-block: 6px;
+  }
+
+  .app-rail-nav::-webkit-scrollbar {
+    display: block;
+    width: 3px;
+  }
+
+  .app-rail-nav::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: var(--border);
+  }
+
+  .app-rail-group {
+    gap: 2px;
+  }
+
+  .app-rail-link {
+    min-height: 54px;
+    gap: 3px;
+  }
+
+  .app-rail-link svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .app-rail-foot {
+    gap: 6px;
+  }
+}
+
 @media (min-width: 1025px) {
   body:has(> .app-rail-wrap) {
     --rail-w: 232px;

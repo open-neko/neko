@@ -10,6 +10,7 @@ import {
   RecordRelatedLists,
 } from "@/components/records/RecordDetailActivity";
 import { PendingChangeMarker } from "@/components/records/PendingChangeMarker";
+import { buttonClassName } from "@/components/ui/Button";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,13 @@ export default async function RecordDetailPage({
           <PendingChangeMarker actions={result.pendingActions} />
         </div>
         {result.view.permission.canUpdate && (
-          <Link className="records-secondary-action" href={`${base}/${encodeURIComponent(String(result.row.id))}/edit`}>
+          <Link
+            className={buttonClassName({
+              size: "sm",
+              className: "records-secondary-action",
+            })}
+            href={`${base}/${encodeURIComponent(String(result.row.id))}/edit`}
+          >
             <Pencil aria-hidden="true" /> Edit
           </Link>
         )}

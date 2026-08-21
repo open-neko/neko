@@ -28,12 +28,14 @@ export function DensityProvider({ children }: { children: React.ReactNode }) {
   const [density, setDensityState] = useState<Density>(DEFAULT);
 
   useEffect(() => {
-    const stored = (typeof window !== "undefined" &&
-      window.localStorage.getItem(STORAGE_KEY)) as Density | null;
-    if (stored === "comfortable" || stored === "compact") {
-      setDensityState(stored);
-      document.documentElement.setAttribute("data-density", stored);
-    }
+    const initial = window.setTimeout(() => {
+      const stored = window.localStorage.getItem(STORAGE_KEY) as Density | null;
+      if (stored === "comfortable" || stored === "compact") {
+        setDensityState(stored);
+        document.documentElement.setAttribute("data-density", stored);
+      }
+    }, 0);
+    return () => window.clearTimeout(initial);
   }, []);
 
   const setDensity = useCallback((d: Density) => {

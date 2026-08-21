@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import EntryShell from "@/components/EntryShell";
+import { ButtonLink } from "@/components/ui/Button";
 
 type OnboardingUnavailableProps = {
   retryAction?: ReactNode;
@@ -26,9 +27,9 @@ export default function OnboardingUnavailable({
           </p>
         </div>
         <div className="entry-actions is-end">
-          <a href="/onboarding" className="entry-button is-primary">
+          <ButtonLink href="/onboarding" variant="primary" size="lg">
             Check again
-          </a>
+          </ButtonLink>
         </div>
       </EntryShell>
     );
@@ -53,16 +54,13 @@ export default function OnboardingUnavailable({
         been changed.
       </div>
       <div className="entry-actions">
-        <a href="/admin/settings" className="entry-button">
+        <ButtonLink href="/admin/settings" size="lg">
           Admin settings
-        </a>
+        </ButtonLink>
         {retryAction ?? (
-          <a
-            href="/onboarding"
-            className="entry-button is-primary"
-          >
+          <ButtonLink href="/onboarding" variant="primary" size="lg">
             Retry
-          </a>
+          </ButtonLink>
         )}
       </div>
     </EntryShell>

@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @import "./styles/_tokens.css";
+@import "./styles/_ui.css";
 @import "./styles/_rail.css";
 @import "./styles/_chrome.css";
 @import "./styles/_dashboard.css";
@@ -28,8 +29,8 @@
   --color-bg: #FAFAF7;
   --color-card: #FFFFFF;
   --color-text: #2D2A24;
-  --color-text2: #7A756A;
-  --color-text3: #B0AA9F;
+  --color-text2: #6F6A60;
+  --color-text3: #756F65;
   --color-border: #EEEBE4;
   --color-neutral: #F2EFE8;
   --color-neutral-soft: #F7F4ED;
@@ -38,13 +39,13 @@
   --color-success: #6CFF7F;
   --color-success-ink: #113719;
   --color-success-soft: #E2FBE6;
-  --color-success-mid: #4CAF82;
+  --color-success-mid: #357A57;
   --color-watch: #E9A23B;
   --color-watch-soft: #FFF1D8;
   --color-warn: #F0D97A;
   --color-warn-soft: #FFF4CC;
   --color-warn-ink: #8A6D00;
-  --color-danger: #E05656;
+  --color-danger: #A53535;
   --color-danger-soft: #FEECEC;
 
   --radius-card: 20px;
@@ -260,5 +261,4 @@ html[data-density="compact"] .triage-pane {
   .topbar-spacer { display: none; }
   .topbar-nav { order: 3; width: 100%; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
 }
-
 

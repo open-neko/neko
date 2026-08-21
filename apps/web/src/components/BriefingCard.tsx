@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, RotateCw, Search, X } from "lucide-react";
+import { ChevronDown, Copy, RotateCw, Search, X } from "lucide-react";
 import Chart from "./Chart";
 import type { ChartDataPoint } from "./Chart";
 import KpiHeadline from "./KpiHeadline";
+import { IconButton } from "@/components/ui/Button";
+import { MenuItem, OverflowMenu } from "@/components/ui/OverflowMenu";
 
 async function copyCardToClipboard(ins: BriefingCardData): Promise<void> {
   const lines: string[] = [];
@@ -27,10 +29,10 @@ const MOOD_LABELS: Record<string, string> = {
 };
 
 const MOOD_CHART_ACCENT: Record<string, string> = {
-  good: "#4CAF82",
+  good: "#357A57",
   watch: "#E9A23B",
-  act: "#E05656",
-  bad: "#E05656",
+  act: "#A53535",
+  bad: "#A53535",
 };
 
 export type BriefingCardState = "ok" | "pending" | "failed";
@@ -57,8 +59,9 @@ export default function BriefingCard({ ins, index, onDismiss, onRetry, onDeepDiv
   onRetry?: (metricId: string) => void;
   onDeepDive?: (metricId: string) => void;
 }) {
-  // Briefing cards are always expanded — there is no collapse affordance.
-  const open = true;
+  // Desktop keeps the full analytical card. On phones, only the lead card
+  // starts expanded; the rest stay concise until the operator asks for detail.
+  const [mobileOpen, setMobileOpen] = useState(index === 0);
   const [retrying, setRetrying] = useState(false);
   const state: BriefingCardState = ins.state ?? "ok";
   const moodKey = MOOD_LABELS[ins.mood] ? ins.mood : "good";
@@ -80,7 +83,7 @@ export default function BriefingCard({ ins, index, onDismiss, onRetry, onDeepDiv
 
   return (
     <div
-      className={`icard${open ? " exp" : ""}${state === "failed" ? " icard-failed" : ""}${state === "pending" ? " icard-pending" : ""}`}
+      className={`icard exp${state === "failed" ? " icard-failed" : ""}${state === "pending" ? " icard-pending" : ""}`}
       data-mood={moodKey}
       style={{ animation: `fadeUp 0.5s ease ${index * 0.07}s both` }}
     >
@@ -110,57 +113,56 @@ export default function BriefingCard({ ins, index, onDismiss, onRetry, onDeepDiv
       </div>
       <div className="iactions">
         {onDeepDive && ins.metricId && state === "ok" && (
-          <button
-            className="ipin ipin-deep"
+          <IconButton
+            label="Deep dive in Work"
+            size="icon-sm"
+            variant="ghost"
             onClick={(e) => {
               e.stopPropagation();
               onDeepDive(ins.metricId);
             }}
-            title="Deep dive in Work"
-            aria-label="Deep dive in Work"
           >
-            <Search size={13} strokeWidth={2.25} />
-          </button>
+            <Search aria-hidden="true" strokeWidth={2.25} />
+          </IconButton>
         )}
-        {onRetry && ins.metricId && (
-          <button
-            className="ipin"
-            onClick={handleRetry}
-            disabled={refreshing}
-            title={refreshing ? "Re-running…" : "Re-run this metric"}
-            aria-label="Re-run this metric"
-            aria-busy={refreshing}
-          >
-            <RotateCw
-              size={13}
-              strokeWidth={2}
-              style={{ animation: refreshing ? "spin 0.9s linear infinite" : "none" }}
-            />
-          </button>
-        )}
-        <button
-          className="ipin"
-          onClick={async (e) => {
-            e.stopPropagation();
-            await copyCardToClipboard(ins);
-          }}
-          title="Copy card text"
-          aria-label="Copy card text"
-        >
-          <Copy size={13} strokeWidth={2} />
-        </button>
-        {onDismiss ? (
-          <button
-            className="ipin"
-            onClick={(e) => { e.stopPropagation(); onDismiss(); }}
-            title="Dismiss"
-            aria-label="Dismiss"
-          >
-            <X size={14} strokeWidth={2} />
-          </button>
-        ) : null}
+        <OverflowMenu label="Card actions">
+          {onRetry && ins.metricId ? (
+            <MenuItem
+              onClick={handleRetry}
+              disabled={refreshing}
+              aria-busy={refreshing}
+            >
+              <RotateCw
+                aria-hidden="true"
+                strokeWidth={2}
+                className={refreshing ? "animate-spin" : undefined}
+              />
+              {refreshing ? "Re-running…" : "Re-run metric"}
+            </MenuItem>
+          ) : null}
+          <MenuItem onClick={() => void copyCardToClipboard(ins)}>
+            <Copy aria-hidden="true" strokeWidth={2} />
+            Copy card text
+          </MenuItem>
+          {onDismiss ? (
+            <MenuItem danger onClick={onDismiss}>
+              <X aria-hidden="true" strokeWidth={2} />
+              Dismiss card
+            </MenuItem>
+          ) : null}
+        </OverflowMenu>
       </div>
-      <div className={`idetail${open ? " open" : ""}`}>
+      <button
+        type="button"
+        className="icard-toggle"
+        data-ui-disclosure=""
+        aria-expanded={mobileOpen}
+        onClick={() => setMobileOpen((current) => !current)}
+      >
+        {mobileOpen ? "Hide detail" : "View detail"}
+        <ChevronDown aria-hidden="true" className={mobileOpen ? "is-open" : ""} />
+      </button>
+      <div className="idetail open" data-mobile-open={mobileOpen}>
         {state === "pending" ? (
           <div className="dskel" aria-hidden="true">
             <div className="skel skel-line" />

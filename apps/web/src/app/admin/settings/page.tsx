@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { connection } from "next/server";
 import { data_source, db, eq, hasCustomPassword } from "@neko/db";
+import { ArrowUpRight } from "lucide-react";
 import AppHeader from "@/components/AppHeader";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
@@ -95,14 +96,14 @@ export default async function SettingsPage() {
     title: string;
     copy: string;
     status?: string;
-    statusOk?: boolean;
+    statusTone?: "success" | "watch" | "neutral";
   }[] = [
     {
       href: "/admin/settings/data",
       title: "Data source",
       copy: "Graphjin server endpoint OpenNeko should connect to.",
       status: dataReady ? "Configured" : "Not set",
-      statusOk: dataReady,
+      statusTone: dataReady ? "success" : "watch",
     },
     {
       href: "/admin/settings/agent",
@@ -111,8 +112,12 @@ export default async function SettingsPage() {
         agent.backend === "claude-agent"
           ? "Claude Agent — locked to Anthropic primary provider."
           : "Hermes — works with any primary provider.",
-      status: primaryReady ? `Backend: ${agent.backend}` : "Primary provider not set",
-      statusOk: primaryReady,
+      status: primaryReady
+        ? agent.backend === "claude-agent"
+          ? "Claude Agent backend"
+          : "Hermes backend"
+        : "Primary provider not set",
+      statusTone: primaryReady ? "success" : "watch",
     },
     {
       href: "/admin/settings/graphjin",
@@ -124,24 +129,25 @@ export default async function SettingsPage() {
             ? "MCP on · no source"
             : `MCP on · ${jwtSources}/${enabledSources.length} JWT`
           : "MCP config off",
-      statusOk:
-        graphjinConfig.settings.sourceConfigEnabled &&
-        enabledSources.length > 0 &&
-        jwtSources === enabledSources.length,
+      statusTone: !graphjinConfig.settings.sourceConfigEnabled
+        ? "neutral"
+        : enabledSources.length > 0 && jwtSources === enabledSources.length
+          ? "success"
+          : "watch",
     },
     {
       href: "/admin/settings/packs",
       title: "Solution packs",
       copy: "Connect and administer Magento and future application packs without using the terminal.",
-      status: "Magento available",
-      statusOk: true,
+      status: "Magento ready",
+      statusTone: "success",
     },
     {
       href: "/admin/settings/research",
       title: "Research",
       copy: "Optional industry research run during onboarding.",
       status: researchStatus === "enabled" ? "Enabled" : "Disabled",
-      statusOk: true,
+      statusTone: researchStatus === "enabled" ? "success" : "neutral",
     },
   ];
   cards.push({
@@ -171,20 +177,28 @@ export default async function SettingsPage() {
         description="Configure the agent runtime, data access, research, and trust policy."
       />
 
-      <div className="flex flex-col gap-4">
+      <div className="settings-index-grid">
         {cards.map((card) => (
-          <Link key={card.href} href={card.href} className="settings-card block no-underline">
-            <div className="settings-card-head">
-              <div>
-                <h2 className="settings-card-title">{card.title}</h2>
-                <p className="settings-card-copy">{card.copy}</p>
-              </div>
-              {card.status ? (
-                <div className="settings-source">
-                  <strong className={card.statusOk ? "is-ok" : "is-warn"}>{card.status}</strong>
-                </div>
-              ) : null}
+          <Link
+            key={card.href}
+            href={card.href}
+            className="settings-card settings-index-card no-underline"
+          >
+            <div className="settings-index-card-top">
+              <h2 className="settings-card-title">{card.title}</h2>
+              <ArrowUpRight className="settings-index-card-arrow" aria-hidden="true" />
             </div>
+            <p className="settings-card-copy">{card.copy}</p>
+            {card.status ? (
+              <div className="settings-index-card-foot">
+                <span
+                  className="settings-index-status"
+                  data-tone={card.statusTone ?? "neutral"}
+                >
+                  {card.status}
+                </span>
+              </div>
+            ) : null}
           </Link>
         ))}
       </div>
