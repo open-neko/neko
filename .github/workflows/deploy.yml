@@ -47,9 +47,47 @@ jobs:
         working-directory: apps/openneko
         run: |
           set -euo pipefail
-          tag=$(curl -fsSL https://api.github.com/repos/open-neko/openneko/releases/latest \
-            | jq -r .tag_name)
-          test -n "$tag"
+          # The GitHub release becomes releases/latest the moment release-please
+          # publishes it — ~15 minutes before release-binaries has pushed that
+          # tag's images to ghcr. Deploying inside that window failed run #279
+          # with "records-graphjin:v2.28.1: not found". Walk stable releases
+          # newest-first and deploy the first tag whose release-versioned images
+          # (from the packaged compose files, plus the agent image the deploy's
+          # sandbox smoke pulls) all have ghcr manifests.
+          # shellcheck disable=SC2016
+          mapfile -t images < <(
+            {
+              sed -n 's/^[[:space:]]*image:[[:space:]]*//p' \
+                assets/compose/core.yml assets/compose/openshell.yml \
+              | grep -F '${OPENNEKO_VERSION' \
+              | sed 's/:\${OPENNEKO_VERSION.*//'
+              echo ghcr.io/open-neko/agent
+            } | sort -u
+          )
+          mapfile -t candidates < <(
+            curl -fsSL "https://api.github.com/repos/open-neko/openneko/releases?per_page=10" \
+            | jq -r '[.[] | select(.prerelease == false and .draft == false)][:5] | .[].tag_name'
+          )
+          tag=""
+          for cand in "${candidates[@]}"; do
+            complete=true
+            for img in "${images[@]}"; do
+              if ! docker manifest inspect "${img}:${cand}" >/dev/null 2>&1; then
+                echo "::notice::${img}:${cand} is not on ghcr yet — skipping ${cand} (images still publishing)"
+                complete=false
+                break
+              fi
+            done
+            if [ "$complete" = true ]; then
+              tag="$cand"
+              break
+            fi
+          done
+          if [ -z "$tag" ]; then
+            echo "::error::no stable release has a complete ghcr image set (checked: ${candidates[*]:-none})"
+            exit 1
+          fi
+          echo "deploying application images at $tag"
           version="${tag#v}"
           go build -trimpath \
             -ldflags "-s -w -X github.com/open-neko/neko/apps/openneko/internal/version.Version=$version -X github.com/open-neko/neko/apps/openneko/internal/version.Commit=${{ github.event.workflow_run.head_sha }}" \
