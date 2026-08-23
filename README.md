@@ -2,6 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache_2.0-0B64A0)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/open-neko/openneko)](https://github.com/open-neko/openneko/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/open-neko/openneko/total?color=0B64A0)](https://github.com/open-neko/openneko/releases)
 [![Self-hosted · Docker](https://img.shields.io/badge/self--hosted-Docker-2496ED?logo=docker&logoColor=white)](INSTALL.md)
 [![openneko.app](https://img.shields.io/badge/openneko.app-website-111111)](https://openneko.app)
 [![Stars](https://img.shields.io/github/stars/open-neko/openneko?style=social)](https://github.com/open-neko/openneko/stargazers)
