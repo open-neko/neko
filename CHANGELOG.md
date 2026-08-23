@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.29.1](https://github.com/open-neko/openneko/compare/v2.29.0...v2.29.1) (2026-08-23)
+
+
+### Bug Fixes
+
+* unblock amd64 image release and VM deploy ([dbce232](https://github.com/open-neko/openneko/commit/dbce232e4cc1642109576ffc1cb5a6c24838076f))
+* unblock amd64 image release and VM deploy ([d43fe32](https://github.com/open-neko/openneko/commit/d43fe3298937b71271e37c09177b5534f6d164a5))
+
 ## [2.29.0](https://github.com/open-neko/openneko/compare/v2.28.4...v2.29.0) (2026-08-23)
 
 
