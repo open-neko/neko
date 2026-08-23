@@ -107,7 +107,7 @@ for required in \
   fi
 done
 recovery_verification="$("${recovery_compose[@]}" exec -T neko-backup \
-  curl -fsS -X POST http://127.0.0.1:9470/v1/backups/verify)"
+  curl -sS -X POST http://127.0.0.1:9470/v1/backups/verify)"
 if [[ "$recovery_verification" != *'"status": "succeeded"'* ]] || \
    [[ "$recovery_verification" != *'"decrypted_and_checksum_verified"'* ]]; then
   echo "$recovery_verification" >&2
@@ -220,7 +220,13 @@ fi
 "${recovery_compose[@]}" exec -T records-db psql \
   -U records -d records -v ON_ERROR_STOP=1 \
   -c 'drop table public.openneko_crash_probe'
-"${recovery_compose[@]}" exec -T neko-backup gosu postgres pgbackrest \
+"${recovery_compose[@]}" exec -T neko-backup sh -ec '
+  unset PGBACKREST_REPO1_CIPHER_PASS_FILE
+  if command -v gosu >/dev/null 2>&1; then
+    exec gosu postgres "$@"
+  fi
+  exec su-exec postgres "$@"
+' openneko-run-as-postgres pgbackrest \
   --log-level-console=warn --stanza=openneko-records check
 
 echo "Records backup verification and database crash recovery passed."

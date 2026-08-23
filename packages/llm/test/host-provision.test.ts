@@ -379,18 +379,18 @@ describeIfDb("provisionHostConfig", () => {
     expect(env).toContain("ANTHROPIC_API_KEY=sk-ant-test");
   });
 
-  it("skips hermes writes when backend=claude-agent (only graphjin written)", async () => {
+  it("does not let an obsolete agent row gate Hermes provisioning", async () => {
     await seedDataSource(orgId);
     await seedProvider(orgId, {
       scope: "agent",
-      provider: "claude-agent",
-      config: { backend: "claude-agent" },
+      provider: "obsolete-runtime",
+      config: { backend: "obsolete-runtime" },
     });
     await seedProvider(orgId, {
       scope: "primary",
       provider: "anthropic",
       model: "claude-opus-4-7",
-      secrets: { apiKey: "sk-ant-claude-agent" },
+      secrets: { apiKey: "sk-ant-test" },
     });
 
     await provisionHostConfig(orgId);
@@ -398,8 +398,12 @@ describeIfDb("provisionHostConfig", () => {
     const gj = await readFile(graphjinPath(tempHome), "utf8");
     expect(gj).toContain("server");
 
-    await expect(readFile(join(hermesHome, "config.yaml"), "utf8")).rejects.toThrow();
-    await expect(readFile(join(hermesHome, ".env"), "utf8")).rejects.toThrow();
+    await expect(readFile(join(hermesHome, "config.yaml"), "utf8")).resolves.toContain(
+      'provider: "anthropic"',
+    );
+    await expect(readFile(join(hermesHome, ".env"), "utf8")).resolves.toContain(
+      "ANTHROPIC_API_KEY=sk-ant-test",
+    );
   });
 
   it("does not throw when primary row is missing (best-effort)", async () => {

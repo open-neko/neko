@@ -21,7 +21,6 @@ type Config struct {
 	Headless bool // run from flags without prompting
 
 	AdminPassword    string
-	Backend          string
 	Provider         string
 	ProviderKey      string
 	Model            string
@@ -177,7 +176,7 @@ func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config)
 		break
 	}
 
-	// 3. Agent backend + primary provider (re-prompts until the key validates).
+	// 3. Hermes + primary provider (re-prompts until the key validates).
 	agent, err := c.GetAgent(ctx)
 	if err != nil {
 		return passwordSet, err
@@ -187,23 +186,11 @@ func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config)
 		return passwordSet, err
 	}
 	next("Agent & model provider", "The model that runs your metric queries.")
-	backend := agent.Agent.Backend
+	provider := prov.Primary.Provider
 	if err := runForm(huh.NewForm(huh.NewGroup(
-		huh.NewSelect[string]().Title("Agent backend").Options(backendOptions(agent.Options)...).Value(&backend),
+		huh.NewSelect[string]().Title("Model provider").Options(providerOptions(prov.Options.Primary)...).Value(&provider),
 	))); err != nil {
 		return passwordSet, err
-	}
-	var provider string
-	if backend == "claude-agent" {
-		provider = "anthropic"
-		ui.Info(out, "Provider locked to anthropic by the Claude Agent backend.")
-	} else {
-		provider = prov.Primary.Provider
-		if err := runForm(huh.NewForm(huh.NewGroup(
-			huh.NewSelect[string]().Title("Model provider").Options(providerOptions(prov.Options.Primary)...).Value(&provider),
-		))); err != nil {
-			return passwordSet, err
-		}
 	}
 	capJobs := agent.Agent.GlobalCap
 	if capJobs == 0 {
@@ -220,7 +207,7 @@ func stepsInteractive(ctx context.Context, c *Client, out io.Writer, cfg Config)
 			continue
 		}
 		if err := ui.Spin("Saving agent + provider", func() error {
-			if e := c.SaveAgent(ctx, backend, capJobs); e != nil {
+			if e := c.SaveAgent(ctx, capJobs); e != nil {
 				return e
 			}
 			return c.SaveProvider(ctx, draft)
@@ -320,14 +307,6 @@ func providerForm(modelDef string, fields []Field) (model string, config, secret
 	return model, config, secrets, nil
 }
 
-func backendOptions(in []AgentBackendOption) []huh.Option[string] {
-	out := make([]huh.Option[string], len(in))
-	for i, o := range in {
-		out[i] = huh.NewOption(optionLabel(o.Value, o.Description), o.Value)
-	}
-	return out
-}
-
 func providerOptions(in []ProviderOption) []huh.Option[string] {
 	out := make([]huh.Option[string], len(in))
 	for i, o := range in {
@@ -391,14 +370,7 @@ func runHeadless(ctx context.Context, c *Client, cfg Config) (Outcome, error) {
 	if err != nil {
 		return Outcome{PasswordSet: passwordSet}, err
 	}
-	backend := cfg.Backend
-	if backend == "" {
-		backend = agent.Agent.Backend
-	}
 	provider := cfg.Provider
-	if backend == "claude-agent" {
-		provider = "anthropic"
-	}
 	if provider == "" {
 		return Outcome{PasswordSet: passwordSet}, errors.New("setup: --provider is required")
 	}
@@ -421,7 +393,7 @@ func runHeadless(ctx context.Context, c *Client, cfg Config) (Outcome, error) {
 	if err := c.TestProvider(ctx, draft); err != nil {
 		return Outcome{}, fmt.Errorf("provider key test failed: %w", err)
 	}
-	if err := c.SaveAgent(ctx, backend, capJobs); err != nil {
+	if err := c.SaveAgent(ctx, capJobs); err != nil {
 		return Outcome{PasswordSet: passwordSet}, err
 	}
 	if err := c.SaveProvider(ctx, draft); err != nil {

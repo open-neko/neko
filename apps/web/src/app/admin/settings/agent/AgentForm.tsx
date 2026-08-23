@@ -38,25 +38,19 @@ const FIELD_CLS = "flex flex-col gap-2";
 const LABEL_CLS = "text-ui-body font-semibold text-text";
 const HELP_CLS = "text-ui-body-sm text-text3 leading-[1.45]";
 
-type AgentBackendOption = { value: "hermes" | "claude-agent"; label: string; description: string };
 type AgentSettingsPayload = {
   agent: {
     source: "org" | "default";
-    backend: "hermes" | "claude-agent";
     globalCap: number;
   };
-  options: readonly AgentBackendOption[];
   defaults: { globalCap: number };
 };
-
-const CLAUDE_MODEL_DEFAULT = "claude-opus-4-7";
 
 export default function AgentForm({
   initial,
 }: {
   initial: { agent: AgentSettingsPayload; providers: SettingsPayload };
 }) {
-  const [backend, setBackend] = useState(initial.agent.agent.backend);
   const [concurrentJobs, setConcurrentJobs] = useState(String(initial.agent.agent.globalCap));
   const [primary, setPrimary] = useState({
     provider: initial.providers.primary.provider,
@@ -68,28 +62,12 @@ export default function AgentForm({
   });
   const [saving, setSaving] = useState(false);
 
-  const providerOptions = useMemo(() => {
-    if (backend === "claude-agent") {
-      return initial.providers.options.primary.filter((o) => o.value === "anthropic");
-    }
-    return initial.providers.options.primary;
-  }, [backend, initial.providers.options.primary]);
+  const providerOptions = useMemo(
+    () => initial.providers.options.primary,
+    [initial.providers.options.primary],
+  );
 
   const fields: Field[] = initial.providers.fields.primary[primary.provider] ?? [];
-
-  const onBackendChange = (next: "hermes" | "claude-agent") => {
-    setBackend(next);
-    if (next === "claude-agent" && primary.provider !== "anthropic") {
-      setPrimary({
-        provider: "anthropic",
-        model: CLAUDE_MODEL_DEFAULT,
-        config: {},
-        secretStatus: {},
-        secretsInput: {},
-        clearedSecrets: {},
-      });
-    }
-  };
 
   const onPrimaryProviderChange = (next: string) => {
     setPrimary({
@@ -109,10 +87,10 @@ export default function AgentForm({
       const agentRes = await fetch("/api/settings/agent", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backend, globalCap: cap }),
+        body: JSON.stringify({ globalCap: cap }),
       });
       const agentBody = await agentRes.json();
-      if (!agentRes.ok) throw new Error(agentBody.error ?? "Agent backend save failed");
+      if (!agentRes.ok) throw new Error(agentBody.error ?? "Agent settings save failed");
 
       const secretsPayload: Record<string, string | null> = {};
       const configPayload: Record<string, string> = {};
@@ -155,24 +133,11 @@ export default function AgentForm({
       <PageHeading
         eyebrow="Settings · Runtime"
         title="Agent"
-        description="Choose the runtime, model provider, and worker concurrency used for new agent jobs."
+        description="Configure the model provider and worker concurrency used by the Hermes agent runtime."
       />
 
       <section className="settings-card">
         <div className="grid gap-4 mt-4">
-          <label className={FIELD_CLS}>
-            <span className={LABEL_CLS}>Backend</span>
-            <Select
-              value={backend}
-              onChange={(v) => onBackendChange(v as "hermes" | "claude-agent")}
-              options={initial.agent.options}
-              ariaLabel="Agent backend"
-            />
-            <span className={HELP_CLS}>
-              {initial.agent.options.find((o) => o.value === backend)?.description}
-            </span>
-          </label>
-
           <div className="settings-grid">
             <label className={FIELD_CLS}>
               <span className={LABEL_CLS}>Provider</span>
@@ -180,12 +145,8 @@ export default function AgentForm({
                 value={primary.provider}
                 onChange={onPrimaryProviderChange}
                 options={providerOptions}
-                disabled={backend === "claude-agent"}
                 ariaLabel="Primary provider"
               />
-              {backend === "claude-agent" && (
-                <span className={HELP_CLS}>Locked because Agent backend = Claude Agent.</span>
-              )}
             </label>
             <label className={FIELD_CLS}>
               <span className={LABEL_CLS}>Model</span>

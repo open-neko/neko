@@ -1,6 +1,6 @@
 import type { HarnessRunSummary, NormalizedUsage } from "@neko/telemetry";
 
-export const AGENT_BACKEND_IDS = ["hermes", "claude-agent"] as const;
+export const AGENT_BACKEND_IDS = ["hermes"] as const;
 export type AgentBackendId = (typeof AGENT_BACKEND_IDS)[number];
 
 // Every concurrent job can own an OpenShell sandbox. Keep the out-of-box
@@ -14,11 +14,6 @@ export const AGENT_BACKEND_OPTIONS = [
     label: "Hermes",
     description: "Subprocess agent. Works with any LLM provider.",
   },
-  {
-    value: "claude-agent",
-    label: "Claude Agent",
-    description: "In-process. Locked to Anthropic Claude models.",
-  },
 ] as const;
 
 export function isAgentBackendId(value: string): value is AgentBackendId {
@@ -26,7 +21,8 @@ export function isAgentBackendId(value: string): value is AgentBackendId {
 }
 
 export function shellToolName(backendId: AgentBackendId): string {
-  return backendId === "claude-agent" ? "Bash" : "terminal";
+  void backendId;
+  return "terminal";
 }
 
 export type AgentSurfaceMessage = {
@@ -164,8 +160,6 @@ export type AgentWorkspace = {
   runRoot: string;
   artifactRoot: string;
   binRoot: string;
-  claudeProjectRoot: string;
-  claudeConfigRoot: string;
 };
 
 /**
@@ -203,30 +197,6 @@ export type AgentRunOptions = {
    *  in-process SDK card server (hermes) wire their own render tool when set.
    *  See docs/PER_CHANNEL_RENDERING.md. */
   wantsCards?: boolean;
-  outputSchema?: Record<string, unknown>;
-  forkSession?: boolean;
-  agents?: Record<string, unknown>;
-  hooks?: Record<string, unknown>;
-  /**
-   * Explicit allowed-tool whitelist. Wildcards (e.g. `mcp__neko_foo__*`) are
-   * supported. When provided, the Claude Agent backend uses the SDK subagent
-   * pattern to isolate the run: parent query is a thin orchestrator with no
-   * user-config / preset tools, real work happens in a subagent whose
-   * catalog is exactly this list. Required to keep operator-local MCP
-   * servers (~/.claude.json) out of the agent's tool catalog. Omit to keep
-   * legacy behavior (full claude_code preset on the parent query). An empty
-   * list selects isolation mode with no tools, for model-only jobs.
-   */
-  allowedTools?: readonly string[];
-  canUseTool?: (
-    toolName: string,
-    input: Record<string, unknown>,
-    options: Record<string, unknown>,
-  ) => Promise<Record<string, unknown>>;
-  onElicitation?: (
-    request: Record<string, unknown>,
-    options: Record<string, unknown>,
-  ) => Promise<Record<string, unknown>>;
 };
 
 export type AgentRunResult = {
@@ -245,7 +215,7 @@ export type AgentRunResult = {
   error?: string;
 };
 
-export type AgentNativeDelegation = "hermes-delegate-task" | "claude-agent-tool";
+export type AgentNativeDelegation = "hermes-delegate-task";
 
 // Per-backend feature flags so shared runtime code (runChatTurn, prompt
 // builder, auto-memory dispatch) never branches on backend.id. Adding a new
@@ -254,12 +224,8 @@ export type AgentNativeDelegation = "hermes-delegate-task" | "claude-agent-tool"
 export interface AgentBackendCapabilities {
   /** Accepts in-process SDK MCP servers via run().mcpServers. */
   readonly mcpTools: boolean;
-  /** Honors hooks.Stop with { async: true } returns for non-blocking post-turn work. */
-  readonly sdkStopHook: boolean;
   /** Honors resume: sessionId in AgentRunOptions to reload prior turns out-of-band. */
   readonly sessionResume: boolean;
-  /** Honors canUseTool callback for per-call permission decisions. */
-  readonly canUseToolGate: boolean;
   /** Native backend subagent/delegation primitive, when available. */
   readonly nativeDelegation?: AgentNativeDelegation;
 }
@@ -267,17 +233,7 @@ export interface AgentBackendCapabilities {
 export interface AgentBackend {
   readonly id: AgentBackendId;
   readonly capabilities: AgentBackendCapabilities;
-  /** The resolved model id, when the backend is model-parameterized
-   *  (claude-agent). hermes resolves its model from config.yaml, not here. The
-   *  sandbox launcher threads this into the box's job so the box reconstructs
-   *  the backend with the right model. */
+  /** Hermes resolves its model from config.yaml. */
   readonly model?: string;
   run(opts: AgentRunOptions): Promise<AgentRunResult>;
-}
-
-export class AgentBackendConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AgentBackendConfigError";
-  }
 }

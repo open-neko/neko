@@ -97,7 +97,7 @@ export type RunChatTurnOptions = {
    * Plugin action kinds to surface to the agent as MCP tools, one
    * per kind. The worker passes its plugin registry snapshot here;
    * tests pass an empty array to keep the agent's surface stable.
-   * Only honored when the backend supports MCP tools (claude-agent).
+   * Mounted for Hermes through the sandbox MCP bridge.
    */
   pluginActions?: readonly PluginActionDescriptor[];
   /**
@@ -135,7 +135,8 @@ export type RunChatTurnResult = {
 };
 
 function backendLabel(id: string): string {
-  return id === "claude-agent" ? "Claude Agent" : "Hermes";
+  void id;
+  return "Hermes";
 }
 
 /**
@@ -403,8 +404,11 @@ export async function runChatTurn(
     }
   };
 
-  const graphjinBinary = await resolveBinaryOnPath("graphjin");
-  if (!graphjinBinary && dataSurface === "customer") {
+  // Production resolves and guards GraphJin inside the OpenShell sandbox.
+  // The host path is retained only for the in-process test harness.
+  const graphjinBinary =
+    runCore === runAgentBackend ? await resolveBinaryOnPath("graphjin") : null;
+  if (runCore === runAgentBackend && !graphjinBinary && dataSurface === "customer") {
     const errMsg = "graphjin CLI is not installed on PATH.";
     await wrappedEmit({ type: "error", message: errMsg });
     await finishWorkRun(runId, "failed", errMsg);
@@ -621,7 +625,7 @@ export async function runChatTurn(
       pluginActions: customerSurface ? (opts.pluginActions ?? []) : [],
       sourceConfigEnabled: supportsSourceConfigTool,
       dataSurface,
-      controlPlane: opts.controlPlane,
+      controlPlane: opts.controlPlane ?? inProcessControlPlane,
       wantsCards,
       emit: wrappedEmit,
       signal,
@@ -690,8 +694,7 @@ export async function runChatTurn(
     // Side-effect fences are parsed from the RAW agent output, not finalText:
     // Hermes hides builder fences from finalText (it collapses to the a2ui
     // markdown) and from the message stream, so only rawText still carries
-    // them. claude-agent has no rawText and uses MCP tools, so this falls
-    // back to finalText harmlessly. Each fence type is parsed independently
+    // them. This falls back to finalText when rawText is absent. Each fence type is parsed independently
     // off the same source — they're distinct delimited blocks.
     const fenceSource =
       (result.rawText ?? result.finalText).trim() || assistantText.trim();
@@ -715,8 +718,7 @@ export async function runChatTurn(
       }
     }
 
-    // Workflow / policy save fences (Hermes path — claude-agent uses
-    // the workflow_builder / policy_builder MCP tools). Same chain
+    // Workflow / policy save fences are a compatibility fallback. Same chain
     // pattern as action fences above: persist, emit a confirmation
     // surface, strip the fence body from the displayed text.
     const workflowFence = extractWorkflowSaveFence(fenceSource);
@@ -852,8 +854,7 @@ export async function runChatTurn(
     }
 
     // Pull any neko_memory fences out of the raw agent response and persist
-    // them. Backend-agnostic: works for Hermes (no MCP tool registry) and is
-    // harmless for claude-agent (which would have used the MCP save tool).
+    // them. This is harmless when Hermes used the MCP save tool.
     const { ops: memoryOps } = extractMemoryFences(fenceSource);
     for (const op of memoryOps) {
       try {

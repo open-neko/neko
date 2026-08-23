@@ -33,6 +33,7 @@ const M_0007 = join(REPO_ROOT, "db", "migrations", "0007_work_memory.sql");
 const M_0019 = join(REPO_ROOT, "db", "migrations", "0019_install_policy_scope.sql");
 const M_0048 = join(REPO_ROOT, "db", "migrations", "0048_graphjin_config_scope.sql");
 const M_0051 = join(REPO_ROOT, "db", "migrations", "0051_app_state.sql");
+const M_0062 = join(REPO_ROOT, "db", "migrations", "0062_hermes_only_agent.sql");
 
 function uniqueDbName(): string {
   return `vitest_migrations_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -255,6 +256,60 @@ describeIfDb("schema migrations", () => {
          where org_id = 'records-org' and app_id = 'equipment'`,
       );
       expect(owner.rows[0]?.created_by).toBeNull();
+    });
+  });
+
+  it("0062 converts only agent runtime state to Hermes and is idempotent", async () => {
+    await withTempDb(async (client) => {
+      await applyFile(client, M_0001);
+      await applyFile(client, M_0002);
+      await client.query(`
+        insert into organization (id, name) values ('hermes-upgrade', 'Hermes Upgrade');
+        insert into llm_provider_config
+          (org_id, scope, provider, model, enabled, config, secrets)
+        values
+          ('hermes-upgrade', 'primary', 'anthropic', 'claude-sonnet-4-5', true,
+           '{"baseUrl":"https://api.anthropic.com"}', '{"apiKey":"encrypted-primary"}'),
+          ('hermes-upgrade', 'agent', 'claude-agent', 'legacy-agent-model', false,
+           '{"backend":"claude-agent","globalCap":7,"claudeAgentCap":2,"futureSetting":"keep"}',
+           '{"apiKey":"legacy-agent-secret"}');
+      `);
+
+      await applyFile(client, M_0062);
+      await applyFile(client, M_0062);
+
+      const result = await client.query<{
+        scope: string;
+        provider: string;
+        model: string | null;
+        enabled: boolean;
+        config: Record<string, unknown>;
+        secrets: Record<string, unknown>;
+      }>(`
+        select scope, provider, model, enabled, config, secrets
+        from llm_provider_config
+        where org_id = 'hermes-upgrade'
+        order by scope
+      `);
+
+      expect(result.rows).toEqual([
+        {
+          scope: "agent",
+          provider: "hermes",
+          model: null,
+          enabled: true,
+          config: { globalCap: 7, futureSetting: "keep" },
+          secrets: {},
+        },
+        {
+          scope: "primary",
+          provider: "anthropic",
+          model: "claude-sonnet-4-5",
+          enabled: true,
+          config: { baseUrl: "https://api.anthropic.com" },
+          secrets: { apiKey: "encrypted-primary" },
+        },
+      ]);
     });
   });
 

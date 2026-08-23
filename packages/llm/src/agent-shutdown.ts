@@ -10,7 +10,7 @@
  * the systemd unit past its TimeoutStopSec.
  *
  * Why this is necessary: agent backends spawn external CLIs (hermes,
- * claude) which fork their own subprocesses (Python venvs, browser
+ * Hermes) which may fork their own subprocesses (Python venvs, browser
  * tools, etc.). Some of those grandchildren detach themselves and
  * survive even systemd's cgroup SIGKILL, leaving orphan processes
  * across redeploys. Application-level cancellation is the only reliable

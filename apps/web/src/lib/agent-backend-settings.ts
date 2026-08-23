@@ -4,22 +4,19 @@ import { and, db, eq, llm_provider_config } from "@neko/db";
 import {
   AGENT_BACKEND_OPTIONS,
   AGENT_DEFAULT_GLOBAL_CAP,
-  getDefaultPrimaryModel,
-  isAgentBackendId,
-  type AgentBackendId,
 } from "@neko/llm";
 
 const AGENT_SCOPE = "agent";
-const CLAUDE_SDK_REQUIRED_PROVIDER = "anthropic";
-
-export type AgentBackendSettings = {
+export type AgentSettings = {
   source: "org" | "default";
-  backend: AgentBackendId;
+  /** Compatibility field for pre-Hermes-only setup clients. */
+  backend: "hermes";
   globalCap: number;
 };
 
 export type AgentSettingsPayload = {
-  agent: AgentBackendSettings;
+  agent: AgentSettings;
+  /** Compatibility list for pre-Hermes-only setup clients. */
   options: typeof AGENT_BACKEND_OPTIONS;
   defaults: {
     globalCap: number;
@@ -61,22 +58,17 @@ function readPositiveInt(
   return Math.floor(n);
 }
 
-export async function getAgentBackendSettings(
+export async function getAgentSettings(
   orgId: string,
-): Promise<AgentBackendSettings> {
+): Promise<AgentSettings> {
   const row = await loadAgentRow(orgId);
   const cfg = (row?.config ?? {}) as {
-    backend?: unknown;
     globalCap?: unknown;
   };
-  const backend =
-    typeof cfg.backend === "string" && isAgentBackendId(cfg.backend)
-      ? cfg.backend
-      : "hermes";
   const globalCap = readPositiveInt(cfg.globalCap, AGENT_DEFAULT_GLOBAL_CAP);
   return {
     source: row ? "org" : "default",
-    backend,
+    backend: "hermes",
     globalCap,
   };
 }
@@ -84,7 +76,7 @@ export async function getAgentBackendSettings(
 export async function getAgentSettingsPayload(
   orgId: string,
 ): Promise<AgentSettingsPayload> {
-  const agent = await getAgentBackendSettings(orgId);
+  const agent = await getAgentSettings(orgId);
   return {
     agent,
     options: AGENT_BACKEND_OPTIONS,
@@ -95,22 +87,18 @@ export async function getAgentSettingsPayload(
 }
 
 export type AgentSaveDraft = {
-  backend: string;
+  /** Accepted only as the legacy no-op value "hermes". */
+  backend?: unknown;
   globalCap?: number | string;
 };
 
-export async function saveAgentBackendDraft(
+export async function saveAgentSettingsDraft(
   orgId: string,
   draft: AgentSaveDraft,
-): Promise<AgentBackendSettings> {
-  if (!isAgentBackendId(draft.backend)) {
-    throw new Error(`Unsupported agent backend: ${draft.backend}`);
+): Promise<AgentSettings> {
+  if (draft.backend !== undefined && draft.backend !== "hermes") {
+    throw new Error(`Unsupported agent backend: ${String(draft.backend)}`);
   }
-
-  if (draft.backend === "claude-agent") {
-    await ensurePrimaryIsAnthropic(orgId);
-  }
-
   const existing = await loadAgentRow(orgId);
   const existingCfg = (existing?.config ?? {}) as {
     globalCap?: unknown;
@@ -119,13 +107,13 @@ export async function saveAgentBackendDraft(
     draft.globalCap ?? existingCfg.globalCap,
     AGENT_DEFAULT_GLOBAL_CAP,
   );
-  const config = { backend: draft.backend, globalCap };
+  const config = { globalCap };
 
   if (existing) {
     await db()
       .update(llm_provider_config)
       .set({
-        provider: draft.backend,
+        provider: "hermes",
         config,
         updated_at: new Date(),
       })
@@ -134,56 +122,12 @@ export async function saveAgentBackendDraft(
     await db().insert(llm_provider_config).values({
       org_id: orgId,
       scope: AGENT_SCOPE,
-      provider: draft.backend,
+      provider: "hermes",
       enabled: true,
       config,
       secrets: {},
     });
   }
 
-  return { source: "org", backend: draft.backend, globalCap };
-}
-
-async function ensurePrimaryIsAnthropic(orgId: string): Promise<void> {
-  const rows = await db()
-    .select({
-      id: llm_provider_config.id,
-      provider: llm_provider_config.provider,
-    })
-    .from(llm_provider_config)
-    .where(
-      and(
-        eq(llm_provider_config.org_id, orgId),
-        eq(llm_provider_config.scope, "primary"),
-      ),
-    )
-    .limit(1);
-  const existing = rows[0];
-
-  if (existing && existing.provider === CLAUDE_SDK_REQUIRED_PROVIDER) return;
-
-  if (existing) {
-    await db()
-      .update(llm_provider_config)
-      .set({
-        provider: CLAUDE_SDK_REQUIRED_PROVIDER,
-        model: getDefaultPrimaryModel(CLAUDE_SDK_REQUIRED_PROVIDER),
-        config: {},
-        secrets: {},
-        enabled: true,
-        updated_at: new Date(),
-      })
-      .where(eq(llm_provider_config.id, existing.id));
-    return;
-  }
-
-  await db().insert(llm_provider_config).values({
-    org_id: orgId,
-    scope: "primary",
-    provider: CLAUDE_SDK_REQUIRED_PROVIDER,
-    model: getDefaultPrimaryModel(CLAUDE_SDK_REQUIRED_PROVIDER),
-    enabled: true,
-    config: {},
-    secrets: {},
-  });
+  return { source: "org", backend: "hermes", globalCap };
 }

@@ -1,18 +1,27 @@
-# OpenShell sandbox base for the AGENT runtime (Phase 2c) — the agent turn
-# (runChatTurn + the claude/hermes subprocess) runs here, reaching the control
-# plane only through the broker.
+# OpenShell sandbox OS base for the Hermes agent runtime. Agent turns reach the
+# trusted control plane only through the broker.
 #
 # This file is the OS base layer (the OpenShell-required shape: glibc +
 # iproute2/nftables + a `sandbox` user @ /sandbox, same as plugin-base). The
-# RUNNABLE agent image layers the worker runtime on top — node + the compiled
-# @neko/llm bundle + the claude/hermes/graphjin binaries + agent-sandbox/entry.ts
-# — which is produced by composing the main Dockerfile's `cli`/`build` stages.
+# runnable agent image in the main Dockerfile adds Hermes, GraphJin, document
+# tooling, two standalone JavaScript bundles, and built-in skill assets. It does
+# not inherit the worker source or production dependency closure.
 # See docs/OPENSHELL_MIGRATION_PLAN.md (Phase 2c) for the full image + launcher.
 #   docker build -f docker/agent-base.Dockerfile -t ghcr.io/open-neko/agent-base:node24 .
-# Node 24: the injected NODE_USE_ENV_PROXY only routes node fetch through the
-# egress proxy on 24+ — needed for the claude CLI's API egress (and any
-# node-fetch egress) to reach the model through the proxy instead of failing DNS.
-FROM node:24-bookworm-slim
+# Node 24 is retained for the standalone agent/MCP bundles and proxy-aware fetch.
+FROM node:24-bookworm-slim AS node-distribution
+
+FROM node-distribution AS npm-payload
+RUN rm -rf /usr/local/lib/node_modules/npm/docs /usr/local/lib/node_modules/npm/man \
+    && find /usr/local/lib/node_modules/npm -type f -name '*.map' -delete
+
+FROM debian:bookworm-slim
+COPY --from=node-distribution /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-distribution /usr/local/share/doc/node /usr/local/share/doc/node
+COPY --from=npm-payload /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -s node /usr/local/bin/nodejs \
+    && ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates iproute2 nftables \

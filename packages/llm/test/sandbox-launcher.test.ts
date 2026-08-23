@@ -78,8 +78,7 @@ const h = vi.hoisted(() => {
 vi.mock("node:child_process", () => ({ spawn: h.spawn }));
 
 // Capture the job descriptor the launcher writes (then uploads to the box), so
-// we can assert what crosses the host→sandbox boundary — e.g. the Claude model,
-// which the box needs to reconstruct the claude-agent backend.
+// we can assert exactly what crosses the host→sandbox boundary.
 const jobCapture = vi.hoisted(() => ({
   jobs: [] as Array<Record<string, unknown>>,
   policies: [] as Array<ReturnType<typeof JSON.parse>>,
@@ -204,8 +203,6 @@ function fullWorkspace(orgRoot: string): AgentWorkspace {
     runRoot: join(orgRoot, "runs", "run-1"),
     artifactRoot: join(orgRoot, "runs", "run-1", "artifacts"),
     binRoot: join(orgRoot, "runs", "run-1", "bin"),
-    claudeProjectRoot: orgRoot,
-    claudeConfigRoot: join(orgRoot, "claude", "config"),
   };
 }
 
@@ -375,25 +372,6 @@ describe("makeSandboxRunCore", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it("threads the claude model into the box job (box rebuilds the backend with it)", async () => {
-    const runCore = makeSandboxRunCore({
-      agentImage: "ghcr.io/open-neko/agent:test",
-      onLog: () => {},
-    });
-    await runCore(
-      fakeInput(async () => {}, {
-        id: "claude-agent",
-        model: "claude-sonnet-4-6",
-        capabilities: { mcpTools: true },
-      } as RunAgentBackendInput["backend"]),
-    );
-    const job = jobCapture.jobs.at(-1);
-    expect(job?.backendId).toBe("claude-agent");
-    // Without this, the box builds claude-agent with model:undefined and throws
-    // "requires a Claude model" — the whole claude sandbox path is dead.
-    expect(job?.model).toBe("claude-sonnet-4-6");
-  });
-
   it("omits model for hermes (it reads config.yaml, not the job)", async () => {
     const runCore = makeSandboxRunCore({ agentImage: "ghcr.io/open-neko/agent:test", onLog: () => {} });
     await runCore(fakeInput(async () => {}));
@@ -441,12 +419,12 @@ describe("makeSandboxRunCore", () => {
     ]);
     // result parsed from the RESULT line:
     expect(result).toEqual({ status: "completed", finalText: "hi there", backendState: { t: 1 } });
-    // create used the agent image; exec ran entry.ts via the sh-wrapper:
+    // create used the agent image; exec ran the standalone bundle:
     expect(h.calls[0]?.args).toContain("ghcr.io/open-neko/agent:test");
     expect(h.calls[0]?.args).toContain("--policy");
     expect(h.calls[0]?.args).toContain("--upload");
     const execCall = h.calls.find((c) => c.args.includes("exec"));
-    expect(execCall?.args.join(" ")).toContain("agent-sandbox/entry.ts");
+    expect(execCall?.args.join(" ")).toContain("node /app/agent-entry.js");
     // the credential alias references the OpenShell-injected var at runtime, never a value:
     expect(execCall?.args.join(" ")).toContain('export GEMINI_API_KEY="$api_key"');
   });
@@ -527,13 +505,7 @@ describe("makeSandboxRunCore", () => {
       onLog: () => {},
     });
 
-    await runCore(
-      fakeWorkflowInput(async () => {}, {
-        id: "claude-agent",
-        model: "claude-sonnet-4-6",
-        capabilities: { mcpTools: true },
-      } as RunWorkflowAgentBackendInput["backend"]),
-    );
+    await runCore(fakeWorkflowInput(async () => {}));
 
     const job = jobCapture.jobs.at(-1);
     expect(job).toMatchObject({
@@ -544,10 +516,10 @@ describe("makeSandboxRunCore", () => {
       workflowRunId: "workflow-run-1",
       mode: "headless",
       triggeredByObservationId: "obs-1",
-      backendId: "claude-agent",
-      model: "claude-sonnet-4-6",
+      backendId: "hermes",
       message: "begin",
     });
+    expect(job).not.toHaveProperty("model");
     expect(job).not.toHaveProperty("backendState");
     expect(job).not.toHaveProperty("pluginActions");
     expect(h.calls.filter((c) => c.args.includes("create"))).toHaveLength(1);

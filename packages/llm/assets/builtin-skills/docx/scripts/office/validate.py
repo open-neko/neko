@@ -47,8 +47,8 @@ def main():
     )
     parser.add_argument(
         "--author",
-        default="Claude",
-        help="Author name for redlining validation (default: Claude)",
+        default="OpenNeko",
+        help="Author name for redlining validation (default: OpenNeko)",
     )
     args = parser.parse_args()
 

@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 /**
  * E2E (slow tier) config. Only runs `test/e2e/**` — exercises real
- * Hermes/Claude Agent subprocesses against the seeded AdventureWorks
+ * Hermes subprocesses against the seeded AdventureWorks
  * Docker stack. Requires:
  *   - neko-db, graphjin, adventureworks-db containers up
  *   - At least one provider API key reachable to the worker

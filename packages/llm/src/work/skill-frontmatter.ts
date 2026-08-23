@@ -5,7 +5,7 @@
 // dep entries for community skills installed under ~/.openneko/skills/.
 //
 // Intentionally NOT a full YAML parser — we tolerate unknown top-level
-// keys (Hermes/Claude Code skills carry vendor-specific extensions) and
+// keys (some imported skills carry vendor-specific extensions) and
 // don't blow up on nested structures we don't recognise. If a key we
 // care about can't be parsed cleanly, it's treated as absent.
 
@@ -17,7 +17,7 @@ export interface SkillFrontmatter {
   license?: string;
   /** Free-text environment hints. */
   compatibility?: string;
-  /** Pre-approved tools (Claude Code extension). */
+  /** Imported skill metadata retained for round-trip compatibility. */
   allowedTools?: string;
   /** Hermes/community extension: prerequisites the skill assumes. */
   prerequisites?: {

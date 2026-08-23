@@ -20,7 +20,7 @@ Those components remain under their own licenses.
 | Component | License | Notes |
 |---|---|---|
 | Hermes Agent | MIT | External/modular agent runtime from Nous Research. Preserve upstream copyright and license notices when distributing it or substantial portions of it. |
-| Claude Agent / Claude Code / Anthropic SDK components | Upstream terms | OpenNeko integration code is licensed as OpenNeko code unless marked otherwise; Anthropic packages, binaries, services, and skill formats remain under their own package, repository, or service terms. |
+| Anthropic-authored bundled skills | As declared | Preserve the upstream terms and attribution shipped with each skill. |
 | Built-in skills with `license:` frontmatter | As declared in each skill | Some bundled skills are Apache-2.0, MIT, or proprietary to their upstream source. Check each `SKILL.md` and local `LICENSE.txt`. |
 | Third-party plugins | Plugin author's license | Plugins communicate across the OpenNeko plugin RPC boundary and are independent works unless their own license says otherwise. |
 

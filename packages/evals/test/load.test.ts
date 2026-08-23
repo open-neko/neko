@@ -32,7 +32,7 @@ describe("eval config safety", () => {
 describe("execution ordering", () => {
   it("rotates the leading variant across repetitions in a counterbalanced plan", async () => {
     const configPath = fileURLToPath(
-      new URL("../../../evals/configs/adventureworks-backend-parity.yaml", import.meta.url),
+      new URL("../../../evals/configs/adventureworks-provider-matrix.yaml", import.meta.url),
     );
     const loaded = await loadEval(configPath);
     expect(loaded.pricing).toMatchObject({

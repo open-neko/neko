@@ -15,7 +15,7 @@ export type BuildWorkflowRunnerPromptInput = {
   workflow: WorkflowRecord;
   mode: "live" | "headless";
   memoryContext?: string;
-  /** True when the backend supports in-process SDK MCP servers (Claude Agent). */
+  /** True when Hermes has brokered MCP tools for this run. */
   mcpTools: boolean;
   backend: AgentBackendId;
   workspace: AgentWorkspace;
@@ -201,8 +201,8 @@ be valid JSON.
 }
 
 function buildNativeDelegationBlock(backend: AgentBackendId): string {
-  if (backend === "hermes") {
-    return `<delegation>
+  void backend;
+  return `<delegation>
 Use Hermes native \`delegate_task\` when an independent workflow step would
 benefit from fresh context or parallel investigation. You decide whether to
 delegate, how many subtasks to create, and which \`toolsets\` each child gets.
@@ -213,19 +213,6 @@ business question, source/table hints, file paths, constraints, and expected
 return shape in \`goal\` and \`context\`. Use \`tasks\` for independent parallel
 checks. Use \`role: "orchestrator"\` only for genuinely multi-stage work and
 only when the configured delegation depth supports it.
-</delegation>`;
-  }
-
-  return `<delegation>
-Use Claude Code native dynamic subagent delegation through the \`Agent\` tool
-when an independent workflow step would benefit from fresh context or parallel
-investigation. Prefer the built-in \`general-purpose\` subagent or any
-filesystem-discovered agents; OpenNeko does not define named subagent
-profiles.
-
-Each subagent receives only the prompt you pass through the Agent tool. Include
-the exact business question, source/table hints, file paths, constraints, and
-expected return shape. Only the subagent's final result returns to you.
 </delegation>`;
 }
 

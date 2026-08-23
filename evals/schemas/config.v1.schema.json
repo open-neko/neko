@@ -255,10 +255,7 @@
         },
         "backend": {
           "type": "string",
-          "enum": [
-            "hermes",
-            "claude-agent"
-          ]
+          "const": "hermes"
         },
         "outer_model": {
           "$ref": "#/$defs/__schema6"

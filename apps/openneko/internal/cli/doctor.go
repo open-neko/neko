@@ -210,7 +210,10 @@ func runOperationalDoctor(ctx context.Context, out io.Writer) (bool, error) {
 	defer cancel()
 	for _, stanza := range []string{"openneko-metadata", "openneko-records"} {
 		_, err := composeCommandOutput(walCtx, project, files,
-			"exec", "-T", "neko-backup", "gosu", "postgres", "pgbackrest",
+			"exec", "-T", "neko-backup", "sh", "-ec",
+			`unset PGBACKREST_REPO1_CIPHER_PASS_FILE
+if command -v gosu >/dev/null 2>&1; then exec gosu postgres "$@"; fi
+exec su-exec postgres "$@"`, "openneko-run-as-postgres", "pgbackrest",
 			"--log-level-console=warn", "--stanza="+stanza, "check")
 		if err != nil {
 			fmt.Fprintf(out, "WAL %s: FAIL — %v\n", stanza, err)

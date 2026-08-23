@@ -1,10 +1,7 @@
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { createMcpServer, defineMcpTool } from "../mcp-server";
 import { z } from "zod";
 import type { AgentEvent } from "../agent-backend";
-import {
-  inProcessControlPlane,
-  type AgentControlPlane,
-} from "../work/control-plane";
+import type { AgentControlPlane } from "../work/control-plane";
 import {
   subscriptionSavedCard,
   workflowDeletedCard,
@@ -20,13 +17,13 @@ export type WorkflowBuilderContext = {
   /** In-process on the host; broker-backed inside the agent sandbox. The
    *  tool handlers run wherever the backend SDK runs, so they must never
    *  touch the DB directly. */
-  controlPlane?: AgentControlPlane;
+  controlPlane: AgentControlPlane;
 };
 
 export function buildWorkflowBuilderServer(ctx: WorkflowBuilderContext) {
-  const controlPlane = ctx.controlPlane ?? inProcessControlPlane;
+  const controlPlane = ctx.controlPlane;
 
-  const createWorkflowTool = tool(
+  const createWorkflowTool = defineMcpTool(
     "create_workflow",
     [
       "Create or update a workflow. Upserts by name within the org — if a",
@@ -97,7 +94,7 @@ export function buildWorkflowBuilderServer(ctx: WorkflowBuilderContext) {
     },
   );
 
-  const listWorkflowsTool = tool(
+  const listWorkflowsTool = defineMcpTool(
     "list_workflows",
     [
       "List the workflows defined in this org so you can answer questions",
@@ -147,7 +144,7 @@ export function buildWorkflowBuilderServer(ctx: WorkflowBuilderContext) {
     },
   );
 
-  const deleteWorkflowTool = tool(
+  const deleteWorkflowTool = defineMcpTool(
     "delete_workflow",
     [
       "Permanently delete a workflow by its id. This also drops its triggers,",
@@ -208,7 +205,7 @@ export function buildWorkflowBuilderServer(ctx: WorkflowBuilderContext) {
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_workflow_builder",
     version: "1.0.0",
     tools: [createWorkflowTool, listWorkflowsTool, deleteWorkflowTool],

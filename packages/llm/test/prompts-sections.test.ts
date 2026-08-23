@@ -21,8 +21,6 @@ const fakeWorkspace: AgentWorkspace = {
   runRoot: "/tmp/wsp/run",
   artifactRoot: "/tmp/wsp/artifacts",
   binRoot: "/tmp/wsp/bin",
-  claudeProjectRoot: "/tmp/wsp/claude-project",
-  claudeConfigRoot: "/tmp/wsp/claude-config",
 };
 
 const fakeKnowledge: KnowledgePackContents = {

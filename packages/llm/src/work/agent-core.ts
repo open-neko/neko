@@ -4,7 +4,8 @@ import type {
   AgentRunResult,
   AgentWorkspace,
 } from "../agent-backend";
-import { buildRuleBuilderServer, buildWorkflowBuilderServer } from "../workflows";
+import { buildWorkflowBuilderServer } from "../workflows/builder-server";
+import { buildRuleBuilderServer } from "../workflows/rule-builder-server";
 import type { AgentControlPlane } from "./control-plane";
 import {
   parseAppWorkContext,
@@ -28,7 +29,7 @@ import {
 } from "./tools";
 
 export interface RunAgentBackendInput {
-  /** Resolved backend (hermes / claude-agent). In the sandbox it's reconstructed from config. */
+  /** Hermes backend. In the sandbox it is reconstructed from config. */
   backend: AgentBackend;
   prompt: string;
   userMessage: string;
@@ -43,7 +44,7 @@ export interface RunAgentBackendInput {
   /** Selects the isolated data plane for this turn. */
   dataSurface?: WorkDataSurface;
   /** In-process on the host; broker-backed inside the agent sandbox. */
-  controlPlane?: AgentControlPlane;
+  controlPlane: AgentControlPlane;
   /** Whether this channel renders a2ui cards (web). Default true. Gates the
    *  neko_ui render server. See docs/PER_CHANNEL_RENDERING.md. */
   wantsCards?: boolean;
@@ -58,9 +59,7 @@ export interface RunAgentBackendInput {
  * DB-bound prologue (load bundle/knowledge/memory/skills + build the prompt)
  * and epilogue (fence handling + persistence) stay on the host in runChatTurn.
  *
- * Backends that use MCP tools (claude-agent) get the broker-backed servers
- * here; hermes (capabilities.mcpTools=false) gets none — it emits tool fences
- * that runChatTurn parses host-side after the turn.
+ * Hermes mounts these logical servers through the broker-backed stdio bridge.
  */
 export async function runAgentBackend(
   input: RunAgentBackendInput,
@@ -205,18 +204,6 @@ export async function runAgentBackend(
             : {}),
         }
       : undefined,
-    allowedTools:
-      recordsOnly && backend.capabilities.canUseToolGate
-        ? [
-            "Skill",
-            "AskUserQuestion",
-            "mcp__neko_records__browse_catalog",
-            "mcp__neko_records__find_records",
-            "mcp__neko_records__get_record",
-            "mcp__neko_records__find_recycled_records",
-            "mcp__neko_records__get_recycled_record",
-          ]
-        : undefined,
     wantsCards,
     tag: `work ${runId}`,
     signal,

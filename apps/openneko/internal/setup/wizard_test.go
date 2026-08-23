@@ -30,11 +30,7 @@ func mockSetupServer(changed bool, recs *[]recorded) *httptest.Server {
 			_ = enc.Encode(map[string]any{"source": "unset"})
 		case "GET /api/settings/agent":
 			_ = enc.Encode(map[string]any{
-				"agent": map[string]any{"source": "default", "backend": "hermes", "globalCap": 5},
-				"options": []map[string]string{
-					{"value": "hermes", "label": "Hermes", "description": "any provider"},
-					{"value": "claude-agent", "label": "Claude Agent", "description": "anthropic"},
-				},
+				"agent":    map[string]any{"source": "default", "globalCap": 5},
 				"defaults": map[string]any{"globalCap": 5},
 			})
 		case "GET /api/settings/provider":
@@ -110,9 +106,9 @@ func TestHeadlessConfigure(t *testing.T) {
 		t.Error("provider key not tested with apiKey secret")
 	}
 	if _, ok := findWhere(recs, "PUT", "/api/settings/agent", func(b map[string]any) bool {
-		return b["backend"] == "hermes"
+		return b["globalCap"] == float64(5) && b["backend"] == nil
 	}); !ok {
-		t.Error("agent backend not saved")
+		t.Error("agent concurrency not saved")
 	}
 	if _, ok := findWhere(recs, "PUT", "/api/settings/provider", func(b map[string]any) bool {
 		return b["scope"] == "research" && b["provider"] == "disabled"
@@ -124,14 +120,14 @@ func TestHeadlessConfigure(t *testing.T) {
 	}
 }
 
-func TestHeadlessClaudeAgentLocksAnthropic(t *testing.T) {
+func TestHeadlessHermesAllowsAnyProvider(t *testing.T) {
 	var recs []recorded
 	srv := mockSetupServer(true, &recs) // password already changed
 	defer srv.Close()
 
 	cfg := Config{
 		Mode: "prod", BaseURL: srv.URL, Headless: true,
-		Backend: "claude-agent", Provider: "openai", ProviderKey: "sk", DataURL: "http://x:8080", NoResearch: true,
+		Provider: "openai", ProviderKey: "sk", DataURL: "http://x:8080", NoResearch: true,
 	}
 	outcome, err := Run(context.Background(), NewClient(srv.URL), &bytes.Buffer{}, cfg)
 	if err != nil {
@@ -142,11 +138,11 @@ func TestHeadlessClaudeAgentLocksAnthropic(t *testing.T) {
 	if outcome.PasswordSet != "" {
 		t.Errorf("PasswordSet = %q, want empty (password already set)", outcome.PasswordSet)
 	}
-	// Even though Provider=openai was passed, claude-agent forces anthropic.
+	// Hermes preserves the selected provider.
 	if _, ok := findWhere(recs, "PUT", "/api/settings/provider", func(b map[string]any) bool {
-		return b["scope"] == "primary" && b["provider"] == "anthropic"
+		return b["scope"] == "primary" && b["provider"] == "openai"
 	}); !ok {
-		t.Error("claude-agent should lock the primary provider to anthropic")
+		t.Error("Hermes should preserve the selected primary provider")
 	}
 }
 

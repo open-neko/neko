@@ -114,8 +114,15 @@ def storage_sample() -> dict:
     }
 
 
+def postgres_invocation(args: list[str]) -> list[str]:
+    for executable in ("gosu", "su-exec"):
+        if shutil.which(executable):
+            return [executable, "postgres", *args]
+    raise RuntimeError("neither gosu nor su-exec is available")
+
+
 def command(args: list[str], *, postgres: bool = False, timeout: int = 3600) -> str:
-    invocation = ["gosu", "postgres", *args] if postgres else args
+    invocation = postgres_invocation(args) if postgres else args
     result = subprocess.run(
         invocation,
         check=False,
@@ -440,21 +447,21 @@ def restored_probe(data: pathlib.Path, database: str, user: str, port: int) -> d
     socket.mkdir(mode=0o700)
     command(["chown", "postgres:postgres", str(socket)])
     process = subprocess.Popen(
-        [
-            "gosu",
-            "postgres",
-            "postgres",
-            "-D",
-            str(data),
-            "-k",
-            str(socket),
-            "-p",
-            str(port),
-            "-c",
-            "listen_addresses=",
-            "-c",
-            "archive_mode=off",
-        ],
+        postgres_invocation(
+            [
+                "postgres",
+                "-D",
+                str(data),
+                "-k",
+                str(socket),
+                "-p",
+                str(port),
+                "-c",
+                "listen_addresses=",
+                "-c",
+                "archive_mode=off",
+            ]
+        ),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
@@ -463,7 +470,9 @@ def restored_probe(data: pathlib.Path, database: str, user: str, port: int) -> d
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             ready = subprocess.run(
-                ["gosu", "postgres", "pg_isready", "-h", str(socket), "-p", str(port)],
+                postgres_invocation(
+                    ["pg_isready", "-h", str(socket), "-p", str(port)]
+                ),
                 check=False,
                 capture_output=True,
             )
@@ -484,7 +493,9 @@ def restored_probe(data: pathlib.Path, database: str, user: str, port: int) -> d
         return database_probe(cluster)
     finally:
         subprocess.run(
-            ["gosu", "postgres", "pg_ctl", "-D", str(data), "-m", "fast", "stop"],
+            postgres_invocation(
+                ["pg_ctl", "-D", str(data), "-m", "fast", "stop"]
+            ),
             check=False,
             capture_output=True,
             timeout=30,

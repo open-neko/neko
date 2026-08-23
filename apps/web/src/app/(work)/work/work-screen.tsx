@@ -142,7 +142,7 @@ type MessageRecord = {
 
 type RunRecord = {
   id: string;
-  backend: "hermes" | "claude-agent";
+  backend: "hermes";
   status: string;
   error: string | null;
   createdAt: string;
@@ -809,9 +809,8 @@ export default function WorkScreen() {
       await loadThread(threadId);
       return;
     }
-    const { runId, backend, actorRole } = (await res.json()) as {
+    const { runId, actorRole } = (await res.json()) as {
       runId: string;
-      backend: string;
       actorRole?: RunRecord["actorRole"];
     };
     if (!mountedRef.current) return;
@@ -841,7 +840,7 @@ export default function WorkScreen() {
               ...prev.runs,
               {
                 id: runId,
-                backend: (backend as "hermes" | "claude-agent") ?? "hermes",
+                backend: "hermes",
                 status: "running",
                 error: null,
                 createdAt: new Date().toISOString(),

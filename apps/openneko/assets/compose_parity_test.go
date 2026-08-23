@@ -17,6 +17,8 @@ type composeParityDocument struct {
 }
 
 type composeParityService struct {
+	Image       string                             `yaml:"image"`
+	Entrypoint  []string                           `yaml:"entrypoint"`
 	Restart     string                             `yaml:"restart"`
 	Profiles    []string                           `yaml:"profiles"`
 	DependsOn   map[string]composeParityDependency `yaml:"depends_on"`
@@ -25,6 +27,32 @@ type composeParityService struct {
 	Ports       []string                           `yaml:"ports"`
 	Command     []string                           `yaml:"command"`
 	Healthcheck map[string]any                     `yaml:"healthcheck"`
+}
+
+func TestPackagedGraphJinReusesReleasedRuntime(t *testing.T) {
+	coreRaw, err := ComposeFS.ReadFile("compose/core.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	core := loadComposeParityDocument(t, coreRaw)
+	graphjin, ok := core.Services["graphjin"]
+	if !ok {
+		t.Fatal("packaged core is missing graphjin")
+	}
+	if !strings.Contains(graphjin.Image, "ghcr.io/open-neko/records-graphjin:") {
+		t.Fatalf("packaged graphjin image = %q, want the shared records-graphjin runtime", graphjin.Image)
+	}
+	if want := []string{"graphjin"}; !reflect.DeepEqual(graphjin.Entrypoint, want) {
+		t.Fatalf("packaged graphjin entrypoint = %v, want %v", graphjin.Entrypoint, want)
+	}
+
+	demoRaw, err := ComposeFS.ReadFile("compose/demo.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(demoRaw), "dosco/graphjin") {
+		t.Fatal("packaged demo restores the duplicate upstream GraphJin image")
+	}
 }
 
 type composeParityDependency struct {

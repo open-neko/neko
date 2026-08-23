@@ -14,7 +14,7 @@ describe("Hermes install contract", () => {
 
     expect(dockerfile).toContain(`ARG HERMES_AGENT_REF=${HERMES_REF}`);
     expect(installer).toContain(`HERMES_AGENT_REF="\${HERMES_AGENT_REF:-${HERMES_REF}}"`);
-    expect(dockerfile).toContain("uv tool install --python 3.11");
+    expect(dockerfile).toContain("uv tool install --python /usr/bin/python3");
     expect(installer).toContain("uv tool install --force --python 3.11");
     expect(dockerfile).toContain("--with mcp --with websockets");
     expect(installer).toContain("--with mcp --with websockets");

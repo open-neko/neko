@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
-# Single Dockerfile, two targets (web + worker), shared base layers.
-# Build with `--target=web` or `--target=worker`.
+# One Dockerfile for the OpenNeko runtime images, with shared build and runtime
+# layers. Release targets are enumerated in .github/workflows/release-binaries.yml.
 #
 # Runtime config strategy: the app reads ~/.config/openneko/config.json
 # (DB connection) and ~/.config/openneko/secret-key (at-rest encryption
@@ -11,42 +11,100 @@
 # the app. See entrypoint.sh for the env var contract.
 
 # ─── 1. base: node + system tooling ────────────────────────────────────
-FROM node:24-bookworm-slim AS base
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME:$PATH
+# The official Node image also carries npm, Corepack, Yarn, C/C++ headers, and
+# documentation. Copy only the executable into the shared runtime lineage;
+# worker and agent add a pruned npm payload below because they genuinely offer
+# runtime package installation. Web and plugin sandboxes do not pay that tax.
+FROM node:24-bookworm-slim AS node-distribution
+
+FROM node-distribution AS npm-payload
+RUN rm -rf /usr/local/lib/node_modules/npm/docs /usr/local/lib/node_modules/npm/man \
+    && find /usr/local/lib/node_modules/npm -type f -name '*.map' -delete
+
+FROM debian:bookworm-slim AS node-runtime
+COPY --from=node-distribution /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-distribution /usr/local/share/doc/node /usr/local/share/doc/node
+RUN ln -s node /usr/local/bin/nodejs
 # Retry transient apt mirror hiccups instead of hard-failing the image build.
 RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\n' > /etc/apt/apt.conf.d/80-retries
-RUN corepack enable && corepack prepare pnpm@9.14.1 --activate
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl tini \
     && rm -rf /var/lib/apt/lists/*
 
-# Postgres data-plane images with pgBackRest available inside archive_command.
-# The coordinator below uses the exact same Debian package version so WAL and
-# repository protocol versions cannot drift between containers.
-FROM pgvector/pgvector:pg16 AS neko-db
+# npm is part of the worker/agent feature contract, but its generated manuals,
+# source maps, Corepack, Yarn, and development headers are not.
+FROM node-runtime AS npm-runtime
+COPY --from=npm-payload /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
+# Build stages additionally need Corepack/pnpm. Keeping it in this build-only
+# lineage prevents package-manager shims and downloads from shipping.
+FROM npm-runtime AS base
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+COPY --from=node-distribution /usr/local/lib/node_modules/corepack /usr/local/lib/node_modules/corepack
+RUN ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack \
+    && corepack enable \
+    && corepack prepare pnpm@9.14.1 --activate
+
+# Postgres data planes share one Alpine base and one pgBackRest layer. The
+# upstream pgvector image publishes Debian variants only, so build the pinned
+# extension into Postgres Alpine and remove the compiler toolchain in the same
+# layer. Records does not need pgvector itself, but reusing this exact image
+# makes the combined pull smaller than two independent Postgres roots.
+FROM postgres:16-alpine AS postgres-runtime
+ARG PGVECTOR_VERSION=0.8.6
+ARG PGVECTOR_SHA256=10bf9938906e5d643bbc4a7eea104b6f57ba4898e5b76b20e60484ea1d5a7f8f
+ARG PGBACKREST_VERSION=2.58.0-r0
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends pgbackrest \
-    && rm -rf /var/lib/apt/lists/*
+# The Alpine pgBackRest package unnecessarily depends on the distribution's
+# current PostgreSQL server (18), while this image already has PostgreSQL 16 and
+# a compatible libpq. `apk fetch` still verifies the repository signature; only
+# its runtime payload is extracted, avoiding a second database server.
+#
+# The upstream Postgres build also records its LLVM compiler version. Disabling
+# extension bitcode avoids downloading that compiler; the native extension
+# remains fully functional and portable.
+RUN apk add --no-cache libbz2 libssh2 \
+    && apk fetch --no-cache --output /tmp pgbackrest \
+    && test -f "/tmp/pgbackrest-${PGBACKREST_VERSION}.apk" \
+    && tar -xzf "/tmp/pgbackrest-${PGBACKREST_VERSION}.apk" \
+      --exclude='.SIGN.*' --exclude='.PKGINFO' -C / \
+    && rm "/tmp/pgbackrest-${PGBACKREST_VERSION}.apk" \
+    && pgbackrest version \
+    && apk add --no-cache --virtual .pgvector-build build-base \
+    && wget -qO /tmp/pgvector.tar.gz \
+      "https://github.com/pgvector/pgvector/archive/refs/tags/v${PGVECTOR_VERSION}.tar.gz" \
+    && echo "${PGVECTOR_SHA256}  /tmp/pgvector.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/pgvector.tar.gz -C /tmp \
+    && cd "/tmp/pgvector-${PGVECTOR_VERSION}" \
+    && make with_llvm=no OPTFLAGS="" \
+    && make with_llvm=no install \
+    && strip --strip-unneeded "$(pg_config --pkglibdir)/vector.so" \
+    && cd / \
+    && rm -rf /tmp/pgvector* \
+    && apk del .pgvector-build
 COPY apps/worker/scripts/postgres-pgbackrest-entrypoint.sh /usr/local/bin/openneko-postgres-entrypoint
 RUN chmod 0755 /usr/local/bin/openneko-postgres-entrypoint
 ENTRYPOINT ["/usr/local/bin/openneko-postgres-entrypoint"]
 CMD ["postgres"]
 
-FROM postgres:16-bookworm AS records-db
-USER root
-RUN apt-get update && apt-get install -y --no-install-recommends pgbackrest \
-    && rm -rf /var/lib/apt/lists/*
-COPY apps/worker/scripts/postgres-pgbackrest-entrypoint.sh /usr/local/bin/openneko-postgres-entrypoint
-RUN chmod 0755 /usr/local/bin/openneko-postgres-entrypoint
-ENTRYPOINT ["/usr/local/bin/openneko-postgres-entrypoint"]
-CMD ["postgres"]
+FROM postgres-runtime AS neko-db
+FROM postgres-runtime AS records-db
 
-FROM postgres:16-bookworm AS neko-backup
-USER root
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      curl openssl pgbackrest python3 \
-    && rm -rf /var/lib/apt/lists/*
+FROM alpine:3.22 AS neko-backup
+ARG PGBACKREST_VERSION=2.55.1-r0
+RUN apk add --no-cache \
+      ca-certificates curl openssl postgresql16 python3 su-exec tar \
+      libbz2 libssh2 libxml2 \
+    && apk fetch --no-cache --output /tmp pgbackrest \
+    && test -f "/tmp/pgbackrest-${PGBACKREST_VERSION}.apk" \
+    && tar -xzf "/tmp/pgbackrest-${PGBACKREST_VERSION}.apk" \
+      --exclude='.SIGN.*' --exclude='.PKGINFO' -C / \
+    && rm "/tmp/pgbackrest-${PGBACKREST_VERSION}.apk" \
+    && pgbackrest version \
+    && (id -u postgres >/dev/null 2>&1 || adduser -S -D -H postgres)
 COPY apps/worker/scripts/openneko-backup.py /usr/local/bin/openneko-backup.py
 COPY apps/worker/scripts/openneko-backup-entrypoint.sh /usr/local/bin/openneko-backup-entrypoint
 RUN chmod 0755 /usr/local/bin/openneko-backup.py /usr/local/bin/openneko-backup-entrypoint
@@ -54,53 +112,72 @@ EXPOSE 9470
 ENTRYPOINT ["/usr/local/bin/openneko-backup-entrypoint"]
 CMD ["serve"]
 
-# ─── 2. runtime-base: node + agent-orchestration toolchain ─────────────
-# web, worker AND agent all run agent turns in-process (runChatTurn /
-# runWorkflowTurn / profiler / metric-agent in @neko/llm), which shell out to
-# the `graphjin` CLI and the hermes/claude backend — so all three need this
-# layer. Only the doc-skill toolchain (LibreOffice/python) is agent-exclusive
-# and lives one layer up in `cli`.
-FROM base AS runtime-base
-ARG GRAPHJIN_VERSION=3.18.42
-ARG GRAPHJIN_ASSET_AMD64=470534811
-ARG GRAPHJIN_ASSET_ARM64=470534772
-ARG HERMES_AGENT_REF=a91a57fa5a13d516c38b07a141a9ce8a3daabeb0
+# Pinned static OpenShell client shared by control planes and the readiness
+# one-shot without pulling a Node/worker filesystem into the latter.
+FROM debian:bookworm-slim AS openshell-bin
 ARG OPENSHELL_VERSION=0.0.54
 ARG OPENSHELL_ASSET_AMD64=436365845
 ARG OPENSHELL_ASSET_ARM64=436365844
-# TARGETARCH is auto-supplied by buildx (amd64 or arm64).
 ARG TARGETARCH
-# unzip + postgresql-client: db/load-adventureworks-baked.sh (demo seed, runs in
-# the worker). git: git-URL skill installs. openssh-client: `openshell sandbox
-# exec` relays over ssh, so web/worker — which run agent turns and spawn
-# sandboxes — need an ssh client.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && OPENSHELL_ASSET_ID="$(case "${TARGETARCH}" in amd64) echo "${OPENSHELL_ASSET_AMD64}" ;; arm64) echo "${OPENSHELL_ASSET_ARM64}" ;; *) exit 1 ;; esac)" \
+    && curl -fsSL --retry 10 --retry-delay 5 --retry-all-errors -o /tmp/openshell.tgz \
+      -H 'Accept: application/octet-stream' \
+      "https://api.github.com/repos/NVIDIA/OpenShell/releases/assets/${OPENSHELL_ASSET_ID}" \
+    && tar -xzf /tmp/openshell.tgz -C /usr/local/bin openshell \
+    && rm /tmp/openshell.tgz \
+    && rm -rf /var/lib/apt/lists/* \
+    && openshell --version
+
+FROM alpine:3.22 AS openshell-ready
+RUN apk add --no-cache ca-certificates
+COPY --from=openshell-bin /usr/local/bin/openshell /usr/local/bin/openshell
+CMD ["openshell", "--version"]
+
+# ─── 2. control-plane runtime: sandbox launcher only ───────────────────
+# Web and worker are trusted control planes. They launch OpenShell sandboxes
+# but never contain an agent runtime, GraphJin CLI, or document toolchain.
+FROM node-runtime AS runtime-base
+# Git supports trusted config VCS and git-backed installs. openssh-client is
+# required by `openshell sandbox exec`.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git unzip postgresql-client openssh-client \
+      git openssh-client \
     && rm -rf /var/lib/apt/lists/*
-# graphjin: every in-process agent turn queries the data source via `graphjin cli`.
-# Asset IDs are the immutable v${GRAPHJIN_VERSION} linux tarballs; the API
-# endpoint avoids transient failures from GitHub's browser-download CDN.
-RUN GRAPHJIN_ASSET_ID="$(case "${TARGETARCH}" in amd64) echo "${GRAPHJIN_ASSET_AMD64}" ;; arm64) echo "${GRAPHJIN_ASSET_ARM64}" ;; *) exit 1 ;; esac)" \
+COPY --from=openshell-bin /usr/local/bin/openshell /usr/local/bin/openshell
+
+# Pinned GraphJin binary, downloaded once and copied into both the sandbox and
+# the two dedicated GraphJin runtimes.
+FROM debian:bookworm-slim AS graphjin-bin
+ARG GRAPHJIN_VERSION=3.18.42
+ARG GRAPHJIN_ASSET_AMD64=470534811
+ARG GRAPHJIN_ASSET_ARM64=470534772
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && GRAPHJIN_ASSET_ID="$(case "${TARGETARCH}" in amd64) echo "${GRAPHJIN_ASSET_AMD64}" ;; arm64) echo "${GRAPHJIN_ASSET_ARM64}" ;; *) exit 1 ;; esac)" \
     && curl -fsSL --retry 10 --retry-delay 5 --retry-all-errors \
       -H 'Accept: application/octet-stream' -o /tmp/graphjin.tgz \
       "https://api.github.com/repos/dosco/graphjin/releases/assets/${GRAPHJIN_ASSET_ID}" \
     && tar -xzf /tmp/graphjin.tgz -C /usr/local/bin graphjin \
     && rm /tmp/graphjin.tgz \
+    && rm -rf /var/lib/apt/lists/* \
     && graphjin version
-# hermes: default agent backend (any provider). claude: claude-agent backend.
-# Temporarily pinned back to v0.14.0: v0.20's native Gemini adapter promotes
-# JSON tool-result strings to structured functionResponse objects, where
-# Gemini 3 interprets JSON-Schema `$ref` values as multimodal part references.
-# v0.14.0 still supports a normal uv tool install. Its MCP adapter uses the
-# Pydantic JSON alias (`isError`) as a Python attribute, so patch that access
-# to the SDK's snake_case field after installation.
+
+# ─── 2b. agent runtime: Hermes + GraphJin (sandbox only) ───────────────
+FROM npm-runtime AS agent-base
+ARG HERMES_AGENT_REF=a91a57fa5a13d516c38b07a141a9ce8a3daabeb0
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=graphjin-bin /usr/local/bin/graphjin /usr/local/bin/graphjin
+# Hermes uses Debian's system Python instead of downloading a second Python
+# distribution. It remains pinned while its Gemini/MCP compatibility patches
+# are required.
 RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv/install.sh \
       | env UV_INSTALL_DIR=/usr/local/bin sh -s -- --no-modify-path \
     && UV_TOOL_DIR=/usr/local/uv/tools \
        UV_TOOL_BIN_DIR=/usr/local/bin \
-       UV_PYTHON_INSTALL_DIR=/usr/local/uv/python \
        UV_CACHE_DIR=/tmp/uv-cache \
-       uv tool install --python 3.11 \
+       uv tool install --python /usr/bin/python3 \
          --with mcp --with websockets \
          "hermes-agent[acp] @ git+https://github.com/NousResearch/hermes-agent.git@${HERMES_AGENT_REF}" \
     && rm -rf /tmp/uv-cache /root/.cache/uv \
@@ -113,29 +190,27 @@ RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from mcp.types import CallToolResult; import websockets; result = CallToolResult(content=[]); assert hasattr(result, 'is_error')" \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.server import HermesACPAgent; import inspect; source = inspect.getsource(HermesACPAgent.prompt); assert 'usage=usage' in source, 'Hermes ACP prompt response must expose exact turn usage'" \
     && echo "hermes v0.14 ACP/MCP runtime present"
-RUN npm install -g @anthropic-ai/claude-code
-# openshell: CLI to spawn + relay to agent sandboxes. Static musl, no deps.
-RUN OPENSHELL_ASSET_ID="$(case "${TARGETARCH}" in amd64) echo "${OPENSHELL_ASSET_AMD64}" ;; arm64) echo "${OPENSHELL_ASSET_ARM64}" ;; *) exit 1 ;; esac)" \
-    && curl -fsSL --retry 10 --retry-delay 5 --retry-all-errors -o /tmp/openshell.tgz \
-      -H 'Accept: application/octet-stream' \
-      "https://api.github.com/repos/NVIDIA/OpenShell/releases/assets/${OPENSHELL_ASSET_ID}" \
-    && tar -xzf /tmp/openshell.tgz -C /usr/local/bin openshell \
-    && rm /tmp/openshell.tgz \
-    && openshell --version
 
-# ─── 2b. cli: + doc-skill toolchain (agent image only) ─────────────────
+# ─── 2c. document toolchain (agent image only) ─────────────────────────
 # Bundled skills (xlsx / pptx / docx / pdf / document-extraction) shell out to
 # Python + LibreOffice + Poppler / qpdf / Tesseract via the agent's Bash inside
 # the OpenShell sandbox — web never runs these, so the ~1GB toolchain stays out
 # of its image (the worker gets a minimal subset below for the librarian).
 # Keep this list in sync with KNOWN_SKILL_DEPS (packages/llm/src/work/skill-deps.ts);
 # `pnpm skills:check` prints the current aggregate.
-FROM runtime-base AS cli
+FROM agent-base AS cli
+ENV NODE_PATH=/usr/local/lib/node_modules
+RUN npm install --global --omit=dev --no-audit --no-fund \
+      docx@9.7.1 pptxgenjs@4.0.1 react@19.2.8 react-dom@19.2.8 \
+      react-icons@5.7.0 sharp@0.35.3 \
+    && npm cache clean --force
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 python3-pip libreoffice poppler-utils qpdf tesseract-ocr file \
+      libreoffice-core libreoffice-common libreoffice-writer libreoffice-calc \
+      libreoffice-impress libreoffice-draw poppler-utils qpdf tesseract-ocr file \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --no-cache-dir --break-system-packages \
-       openpyxl python-pptx Pillow python-docx pypdf pdfplumber reportlab PyYAML
+       openpyxl python-pptx Pillow python-docx pypdf pdfplumber reportlab PyYAML \
+       defusedxml lxml
 
 # ─── 3. deps: workspace install (cached on lockfile) ───────────────────
 FROM base AS deps
@@ -158,12 +233,24 @@ COPY packages/telemetry/package.json packages/telemetry/package.json
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile
 
-# ─── 4. build: next build (standalone output) ──────────────────────────
-FROM deps AS build
+# ─── 4. source + web build ─────────────────────────────────────────────
+# Keep source assembly separate from the expensive Next.js build. Worker,
+# agent, and one-shot targets only need the installed workspace plus sources;
+# forcing them through `next build` added several minutes to every image build.
+FROM deps AS source
 WORKDIR /app
 COPY . .
+
+FROM source AS build
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter @neko/web build
+
+# Next's standalone tree and its manually copied native dependency use the same
+# server-only pruning contract as the worker deployment.
+FROM build AS web-deploy
+ARG TARGETARCH
+RUN sh scripts/prune-node-runtime.sh /app/apps/web/.next/standalone "$TARGETARCH" \
+    && sh scripts/prune-node-runtime.sh /app "$TARGETARCH"
 
 # ─── 4b. openneko go binary ────────────────────────────────────────────
 # Built from apps/openneko (Go 1.24 module) and baked into the worker
@@ -184,6 +271,49 @@ RUN cd apps/openneko && \
     CGO_ENABLED=0 GOOS=linux \
     go build -trimpath -ldflags "-s -w -X github.com/open-neko/neko/apps/openneko/internal/version.Version=container -X github.com/open-neko/neko/apps/openneko/internal/version.Commit=container -X github.com/open-neko/neko/apps/openneko/internal/version.CommitTimestamp=container" \
       -o /out/openneko ./cmd/openneko
+RUN cd apps/openneko && \
+    CGO_ENABLED=0 GOOS=linux \
+    go build -trimpath -ldflags "-s -w" \
+      -o /out/openneko-graphjin-config ./cmd/graphjin-config
+
+# Small Node one-shots. Bundling them prevents demo/config initialization from
+# reusing the full worker image and its production dependency closure.
+FROM source AS init-tools-deploy
+RUN mkdir -p /out/init-tools \
+    && cd apps/worker \
+    && pnpm exec esbuild ../../packages/llm/src/graphjin/init-secret.mjs \
+      --bundle --minify --platform=node --format=esm \
+      --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
+      --outfile=/out/init-tools/graphjin-init-secret.js \
+    && pnpm exec esbuild ../../packages/db/src/seed-adventureworks.mjs \
+      --bundle --minify --platform=node --format=esm \
+      --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
+      --outfile=/out/init-tools/seed-adventureworks.js
+
+# Alpine one-shots likewise need only the Node executable, not npm/Yarn.
+FROM node:24-alpine AS node-alpine-distribution
+
+FROM alpine:3.22 AS node-alpine-runtime
+RUN apk add --no-cache libstdc++
+COPY --from=node-alpine-distribution /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-alpine-distribution /usr/local/share/doc/node /usr/local/share/doc/node
+
+FROM node-alpine-runtime AS init-tools
+WORKDIR /app
+COPY --from=init-tools-deploy /out/init-tools /app
+CMD ["node", "--version"]
+
+FROM source AS adventureworks-loader-deploy
+RUN pnpm --dir apps/worker exec esbuild scripts/load-adventureworks.ts \
+      --bundle --minify --platform=node --format=esm \
+      --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
+      --outfile=/out/load-adventureworks.js
+
+FROM node-alpine-runtime AS adventureworks-loader
+RUN apk add --no-cache ca-certificates curl postgresql-client unzip
+WORKDIR /app
+COPY --from=adventureworks-loader-deploy /out/load-adventureworks.js /app/load-adventureworks.js
+ENTRYPOINT ["node", "/app/load-adventureworks.js"]
 
 # ─── 4b. embedding-model prewarm ───────────────────────────────────────
 # Download Xenova/all-MiniLM-L6-v2 (q8 quantized, ~22MB) into a stable
@@ -203,8 +333,7 @@ RUN mkdir -p /app/.transformers-cache && \
     cd /app/packages/llm && node scripts/prewarm-embedding.mjs
 
 # ─── 5a. web runtime ───────────────────────────────────────────────────
-# FROM runtime-base (not base): web runs agent turns in-process (runChatTurn /
-# runWorkflowTurn) which shell out to graphjin + the hermes/claude backend.
+# Web remains a trusted OpenShell control plane; the agent runtime is not here.
 FROM runtime-base AS web
 WORKDIR /app
 # Writable HOME under /tmp so the entrypoint can materialize config on
@@ -222,21 +351,21 @@ RUN mkdir -p /config/openneko /config/graphjin /tmp/openneko-home /tmp/openneko-
 # Standalone output is self-contained (server.js + traced node_modules).
 # Static + public are served by server.js but not auto-copied — we copy
 # them in alongside, matching the layout server.js expects.
-COPY --from=build --chown=neko:neko /app/apps/web/.next/standalone ./
-COPY --from=build --chown=neko:neko /app/apps/web/.next/static ./apps/web/.next/static
-COPY --from=build --chown=neko:neko /app/apps/web/public ./apps/web/public
+COPY --from=web-deploy --chown=neko:neko /app/apps/web/.next/standalone ./
+COPY --from=web-deploy --chown=neko:neko /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=web-deploy --chown=neko:neko /app/apps/web/public ./apps/web/public
 # Next.js standalone tracing misses static asset dirs — copy explicitly.
-COPY --from=build --chown=neko:neko /app/packages/llm/assets ./packages/llm/assets
+COPY --from=web-deploy --chown=neko:neko /app/packages/llm/assets ./packages/llm/assets
 # Blueprint JSON is read through the trusted records control plane at runtime;
 # Next's file tracer cannot discover fs-relative assets automatically.
-COPY --from=build --chown=neko:neko /app/packages/records/blueprints ./packages/records/blueprints
+COPY --from=web-deploy --chown=neko:neko /app/packages/records/blueprints ./packages/records/blueprints
 # Next.js standalone tracing also misses the onnxruntime-node native .so
 # libraries (they're loaded by @huggingface/transformers at runtime via
 # dlopen, not via require()). Without these copies, /settings and every
 # other route that touches the embedding model 500s with
 # "libonnxruntime.so.1: cannot open shared object file".
-COPY --from=build --chown=neko:neko /app/node_modules/.pnpm/onnxruntime-node@1.24.3/node_modules/onnxruntime-node ./node_modules/.pnpm/onnxruntime-node@1.24.3/node_modules/onnxruntime-node
-COPY --from=build --chown=neko:neko /app/node_modules/.pnpm/onnxruntime-common@1.24.3/node_modules/onnxruntime-common ./node_modules/.pnpm/onnxruntime-common@1.24.3/node_modules/onnxruntime-common
+COPY --from=web-deploy --chown=neko:neko /app/node_modules/.pnpm/onnxruntime-node@1.24.3/node_modules/onnxruntime-node ./node_modules/.pnpm/onnxruntime-node@1.24.3/node_modules/onnxruntime-node
+COPY --from=web-deploy --chown=neko:neko /app/node_modules/.pnpm/onnxruntime-common@1.24.3/node_modules/onnxruntime-common ./node_modules/.pnpm/onnxruntime-common@1.24.3/node_modules/onnxruntime-common
 COPY --chown=neko:neko entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 # Vendor the openneko Go binary so the entrypoint can run `openneko migrate`
@@ -257,9 +386,11 @@ CMD ["node", "apps/web/server.js"]
 # Trimmed prod closure of @neko/worker: drops devDeps + other apps' sources +
 # web/Next, keeps src + tsx + @neko/llm (with assets) + onnxruntime. Same
 # mechanism as agent-deploy; rooted at /app, so the entry is /app/src/index.ts.
-FROM build AS worker-deploy
+FROM source AS worker-deploy
+ARG TARGETARCH
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm --filter @neko/worker deploy --prod /out/worker-app
+    pnpm --filter @neko/worker deploy --prod /out/worker-app \
+    && sh scripts/prune-node-runtime.sh /out/worker-app "$TARGETARCH"
 
 # The worker runs from source via tsx (not a build step). It serves /health +
 # admin endpoints on port 4100 for liveness probes.
@@ -272,8 +403,13 @@ WORKDIR /app
 # scanned-PDF OCR runs in the agent image; a worker-side extraction miss
 # fails the document row with a clear reason and is retryable from /library.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 poppler-utils \
+      python3 poppler-utils unzip postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+# `openneko install` deliberately invokes npm in this container. Add the same
+# pruned runtime payload used by the agent, without Corepack or Yarn.
+COPY --from=npm-payload /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 ENV NODE_ENV=production \
     PORT=4100 \
     HOSTNAME=0.0.0.0 \
@@ -320,48 +456,45 @@ CMD ["node", "--import", "tsx/esm", "src/index.ts"]
 # ─── 5d. agent sandbox runtime (OpenShell) ─────────────────────────────
 # The agent loop running as a child inside an OpenShell sandbox (Phase 3,
 # OPENNEKO_AGENT_RUNTIME=openshell), reaching the control plane only through the
-# broker. It is deliberately NOT `FROM worker`: that would pin the worker's full
-# ~1.3GB node_modules (incl. the web/Next.js deps the agent never runs) in an
-# immutable base layer the trim couldn't shrink. Instead we `pnpm deploy` the
-# worker's trimmed PROD closure and lay it onto the lean `cli` base — which
-# already provides node + hermes (/usr/local/uv) + claude + graphjin +
-# libreoffice. Net /app: ~774MB vs ~2.1GB. hermes is under /usr/local (Landlock
-# allows /usr, blocks /opt).
-
-# Trimmed prod closure of @neko/worker: drops web/Next.js + devDeps + other
-# apps' sources; keeps tsx, @neko/llm (with its assets), and the claude SDK.
-FROM build AS agent-deploy
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm --filter @neko/worker deploy --prod /out/agent-app
-# OpenNeko's logical MCP servers share one multiplexed bridge process per
-# agent run. Bundle it to plain JS as well: that avoids tsx startup/RSS and
-# lets entry.ts launch it from arbitrary sandbox working directories.
-# transformers/onnx stay external: the bridge never embeds, so they must not
-# load eagerly.
-RUN cd apps/worker && pnpm exec esbuild src/agent-sandbox/mcp-bridge.ts \
-      --bundle --platform=node --format=esm \
-      --external:onnxruntime-node --external:@huggingface/transformers \
+# broker. It is deliberately NOT `FROM worker`: only two standalone ESM bundles
+# and built-in skill assets cross into the image. No worker source tree, tsx,
+# workspace package, database driver, or node_modules closure is shipped.
+FROM source AS agent-deploy
+RUN mkdir -p /out/agent-app/assets \
+    && cd apps/worker \
+    && pnpm exec esbuild src/agent-sandbox/entry.ts \
+      --bundle --minify --platform=node --format=esm \
       --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
-      --outfile=/out/agent-app/dist/agent-sandbox/mcp-bridge.js
+      --metafile=/out/agent-entry-meta.json \
+      --outfile=/out/agent-app/agent-entry.js \
+    && pnpm exec esbuild src/agent-sandbox/mcp-bridge.ts \
+      --bundle --minify --platform=node --format=esm \
+      --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
+      --metafile=/out/agent-bridge-meta.json \
+      --outfile=/out/agent-app/mcp-bridge.js \
+    && ! grep -Eq 'packages/(db|records|secret-crypt|telemetry)/|node_modules/.pnpm/(pg-boss|pg@|mysql2|onnxruntime|sharp)' \
+      /out/agent-entry-meta.json /out/agent-bridge-meta.json \
+    && cp -R /app/packages/llm/assets/. /out/agent-app/assets/
 
 FROM cli AS agent
 USER root
 # OpenNeko pre-installs the ACP/MCP feature set. Never let a sandbox spend its
 # startup budget trying (and, under egress policy, retrying) a PyPI lazy install.
-ENV HERMES_DISABLE_LAZY_INSTALLS=1
+ENV HERMES_DISABLE_LAZY_INSTALLS=1 \
+    OPENNEKO_BUILTIN_SKILLS_ROOT=/app/assets/builtin-skills \
+    OPENNEKO_MCP_BRIDGE=/app/mcp-bridge.js
 # Supervisor egress-netns tools + a non-root `sandbox` user (high UID, OpenShell
-# convention). node/hermes/claude/graphjin/libreoffice already come from `cli`.
+# convention). node/Hermes/GraphJin/LibreOffice already come from `cli`.
 RUN apt-get update && apt-get install -y --no-install-recommends iproute2 nftables \
     && rm -rf /var/lib/apt/lists/*
 RUN groupadd -g 1000660000 sandbox \
     && useradd -u 1000660000 -g sandbox -d /sandbox -M sandbox \
     && install -d -o sandbox -g sandbox /sandbox
-# The deploy roots the worker package at /app (entry.ts -> /app/src/...,
-# @neko/llm -> /app/node_modules), owned by the sandbox user so it can run it.
-COPY --from=agent-deploy --chown=1000660000:1000660000 /out/agent-app /app
+# Keep the runtime payload immutable; only /sandbox is writable by the agent.
+COPY --from=agent-deploy --chown=root:root /out/agent-app /app
 WORKDIR /sandbox
 # Supervisor-replaced; launcher runs:
-#   cd /app && node --import tsx/esm /app/src/agent-sandbox/entry.ts
+#   node /app/agent-entry.js
 CMD ["node", "--version"]
 
 # ─── 5c. neko-cli runtime ──────────────────────────────────────────────
@@ -371,17 +504,11 @@ CMD ["node", "--version"]
 # its successful completion via service_completed_successfully, so by
 # the time they boot the schema is in place.
 #
-# Static Go binary (CGO_ENABLED=0), so debian-slim is enough — no glibc
-# version pinning needed. tini gives clean Ctrl-C / SIGTERM behavior;
-# ca-certs keeps TLS-to-managed-Postgres working if anyone points this
-# at a remote DB.
-FROM debian:bookworm-slim AS neko-cli
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates tini \
-    && rm -rf /var/lib/apt/lists/*
-COPY --from=go-build /out/openneko /usr/local/bin/openneko
-RUN chmod +x /usr/local/bin/openneko
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/openneko"]
+# The binary is static (CGO_ENABLED=0), so the distroless static image is the
+# complete runtime. Its Debian CA bundle keeps managed-Postgres TLS working.
+FROM gcr.io/distroless/static-debian12:latest AS neko-cli
+COPY --from=go-build /out/openneko /openneko
+ENTRYPOINT ["/openneko"]
 CMD ["--help"]
 
 # ─── 6. neko-graphjin runtime ──────────────────────────────────────────
@@ -393,26 +520,19 @@ CMD ["--help"]
 #
 # The entrypoint re-templates db/graphjin/neko.yml from the openneko
 # config.json on every start, so password rotation via /setup just
-# requires `docker compose restart neko-graphjin`. Built on the slim
-# node base so we have node + curl available for the templating script
-# and a real healthcheck.
-FROM node:24-bookworm-slim AS neko-graphjin
-ARG GRAPHJIN_VERSION=3.18.42
-ARG TARGETARCH
-ENV NODE_ENV=production
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl tini \
-    && curl -fsSL -o /tmp/graphjin.tgz \
-      "https://github.com/dosco/graphjin/releases/download/v${GRAPHJIN_VERSION}/graphjin_${GRAPHJIN_VERSION}_linux_${TARGETARCH}.tar.gz" \
-    && tar -xzf /tmp/graphjin.tgz -C /usr/local/bin graphjin \
-    && rm /tmp/graphjin.tgz \
-    && rm -rf /var/lib/apt/lists/* \
-    && graphjin version
+# requires `docker compose restart neko-graphjin`. The credential templater is
+# a small static Go binary; Node is not present in either GraphJin image.
+FROM alpine:3.22 AS graphjin-runtime
+RUN apk add --no-cache ca-certificates curl tini
+COPY --from=graphjin-bin /usr/local/bin/graphjin /usr/local/bin/graphjin
+
+FROM graphjin-runtime AS neko-graphjin
 COPY scripts/neko-graphjin-entrypoint.sh /usr/local/bin/neko-graphjin-entrypoint.sh
+COPY --from=go-build /out/openneko-graphjin-config /usr/local/bin/openneko-graphjin-config
 RUN chmod +x /usr/local/bin/neko-graphjin-entrypoint.sh
 COPY db/graphjin/neko.yml /seed/neko.yml
 EXPOSE 8089
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/neko-graphjin-entrypoint.sh"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/neko-graphjin-entrypoint.sh"]
 CMD ["serve", "--path", "/config"]
 
 # ─── 7. records-graphjin runtime ───────────────────────────────────────
@@ -424,5 +544,5 @@ FROM neko-graphjin AS records-graphjin
 COPY scripts/records-graphjin-entrypoint.sh /usr/local/bin/records-graphjin-entrypoint.sh
 RUN chmod +x /usr/local/bin/records-graphjin-entrypoint.sh
 EXPOSE 8090
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/records-graphjin-entrypoint.sh"]
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/records-graphjin-entrypoint.sh"]
 CMD ["serve", "--path", "/config"]

@@ -18,40 +18,25 @@ import {
   work_run,
 } from "@neko/db";
 import { embedText, vectorLiteral } from "../embedding";
+import {
+  WORK_MEMORY_KINDS,
+  WORK_MEMORY_SCOPES,
+  WORK_PENDING_MEMORY_STATUSES,
+  type WorkMemoryContext,
+  type WorkMemoryKind,
+  type WorkMemoryScope,
+  type WorkPendingMemoryStatus,
+} from "./memory-types";
 
-export const WORK_MEMORY_KINDS = [
-  "preference",
-  "business_rule",
-  "metric_definition",
-  "thread_note",
-  "correction",
-  "company_context",
-  "other",
-] as const;
-export type WorkMemoryKind = (typeof WORK_MEMORY_KINDS)[number];
-
-export const WORK_MEMORY_SCOPES = ["global", "thread", "database"] as const;
-export type WorkMemoryScope = (typeof WORK_MEMORY_SCOPES)[number];
-
-export const WORK_PENDING_MEMORY_STATUSES = [
-  "proposed",
-  "accepted",
-  "declined",
-] as const;
-export type WorkPendingMemoryStatus = (typeof WORK_PENDING_MEMORY_STATUSES)[number];
-
-export type WorkMemoryContext = {
-  orgId: string;
-  threadId?: string | null;
-  runId?: string | null;
-  /**
-   * CV2 memory layer of the acting principal. null/absent = team layer
-   * (admin, service, solo). A member's id = their personal overlay:
-   * own live rows plus team rows they haven't shadowed or suppressed.
-   * When undefined, write paths fall back to the runId's K1 actor.
-   */
-  userId?: string | null;
-};
+export {
+  WORK_MEMORY_KINDS,
+  WORK_MEMORY_SCOPES,
+  WORK_PENDING_MEMORY_STATUSES,
+  type WorkMemoryContext,
+  type WorkMemoryKind,
+  type WorkMemoryScope,
+  type WorkPendingMemoryStatus,
+} from "./memory-types";
 
 export type WorkMemory = {
   id: string;

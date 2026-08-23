@@ -87,7 +87,7 @@ describeIfDb("SEC5 dual-identity audit", () => {
     await createTestOrg(orgId);
     try {
       const thread = await createWorkThread(orgId, "t", "web");
-      const run = await createWorkRun(orgId, thread.id, "claude-agent", {
+      const run = await createWorkRun(orgId, thread.id, "hermes", {
         userId: null,
         role: "admin",
       });
@@ -116,7 +116,7 @@ describeIfDb("SEC5 dual-identity audit", () => {
         expect(row).toMatchObject({
           run_id: run.id,
           actor_role: "admin",
-          backend: "claude-agent",
+          backend: "hermes",
         });
       } finally {
         await broker.close();

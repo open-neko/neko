@@ -4,6 +4,7 @@ import type {
   AgentRunOptions,
   AgentWorkspace,
 } from "../src/agent-backend";
+import type { AgentControlPlane } from "../src/work/control-plane";
 import { runAgentBackend } from "../src/work/agent-core";
 
 const workspace: AgentWorkspace = {
@@ -17,9 +18,10 @@ const workspace: AgentWorkspace = {
   runRoot: "/tmp/org/runs/run-1",
   artifactRoot: "/tmp/org/runs/run-1/artifacts",
   binRoot: "/tmp/org/runs/run-1/bin",
-  claudeProjectRoot: "/tmp/org",
-  claudeConfigRoot: "/tmp/org/claude/config",
 };
+
+// These tests only inspect the MCP server wiring; no tool handler is invoked.
+const controlPlane = {} as AgentControlPlane;
 
 describe("runAgentBackend", () => {
   it("mounts actor-scoped native records tools for MCP-capable chat agents", async () => {
@@ -28,9 +30,7 @@ describe("runAgentBackend", () => {
       id: "hermes",
       capabilities: {
         mcpTools: true,
-        sdkStopHook: false,
         sessionResume: false,
-        canUseToolGate: true,
         nativeDelegation: "hermes-delegate-task",
       },
       async run(opts) {
@@ -47,6 +47,7 @@ describe("runAgentBackend", () => {
       threadId: "thread-1",
       runId: "run-1",
       workspace,
+      controlPlane,
       pluginActions: [],
       emit: async () => {},
     });
@@ -66,9 +67,7 @@ describe("runAgentBackend", () => {
       id: "hermes",
       capabilities: {
         mcpTools: true,
-        sdkStopHook: false,
         sessionResume: false,
-        canUseToolGate: true,
         nativeDelegation: "hermes-delegate-task",
       },
       async run(opts) {
@@ -85,6 +84,7 @@ describe("runAgentBackend", () => {
       threadId: "thread-1",
       runId: "run-1",
       workspace,
+      controlPlane,
       pluginActions: [],
       sourceConfigEnabled: true,
       dataSurface: "records",
@@ -104,13 +104,6 @@ describe("runAgentBackend", () => {
     expect(captured?.mcpBridgeEnv?.OPENNEKO_MCP_RECORD_SCOPE).toBe(
       JSON.stringify({ appId: "crm", objectApiName: "activity" }),
     );
-    expect(captured?.allowedTools).toEqual(
-      expect.arrayContaining([
-        "Skill",
-        "mcp__neko_records__browse_catalog",
-        "mcp__neko_records__find_records",
-      ]),
-    );
   });
 
   it("uses app ownership as context without narrowing the actor's records grants", async () => {
@@ -119,9 +112,7 @@ describe("runAgentBackend", () => {
       id: "hermes",
       capabilities: {
         mcpTools: true,
-        sdkStopHook: false,
         sessionResume: false,
-        canUseToolGate: true,
         nativeDelegation: "hermes-delegate-task",
       },
       async run(opts) {
@@ -138,6 +129,7 @@ describe("runAgentBackend", () => {
       threadId: "thread-1",
       runId: "run-1",
       workspace,
+      controlPlane,
       pluginActions: [],
       dataSurface: "records",
       backendState: {

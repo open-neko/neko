@@ -15,8 +15,6 @@ const workspace: AgentWorkspace = {
   runRoot: "/tmp/org/runs/r1",
   artifactRoot: "/tmp/org/runs/r1/artifacts",
   binRoot: "/tmp/org/runs/r1/bin",
-  claudeProjectRoot: "/tmp/org",
-  claudeConfigRoot: "/tmp/org/claude/config",
 };
 
 const knowledge: KnowledgePackContents = {
@@ -27,7 +25,7 @@ const knowledge: KnowledgePackContents = {
 };
 
 function build(
-  backend: "claude-agent" | "hermes",
+  backend: "hermes",
   overrides: {
     wantsCards?: boolean;
     supportsCardTool?: boolean;
@@ -87,7 +85,7 @@ function build(
 
 describe("buildWorkPrompt records data surface", () => {
   it("routes generated-app questions only to native records tools", () => {
-    const prompt = build("claude-agent", {
+    const prompt = build("hermes", {
       dataSurface: "records",
       supportsSourceConfigTool: true,
     });
@@ -105,8 +103,8 @@ describe("buildWorkPrompt records data surface", () => {
 });
 
 describe("buildWorkPrompt attachments guidance", () => {
-  it("tells the claude-agent how to read uploads and which path shape to expect", () => {
-    const prompt = build("claude-agent");
+  it("tells Hermes how to read uploads and which path shape to expect", () => {
+    const prompt = build("hermes");
     expect(prompt).toContain("<attachments>");
     expect(prompt).toContain("uploads/<threadId>/<filename>");
     expect(prompt).toContain("`Read` tool");
@@ -117,14 +115,12 @@ describe("buildWorkPrompt attachments guidance", () => {
   it("references the hermes shell tool when running under hermes", () => {
     const prompt = build("hermes");
     expect(prompt).toContain("<attachments>");
-    // Hermes' shell tool is `terminal`, claude-agent's is `Bash`. The
-    // attachments block names whichever one is wired up so the agent picks
-    // the right tool for non-text formats.
+    // The attachments block names Hermes' terminal tool for non-text formats.
     expect(prompt).toContain("`terminal`");
   });
 
   it("no longer dismisses uploaded files as 'auxiliary'", () => {
-    const prompt = build("claude-agent");
+    const prompt = build("hermes");
     // The old wording told the model uploaded files were auxiliary, which it
     // routinely took as permission to ignore them. The new framing must
     // explicitly say to read them.
@@ -177,12 +173,11 @@ describe("buildWorkPrompt action scopes", () => {
 
 describe("per-channel rendering gate", () => {
   it("renders via the render_cards tool on web turns (wantsCards)", () => {
-    // claude → the neko_ui MCP tool; hermes → its stdio render server tool.
-    const claudeWeb = build("claude-agent", { wantsCards: true, supportsCardTool: true });
-    expect(claudeWeb).toContain("<rendering>");
-    expect(claudeWeb).toContain("mcp__neko_ui__render_cards");
-    expect(claudeWeb).toContain("interface that fits the current request");
-    expect(claudeWeb).not.toContain("BriefingCard");
+    const hermesMcp = build("hermes", { wantsCards: true, supportsCardTool: true });
+    expect(hermesMcp).toContain("<rendering>");
+    expect(hermesMcp).toContain("mcp__neko_ui__render_cards");
+    expect(hermesMcp).toContain("interface that fits the current request");
+    expect(hermesMcp).not.toContain("BriefingCard");
 
     const hermesWeb = build("hermes", { wantsCards: true, supportsCardTool: false });
     expect(hermesWeb).toContain("<rendering>");
@@ -192,18 +187,16 @@ describe("per-channel rendering gate", () => {
   });
 
   it("omits all rendering vocabulary on non-web turns", () => {
-    for (const backend of ["claude-agent", "hermes"] as const) {
-      const prompt = build(backend, { wantsCards: false, supportsCardTool: backend === "claude-agent" });
-      expect(prompt).not.toContain("<rendering>");
-      expect(prompt).not.toContain("neko_a2ui");
-      expect(prompt).not.toContain("render_cards");
-    }
+    const prompt = build("hermes", { wantsCards: false, supportsCardTool: true });
+    expect(prompt).not.toContain("<rendering>");
+    expect(prompt).not.toContain("neko_a2ui");
+    expect(prompt).not.toContain("render_cards");
   });
 });
 
 describe("tool-result grounding", () => {
   it("forbids unsupported figures and failed sources in prose, cards, and vitals", () => {
-    const prompt = build("claude-agent", {
+    const prompt = build("hermes", {
       wantsCards: true,
       supportsCardTool: true,
     });
@@ -229,7 +222,7 @@ describe("tool-result grounding", () => {
 
 describe("buildWorkPrompt workflow + policy management", () => {
   it("advertises workflow tools when supportsWorkflowTool is true", () => {
-    const prompt = build("claude-agent", { supportsWorkflowTool: true });
+    const prompt = build("hermes", { supportsWorkflowTool: true });
     expect(prompt).toContain("mcp__neko_workflow_builder__list_workflows");
     expect(prompt).toContain("mcp__neko_workflow_builder__create_workflow");
     // Operators are not developers — should warn against showing cron syntax.
@@ -243,7 +236,7 @@ describe("buildWorkPrompt workflow + policy management", () => {
   });
 
   it("teaches the data-change trigger in both workflow tool modes", () => {
-    const mcp = build("claude-agent", { supportsWorkflowTool: true });
+    const mcp = build("hermes", { supportsWorkflowTool: true });
     expect(mcp).toContain("triggers.when");
     expect(mcp).not.toContain("create_subscription");
     expect(mcp).not.toContain("dry_run");
@@ -256,7 +249,7 @@ describe("buildWorkPrompt workflow + policy management", () => {
   });
 
   it("advertises rule tools when supportsPolicyTool is true", () => {
-    const prompt = build("claude-agent", { supportsPolicyTool: true });
+    const prompt = build("hermes", { supportsPolicyTool: true });
     expect(prompt).toContain("mcp__neko_rule_builder__list_rules");
     expect(prompt).toContain("mcp__neko_rule_builder__save_rule");
   });
@@ -268,7 +261,7 @@ describe("buildWorkPrompt workflow + policy management", () => {
   });
 
   it("advertises GraphJin source-config tools only when enabled", () => {
-    const enabled = build("claude-agent", { supportsSourceConfigTool: true });
+    const enabled = build("hermes", { supportsSourceConfigTool: true });
     expect(enabled).toContain("graphjin-config");
     expect(enabled).toContain(`${workspace.skillsRoot}/graphjin-config/SKILL.md`);
     expect(enabled).toContain("mcp__neko_source_config_manager__describe_source_graph");
@@ -283,19 +276,19 @@ describe("buildWorkPrompt workflow + policy management", () => {
     expect(enabled).not.toContain("globally read-only");
     expect(enabled).not.toContain("outside the sandbox");
 
-    const disabled = build("claude-agent", { supportsSourceConfigTool: false });
+    const disabled = build("hermes", { supportsSourceConfigTool: false });
     expect(disabled).not.toContain("mcp__neko_source_config_manager__");
   });
 
   it("frames /work as the single chat surface for everything", () => {
-    const prompt = build("claude-agent");
+    const prompt = build("hermes");
     expect(prompt).toMatch(/only chat surface/i);
   });
 });
 
 describe("buildWorkPrompt capability recovery", () => {
   it("uses the plugin manager approval tool when MCP tools are available", () => {
-    const prompt = build("claude-agent", {
+    const prompt = build("hermes", {
       supportsPluginManagerTool: true,
     });
 
@@ -342,12 +335,4 @@ describe("buildWorkPrompt native delegation guidance", () => {
     expect(prompt).not.toContain("coder");
   });
 
-  it("teaches Claude dynamic Agent delegation without programmatic profiles", () => {
-    const prompt = build("claude-agent");
-    expect(prompt).toContain("<delegation>");
-    expect(prompt).toContain("Agent");
-    expect(prompt).toContain("general-purpose");
-    expect(prompt).toContain("filesystem-discovered agents");
-    expect(prompt).toMatch(/OpenNeko does\s+not define named subagent\s+profiles/);
-  });
 });

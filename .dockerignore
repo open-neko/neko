@@ -28,7 +28,7 @@
 **/.env.*
 !**/.env.example
 
-# Repo-local agent / Claude config
+# Repo-local agent-tool config (including legacy local tool state)
 .agents
 .claude
 

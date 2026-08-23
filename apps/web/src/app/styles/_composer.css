@@ -5,7 +5,7 @@
    stacked. focus-within drives the hover/active state on the whole shell.
 
    The outer .work-composer is sticky-bottom so the shell floats above
-   the transcript as it scrolls — matching what Claude / ChatGPT do
+   the transcript as it scrolls — matching familiar chat interfaces
    without leaving the document flow. A soft gradient fade behind it
    stops messages from clipping abruptly under the shell. */
 .work-composer {

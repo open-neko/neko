@@ -1,10 +1,7 @@
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { createMcpServer, defineMcpTool } from "../mcp-server";
 import { z } from "zod";
 import type { AgentEvent } from "../agent-backend";
-import {
-  inProcessControlPlane,
-  type AgentControlPlane,
-} from "../work/control-plane";
+import type { AgentControlPlane } from "../work/control-plane";
 import type {
   ActionPolicyMode,
   ActionScope,
@@ -21,13 +18,13 @@ export type RuleBuilderContext = {
   /** In-process on the host; broker-backed inside the agent sandbox. The
    *  tool handlers run wherever the backend SDK runs, so they must never
    *  touch the DB directly. */
-  controlPlane?: AgentControlPlane;
+  controlPlane: AgentControlPlane;
 };
 
 export function buildRuleBuilderServer(ctx: RuleBuilderContext) {
-  const controlPlane = ctx.controlPlane ?? inProcessControlPlane;
+  const controlPlane = ctx.controlPlane;
 
-  const saveRuleTool = tool(
+  const saveRuleTool = defineMcpTool(
     "save_rule",
     [
       "Create or update an approval rule. Upserts by name within the org —",
@@ -82,7 +79,7 @@ export function buildRuleBuilderServer(ctx: RuleBuilderContext) {
     },
   );
 
-  const listRulesTool = tool(
+  const listRulesTool = defineMcpTool(
     "list_rules",
     [
       "List the approval rules defined in this org so you can answer questions",
@@ -131,7 +128,7 @@ export function buildRuleBuilderServer(ctx: RuleBuilderContext) {
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_rule_builder",
     version: "1.0.0",
     tools: [saveRuleTool, listRulesTool],

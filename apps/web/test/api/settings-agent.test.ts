@@ -1,9 +1,3 @@
-/**
- * /api/settings/agent contract tests. Covers payload shape, backend save,
- * and the auto-coerce-primary-to-anthropic side effect when claude-agent
- * is selected.
- */
-
 import {
   afterAll,
   afterEach,
@@ -15,11 +9,9 @@ import {
   vi,
 } from "vitest";
 import {
-  clearProvider,
   createTestOrg,
   dbReachable,
   deleteTestOrg,
-  seedProvider,
   uniqueOrgId,
 } from "@neko/db/test-helpers";
 import { and, db, eq, llm_provider_config, pool } from "@neko/db";
@@ -44,22 +36,7 @@ vi.mock("@neko/llm", async () => {
 const reachable = await dbReachable();
 const describeIfDb = reachable ? describe : describe.skip;
 
-if (!reachable) {
-  console.warn("[api/settings/agent] skipping: Postgres unreachable.");
-}
-
-async function readPrimaryProvider(orgId: string): Promise<string | null> {
-  const rows = await db()
-    .select({ provider: llm_provider_config.provider })
-    .from(llm_provider_config)
-    .where(
-      and(
-        eq(llm_provider_config.org_id, orgId),
-        eq(llm_provider_config.scope, "primary"),
-      ),
-    );
-  return rows[0]?.provider ?? null;
-}
+if (!reachable) console.warn("[api/settings/agent] skipping: Postgres unreachable.");
 
 describeIfDb("/api/settings/agent", () => {
   let orgId: string;
@@ -67,12 +44,12 @@ describeIfDb("/api/settings/agent", () => {
   let PUT: typeof import("@/app/api/settings/agent/route").PUT;
 
   beforeAll(async () => {
-    const mod = await import("@/app/api/settings/agent/route");
-    GET = mod.GET;
-    PUT = mod.PUT;
+    ({ GET, PUT } = await import("@/app/api/settings/agent/route"));
   });
 
   beforeEach(async () => {
+    mockGetOrgId.mockClear();
+    mockProvisionHostConfig.mockClear();
     orgId = uniqueOrgId("api-agent");
     await createTestOrg(orgId);
     mockGetOrgId.mockResolvedValue(orgId);
@@ -81,93 +58,86 @@ describeIfDb("/api/settings/agent", () => {
 
   afterEach(async () => {
     await deleteTestOrg(orgId);
-    vi.clearAllMocks();
   });
 
   afterAll(async () => {
     await pool().end();
   });
 
-  it("GET returns the shared Hermes defaults when no row exists", async () => {
+  it("GET exposes only Hermes concurrency settings", async () => {
     const res = await callRoute(GET);
     expect(res.status).toBe(200);
-    const body = res.body as {
-      agent: { backend: string; globalCap: number; source: string };
-      options: unknown[];
-    };
-    expect(body.agent).toMatchObject({
-      source: "default",
-      backend: "hermes",
-      globalCap: AGENT_DEFAULT_GLOBAL_CAP,
+    expect(res.body).toEqual({
+      agent: {
+        source: "default",
+        backend: "hermes",
+        globalCap: AGENT_DEFAULT_GLOBAL_CAP,
+      },
+      options: [
+        {
+          value: "hermes",
+          label: "Hermes",
+          description: "Subprocess agent. Works with any LLM provider.",
+        },
+      ],
+      defaults: { globalCap: AGENT_DEFAULT_GLOBAL_CAP },
     });
-    expect(body.options.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("PUT { backend: 'hermes' } persists and calls provisionHostConfig", async () => {
+  it("PUT rejects a removed backend", async () => {
     const res = await callRoute(PUT, {
       method: "PUT",
-      body: { backend: "hermes", globalCap: 30 },
-    });
-    expect(res.status).toBe(200);
-    const body = res.body as { backend: string; globalCap: number };
-    expect(body.backend).toBe("hermes");
-    expect(body.globalCap).toBe(30);
-    expect(mockProvisionHostConfig).toHaveBeenCalledWith(orgId);
-  });
-
-  it("PUT { backend: 'claude-agent' } auto-coerces primary provider to anthropic", async () => {
-    await seedProvider(orgId, {
-      scope: "primary",
-      provider: "google-gemini",
-      model: "gemini-pro-latest",
-    });
-    const res = await callRoute(PUT, {
-      method: "PUT",
-      body: { backend: "claude-agent" },
-    });
-    expect(res.status).toBe(200);
-    expect(await readPrimaryProvider(orgId)).toBe("anthropic");
-  });
-
-  it("PUT rejects unknown backend with 400", async () => {
-    const res = await callRoute(PUT, {
-      method: "PUT",
-      body: { backend: "openai-agents" },
+      body: { backend: "removed-runtime", globalCap: 30 },
     });
     expect(res.status).toBe(400);
-    expect((res.body as { error: string }).error).toMatch(/Unsupported agent backend/);
+    expect(res.body).toEqual({ error: "Unsupported agent backend: removed-runtime" });
     expect(mockProvisionHostConfig).not.toHaveBeenCalled();
   });
 
-  it("PUT preserves existing anthropic primary when switching to claude-agent", async () => {
-    await seedProvider(orgId, {
-      scope: "primary",
-      provider: "anthropic",
-      model: "claude-opus-4-7",
-      secrets: { apiKey: "sk-ant-existing" },
+  it("PUT accepts the legacy Hermes-only field", async () => {
+    const res = await callRoute(PUT, {
+      method: "PUT",
+      body: { backend: "hermes", globalCap: 12 },
     });
-    await callRoute(PUT, { method: "PUT", body: { backend: "claude-agent" } });
-    const rows = await db()
-      .select({ provider: llm_provider_config.provider, secrets: llm_provider_config.secrets })
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      source: "org",
+      backend: "hermes",
+      globalCap: 12,
+    });
+  });
+
+  it("PUT persists the Hermes globalCap", async () => {
+    const res = await callRoute(PUT, {
+      method: "PUT",
+      body: { globalCap: 30 },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ source: "org", backend: "hermes", globalCap: 30 });
+    expect(mockProvisionHostConfig).toHaveBeenCalledWith(orgId);
+
+    const [row] = await db()
+      .select({ provider: llm_provider_config.provider, config: llm_provider_config.config })
       .from(llm_provider_config)
       .where(
         and(
           eq(llm_provider_config.org_id, orgId),
-          eq(llm_provider_config.scope, "primary"),
+          eq(llm_provider_config.scope, "agent"),
         ),
       );
-    expect(rows[0].provider).toBe("anthropic");
-    // Existing secret preserved
-    const stored = rows[0].secrets as Record<string, unknown>;
-    expect(stored.apiKey).toBeTruthy();
+    expect(row).toEqual({ provider: "hermes", config: { globalCap: 30 } });
   });
 
-  it("clearing the agent row falls back to defaults", async () => {
-    await callRoute(PUT, { method: "PUT", body: { backend: "claude-agent" } });
-    await clearProvider(orgId, "agent");
-    const res = await callRoute(GET);
-    const body = res.body as { agent: { source: string; backend: string } };
-    expect(body.agent.source).toBe("default");
-    expect(body.agent.backend).toBe("hermes");
+  it("PUT falls back for an invalid cap", async () => {
+    const res = await callRoute(PUT, {
+      method: "PUT",
+      body: { globalCap: "invalid" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      source: "org",
+      backend: "hermes",
+      globalCap: AGENT_DEFAULT_GLOBAL_CAP,
+    });
   });
 });

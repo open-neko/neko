@@ -2,10 +2,25 @@ package cli
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/open-neko/neko/apps/openneko/internal/plugin/marketplace"
 )
+
+func TestSetupRetainsHermesOnlyBackendFlagCompatibility(t *testing.T) {
+	flag := newSetupCmd().Flags().Lookup("backend")
+	if flag == nil || flag.Deprecated == "" {
+		t.Fatal("setup must retain the deprecated --backend flag for older automation")
+	}
+	if err := validateLegacyAgentBackend("hermes"); err != nil {
+		t.Fatalf("legacy --backend hermes must remain accepted: %v", err)
+	}
+	err := validateLegacyAgentBackend("removed-runtime")
+	if err == nil || !strings.Contains(err.Error(), "Hermes is the only agent runtime") {
+		t.Fatalf("removed backend must fail with a Hermes-only message, got %v", err)
+	}
+}
 
 func TestSplitCSV(t *testing.T) {
 	got := splitCSV("a, b ,,c ")

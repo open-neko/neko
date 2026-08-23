@@ -123,7 +123,7 @@ body`);
   });
 });
 
-describe("parseSkillFrontmatter — Hermes/Claude Code compatibility", () => {
+describe("parseSkillFrontmatter — agent skill compatibility", () => {
   it("tolerates Hermes top-level fields (version, author, platforms)", () => {
     const out = parseSkillFrontmatter(`---
 name: watchers
@@ -161,7 +161,7 @@ body`);
     );
   });
 
-  it("ignores Claude Code's disable-model-invocation field as unparsed", () => {
+  it("ignores unsupported disable-model-invocation metadata", () => {
     const out = parseSkillFrontmatter(`---
 name: bundled
 description: Anthropic-bundled skill

@@ -19,7 +19,6 @@ import {
   resolveResearchStatus,
 } from "@/lib/provider-settings";
 import {
-  getAgentBackendSettings,
   getAgentSettingsPayload,
 } from "@/lib/agent-backend-settings";
 import { getGraphjinConfigSettingsPayload } from "@/lib/graphjin-config-settings";
@@ -67,14 +66,12 @@ export default async function SettingsPage() {
     dataReady,
     primaryReady,
     researchStatus,
-    agent,
     sources,
     graphjinConfig,
   ] = await Promise.all([
     hasDataSourceSetup(orgId),
     hasPrimaryProviderSetup(orgId),
     resolveResearchStatus(orgId),
-    getAgentBackendSettings(orgId),
     db()
       .select({
         id: data_source.id,
@@ -108,15 +105,8 @@ export default async function SettingsPage() {
     {
       href: "/admin/settings/agent",
       title: "Agent",
-      copy:
-        agent.backend === "claude-agent"
-          ? "Claude Agent — locked to Anthropic primary provider."
-          : "Hermes — works with any primary provider.",
-      status: primaryReady
-        ? agent.backend === "claude-agent"
-          ? "Claude Agent backend"
-          : "Hermes backend"
-        : "Primary provider not set",
+      copy: "Hermes — works with any supported primary provider.",
+      status: primaryReady ? "Hermes runtime" : "Primary provider not set",
       statusTone: primaryReady ? "success" : "watch",
     },
     {

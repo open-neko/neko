@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   resolveAgentBackend,
-  AgentBackendConfigError,
   ensureHostConfigProvisioned,
 } from "@neko/llm";
 import {
@@ -93,20 +92,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
   }
 
-  // Memory writes are agent-driven: claude-agent uses the
-  // mcp__neko_memory__save tool, Hermes emits a ```neko_memory fence
-  // that run-chat-turn extracts and persists. No special user-side
-  // command needed.
-
-  let backend;
-  try {
-    backend = await resolveAgentBackend(orgId);
-  } catch (e) {
-    if (e instanceof AgentBackendConfigError) {
-      return NextResponse.json({ error: e.message }, { status: 400 });
-    }
-    throw e;
-  }
+  // Memory writes are agent-driven through the brokered memory MCP tool.
+  const backend = await resolveAgentBackend(orgId);
 
   // Derive the agent-sandbox env (model egress, gateway provider, key alias)
   // before creating the run. If gateway sync is temporarily unavailable, the

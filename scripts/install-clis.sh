@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
-# Install the three external CLIs Neko's worker shells out to:
+# Install the two external CLIs used for local agent development:
 #   - graphjin  (always required; the metric agent runs `graphjin cli`)
-#   - claude    (only for the Claude Agent backend; the SDK spawns it)
-#   - hermes    (only for the Hermes backend; same — spawned, not bundled)
+#   - hermes    (the OpenNeko agent runtime)
 #
-# Idempotent. Pass --skip-claude or --skip-hermes if you only need one
-# backend. macOS uses Homebrew where possible; Debian/Ubuntu uses apt +
+# Idempotent. Pass --skip-hermes for GraphJin-only development. macOS uses
+# Homebrew where possible; Debian/Ubuntu uses apt +
 # direct installers. Other distros: read the body and adapt.
 #
 # Usage:
-#   ./scripts/install-clis.sh                # install all three
-#   ./scripts/install-clis.sh --skip-hermes  # graphjin + claude only
+#   ./scripts/install-clis.sh                # install both
+#   ./scripts/install-clis.sh --skip-hermes  # graphjin only
 set -euo pipefail
 
 GRAPHJIN_VERSION="${GRAPHJIN_VERSION:-3.18.42}"
@@ -20,12 +19,10 @@ HERMES_AGENT_REF="${HERMES_AGENT_REF:-a91a57fa5a13d516c38b07a141a9ce8a3daabeb0}"
 HERMES_AGENT_VERSION="0.14.0"
 
 SKIP_GRAPHJIN=false
-SKIP_CLAUDE=false
 SKIP_HERMES=false
 for arg in "$@"; do
   case "$arg" in
     --skip-graphjin) SKIP_GRAPHJIN=true ;;
-    --skip-claude)   SKIP_CLAUDE=true ;;
     --skip-hermes)   SKIP_HERMES=true ;;
     -h|--help)
       sed -n '2,18p' "$0"; exit 0 ;;
@@ -64,20 +61,6 @@ if ! $SKIP_GRAPHJIN && ! have graphjin; then
     rm -rf "$tmp"
   fi
   graphjin version
-fi
-
-# ─── claude (Claude Code CLI) ──────────────────────────────────────────
-if ! $SKIP_CLAUDE && ! have claude; then
-  if ! have npm; then
-    echo "claude install requires npm. Install Node 18+ first (https://nodejs.org)." >&2
-    exit 1
-  fi
-  log "installing @anthropic-ai/claude-code globally via npm"
-  if [ -w "$(npm root -g 2>/dev/null || echo /)" ]; then
-    npm install -g @anthropic-ai/claude-code
-  else
-    sudo npm install -g @anthropic-ai/claude-code
-  fi
 fi
 
 # ─── hermes (Nous Research) ────────────────────────────────────────────
@@ -138,5 +121,4 @@ fi
 
 log "done. installed:"
 $SKIP_GRAPHJIN || { printf '  graphjin: '; have graphjin && graphjin version | head -1 || echo 'NOT FOUND'; }
-$SKIP_CLAUDE   || { printf '  claude:   '; have claude   && claude --version 2>/dev/null || echo '(installed; --version may differ)'; }
 $SKIP_HERMES   || { printf '  hermes:   '; have hermes   && hermes --version 2>/dev/null || echo '(installed; --version may differ)'; }

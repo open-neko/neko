@@ -19,7 +19,9 @@ services:
       retries: 20
 
   adventureworks-init:
-    image: node:20-slim
+    build:
+      context: .
+      target: adventureworks-loader
     depends_on:
       adventureworks-db:
         condition: service_healthy
@@ -31,9 +33,6 @@ services:
       ADVENTUREWORKS_DB: ${ADVENTUREWORKS_DB:-adventureworks}
       ADVENTUREWORKS_CACHE_DIR: /cache
       ADVENTUREWORKS_INSTALL_SQL: /workspace/db/seeds/dev/adventureworks-install.sql
-    entrypoint:
-      - /bin/sh
-      - /workspace/db/load-adventureworks.sh
     restart: "no"
     volumes:
       - ./:/workspace:ro
@@ -166,7 +165,7 @@ services:
   neko-adventureworks-seed:
     build:
       context: .
-      target: worker
+      target: init-tools
     depends_on:
       # neko-migrate completion guarantees the organization / data_source /
       # onboarding_wizard / workflow tables this seed writes into exist.
@@ -194,9 +193,7 @@ services:
       no_proxy: localhost,127.0.0.1,::1,neko-db,worker,web,graphjin,adventureworks-db,host.docker.internal,host.internal
     volumes:
       - openneko-config:/config/openneko
-    # --import tsx/esm so the seed's `import("@neko/secret-crypt")` (raw .ts
-    # under node_modules) transpiles; plain node refuses to strip those types.
-    command: ["node", "--import", "tsx/esm", "node_modules/@neko/db/src/seed-adventureworks.mjs"]
+    command: ["node", "/app/seed-adventureworks.js"]
     restart: "no"
 
   web:

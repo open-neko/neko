@@ -6,13 +6,8 @@
  * primary provider) combinations the host can exercise.
  *
  * Plan matrix:
- *   - hermes        × google-gemini   (gated on GEMINI_API_KEY    + `hermes` CLI)
- *   - claude-agent  × anthropic       (gated on ANTHROPIC_API_KEY + `claude` CLI)
- *
- * Rationale: each backend is exercised against the provider it's most
- * representative against. claude-agent is locked to Anthropic by design
- * (see agent-backend-resolver). Hermes is provider-agnostic — running it
- * against Gemini covers the multi-provider path that claude-agent can't.
+ *   - Hermes × Google Gemini (GEMINI_API_KEY + `hermes` CLI)
+ *   - Hermes × Anthropic     (ANTHROPIC_API_KEY + `hermes` CLI)
  *
  * Both keys are independently optional — set one or both. The suite
  * blocks (skips entirely) only when GraphJin or `graphjin` CLI is missing,
@@ -21,7 +16,7 @@
 
 import { spawnSync } from "node:child_process";
 
-export type AgentBackendId = "hermes" | "claude-agent";
+export type AgentBackendId = "hermes";
 export type PrimaryProviderId = "anthropic" | "google-gemini";
 
 export type RunPlan = {
@@ -43,7 +38,7 @@ type PlanSpec = {
   primaryModel: string;
   envVar: "GEMINI_API_KEY" | "ANTHROPIC_API_KEY";
   /** Extra binary the backend shells out to. `graphjin` is checked separately. */
-  binary: "hermes" | "claude";
+  binary: "hermes";
 };
 
 const PLAN_SPECS: PlanSpec[] = [
@@ -56,12 +51,12 @@ const PLAN_SPECS: PlanSpec[] = [
     binary: "hermes",
   },
   {
-    id: "claude-agent",
-    backend: "claude-agent",
+    id: "hermes+anthropic",
+    backend: "hermes",
     primaryProvider: "anthropic",
     primaryModel: "claude-opus-4-7",
     envVar: "ANTHROPIC_API_KEY",
-    binary: "claude",
+    binary: "hermes",
   },
 ];
 
@@ -150,7 +145,7 @@ export async function detectRunnablePlans(): Promise<CanRunResult> {
 
   if (runnable.length === 0) {
     console.warn(
-      "[e2e] no runnable plans — set GEMINI_API_KEY and/or ANTHROPIC_API_KEY (with the matching CLI installed)",
+      "[e2e] no runnable plans — set GEMINI_API_KEY and/or ANTHROPIC_API_KEY with Hermes installed",
     );
   }
 

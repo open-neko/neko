@@ -3,7 +3,6 @@ import {
   AGENT_BACKEND_IDS,
   AGENT_BACKEND_OPTIONS,
   AGENT_DEFAULT_GLOBAL_CAP,
-  AgentBackendConfigError,
   isAgentBackendId,
 } from "../src/agent-backend";
 
@@ -11,8 +10,8 @@ describe("isAgentBackendId", () => {
   it("accepts hermes", () => {
     expect(isAgentBackendId("hermes")).toBe(true);
   });
-  it("accepts claude-agent", () => {
-    expect(isAgentBackendId("claude-agent")).toBe(true);
+  it("rejects removed backend ids", () => {
+    expect(isAgentBackendId("removed-runtime")).toBe(false);
   });
   it("rejects unknown values", () => {
     expect(isAgentBackendId("openai")).toBe(false);
@@ -40,14 +39,5 @@ describe("AGENT_BACKEND_OPTIONS / AGENT_BACKEND_IDS integrity", () => {
 describe("default concurrency cap", () => {
   it("starts three jobs concurrently", () => {
     expect(AGENT_DEFAULT_GLOBAL_CAP).toBe(3);
-  });
-});
-
-describe("AgentBackendConfigError", () => {
-  it("preserves the message and is named", () => {
-    const e = new AgentBackendConfigError("missing key");
-    expect(e.message).toBe("missing key");
-    expect(e.name).toBe("AgentBackendConfigError");
-    expect(e).toBeInstanceOf(Error);
   });
 });

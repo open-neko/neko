@@ -7,6 +7,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./agent-runtime": "./src/agent-runtime.ts",
+    "./sandbox-runtime": "./src/sandbox-runtime.ts",
     "./config": "./src/config.ts",
     "./secrets": "./src/secrets.ts",
     "./work": "./src/work/index.ts",
@@ -29,9 +31,9 @@
     "models:warm": "node scripts/prewarm-embedding.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.128",
     "@ax-llm/ax": "^20.0.0",
     "@huggingface/transformers": "^4.2.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "@neko/db": "workspace:*",
     "@neko/interaction": "workspace:*",
     "@neko/records": "workspace:*",

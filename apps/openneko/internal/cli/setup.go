@@ -33,7 +33,7 @@ func newSetupCmd() *cobra.Command {
 		// run into headless mode (no prompts), so CI and the demo-install skill
 		// can configure without a browser.
 		adminPassword    string
-		backend          string
+		legacyBackend    string
 		provider         string
 		providerKey      string
 		model            string
@@ -60,6 +60,9 @@ at the prompt) to finish at the web UI. Credential flags
 (--admin-password/--provider/--provider-key/…) run step 3 headless for CI.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := validateLegacyAgentBackend(legacyBackend); err != nil {
+				return err
+			}
 			out := cmd.OutOrStdout()
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
@@ -112,7 +115,7 @@ at the prompt) to finish at the web UI. Credential flags
 			// 3. Onboarding.
 			interactive := prompt.IsInteractive()
 			headless := adminPassword != "" || provider != "" || providerKey != "" ||
-				backend != "" || model != "" || researchProvider != "" || researchKey != ""
+				legacyBackend != "" || model != "" || researchProvider != "" || researchKey != ""
 
 			if skipOnboarding {
 				ui.Info(out, "Stack is up. Finish setup in your browser:")
@@ -130,7 +133,6 @@ at the prompt) to finish at the web UI. Credential flags
 				BaseURL:          baseURL,
 				Headless:         headless || !interactive,
 				AdminPassword:    adminPassword,
-				Backend:          backend,
 				Provider:         provider,
 				ProviderKey:      providerKey,
 				Model:            model,
@@ -181,7 +183,8 @@ at the prompt) to finish at the web UI. Credential flags
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Stream full image-pull output during bring-up")
 	cmd.Flags().BoolVar(&skipOnboarding, "skip-onboarding", false, "Bring up the stack only; finish configuration in the browser")
 	cmd.Flags().StringVar(&adminPassword, "admin-password", "", "Headless: admin database password")
-	cmd.Flags().StringVar(&backend, "backend", "", "Headless: agent backend (hermes|claude-agent)")
+	cmd.Flags().StringVar(&legacyBackend, "backend", "", "Deprecated: Hermes is the only agent runtime")
+	_ = cmd.Flags().MarkDeprecated("backend", "Hermes is now the only agent runtime")
 	cmd.Flags().StringVar(&provider, "provider", "", "Headless: primary model provider")
 	cmd.Flags().StringVar(&providerKey, "provider-key", "", "Headless: primary provider API key")
 	cmd.Flags().StringVar(&model, "model", "", "Headless: primary model (default: provider default)")
@@ -192,6 +195,15 @@ at the prompt) to finish at the web UI. Credential flags
 	cmd.Flags().BoolVar(&skipPlugins, "skip-plugins", false, "Skip the optional first-party plugin step")
 	cmd.Flags().StringVar(&pluginsCSV, "plugins", "", "Install these first-party plugins non-interactively (comma-separated)")
 	return cmd
+}
+
+func validateLegacyAgentBackend(value string) error {
+	switch strings.TrimSpace(value) {
+	case "", "hermes":
+		return nil
+	default:
+		return fmt.Errorf("unsupported --backend %q: Hermes is the only agent runtime", value)
+	}
 }
 
 // offerPluginInstall lets the operator install (and configure) first-party

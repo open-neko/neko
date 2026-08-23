@@ -16,7 +16,7 @@
 //   pnpm skills:check --install     # Linux only: apt + pip the missing
 //                                   #  bundled skill bits (community
 //                                   #  skill installs are operator-driven)
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -63,6 +63,21 @@ function pythonHas(mod: string): boolean {
   }
 }
 
+function nodeHas(mod: string): boolean {
+  try {
+    const globalRoot = execFileSync("npm", ["root", "--global"], {
+      encoding: "utf8",
+    }).trim();
+    execFileSync("node", ["-e", `require.resolve(${JSON.stringify(mod)})`], {
+      stdio: "ignore",
+      env: { ...process.env, NODE_PATH: globalRoot },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function readSkillDirs(root: string): string[] {
   if (!existsSync(root)) return [];
   return readdirSync(root, { withFileTypes: true })
@@ -97,6 +112,7 @@ interface SkillReport {
 
 const reports: SkillReport[] = [];
 const localMissingPip = new Set<string>();
+const localMissingNpm = new Set<string>();
 const localMissingApt = new Set<string>();
 
 function checkDeps(name: string, source: "bundled" | "installed", deps: SkillDeps): SkillReport {
@@ -112,6 +128,15 @@ function checkDeps(name: string, source: "bundled" | "installed", deps: SkillDep
     }
   } else if (deps.python.length > 0) {
     missing.push("py:python3");
+  }
+  for (let i = 0; i < (deps.node ?? []).length; i++) {
+    const moduleName = deps.node![i]!;
+    if (!nodeHas(moduleName)) {
+      missing.push(`node:${moduleName}`);
+      if (source === "bundled" && deps.npm?.[i]) {
+        localMissingNpm.add(deps.npm[i]!);
+      }
+    }
   }
   for (let i = 0; i < deps.binaries.length; i++) {
     if (!which(deps.binaries[i]!)) {
@@ -176,7 +201,8 @@ if (flagInstall) {
   const aptList = [...localMissingApt];
   if (!pythonPresent) aptList.unshift("python3", "python3-pip");
   const pipList = [...localMissingPip];
-  if (aptList.length === 0 && pipList.length === 0) {
+  const npmList = [...localMissingNpm];
+  if (aptList.length === 0 && pipList.length === 0 && npmList.length === 0) {
     console.log("Nothing to auto-install — community skill binaries are operator-driven.\n");
     process.exit(0);
   }
@@ -187,6 +213,11 @@ if (flagInstall) {
   }
   if (pipList.length > 0) {
     const cmd = `python3 -m pip install --user --break-system-packages --no-warn-script-location ${pipList.join(" ")}`;
+    console.log(`\n$ ${cmd}\n`);
+    execSync(cmd, { stdio: "inherit" });
+  }
+  if (npmList.length > 0) {
+    const cmd = `sudo npm install --global ${npmList.join(" ")}`;
     console.log(`\n$ ${cmd}\n`);
     execSync(cmd, { stdio: "inherit" });
   }
@@ -203,12 +234,15 @@ if (isMac) {
   if (agg.brewCasks.length > 0)
     console.log(`  brew install --cask ${agg.brewCasks.join(" ")}`);
   if (agg.pip.length > 0) console.log(`  pip3 install ${agg.pip.join(" ")}`);
+  if (agg.npm.length > 0) console.log(`  npm install --global ${agg.npm.join(" ")}`);
   console.log("");
 }
 console.log("  # Linux (Debian/Ubuntu)");
 console.log(`  sudo apt-get install -y python3 python3-pip ${agg.apt.join(" ")}`);
 if (agg.pip.length > 0)
   console.log(`  pip3 install --user --break-system-packages ${agg.pip.join(" ")}`);
+if (agg.npm.length > 0)
+  console.log(`  sudo npm install --global ${agg.npm.join(" ")}`);
 console.log("");
 
 const missingCommunityBins = installed

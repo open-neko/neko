@@ -1,6 +1,6 @@
 schema_version: openneko.eval/v1
 id: adventureworks-harness-factorial
-description: Full 2×2 backend/data-path experiment with matched Anthropic outer models and one externally provisioned GraphJin inner model.
+description: Full 2×2 provider/data-path experiment through Hermes with one externally provisioned GraphJin inner model.
 adapter: adventureworks.metric
 semantics:
   ref: ../semantics.yaml
@@ -32,9 +32,13 @@ variants:
       credential_ref: env:ANTHROPIC_API_KEY
     data_path: graphjin-direct
 
-  - id: claude-agent-anthropic-direct
-    extends: hermes-anthropic-direct
-    backend: claude-agent
+  - id: hermes-gemini-direct
+    backend: hermes
+    outer_model:
+      provider: google-gemini
+      model: gemini-3.6-flash
+      credential_ref: env:GEMINI_API_KEY
+    data_path: graphjin-direct
 
   - id: hermes-anthropic-delegated
     extends: hermes-anthropic-direct
@@ -46,9 +50,15 @@ variants:
       config:
         provisioning: external-graphjin
 
-  - id: claude-agent-anthropic-delegated
-    extends: hermes-anthropic-delegated
-    backend: claude-agent
+  - id: hermes-gemini-delegated
+    extends: hermes-gemini-direct
+    data_path: graphjin-agent
+    inner_model:
+      provider: google-gemini
+      model: gemini-3.6-flash
+      credential_ref: env:GEMINI_API_KEY
+      config:
+        provisioning: external-graphjin
 
 budgets:
   max_wall_time: 48h

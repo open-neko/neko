@@ -26,12 +26,11 @@ const EVENT_MARKER = "__openneko_event__";
 const RESULT_MARKER = "__openneko_agent_result__";
 
 /**
- * Path of the agent entrypoint inside the agent image (the `agent` Docker
- * stage). The agent image is a `pnpm deploy` of @neko/worker, so the worker
- * package is rooted at /app (not /app/apps/worker) — entry.ts lives at
- * /app/src/agent-sandbox/entry.ts and @neko/llm is bundled at /app/node_modules.
+ * Path of the standalone agent entrypoint inside the `agent` Docker stage.
+ * It is bundled to plain ESM so the sandbox image carries neither the worker
+ * source tree nor tsx/node_modules.
  */
-const AGENT_ENTRY = "/app/src/agent-sandbox/entry.ts";
+const AGENT_ENTRY = "/app/agent-entry.js";
 const SANDBOX_RUNTIME_DIR = ".openneko";
 
 export interface SandboxLauncherOptions {
@@ -68,7 +67,7 @@ export interface SandboxLauncherOptions {
    * reach the GraphJin server from the box.
    */
   graphjinBinaryInBox?: string;
-  /** Broker coords for the claude MCP-tool path (omitted for hermes). */
+  /** Broker coordinates for Hermes MCP tools. */
   brokerUrl?: string;
   /** Mint a per-run bearer token bound to {runId, orgId, threadId} (the broker forces
    *  org/run from the binding, never the request body). */
@@ -129,8 +128,6 @@ type SerializableAgentRunOptions = Pick<
   | "skills"
   | "backendState"
   | "wantsCards"
-  | "outputSchema"
-  | "forkSession"
 >;
 
 function serializableAgentRunOptions(
@@ -145,8 +142,6 @@ function serializableAgentRunOptions(
     ...(run.skills !== undefined ? { skills: run.skills } : {}),
     ...(run.backendState !== undefined ? { backendState: run.backendState } : {}),
     ...(run.wantsCards !== undefined ? { wantsCards: run.wantsCards } : {}),
-    ...(run.outputSchema !== undefined ? { outputSchema: run.outputSchema } : {}),
-    ...(run.forkSession !== undefined ? { forkSession: run.forkSession } : {}),
   };
 }
 
@@ -397,14 +392,7 @@ export async function sandboxAgentBackendForJob(opts: {
       if (workspace.orgRoot !== opts.workspace.orgRoot) {
         throw new Error("agent job attempted to replace its isolated workspace");
       }
-      if (
-        run.mcpServers ||
-        run.canUseTool ||
-        run.onElicitation ||
-        run.hooks ||
-        run.agents ||
-        run.allowedTools
-      ) {
+      if (run.mcpServers) {
         throw new Error(
           "agent job tools must be declared through the OpenShell access envelope",
         );
@@ -528,9 +516,7 @@ function makeSandboxCore(
       message,
       prompt: toBox(inputPrompt),
       backendId: input.backend.id,
-      // claude-agent reconstructs in-box and validates it has a Claude model;
-      // hermes reads its model from config.yaml, so this is undefined there.
-      model: input.backend.model,
+      // Hermes reads its model from the staged config.yaml.
       workspace: boxWorkspace,
       graphjinEnabled,
       ...(graphjinDenied ? { graphjinDenied: true } : {}),
@@ -562,7 +548,7 @@ function makeSandboxCore(
       ...(graphjinClientConfig ? { graphjinClientConfig } : {}),
     };
 
-    // claude's MCP tools reach the control plane via the broker — node's
+    // MCP tools reach the control plane via the broker — node's
     // fetch routes through the egress proxy. Keep this endpoint scoped to the
     // node binary in the creation-time policy.
     const brokerEgress: SandboxEgressRule[] = opts.brokerUrl
@@ -950,7 +936,7 @@ function sandboxLauncherOptionsFromEnv(broker?: {
 
 // Generic provider profile: holds just the model credential. The proxy
 // substitutes the injected `openshell:resolve:env:…` placeholder wherever the
-// agent puts it (gemini's ?key= query, claude's x-api-key header — both work,
+// agent puts it (query parameters or provider-specific auth headers,
 // verified), so endpoints/binaries aren't needed here; egress is applied
 // per-run by the launcher (modelEgress). One profile covers every provider.
 const OPENNEKO_AGENT_PROFILE_ID = "openneko-agent";
@@ -1102,11 +1088,9 @@ function buildInnerCommand(o: {
       return `export ${to}="$${from}"`;
     })
     .join("; ");
-  // cd into /app so `node --import tsx/esm` resolves tsx from /app/node_modules
-  // (the image WORKDIR is the sandbox home /sandbox, which has no node_modules).
-  // entry.ts reads its job by absolute path and the backend sets hermes's cwd
-  // itself, so the node process cwd is free to be /app.
-  const parts = [exports, aliases, "cd /app", `exec node --import tsx/esm ${AGENT_ENTRY}`];
+  // The image WORKDIR is the writable sandbox home; the bundle and its assets
+  // remain read-only under /app.
+  const parts = [exports, aliases, `exec node ${AGENT_ENTRY}`];
   return parts.filter(Boolean).join("; ");
 }
 

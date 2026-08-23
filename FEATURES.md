@@ -27,7 +27,7 @@ results as readable cards and charts — not raw data dumps.
 | A memory that works by meaning | Teach the assistant a fact once and it recalls it by meaning, not keywords — memory is embedding-backed and saved/searched by the agent itself. | #17 |
 | Briefing → deep dive | Any briefing card opens into a full Ask thread seeded with that card's context — from "what's this number?" to a real investigation in one click. | #8 |
 | Editable business profile | The assistant's understanding of your company is right there to read — click into it and edit it like a document. | #10 |
-| Same brain on every backend | Hermes and Claude backends have feature parity, including the full administrative toolset — pick your model without losing capability. | #3, #4, #112 |
+| One runtime, any model provider | Hermes is the sole sandboxed agent runtime and keeps the full administrative toolset while allowing Anthropic, Google, OpenAI-compatible, and other configured model providers. | #3, #112 |
 | Information-dense Compact mode | A density toggle switches the whole app between a comfortable reading layout and an information-dense operator view. | #88 |
 
 ## Connect your data, conversationally
@@ -182,10 +182,10 @@ here.
 |---|---|---|
 | #2 | 2026-05-10 | The /work chat surface: per-org isolated agent runtime with threads, runs, and a durable job lifecycle |
 | #3 | 2026-05-10 | Hermes backend rewritten on ACP — live streamed message and tool events |
-| #4 | 2026-05-10 | Claude backend at feature parity; run-activity rendering and per-thread URLs |
+| #4 | 2026-05-10 | Former Claude backend parity (retired); run-activity rendering and per-thread URLs |
 | #5 | 2026-05-12 | Chat runs in-process: instant cancel, working file downloads, Hermes card fixes |
 | #6 | 2026-05-12 | Self-healing database pool after shutdown — no more dead-pool cascades |
-| #7 | 2026-05-12 | Claude SDK pinned to the PATH binary (fixes "native binary not found") |
+| #7 | 2026-05-12 | Former Claude SDK PATH fix (backend retired) |
 | #8 | 2026-05-12 | Editorial design refresh; briefing cards open a "Deep dive" Ask thread |
 | #9 | 2026-05-12 | Unblocked deploys: dead branch tripping the production typecheck removed |
 | #10 | 2026-05-13 | Business profile and industry insights are inline-editable documents |

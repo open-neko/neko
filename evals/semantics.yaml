@@ -10,10 +10,10 @@ entries:
     owners:
       - packages/llm/src/agent-backend.ts
       - apps/worker/src
-  - id: RUNTIME-BACKEND-PARITY
+  - id: RUNTIME-HERMES-CONTRACT
     category: runtime-backend
-    description: Hermes and Claude Agent implement the common backend/event/tool contract
-    verification: matched contract + live E2E
+    description: Hermes implements the agent event, tool, sandbox, and provider contract
+    verification: contract tests + live provider E2E
     disposition: declared
     owners:
       - packages/llm/src/agent-backend.ts

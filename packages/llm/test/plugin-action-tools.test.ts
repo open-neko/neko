@@ -13,9 +13,9 @@ const sdk = vi.hoisted(() => ({
   >(),
 }));
 
-vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
-  createSdkMcpServer: vi.fn((input: unknown) => input),
-  tool: vi.fn(
+vi.mock("../src/mcp-server", () => ({
+  createMcpServer: vi.fn((input: unknown) => input),
+  defineMcpTool: vi.fn(
     (
       name: string,
       description: string,

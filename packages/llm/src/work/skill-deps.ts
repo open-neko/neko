@@ -9,6 +9,8 @@
 export interface SkillDeps {
   python: string[];
   pip: string[];
+  node?: string[];
+  npm?: string[];
   binaries: string[];
   apt: string[];
   brew: string[];
@@ -25,6 +27,14 @@ export const KNOWN_SKILL_DEPS: Record<string, SkillDeps> = {
   pptx: {
     python: ["pptx", "PIL"],
     pip: ["python-pptx", "Pillow"],
+    node: ["pptxgenjs", "react", "react-dom", "react-icons", "sharp"],
+    npm: [
+      "pptxgenjs@4.0.1",
+      "react@19.2.8",
+      "react-dom@19.2.8",
+      "react-icons@5.7.0",
+      "sharp@0.35.3",
+    ],
     binaries: ["soffice"],
     apt: ["libreoffice"],
     brew: ["--cask libreoffice"],
@@ -32,6 +42,8 @@ export const KNOWN_SKILL_DEPS: Record<string, SkillDeps> = {
   docx: {
     python: ["docx"],
     pip: ["python-docx"],
+    node: ["docx"],
+    npm: ["docx@9.7.1"],
     binaries: ["soffice"],
     apt: ["libreoffice"],
     brew: ["--cask libreoffice"],
@@ -150,16 +162,19 @@ export const KNOWN_SKILL_DEPS: Record<string, SkillDeps> = {
 // dev-side doctor script to print fresh-machine setup commands.
 export function aggregateSkillDeps(): {
   pip: string[];
+  npm: string[];
   apt: string[];
   brewFormulas: string[];
   brewCasks: string[];
 } {
   const pip = new Set<string>();
+  const npm = new Set<string>();
   const apt = new Set<string>();
   const brewFormulas = new Set<string>();
   const brewCasks = new Set<string>();
   for (const deps of Object.values(KNOWN_SKILL_DEPS)) {
     for (const pkg of deps.pip) pip.add(pkg);
+    for (const pkg of deps.npm ?? []) npm.add(pkg);
     for (const pkg of deps.apt) apt.add(pkg);
     for (const entry of deps.brew) {
       if (entry.startsWith("--cask ")) brewCasks.add(entry.slice(7));
@@ -168,6 +183,7 @@ export function aggregateSkillDeps(): {
   }
   return {
     pip: [...pip],
+    npm: [...npm],
     apt: [...apt],
     brewFormulas: [...brewFormulas],
     brewCasks: [...brewCasks],

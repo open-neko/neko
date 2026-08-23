@@ -31,7 +31,7 @@ describe("worker telemetry", () => {
       kind: "run.start",
       operationId: "run-3",
       attributes: {
-        "openneko.backend": "claude-agent",
+        "openneko.backend": "hermes",
         prompt: "private",
       },
     });
@@ -43,7 +43,7 @@ describe("worker telemetry", () => {
     });
     expect(telemetry.snapshot()).toMatchObject({
       runId: "job-3",
-      backend: "claude-agent",
+      backend: "hermes",
       status: "completed",
       durations: { wallMs: 12 },
     });

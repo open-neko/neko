@@ -10,13 +10,11 @@ import {
 } from "@neko/db";
 import { updateProgress } from "../progress.js";
 import {
-  resolveAgentBackendId,
   runMetricAgent,
   type AgentTokenUsage,
   type MetricAgentInput,
   type MetricAgentResult,
 } from "@neko/llm";
-import { acquireAgentSlot } from "../agent-concurrency.js";
 import {
   createWorkerHarnessObserver,
   persistProcessingJobTelemetry,
@@ -196,8 +194,6 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
   }
 
   await updateProgress(jobId, "Running agent");
-  const backendId = await resolveAgentBackendId(orgId);
-
   // Stamp metric.last_refresh_status on BOTH the success and failure paths
   // so the briefing API can render a Retry button without joining
   // processing_job (which only knows the job id, not the metric id). The
@@ -208,56 +204,51 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
   const telemetryStartedAt = Date.now();
   let telemetryFailure: unknown;
   try {
-    const release = await acquireAgentSlot(backendId);
     let result: MetricAgentResult;
-    try {
-      runTelemetry = createWorkerHarnessObserver(jobId);
-      if (payload.classification) {
-        await observeSafely(runTelemetry.observer, {
-          kind: "model.request",
-          operationId: `metric:${jobId}:classification`,
-          parentOperationId: `metric:${jobId}`,
-          attributes: {
-            "openneko.model.scope": "classification",
-            ...(payload.classification.provider
-              ? { "gen_ai.provider.name": payload.classification.provider }
-              : {}),
-            ...(payload.classification.model
-              ? { "gen_ai.request.model": payload.classification.model }
-              : {}),
-          },
-        });
-        await observeSafely(runTelemetry.observer, {
-          kind: "model.response",
-          operationId: `metric:${jobId}:classification`,
-          parentOperationId: `metric:${jobId}`,
-          status: "ok",
-          attributes: {
-            "openneko.model.scope": "classification",
-            ...(payload.classification.provider
-              ? { "gen_ai.provider.name": payload.classification.provider }
-              : {}),
-            ...(payload.classification.model
-              ? { "gen_ai.response.model": payload.classification.model }
-              : {}),
-          },
-          measurements: {
-            ...payload.classification.usage,
-            durationMs: payload.classification.durationMs,
-          },
-        });
-      }
-      result = await runMetricAgent({
-        ...input,
-        jobId,
-        observer: runTelemetry.observer,
-        observationAttributes: {
-          "openneko.job.kind": "metric_refresh",
+    runTelemetry = createWorkerHarnessObserver(jobId);
+    if (payload.classification) {
+      await observeSafely(runTelemetry.observer, {
+        kind: "model.request",
+        operationId: `metric:${jobId}:classification`,
+        parentOperationId: `metric:${jobId}`,
+        attributes: {
+          "openneko.model.scope": "classification",
+          ...(payload.classification.provider
+            ? { "gen_ai.provider.name": payload.classification.provider }
+            : {}),
+          ...(payload.classification.model
+            ? { "gen_ai.request.model": payload.classification.model }
+            : {}),
         },
       });
-    } finally {
-      release();
+      await observeSafely(runTelemetry.observer, {
+        kind: "model.response",
+        operationId: `metric:${jobId}:classification`,
+        parentOperationId: `metric:${jobId}`,
+        status: "ok",
+        attributes: {
+          "openneko.model.scope": "classification",
+          ...(payload.classification.provider
+            ? { "gen_ai.provider.name": payload.classification.provider }
+            : {}),
+          ...(payload.classification.model
+            ? { "gen_ai.response.model": payload.classification.model }
+            : {}),
+        },
+        measurements: {
+          ...payload.classification.usage,
+          durationMs: payload.classification.durationMs,
+        },
+      });
     }
+    result = await runMetricAgent({
+      ...input,
+      jobId,
+      observer: runTelemetry.observer,
+      observationAttributes: {
+        "openneko.job.kind": "metric_refresh",
+      },
+    });
 
     const validationError = validateResult(result);
     await observeSafely(runTelemetry.observer, {

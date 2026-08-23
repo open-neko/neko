@@ -1,6 +1,6 @@
 schema_version: openneko.eval/v1
-id: adventureworks-backend-parity
-description: Matched Anthropic model comparison between Hermes and Claude Agent.
+id: adventureworks-provider-matrix
+description: Matched direct-path comparison of Anthropic and Gemini through Hermes.
 adapter: adventureworks.metric
 semantics:
   ref: ../semantics.yaml
@@ -32,9 +32,13 @@ variants:
       credential_ref: env:ANTHROPIC_API_KEY
     data_path: graphjin-direct
 
-  - id: claude-agent-anthropic-direct
-    extends: hermes-anthropic-direct
-    backend: claude-agent
+  - id: hermes-gemini-direct
+    backend: hermes
+    outer_model:
+      provider: google-gemini
+      model: gemini-3.6-flash
+      credential_ref: env:GEMINI_API_KEY
+    data_path: graphjin-direct
 
 budgets:
   max_wall_time: 6h
