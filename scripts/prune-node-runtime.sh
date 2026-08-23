@@ -40,6 +40,15 @@ find "$runtime_root/node_modules" -type f \
      -o -name 'libonnxruntime_providers_tensorrt.so' \) \
   -delete 2>/dev/null || true
 
+# The package's script directory is only for install/build/prepack. Production
+# loads dist/index.js and the retained native CPU runtime; keeping Microsoft's
+# download metadata and postinstall implementation serves no runtime purpose.
+find "$runtime_root/node_modules" -type d \
+  -path '*/node_modules/onnxruntime-node/script' -print 2>/dev/null |
+while IFS= read -r install_scripts; do
+  rm -rf "$install_scripts"
+done
+
 # Transformers.js imports the WebGPU entry module even on Node, but selects
 # onnxruntime-node for execution. Preserve that entry module and remove its
 # browser-only WASM engines and duplicate browser bundles from server images.

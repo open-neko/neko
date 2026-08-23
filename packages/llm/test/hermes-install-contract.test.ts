@@ -44,17 +44,31 @@ describe("Hermes install contract", () => {
     expect(dockerfile).toContain("HERMES_DISABLE_LAZY_INSTALLS=1");
   });
 
-  it("keeps Hermes out of the worker while preserving its egress identity", async () => {
+  it("keeps Hermes out of the worker while preserving its required runtime contracts", async () => {
     const dockerfile = await readFile(`${REPO_ROOT}Dockerfile`, "utf8");
+    const sharedRuntime = dockerfile.slice(
+      dockerfile.indexOf("FROM npm-runtime AS graphjin-node-runtime"),
+      dockerfile.indexOf("FROM graphjin-node-runtime AS agent-base"),
+    );
+    const workerDeployStage = dockerfile.slice(
+      dockerfile.indexOf("FROM source AS worker-deploy"),
+      dockerfile.indexOf("FROM graphjin-node-runtime AS worker"),
+    );
     const workerStage = dockerfile.slice(
-      dockerfile.indexOf("FROM runtime-base AS worker"),
+      dockerfile.indexOf("FROM graphjin-node-runtime AS worker"),
       dockerfile.indexOf("FROM source AS agent-deploy"),
     );
 
+    expect(sharedRuntime).toContain(
+      "COPY --from=graphjin-bin /usr/local/bin/graphjin /usr/local/bin/graphjin",
+    );
+    expect(workerDeployStage).toContain("ONNXRUNTIME_NODE_INSTALL=skip");
     expect(workerStage).toContain(
       "ln -s /usr/bin/python3 /usr/local/uv/tools/hermes-agent/bin/python",
     );
+    expect(workerStage).toContain("COPY --from=openshell-bin");
     expect(workerStage).not.toContain("uv tool install");
     expect(workerStage).not.toContain("COPY --from=agent-base");
+    expect(workerStage).not.toContain("COPY --from=npm-payload");
   });
 });

@@ -135,8 +135,9 @@ COPY --from=openshell-bin /usr/local/bin/openshell /usr/local/bin/openshell
 CMD ["openshell", "--version"]
 
 # ─── 2. control-plane runtime: sandbox launcher only ───────────────────
-# Web and worker are trusted control planes. They launch OpenShell sandboxes
-# but never contain an agent runtime, GraphJin CLI, or document toolchain.
+# Web is a trusted control plane that launches OpenShell sandboxes but never
+# contains an agent runtime, GraphJin CLI, or document toolchain. The worker
+# uses the narrower shared GraphJin/npm runtime defined below.
 FROM node-runtime AS runtime-base
 # Git supports trusted config VCS and git-backed installs. openssh-client is
 # required by `openshell sandbox exec`.
@@ -145,7 +146,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=openshell-bin /usr/local/bin/openshell /usr/local/bin/openshell
 
-# Pinned GraphJin binary, downloaded once and copied into both the sandbox and
+# Pinned GraphJin binary shared by the Records-aware worker, sandbox agent, and
 # the two dedicated GraphJin runtimes.
 FROM debian:bookworm-slim AS graphjin-bin
 ARG GRAPHJIN_VERSION=3.18.42
@@ -162,13 +163,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/* \
     && graphjin version
 
+# The worker and sandbox agent both require npm plus the pinned GraphJin CLI.
+# Keeping those payloads in one common parent makes their large GraphJin layer
+# byte-identical, so the worker reuses the payload already required by the agent.
+FROM npm-runtime AS graphjin-node-runtime
+COPY --from=graphjin-bin /usr/local/bin/graphjin /usr/local/bin/graphjin
+
 # ─── 2b. agent runtime: Hermes + GraphJin (sandbox only) ───────────────
-FROM npm-runtime AS agent-base
+FROM graphjin-node-runtime AS agent-base
 ARG HERMES_AGENT_REF=a91a57fa5a13d516c38b07a141a9ce8a3daabeb0
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=graphjin-bin /usr/local/bin/graphjin /usr/local/bin/graphjin
 # Hermes uses Debian's system Python instead of downloading a second Python
 # distribution. It remains pinned while its Gemini/MCP compatibility patches
 # are required.
@@ -392,12 +398,15 @@ CMD ["node", "apps/web/server.js"]
 FROM source AS worker-deploy
 ARG TARGETARCH
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm --filter @neko/worker deploy --prod /out/worker-app \
+    ONNXRUNTIME_NODE_INSTALL=skip \
+      pnpm --filter @neko/worker deploy --prod /out/worker-app \
     && sh scripts/prune-node-runtime.sh /out/worker-app "$TARGETARCH"
 
 # The worker runs from source via tsx (not a build step). It serves /health +
-# admin endpoints on port 4100 for liveness probes.
-FROM runtime-base AS worker
+# admin endpoints on port 4100 for liveness probes. Records config validation
+# and approved schema diff/sync require the shared pinned GraphJin CLI; this
+# parent supplies it without inheriting Hermes or the document toolchain.
+FROM graphjin-node-runtime AS worker
 WORKDIR /app
 # Minimal extraction toolchain for the library distiller ("the librarian"),
 # which shells out to the bundled document-extraction script on this host:
@@ -409,15 +418,11 @@ WORKDIR /app
 # worker resolve the agent's exact /proc/<pid>/exe identity for OpenShell
 # egress without reinstalling the Hermes tool or virtual environment here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 poppler-utils unzip postgresql-client \
+      git openssh-client python3 poppler-utils unzip postgresql-client \
     && rm -rf /var/lib/apt/lists/* \
     && install -d /usr/local/uv/tools/hermes-agent/bin \
     && ln -s /usr/bin/python3 /usr/local/uv/tools/hermes-agent/bin/python
-# `openneko install` deliberately invokes npm in this container. Add the same
-# pruned runtime payload used by the agent, without Corepack or Yarn.
-COPY --from=npm-payload /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
-RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
-    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+COPY --from=openshell-bin /usr/local/bin/openshell /usr/local/bin/openshell
 ENV NODE_ENV=production \
     PORT=4100 \
     HOSTNAME=0.0.0.0 \
