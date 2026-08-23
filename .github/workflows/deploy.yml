@@ -59,7 +59,7 @@ jobs:
             {
               sed -n 's/^[[:space:]]*image:[[:space:]]*//p' \
                 assets/compose/core.yml assets/compose/openshell.yml \
-              | grep -F '${OPENNEKO_VERSION' \
+              | grep -oE 'ghcr\.io/open-neko/[[:alnum:]_.-]+:\$\{OPENNEKO_VERSION[^}]*\}' \
               | sed 's/:\${OPENNEKO_VERSION.*//'
               echo ghcr.io/open-neko/agent
             } | sort -u
