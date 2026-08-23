@@ -405,9 +405,14 @@ WORKDIR /app
 # (poppler-utils) covers PDFs. Deliberately no pip deps and no tesseract —
 # scanned-PDF OCR runs in the agent image; a worker-side extraction miss
 # fails the document row with a clear reason and is retryable from /library.
+# Hermes remains agent-only. The zero-payload interpreter marker lets the
+# worker resolve the agent's exact /proc/<pid>/exe identity for OpenShell
+# egress without reinstalling the Hermes tool or virtual environment here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 poppler-utils unzip postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && install -d /usr/local/uv/tools/hermes-agent/bin \
+    && ln -s /usr/bin/python3 /usr/local/uv/tools/hermes-agent/bin/python
 # `openneko install` deliberately invokes npm in this container. Add the same
 # pruned runtime payload used by the agent, without Corepack or Yarn.
 COPY --from=npm-payload /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm

@@ -43,4 +43,18 @@ describe("Hermes install contract", () => {
 
     expect(dockerfile).toContain("HERMES_DISABLE_LAZY_INSTALLS=1");
   });
+
+  it("keeps Hermes out of the worker while preserving its egress identity", async () => {
+    const dockerfile = await readFile(`${REPO_ROOT}Dockerfile`, "utf8");
+    const workerStage = dockerfile.slice(
+      dockerfile.indexOf("FROM runtime-base AS worker"),
+      dockerfile.indexOf("FROM source AS agent-deploy"),
+    );
+
+    expect(workerStage).toContain(
+      "ln -s /usr/bin/python3 /usr/local/uv/tools/hermes-agent/bin/python",
+    );
+    expect(workerStage).not.toContain("uv tool install");
+    expect(workerStage).not.toContain("COPY --from=agent-base");
+  });
 });
