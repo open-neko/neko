@@ -30,7 +30,7 @@ func mockSetupServer(changed bool, recs *[]recorded) *httptest.Server {
 			_ = enc.Encode(map[string]any{"source": "unset"})
 		case "GET /api/settings/agent":
 			_ = enc.Encode(map[string]any{
-				"agent": map[string]any{"source": "default", "globalCap": 5},
+				"agent":    map[string]any{"source": "default", "globalCap": 5},
 				"defaults": map[string]any{"globalCap": 5},
 			})
 		case "GET /api/settings/provider":
