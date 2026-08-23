@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.29.3](https://github.com/open-neko/openneko/compare/v2.29.2...v2.29.3) (2026-08-23)
+
+
+### Bug Fixes
+
+* restore GraphJin to worker runtime ([#238](https://github.com/open-neko/openneko/issues/238)) ([44d6893](https://github.com/open-neko/openneko/commit/44d689366026cfcd55c4440ccfd727bbfcb7d492))
+
 ## [2.29.2](https://github.com/open-neko/openneko/compare/v2.29.1...v2.29.2) (2026-08-23)
 
 
