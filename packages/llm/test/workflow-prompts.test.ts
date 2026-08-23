@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { AgentWorkspace } from "../src/agent-backend";
 import { buildWorkflowRunnerPrompt } from "../src/workflows/runner-prompt";
 import type { WorkflowRecord } from "../src/workflows/store";
-import { WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS } from "../src/workflows/tool-defaults";
 
 const sampleWorkspace: AgentWorkspace = {
   orgRoot: "/tmp/org",
@@ -15,8 +14,6 @@ const sampleWorkspace: AgentWorkspace = {
   runRoot: "/tmp/org/runs/r1",
   artifactRoot: "/tmp/org/runs/r1/artifacts",
   binRoot: "/tmp/org/runs/r1/bin",
-  claudeProjectRoot: "/tmp/org",
-  claudeConfigRoot: "/tmp/org/claude/config",
 };
 
 const sampleWorkflow: WorkflowRecord = {
@@ -170,19 +167,4 @@ describe("buildWorkflowRunnerPrompt", () => {
     expect(prompt).toContain("toolsets");
   });
 
-  it("uses native dynamic Agent guidance for Claude workflow runs", () => {
-    const prompt = buildWorkflowRunnerPrompt({
-      ...base,
-      backend: "claude-agent",
-      mcpTools: true,
-    });
-    expect(prompt).toContain("Agent");
-    expect(prompt).toContain("general-purpose");
-    expect(prompt).toContain("filesystem-discovered agents");
-    expect(prompt).toMatch(/OpenNeko does\s+not define named subagent\s+profiles/);
-  });
-
-  it("allows Claude workflow runners to call the native Agent tool", () => {
-    expect(WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS).toContain("Agent");
-  });
 });

@@ -209,7 +209,7 @@ services:
       - |
         set -eu
         mkdir -p /config/watch
-        chown -R neko:neko /config
+        chown -R 1001:1001 /config
         chmod 0700 /config /config/watch
     volumes:
       - openneko-records-graphjin:/config
@@ -329,7 +329,11 @@ services:
     restart: "no"
 
   graphjin:
-    image: ${OPENNEKO_GRAPHJIN_IMAGE:-dosco/graphjin:3.18.42}
+    # Reuse the already-required records-graphjin image: it contains the same
+    # pinned GraphJin binary, so a full install does not pull a second 120 MiB
+    # runtime. Overriding the records entrypoint selects vanilla GraphJin.
+    image: ${OPENNEKO_GRAPHJIN_IMAGE:-ghcr.io/open-neko/records-graphjin:${OPENNEKO_VERSION:-latest}}
+    entrypoint: ["graphjin"]
     restart: unless-stopped
     depends_on:
       graphjin-config-init:
@@ -394,7 +398,7 @@ services:
       - |
         set -eu
         mkdir -p /config/openneko
-        chown -R neko:neko /config/openneko
+        chown -R 1001:1001 /config/openneko
         chmod 0700 /config/openneko
     depends_on:
       neko-migrate:

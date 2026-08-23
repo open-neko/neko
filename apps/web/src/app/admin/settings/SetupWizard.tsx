@@ -37,14 +37,11 @@ type SettingsPayload = {
   fields: { primary: Record<string, Field[]>; research: Record<string, Field[]> };
 };
 
-type AgentBackendOption = { value: "hermes" | "claude-agent"; label: string; description: string };
 type AgentSettingsPayload = {
   agent: {
     source: "org" | "default";
-    backend: "hermes" | "claude-agent";
     globalCap: number;
   };
-  options: readonly AgentBackendOption[];
   defaults: { globalCap: number };
 };
 
@@ -68,7 +65,6 @@ type Initial = {
 // straight to Data on subsequent visits.
 const STEPS_WITH_PASSWORD = ["Password", "Data", "Agent", "Research"] as const;
 const STEPS_WITHOUT_PASSWORD = ["Data", "Agent", "Research"] as const;
-const CLAUDE_MODEL_DEFAULT = "claude-opus-4-7";
 
 export default function SetupWizard({ initial }: { initial: Initial }) {
   const STEPS = initial.passwordChanged
@@ -100,8 +96,7 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
   const [savingData, setSavingData] = useState(false);
   const [testingData, setTestingData] = useState(false);
 
-  // Step 2: backend + primary provider
-  const [backend, setBackend] = useState<"hermes" | "claude-agent">(initial.agent.agent.backend);
+  // Step 2: Hermes + primary provider
   const [concurrentJobs, setConcurrentJobs] = useState(String(initial.agent.agent.globalCap));
   const [primary, setPrimary] = useState({
     provider: initial.providers.primary.provider,
@@ -137,30 +132,14 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
   const [primaryError, setPrimaryError] = useState<string | null>(null);
   const [researchError, setResearchError] = useState<string | null>(null);
 
-  // Backend-coupled provider lock for step 2
   const providerOptions = useMemo<ProviderOption[]>(() => {
-    if (backend === "claude-agent") {
-      return initial.providers.options.primary.filter((o) => o.value === "anthropic");
-    }
     return [...initial.providers.options.primary];
-  }, [backend, initial.providers.options.primary]);
+  }, [initial.providers.options.primary]);
 
   const primaryFields: Field[] =
     initial.providers.fields.primary[primary.provider] ?? [];
   const researchFields: Field[] =
     initial.providers.fields.research[research.provider] ?? [];
-
-  const onBackendChange = (next: "hermes" | "claude-agent") => {
-    setBackend(next);
-    if (next === "claude-agent" && primary.provider !== "anthropic") {
-      setPrimary({
-        provider: "anthropic",
-        model: CLAUDE_MODEL_DEFAULT,
-        config: {},
-        secrets: {},
-      });
-    }
-  };
 
   const onPrimaryProviderChange = (next: string) => {
     setPrimary({
@@ -285,17 +264,16 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
       if (!testRes.ok) {
         throw new Error(testBody.error ?? "Provider test failed.");
       }
-      // Save backend choice + concurrency. One UI value drives both the
-      // worker-wide pull cap and the in-process Claude Agent semaphore.
+      // Save worker-wide agent concurrency.
       const cap = Number(concurrentJobs) || initial.agent.defaults.globalCap;
       const agentRes = await fetch("/api/settings/agent", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backend, globalCap: cap }),
+        body: JSON.stringify({ globalCap: cap }),
       });
       if (!agentRes.ok) {
         const body = await agentRes.json();
-        throw new Error(body.error ?? "Agent backend save failed");
+        throw new Error(body.error ?? "Agent settings save failed");
       }
       // Save primary provider (with secrets)
       const providerRes = await fetch("/api/settings/provider", {
@@ -513,33 +491,17 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
 
       {stepName === "agent" && (
         <Step
-          title="Choose the agent"
-          description="The agent runs the metric queries. Hermes works with any provider; the Claude Agent is locked to Anthropic."
+          title="Configure Hermes"
+          description="Hermes runs the agent and works with any supported model provider."
         >
-          <Field label="Backend">
-            <Select
-              value={backend}
-              onChange={(v) => onBackendChange(v as "hermes" | "claude-agent")}
-              options={initial.agent.options}
-              ariaLabel="Agent backend"
-            />
-            <span className="text-ui-body-sm text-text3 leading-[1.45]">
-              {initial.agent.options.find((o) => o.value === backend)?.description}
-            </span>
-          </Field>
-
           <div className="settings-grid">
             <Field label="Provider">
               <Select
                 value={primary.provider}
                 onChange={onPrimaryProviderChange}
                 options={providerOptions}
-                disabled={backend === "claude-agent"}
                 ariaLabel="Primary provider"
               />
-              {backend === "claude-agent" && (
-                <span className="text-ui-body-sm text-text3 leading-[1.45]">Locked because Agent backend = Claude Agent.</span>
-              )}
             </Field>
             <Field label="Model">
               <input

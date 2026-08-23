@@ -4,7 +4,7 @@ import { buildLlm } from "../llm";
 // Inline-transcript backends (Hermes) carry the whole thread in the prompt, so a
 // long-running channel/DM thread grows unbounded. Past COMPACT_AFTER messages we
 // fold everything older than the last KEEP_LAST into a rolling summary and keep
-// the recent tail verbatim — Claude-Code-style auto-compaction, message-count
+// the recent tail verbatim — automatic transcript compaction, message-count
 // triggered. Persisted on work_thread.backend_state.compaction (no migration).
 export const COMPACT_AFTER = Number(process.env.OPENNEKO_COMPACT_AFTER_MESSAGES) || 40;
 export const KEEP_LAST = Number(process.env.OPENNEKO_COMPACT_KEEP_LAST) || 12;

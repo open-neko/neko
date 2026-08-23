@@ -13,7 +13,7 @@ import {
   type AgentTokenUsage,
 } from "../agent-backend";
 import { registerAgentCanceller } from "../agent-shutdown";
-import { hermesHomeForOrg } from "../host-provision";
+import { hermesHomeForOrg } from "../hermes-home";
 import {
   RENDER_CARDS_DESCRIPTION,
   RENDER_CARDS_INPUT_SCHEMA,
@@ -227,9 +227,7 @@ export class HermesBackend implements AgentBackend {
     // each one over the broker control plane. Surfaces still come via fence
     // (see surface.ts).
     mcpTools: true,
-    sdkStopHook: false,
     sessionResume: false,
-    canUseToolGate: false,
     nativeDelegation: "hermes-delegate-task",
   } as const;
 

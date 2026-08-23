@@ -126,44 +126,12 @@ describeIfDb("provider-settings", () => {
     });
   });
 
-  describe("saveProviderDraft — cross-section coupling", () => {
-    it("rejects primary=openai while agent=claude-agent", async () => {
-      await seedProvider(orgId, {
-        scope: "agent",
-        provider: "claude-agent",
-        config: { backend: "claude-agent" },
-      });
-      await expect(
-        saveProviderDraft(orgId, {
-          scope: "primary",
-          provider: "openai",
-          model: "gpt-4.1-mini",
-          secrets: { apiKey: "sk-openai" },
-        }),
-      ).rejects.toThrow(/Switch the backend in \/admin\/settings\/agent first/);
-    });
-
-    it("allows primary=anthropic while agent=claude-agent", async () => {
-      await seedProvider(orgId, {
-        scope: "agent",
-        provider: "claude-agent",
-        config: { backend: "claude-agent" },
-      });
-      await expect(
-        saveProviderDraft(orgId, {
-          scope: "primary",
-          provider: "anthropic",
-          model: "claude-opus-4-7",
-          secrets: { apiKey: "sk-ant-ok" },
-        }),
-      ).resolves.toBeDefined();
-    });
-
-    it("allows any primary when agent=hermes", async () => {
+  describe("saveProviderDraft — Hermes providers", () => {
+    it("allows any supported primary provider", async () => {
       await seedProvider(orgId, {
         scope: "agent",
         provider: "hermes",
-        config: { backend: "hermes" },
+        config: { globalCap: 10 },
       });
       await expect(
         saveProviderDraft(orgId, {

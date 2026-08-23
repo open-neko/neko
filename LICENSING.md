@@ -29,8 +29,7 @@ Examples include:
   [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 - Hermes Agent, when used as an external/modular agent runtime, under its
   upstream MIT license.
-- Claude Agent / Claude Code / Anthropic SDK components and related skill
-  formats under their upstream package, repository, or service terms.
+- Anthropic-authored bundled skills under their declared upstream terms.
 - Built-in skills that carry their own `license:` frontmatter or local
   `LICENSE.txt` files.
 - Third-party plugins that communicate with OpenNeko across the plugin RPC

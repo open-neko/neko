@@ -200,7 +200,7 @@ export async function deleteWorkThread(orgId: string, threadId: string): Promise
 // Truncates the thread at and after the given run: deletes that run plus
 // every later run in the thread (events cascade via FK), wipes the user
 // + assistant messages tied to those runs, and clears the thread's
-// backendState so a Claude-agent resume can't re-inject the dropped turns
+// backendState so a resumed run cannot re-inject the dropped turns
 // from its persisted SDK session. Returns the run's `created_at` so the
 // caller can verify it pointed at a real row.
 export async function truncateWorkThreadFromRun(

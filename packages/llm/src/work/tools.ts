@@ -1,14 +1,20 @@
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { createMcpServer, defineMcpTool } from "../mcp-server";
 import { z } from "zod";
-import { writeWorkSkill } from "./skills";
+import { writeWorkSkillFiles } from "./skill-files";
 import { RENDER_CARDS_DESCRIPTION } from "./render-catalog";
 import type { AgentEvent, AgentSurfaceMessage } from "../agent-backend";
-import { WORK_MEMORY_KINDS, type WorkMemoryContext } from "./memory";
+import { WORK_MEMORY_KINDS, type WorkMemoryContext } from "./memory-types";
 import type { RiskLevel } from "../workflows";
-import {
-  inProcessControlPlane,
-  type AgentControlPlane,
-} from "./control-plane";
+import type { AgentControlPlane } from "./control-plane";
+
+function requireControlPlane(
+  controlPlane: AgentControlPlane | undefined,
+): AgentControlPlane {
+  if (!controlPlane) {
+    throw new Error("Agent MCP server requires an explicit control plane");
+  }
+  return controlPlane;
+}
 
 const a2uiComponentSchema = z
   .object({ id: z.string().min(1), component: z.string().min(1) })
@@ -71,7 +77,7 @@ function isValidA2UIMessage(m: unknown): m is AgentSurfaceMessage {
 export function buildRenderCardsServer(
   emit: (event: AgentEvent) => Promise<void> | void,
 ) {
-  const renderCards = tool(
+  const renderCards = defineMcpTool(
     "render_cards",
     RENDER_CARDS_DESCRIPTION,
     {
@@ -111,7 +117,7 @@ export function buildRenderCardsServer(
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_ui",
     version: "1.0.0",
     tools: [renderCards],
@@ -132,9 +138,9 @@ export function buildPluginManagerServer(opts: {
   emit: (event: AgentEvent) => Promise<void> | void;
   controlPlane?: AgentControlPlane;
 }) {
-  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const controlPlane = requireControlPlane(opts.controlPlane);
 
-  const listPlugins = tool(
+  const listPlugins = defineMcpTool(
     "list_plugins",
     [
       "List installed plugins (with version, source, declared network",
@@ -170,7 +176,7 @@ export function buildPluginManagerServer(opts: {
       payload,
     });
 
-  const installTool = tool(
+  const installTool = defineMcpTool(
     "request_plugin_install",
     [
       "Propose installing a plugin from the marketplace. This NEVER",
@@ -191,7 +197,7 @@ export function buildPluginManagerServer(opts: {
       }),
   );
 
-  const uninstallTool = tool(
+  const uninstallTool = defineMcpTool(
     "request_plugin_uninstall",
     [
       "Propose removing an installed plugin. Approval-gated like installs;",
@@ -207,7 +213,7 @@ export function buildPluginManagerServer(opts: {
       }),
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_plugin_manager",
     version: "1.0.0",
     tools: [listPlugins, installTool, uninstallTool],
@@ -319,9 +325,9 @@ export function buildUserManagerServer(opts: {
   emit: (event: AgentEvent) => Promise<void> | void;
   controlPlane?: AgentControlPlane;
 }) {
-  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const controlPlane = requireControlPlane(opts.controlPlane);
 
-  const listUsers = tool(
+  const listUsers = defineMcpTool(
     "list_users",
     [
       "List the org's users and synchronized SSO groups with stable IDs,",
@@ -339,7 +345,7 @@ export function buildUserManagerServer(opts: {
     }),
   );
 
-  const requestChange = tool(
+  const requestChange = defineMcpTool(
     "request_user_change",
     [
       "Propose a user-management change: invite (email + role),",
@@ -394,7 +400,7 @@ export function buildUserManagerServer(opts: {
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_user_manager",
     version: "1.0.0",
     tools: [listUsers, requestChange],
@@ -413,9 +419,9 @@ export function buildChannelManagerServer(opts: {
   emit: (event: AgentEvent) => Promise<void> | void;
   controlPlane?: AgentControlPlane;
 }) {
-  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const controlPlane = requireControlPlane(opts.controlPlane);
 
-  const listChannels = tool(
+  const listChannels = defineMcpTool(
     "list_channels",
     [
       "List the org's channel workspaces (Slack team /",
@@ -437,7 +443,7 @@ export function buildChannelManagerServer(opts: {
     }),
   );
 
-  const requestChange = tool(
+  const requestChange = defineMcpTool(
     "request_channel_change",
     [
       "Propose a channel-identity change: link (identityId + appUserId),",
@@ -479,7 +485,7 @@ export function buildChannelManagerServer(opts: {
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_channel_manager",
     version: "1.0.0",
     tools: [listChannels, requestChange],
@@ -503,9 +509,9 @@ export function buildDataSourceManagerServer(opts: {
   emit: (event: AgentEvent) => Promise<void> | void;
   controlPlane?: AgentControlPlane;
 }) {
-  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const controlPlane = requireControlPlane(opts.controlPlane);
 
-  const listSources = tool(
+  const listSources = defineMcpTool(
     "list_data_sources",
     [
       "List the org's registered data sources: name, label, auth mode,",
@@ -526,7 +532,7 @@ export function buildDataSourceManagerServer(opts: {
     }),
   );
 
-  const requestChange = tool(
+  const requestChange = defineMcpTool(
     "request_data_source_change",
     [
       "Propose a data-source registry change: register (name + optional",
@@ -567,7 +573,7 @@ export function buildDataSourceManagerServer(opts: {
       }),
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_data_source_manager",
     version: "1.0.0",
     tools: [listSources, requestChange],
@@ -590,9 +596,9 @@ export function buildSourceConfigManagerServer(opts: {
   emit: (event: AgentEvent) => Promise<void> | void;
   controlPlane?: AgentControlPlane;
 }) {
-  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const controlPlane = requireControlPlane(opts.controlPlane);
 
-  const describe = tool(
+  const describe = defineMcpTool(
     "describe_source_graph",
     [
       "Return the selected GraphJin data engine's live source graph, including",
@@ -615,7 +621,7 @@ export function buildSourceConfigManagerServer(opts: {
     }),
   );
 
-  const listSecretNames = tool(
+  const listSecretNames = defineMcpTool(
     "list_source_secret_names",
     [
       "Return stored connection-secret names for use as `secretRef` values in",
@@ -638,7 +644,7 @@ export function buildSourceConfigManagerServer(opts: {
     }),
   );
 
-  const askConfigAgent = tool(
+  const askConfigAgent = defineMcpTool(
     "ask_graphjin_config_agent",
     [
       "Ask the selected GraphJin configuration agent to inspect, explain, or",
@@ -669,7 +675,7 @@ export function buildSourceConfigManagerServer(opts: {
     }),
   );
 
-  const importOpenApi = tool(
+  const importOpenApi = defineMcpTool(
     "import_openapi_spec",
     [
       "Import and validate a hosted OpenAPI 3.x YAML or JSON document for",
@@ -697,7 +703,7 @@ export function buildSourceConfigManagerServer(opts: {
     }),
   );
 
-  const listOpenApi = tool(
+  const listOpenApi = defineMcpTool(
     "list_openapi_specs",
     "List this organization's recently imported OpenAPI asset metadata and IDs.",
     { limit: z.number().int().min(1).max(100).optional() },
@@ -717,7 +723,7 @@ export function buildSourceConfigManagerServer(opts: {
     }),
   );
 
-  const requestChange = tool(
+  const requestChange = defineMcpTool(
     "request_source_config_change",
     [
       "Create a source_config_admin proposal for admin review:",
@@ -852,7 +858,7 @@ export function buildSourceConfigManagerServer(opts: {
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_source_config_manager",
     version: "1.1.0",
     tools: [
@@ -878,9 +884,9 @@ export function buildAuditViewerServer(opts: {
   runId?: string;
   controlPlane?: AgentControlPlane;
 }) {
-  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const controlPlane = requireControlPlane(opts.controlPlane);
 
-  const auditTrail = tool(
+  const auditTrail = defineMcpTool(
     "audit_trail",
     [
       "ADMIN ONLY. The org's audit trail: recent action requests (who",
@@ -913,7 +919,7 @@ export function buildAuditViewerServer(opts: {
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_audit",
     version: "1.0.0",
     tools: [auditTrail],
@@ -921,7 +927,7 @@ export function buildAuditViewerServer(opts: {
 }
 
 export function buildSkillBuilderServer(skillsRoot: string) {
-  const createSkill = tool(
+  const createSkill = defineMcpTool(
     "create_skill",
     "Create or update an agentskills.io-style skill in Neko's shared skills directory.",
     {
@@ -940,7 +946,7 @@ export function buildSkillBuilderServer(skillsRoot: string) {
       ).max(30).optional(),
     },
     async (args) => {
-      const result = await writeWorkSkill(skillsRoot, args);
+      const result = await writeWorkSkillFiles(skillsRoot, args);
       return {
         content: [
           {
@@ -956,7 +962,7 @@ export function buildSkillBuilderServer(skillsRoot: string) {
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_skills",
     version: "1.0.0",
     tools: [createSkill],
@@ -971,8 +977,8 @@ export function buildGraphjinReadServer(opts: {
   orgId: string;
   controlPlane?: AgentControlPlane;
 }) {
-  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
-  const executeGraphql = tool(
+  const controlPlane = requireControlPlane(opts.controlPlane);
+  const executeGraphql = defineMcpTool(
     "execute_graphql",
     [
       "Execute one read-only GraphQL query against the configured customer",
@@ -1002,7 +1008,7 @@ export function buildGraphjinReadServer(opts: {
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_graphjin",
     version: "1.0.0",
     tools: [executeGraphql],
@@ -1020,8 +1026,8 @@ export function buildGraphjinAgentServer(opts: {
   dataSourceId?: string;
   controlPlane?: AgentControlPlane;
 }) {
-  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
-  const ask = tool(
+  const controlPlane = requireControlPlane(opts.controlPlane);
+  const ask = defineMcpTool(
     "ask",
     [
       "Delegate one read-only operational data question to GraphJin's",
@@ -1053,7 +1059,7 @@ export function buildGraphjinAgentServer(opts: {
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_graphjin_agent",
     version: "1.0.0",
     tools: [ask],
@@ -1073,7 +1079,7 @@ export function buildRecordsReadServer(opts: {
   /** Restrict a records-UI turn to the trusted app/object surface it opened. */
   scope?: { appId: string; objectApiName: string };
 }) {
-  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const controlPlane = requireControlPlane(opts.controlPlane);
   const assertInScope = (appId: string, objectApiName?: string): void => {
     if (!opts.scope) return;
     if (
@@ -1085,7 +1091,7 @@ export function buildRecordsReadServer(opts: {
       );
     }
   };
-  const browseCatalog = tool(
+  const browseCatalog = defineMcpTool(
     "browse_catalog",
     [
       "Browse active generated records apps, readable objects, fields,",
@@ -1124,7 +1130,7 @@ export function buildRecordsReadServer(opts: {
     },
   );
 
-  const browseBlueprints = tool(
+  const browseBlueprints = defineMcpTool(
     "browse_blueprints",
     [
       "List shipped records-app blueprints, or load one complete",
@@ -1154,7 +1160,7 @@ export function buildRecordsReadServer(opts: {
     operator: z.enum(["eq", "neq", "in", "contains", "starts_with", "is_null"]),
     value: z.unknown().optional(),
   });
-  const findRecords = tool(
+  const findRecords = defineMcpTool(
     "find_records",
     [
       "Search or list records through a bounded, registry-generated GraphJin",
@@ -1205,7 +1211,7 @@ export function buildRecordsReadServer(opts: {
     },
   );
 
-  const getRecord = tool(
+  const getRecord = defineMcpTool(
     "get_record",
     [
       "Read one record by an exact id already obtained from find_records.",
@@ -1242,7 +1248,7 @@ export function buildRecordsReadServer(opts: {
     },
   );
 
-  const findRecycledRecords = tool(
+  const findRecycledRecords = defineMcpTool(
     "find_recycled_records",
     [
       "Search or list soft-deleted record summaries through the current",
@@ -1280,7 +1286,7 @@ export function buildRecordsReadServer(opts: {
     },
   );
 
-  const getRecycledRecord = tool(
+  const getRecycledRecord = defineMcpTool(
     "get_recycled_record",
     [
       "Read one soft-deleted record summary by an exact id already obtained",
@@ -1313,7 +1319,7 @@ export function buildRecordsReadServer(opts: {
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_records",
     version: "1.0.0",
     tools: [
@@ -1339,7 +1345,7 @@ export type WorkMemoryServerOptions = {
    * remains the authority on what gets persisted.
    */
   exposeSave?: boolean;
-  /** Defaults to the in-process control plane; the agent sandbox injects an HTTP impl. */
+  /** Explicit in-process or broker-backed control plane. */
   controlPlane?: AgentControlPlane;
 };
 
@@ -1348,8 +1354,8 @@ export function buildWorkMemoryServer(
   options: WorkMemoryServerOptions = {},
 ) {
   const exposeSave = options.exposeSave ?? true;
-  const controlPlane = options.controlPlane ?? inProcessControlPlane;
-  const search = tool(
+  const controlPlane = requireControlPlane(options.controlPlane);
+  const search = defineMcpTool(
     "search",
     [
       "Semantic search over OpenNeko's saved memories. Returns top-N",
@@ -1379,7 +1385,7 @@ export function buildWorkMemoryServer(
     },
   );
 
-  const save = tool(
+  const save = defineMcpTool(
     "save",
     [
       "Save a durable memory the operator stated explicitly. Use only when",
@@ -1415,7 +1421,7 @@ export function buildWorkMemoryServer(
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_memory",
     version: "1.0.0",
     tools: exposeSave ? [search, save] : [search],
@@ -1427,7 +1433,7 @@ export function buildWorkMemoryServer(
 // never from agent input — so a compromised prompt can't read another
 // member's personal library.
 export type LibraryServerOptions = {
-  /** Defaults to the in-process control plane; the agent sandbox injects an HTTP impl. */
+  /** Explicit in-process or broker-backed control plane. */
   controlPlane?: AgentControlPlane;
 };
 
@@ -1435,8 +1441,8 @@ export function buildLibraryServer(
   ctx: WorkMemoryContext,
   options: LibraryServerOptions = {},
 ) {
-  const controlPlane = options.controlPlane ?? inProcessControlPlane;
-  const search = tool(
+  const controlPlane = requireControlPlane(options.controlPlane);
+  const search = defineMcpTool(
     "search",
     [
       "Semantic search over the document library — knowledge distilled",
@@ -1480,7 +1486,7 @@ export function buildLibraryServer(
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_library",
     version: "1.0.0",
     tools: [search],
@@ -1558,7 +1564,7 @@ export interface BuildPluginActionServerOptions {
   runId: string;
   descriptors: readonly PluginActionDescriptor[];
   emit: (event: AgentEvent) => Promise<void> | void;
-  /** Defaults to the in-process control plane; the agent sandbox injects an HTTP impl. */
+  /** Explicit in-process or broker-backed control plane. */
   controlPlane?: AgentControlPlane;
 }
 
@@ -1596,11 +1602,11 @@ export interface BuildPluginActionServerOptions {
  */
 export function buildPluginActionServer(
   opts: BuildPluginActionServerOptions,
-): ReturnType<typeof createSdkMcpServer> | null {
+): ReturnType<typeof createMcpServer> | null {
   const active = opts.descriptors.filter((d) => !isDeniedEverywhere(d.default_mode));
   if (active.length === 0) return null;
 
-  const controlPlane = opts.controlPlane ?? inProcessControlPlane;
+  const controlPlane = requireControlPlane(opts.controlPlane);
 
   const tools = active.map((d) => {
     const actionScope = d.scope ?? "external";
@@ -1669,7 +1675,7 @@ export function buildPluginActionServer(
               ? " — set `intent` whenever the call might land in ask-mode."
               : "");
 
-    return tool(
+    return defineMcpTool(
       d.kind,
       `${d.description}\n\n${modeHint}`,
       schema,
@@ -1869,7 +1875,7 @@ export function buildPluginActionServer(
     );
   });
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_plugin_actions",
     version: "1.0.0",
     tools,

@@ -49,7 +49,7 @@ export const VariantSchema = z
   .object({
     id: Id,
     extends: Id.optional(),
-    backend: z.enum(["hermes", "claude-agent"]),
+    backend: z.literal("hermes"),
     outer_model: ModelConfigSchema,
     data_path: z.enum([
       "graphjin-direct",

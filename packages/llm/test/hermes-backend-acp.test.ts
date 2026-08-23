@@ -42,8 +42,6 @@ const FAKE_WORKSPACE = {
   runRoot: "/tmp/neko-test/org/runs/r1",
   artifactRoot: "/tmp/neko-test/org/runs/r1/artifacts",
   binRoot: "/tmp/neko-test/org/runs/r1/bin",
-  claudeProjectRoot: "/tmp/neko-test/org",
-  claudeConfigRoot: "/tmp/neko-test/org/claude/config",
 } as const;
 
 type SeenRequest = { method: string; params: unknown };

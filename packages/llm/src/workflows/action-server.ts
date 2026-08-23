@@ -1,4 +1,4 @@
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { createMcpServer, defineMcpTool } from "../mcp-server";
 import {
   enqueue as defaultEnqueue,
   QUEUE,
@@ -380,14 +380,14 @@ export async function handleWorkActionRequest(
 }
 
 export function buildWorkflowActionServer(ctx: WorkflowActionContext) {
-  const requestAction = tool(
+  const requestAction = defineMcpTool(
     "request",
     REQUEST_DESCRIPTION,
     ACTION_REQUEST_SCHEMA.shape,
     async (args) => jsonOk(await handleActionRequest(ctx, args)),
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_action",
     version: "1.0.0",
     tools: [requestAction],

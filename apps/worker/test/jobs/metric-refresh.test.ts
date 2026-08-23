@@ -6,7 +6,6 @@
  *   - Path 1 (bootstrap): metricId payload → loads metric → snapshot lands
  *   - Path 2 (chat): question payload → creates metric row + snapshot
  *   - Validation failures throw + leave no snapshot
- *   - Backend semaphore is acquired and released even on failure
  */
 
 import {
@@ -36,9 +35,8 @@ import {
   processing_job,
 } from "@neko/db";
 
-const { mockRunMetricAgent, mockResolveBackendId, mockGraphjinQuery } = vi.hoisted(() => ({
+const { mockRunMetricAgent, mockGraphjinQuery } = vi.hoisted(() => ({
   mockRunMetricAgent: vi.fn(),
-  mockResolveBackendId: vi.fn(),
   mockGraphjinQuery: vi.fn(),
 }));
 
@@ -47,7 +45,6 @@ vi.mock("@neko/llm", async () => {
   return {
     ...actual,
     runMetricAgent: mockRunMetricAgent,
-    resolveAgentBackendId: mockResolveBackendId,
   };
 });
 
@@ -144,7 +141,6 @@ describeIfDb("runMetricRefresh", () => {
   beforeEach(async () => {
     orgId = uniqueOrgId("job-metric-refresh");
     await createTestOrg(orgId);
-    mockResolveBackendId.mockResolvedValue("hermes");
     mockRunMetricAgent.mockResolvedValue(stubResult());
   });
 
@@ -242,7 +238,6 @@ describeIfDb("runMetricRefresh", () => {
       await runMetricRefresh(jobId, orgId);
 
       expect(mockRunMetricAgent).not.toHaveBeenCalled();
-      expect(mockResolveBackendId).not.toHaveBeenCalled();
       expect(mockGraphjinQuery).toHaveBeenCalledWith(
         expect.objectContaining({
           baseUrl: "http://magento-graphjin.test/api/v1/graphql",
@@ -439,16 +434,6 @@ describeIfDb("runMetricRefresh", () => {
       await expect(runMetricRefresh(jobId, orgId)).rejects.toThrow(/invalid mood/);
       const snaps = await snapshotsForOrg(orgId);
       expect(snaps).toHaveLength(0);
-    });
-  });
-
-  describe("backend resolution", () => {
-    it("resolveAgentBackendId is called once per job", async () => {
-      const metricId = await insertMetric(orgId, "backend-call");
-      const jobId = await insertProcessingJob(orgId, { metricId });
-      await runMetricRefresh(jobId, orgId);
-      expect(mockResolveBackendId).toHaveBeenCalledTimes(1);
-      expect(mockResolveBackendId).toHaveBeenCalledWith(orgId);
     });
   });
 });

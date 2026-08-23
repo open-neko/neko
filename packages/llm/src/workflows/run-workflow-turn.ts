@@ -19,6 +19,7 @@ import {
   setWorkRunValue,
 } from "../work/store";
 import { ensureWorkWorkspace } from "../work/workspace";
+import { inProcessControlPlane } from "../work/control-plane";
 import { handleActionRequest } from "./action-server";
 import {
   runWorkflowAgentBackend as defaultRunWorkflowAgentBackend,
@@ -196,8 +197,13 @@ export async function runWorkflowTurn(
   };
 
   const workspace = await ensureWorkWorkspace(orgId, threadId, workRunId);
-  const graphjinBinary = await resolveBinaryOnPath("graphjin");
-  if (!graphjinBinary) {
+  // Production resolves and guards GraphJin inside the OpenShell sandbox.
+  // The host path is retained only for the in-process test harness.
+  const graphjinBinary =
+    runCore === defaultRunWorkflowAgentBackend
+      ? await resolveBinaryOnPath("graphjin")
+      : null;
+  if (runCore === defaultRunWorkflowAgentBackend && !graphjinBinary) {
     const errMsg = "graphjin CLI is not installed on PATH.";
     await emit({ type: "error", message: errMsg });
     await finishWorkRun(workRunId, "failed", errMsg);
@@ -209,13 +215,15 @@ export async function runWorkflowTurn(
     await emit({ type: "done", result: { status: "failed" } });
     throw new Error(errMsg);
   }
-  await ensureGraphjinGuardWithActorAuth({
-    orgId,
-    graphjinBinary,
-    binRoot: workspace.binRoot,
-    runRoot: workspace.runRoot,
-    actor: { userId: null, role: "service" },
-  });
+  if (graphjinBinary) {
+    await ensureGraphjinGuardWithActorAuth({
+      orgId,
+      graphjinBinary,
+      binRoot: workspace.binRoot,
+      runRoot: workspace.runRoot,
+      actor: { userId: null, role: "service" },
+    });
+  }
 
   try {
     await wrappedEmit({
@@ -258,6 +266,7 @@ export async function runWorkflowTurn(
       triggeredByObservationId:
         workflowRun.triggeredByObservationId ?? null,
       workspace,
+      controlPlane: inProcessControlPlane,
       emit: wrappedEmit,
       tag: `workflow ${workflow.name} ${workflowRun.id}`,
       signal,

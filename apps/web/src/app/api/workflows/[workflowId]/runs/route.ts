@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  AgentBackendConfigError,
-  ensureHostConfigProvisioned,
-} from "@neko/llm";
+import { ensureHostConfigProvisioned } from "@neko/llm";
 import {
   ensureAgentBroker,
   getWorkRun,
@@ -46,9 +43,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
       triggerPayload: { userMessage: userMessage ?? null },
     });
   } catch (e) {
-    if (e instanceof AgentBackendConfigError) {
-      return NextResponse.json({ error: e.message }, { status: 400 });
-    }
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 400 });
   }

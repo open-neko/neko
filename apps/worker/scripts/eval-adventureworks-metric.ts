@@ -229,12 +229,6 @@ export function createAdventureWorksMetricDriver(context: {
         "provider_credential_missing",
       );
     }
-    if (variant.backend === "claude-agent" && variant.outer_model.provider !== "anthropic") {
-      throw new EvalEnvironmentError(
-        `claude-agent requires anthropic, got ${variant.outer_model.provider}`,
-        "variant_incompatible",
-      );
-    }
     const datasetId = context.loaded.cases[0]?.dataset ?? "adventureworks";
     const graphqlUrl = datasetSetting(
       context.loaded,

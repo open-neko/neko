@@ -11,14 +11,13 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
-  makeAgentBackend,
   type AgentBackendId,
   type AgentEvent,
   type AgentRunOptions,
   type AgentRunResult,
   type AgentWorkspace,
 } from "@neko/llm";
-import { runWorkflowAgentBackend } from "@neko/llm/workflows";
+import { makeAgentBackend } from "@neko/llm/agent-runtime";
 import {
   ensureGraphjinGuard,
   buildGraphjinAgentServer,
@@ -27,9 +26,10 @@ import {
   materializeBuiltinSkills,
   resolveBinaryOnPath,
   runAgentBackend,
+  runWorkflowAgentBackend,
   sandboxReachableUrl,
   type RunAgentBackendInput,
-} from "@neko/llm/work";
+} from "@neko/llm/sandbox-runtime";
 import { BrokerControlPlane } from "./broker-client";
 import { EVENT_MARKER, RESULT_MARKER } from "./protocol";
 
@@ -41,11 +41,9 @@ import { EVENT_MARKER, RESULT_MARKER } from "./protocol";
  * loop, and STREAM events back as tagged stdout lines that the launcher relays
  * to the host (which scrubs + persists). The model key never enters the box.
  *
- * Events go over stdout rather than a network broker because `openshell
- * sandbox exec` streams stdout to the host in real time — so hermes (which has
- * no MCP tools and emits its action/workflow fences for host-side parsing)
- * needs no broker at all. claude-agent's MCP tools DO need the control plane
- * mid-turn, so a BrokerControlPlane is wired when broker coords are present.
+ * Events go over stdout because `openshell sandbox exec` streams stdout to the
+ * host in real time. Hermes MCP tools use BrokerControlPlane only when the run
+ * grants brokered control-plane capabilities.
  */
 interface SandboxJob {
   kind?: "work" | "workflow" | "agent-job";
@@ -85,8 +83,6 @@ interface SandboxJob {
     | "skills"
     | "backendState"
     | "wantsCards"
-    | "outputSchema"
-    | "forkSession"
   >;
   /** GJ5: policy write grants resolved host-side (the box has no DB). */
   graphjinWriteGrants?: string[];
@@ -121,17 +117,12 @@ function loadJob(): SandboxJob {
 export async function main(): Promise<void> {
   const job = loadJob();
   // The launcher transfers only custom or modified skill directories. Fill in
-  // unchanged built-ins from the agent image, then expose the same catalog to
-  // Claude's native project skill discovery. Skill bodies remain filesystem
+  // unchanged built-ins from the agent image. Skill bodies remain filesystem
   // resources and are read only when the agent chooses one.
-  await materializeBuiltinSkills(
-    job.workspace.skillsRoot,
-    job.workspace.claudeProjectRoot,
-  );
-  // Claude discovers project skills through `.claude/skills`; Hermes scans
-  // HERMES_HOME/skills. Point both backends at the same per-run catalog so a
+  await materializeBuiltinSkills(job.workspace.skillsRoot);
+  // Hermes scans HERMES_HOME/skills. Point it at the per-run catalog so a
   // required skill staged by the host is visible to Hermes' native skill tool.
-  if (job.backendId === "hermes" && process.env.HERMES_HOME) {
+  if (process.env.HERMES_HOME) {
     const hermesSkillsRoot = join(process.env.HERMES_HOME, "skills");
     await rm(hermesSkillsRoot, { recursive: true, force: true });
     await symlink(job.workspace.skillsRoot, hermesSkillsRoot, "dir");
@@ -141,13 +132,10 @@ export async function main(): Promise<void> {
 
   const backend = makeAgentBackend({
     id: job.backendId,
-    model: job.model,
-    apiKey: process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_API_KEY,
   });
 
-  // MCP tools reach the control plane mid-turn through the broker — claude
-  // via in-process SDK servers, hermes via stdio bridge children that ACP
-  // launches from this path.
+  // MCP tools reach the control plane through stdio bridge children that
+  // Hermes ACP launches from this path.
   const controlPlane =
     brokerUrl && brokerToken
       ? new BrokerControlPlane(brokerUrl, brokerToken)
@@ -156,13 +144,16 @@ export async function main(): Promise<void> {
     // Prefer the image-baked plain-JS bundle: hermes spawns one bridge
     // process per server, and the tsx loader costs ~300MB RSS each vs
     // ~80MB bundled. The .ts fallback keeps tests + dev images working.
-    const bundled = new URL(
-      "../../dist/agent-sandbox/mcp-bridge.js",
-      import.meta.url,
-    ).pathname;
-    process.env.OPENNEKO_MCP_BRIDGE = existsSync(bundled)
-      ? bundled
-      : new URL("./mcp-bridge.ts", import.meta.url).pathname;
+    const configuredBridge = process.env.OPENNEKO_MCP_BRIDGE?.trim();
+    if (!configuredBridge) {
+      const bundled = new URL(
+        "../../dist/agent-sandbox/mcp-bridge.js",
+        import.meta.url,
+      ).pathname;
+      process.env.OPENNEKO_MCP_BRIDGE = existsSync(bundled)
+        ? bundled
+        : new URL("./mcp-bridge.ts", import.meta.url).pathname;
+    }
   }
 
   const emit = (event: AgentEvent): Promise<void> => {
@@ -242,6 +233,9 @@ export async function main(): Promise<void> {
   }
 
   const kind = job.kind ?? "work";
+  if (kind !== "agent-job" && !controlPlane) {
+    throw new Error("agent-sandbox: work run missing broker control plane");
+  }
   let result: AgentRunResult;
   if (kind === "agent-job") {
     const graphjinRead = job.agentAccess?.graphjinRead === true;
@@ -280,18 +274,6 @@ export async function main(): Promise<void> {
               : {}),
           }
         : undefined;
-    const allowedTools =
-      backend.id === "claude-agent"
-        ? [
-            ...(graphjinRead
-              ? ["mcp__neko_graphjin__execute_graphql"]
-              : []),
-            ...(graphjinAgent
-              ? ["mcp__neko_graphjin_agent__ask"]
-              : []),
-            ...(memorySearch ? ["mcp__neko_memory__search"] : []),
-          ]
-        : undefined;
     result = await backend.run({
       ...(job.agentRun ?? {}),
       prompt: job.prompt,
@@ -300,7 +282,6 @@ export async function main(): Promise<void> {
       workspace: job.workspace,
       onEvent: emit,
       mcpServers,
-      allowedTools,
       wantsCards: false,
       mcpBridgeEnv:
         graphjinRead || graphjinAgent || memorySearch
@@ -315,6 +296,9 @@ export async function main(): Promise<void> {
           : undefined,
     });
   } else if (kind === "workflow") {
+    if (!controlPlane) {
+      throw new Error("agent-sandbox: workflow run missing broker control plane");
+    }
     const workflowRunId = job.workflowRunId;
     if (!workflowRunId) {
       throw new Error("agent-sandbox: workflow job missing workflowRunId");
@@ -334,6 +318,9 @@ export async function main(): Promise<void> {
       emit,
     });
   } else {
+    if (!controlPlane) {
+      throw new Error("agent-sandbox: work run missing broker control plane");
+    }
     result = await runAgentBackend({
       backend,
       prompt: job.prompt,

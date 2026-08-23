@@ -37,7 +37,7 @@ adventureworks-onboarding.md
 .idea/
 *.swp
 
-# local agent / Claude config
+# local agent-tool config (never part of the application runtime)
 .agents/
 .claude/
 

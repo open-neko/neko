@@ -57,8 +57,8 @@ pnpm openneko eval verify --result evals/results/<config-id>/<run-id>
 pnpm openneko eval report --result evals/results/<config-id>/<run-id>
 ```
 
-The metric adapter supports Hermes and Claude Agent, direct GraphJin and the
-read-only delegated GraphJin server agent, independent outer/inner
+The metric adapter supports Hermes across model providers, direct GraphJin and
+the read-only delegated GraphJin server agent, independent outer/inner
 provider-model identities, and dataset/config variation. The lifecycle adapter
 executes watcher and approval-governed mutation state machines against isolated
 test organizations with deterministic clocks, query responses, and action
@@ -131,8 +131,8 @@ able to vary and attribute at least these factors:
 | Factor | Initial values or examples |
 |---|---|
 | Product path | metric refresh, business profiling, bootstrap metrics, `/work` chat, workflow build/run, actions, source configuration |
-| Agent backend | Hermes, Claude Agent SDK |
-| Outer provider/model | any valid Hermes provider/model; Anthropic-compatible Claude Agent configuration |
+| Agent runtime | Hermes |
+| Outer provider/model | any valid Hermes provider/model |
 | Data path | direct GraphJin query, delegated GraphJin agent, later planner-then-host-execute |
 | Inner provider/model | GraphJin agent provider/model, independent from the outer model |
 | Dataset | AdventureWorks first; later other databases, files, OpenAPI sources, and multi-source packs |
@@ -146,15 +146,14 @@ able to vary and attribute at least these factors:
 | Infrastructure state | cold/warm sandbox and caches, network latency, provider throttling, tool faults, service restarts |
 
 Not every factor should be crossed with every other factor. The runner validates
-capabilities and compatibility before execution. For example, Claude Agent is
-currently coupled to an Anthropic primary provider, and a delegated GraphJin arm
-requires an enabled GraphJin server agent.
+capabilities and compatibility before execution. For example, a delegated
+GraphJin arm requires an enabled GraphJin server agent.
 
 Two comparison tracks are necessary:
 
-- **Parity:** hold prompts, tools, data, and budgets as constant as backend
-  capabilities allow. This estimates the effect of one factor.
-- **Best configured:** allow each backend or data path to use its native
+- **Provider parity:** hold prompts, tools, data, and budgets constant while
+  varying the model provider. This estimates the effect of one factor.
+- **Best configured:** allow each provider or data path to use its native
   strengths. This answers which setup a user should actually deploy.
 
 ## 3. Evaluation layers
@@ -375,8 +374,8 @@ variants:
       model: ${OPENNEKO_EVAL_GRAPHJIN_MODEL}
       credential_ref: env:GEMINI_API_KEY
 
-  - id: claude-direct
-    backend: claude-agent
+  - id: hermes-anthropic-direct
+    backend: hermes
     outer_model:
       provider: anthropic
       model: ${OPENNEKO_EVAL_CLAUDE_MODEL}
@@ -856,7 +855,7 @@ work is deliberately visible:
 - define the checked-in eval config/result JSON schemas and custom attribute
   registry;
 - instrument the shared product-path boundaries and existing tool events;
-- normalize usage from Hermes, Claude Agent, and GraphJin with explicit coverage
+- normalize usage from Hermes and GraphJin with explicit coverage
   and missing-reason fields;
 - expand the existing persisted summaries into a common `harness_run` index and
   trace-ID links;
@@ -891,7 +890,7 @@ work is deliberately visible:
   growing the read/calculation corpus toward several hundred cases;
 - add resettable watcher/reactive and mutation/action packs with pre-state,
   readiness, post-state, collateral, audit, and idempotency oracles;
-- cover Hermes/Claude Agent, direct/delegated GraphJin, and selected
+- cover Hermes across selected providers, direct/delegated GraphJin, and
   provider/model variants with compatibility validation;
 - run repeated, counterbalanced baselines;
 - check in compact scored results through a PR;
@@ -913,8 +912,8 @@ work is deliberately visible:
 - A hard process kill during a run reuses every verified completed slot and
   safely reconstructs the in-flight mutation/watcher fixture instead of
   restarting or trusting ambiguous state.
-- The same case runs through at least Hermes and Claude Agent where compatible,
-  and through direct and delegated GraphJin data paths.
+- The same case runs through Hermes with at least two providers, and through
+  direct and delegated GraphJin data paths.
 - Adding another dataset requires a dataset pack, not runner edits.
 - Every result identifies exact code/config/dataset/scorer/model provenance and
   telemetry coverage.

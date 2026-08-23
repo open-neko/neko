@@ -6,16 +6,11 @@ import type {
 } from "../agent-backend";
 import type { AgentControlPlane } from "../work/control-plane";
 import { buildLibraryServer, buildWorkMemoryServer } from "../work/tools";
-import { buildWorkflowActionServer } from "./action-server";
-import { buildWorkflowOutputServer } from "./output-server";
-import {
-  WORKFLOW_FIXED_DENY,
-  WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS,
-  buildAllowDenyGate,
-} from "./tool-defaults";
+import { buildWorkflowActionServer } from "./action-tool-server";
+import { buildWorkflowOutputServer } from "./output-tool-server";
 
 export interface RunWorkflowAgentBackendInput {
-  /** Resolved backend (hermes / claude-agent). In the sandbox it's reconstructed from config. */
+  /** Hermes backend. In the sandbox it is reconstructed from config. */
   backend: AgentBackend;
   prompt: string;
   userMessage: string;
@@ -28,7 +23,7 @@ export interface RunWorkflowAgentBackendInput {
   triggeredByObservationId?: string | null;
   workspace: AgentWorkspace;
   /** In-process on the host; broker-backed inside the agent sandbox. */
-  controlPlane?: AgentControlPlane;
+  controlPlane: AgentControlPlane;
   emit: (event: AgentEvent) => Promise<void>;
   signal?: AbortSignal;
   tag?: string;
@@ -95,23 +90,7 @@ export async function runWorkflowAgentBackend(
       }
     : undefined;
 
-  const canUseTool = backend.capabilities.canUseToolGate
-    ? buildAllowDenyGate(
-        WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS,
-        WORKFLOW_FIXED_DENY,
-      )
-    : undefined;
-
-  const onElicitation =
-    mode === "headless"
-      ? async (): Promise<Record<string, unknown>> => {
-          await emit({
-            type: "needs_input",
-            question: "Workflow paused awaiting operator input.",
-          });
-          throw new Error("Workflow paused awaiting operator input");
-        }
-      : undefined;
+  void mode;
 
   return backend.run({
     prompt,
@@ -133,11 +112,6 @@ export async function runWorkflowAgentBackend(
             : {}),
         }
       : undefined,
-    canUseTool,
-    allowedTools: backend.capabilities.canUseToolGate
-      ? WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS
-      : undefined,
-    onElicitation,
     tag,
     signal,
   });

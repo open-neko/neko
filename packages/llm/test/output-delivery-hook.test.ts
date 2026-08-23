@@ -2,11 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentEvent } from "../src/agent-backend";
 
 // output-server only needs emitWorkflowOutput from ./store for this seam; mock
-// it so the hook is exercised without a DB. The agent SDK import is stubbed too.
-vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
-  createSdkMcpServer: vi.fn(() => ({})),
-  tool: vi.fn(() => ({})),
-}));
+// it so the hook is exercised without a DB.
 vi.mock("../src/workflows/store", () => ({
   emitWorkflowOutput: vi.fn(async (a: { kind: string; title: string; body: string; mood?: string | null }) => ({
     id: "out-1",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentBackend, AgentRunOptions, AgentWorkspace } from "../src/agent-backend";
+import type { AgentControlPlane } from "../src/work/control-plane";
 import { runWorkflowAgentBackend } from "../src/workflows/agent-core";
 
 const workspace: AgentWorkspace = {
@@ -13,9 +14,10 @@ const workspace: AgentWorkspace = {
   runRoot: "/tmp/org/runs/run-1",
   artifactRoot: "/tmp/org/runs/run-1/artifacts",
   binRoot: "/tmp/org/runs/run-1/bin",
-  claudeProjectRoot: "/tmp/org",
-  claudeConfigRoot: "/tmp/org/claude/config",
 };
+
+// This test only inspects the MCP server wiring; no tool handler is invoked.
+const controlPlane = {} as AgentControlPlane;
 
 describe("runWorkflowAgentBackend", () => {
   it("threads workflow MCP bridge env needed by the in-box bridge", async () => {
@@ -24,9 +26,7 @@ describe("runWorkflowAgentBackend", () => {
       id: "hermes",
       capabilities: {
         mcpTools: true,
-        sdkStopHook: false,
         sessionResume: false,
-        canUseToolGate: true,
         nativeDelegation: "hermes-delegate-task",
       },
       async run(opts) {
@@ -46,6 +46,7 @@ describe("runWorkflowAgentBackend", () => {
       mode: "headless",
       triggeredByObservationId: "obs-1",
       workspace,
+      controlPlane,
       emit: async () => {},
     });
 

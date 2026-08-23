@@ -64,8 +64,6 @@ const FAKE_WORKSPACE = {
   runRoot: "/tmp/work-test/runs/r1",
   artifactRoot: "/tmp/work-test/runs/r1/artifacts",
   binRoot: "/tmp/work-test/runs/r1/bin",
-  claudeProjectRoot: "/tmp/work-test/org",
-  claudeConfigRoot: "/tmp/work-test/org/claude/config",
 };
 
 const HERMES_CAPABILITIES = {

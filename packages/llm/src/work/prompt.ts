@@ -77,9 +77,9 @@ heuristic as urgency, priority, or overdue status.
 </records_access>`;
 }
 
-// Web-only (callers gate this behind wantsCards). Both backends render via a
-// `render_cards` tool — claude through the neko_ui MCP server, hermes through a
-// per-turn stdio render server. The component catalog + message schema live on
+// Web-only (callers gate this behind wantsCards). Hermes renders through a
+// `render_cards` tool mounted via the neko_ui MCP server and a per-turn stdio
+// render server. The component catalog + message schema live on
 // the TOOL's description (ST1: the channel supplies its own rendering
 // vocabulary; the base prompt stays channel-neutral). See
 // docs/PER_CHANNEL_RENDERING.md.
@@ -151,8 +151,8 @@ Never invent a package name and never request credentials in chat.
 }
 
 function buildNativeDelegationSection(backend: AgentBackendId): string {
-  if (backend === "hermes") {
-    return `<delegation>
+  void backend;
+  return `<delegation>
 You have Hermes native subagent delegation through \`delegate_task\`. Use it
 when a focused subtask would benefit from a fresh context, parallel work, or
 independent investigation. The parent agent decides whether to delegate and
@@ -165,19 +165,6 @@ review, \`["terminal", "file"]\` for code work, \`["web"]\` for research) and
 use \`tasks\` for independent parallel subtasks. Use \`role: "orchestrator"\`
 only when nested delegation is truly worth the extra cost and the configured
 spawn depth allows it.
-</delegation>`;
-  }
-
-  return `<delegation>
-You have Claude Code native dynamic subagent delegation through the \`Agent\`
-tool. Use it when a focused subtask would benefit from a fresh context,
-parallel work, or independent investigation. Prefer Claude Code's built-in
-\`general-purpose\` subagent or filesystem-discovered agents; OpenNeko does
-not define named subagent profiles.
-
-When delegating, include all context the subagent needs directly in the Agent
-tool prompt. Subagents do not receive the parent conversation, prior tool
-results, or unstated decisions; only their final result returns to you.
 </delegation>`;
 }
 
@@ -628,10 +615,7 @@ function buildPluginActionsSection(
   descriptors: readonly PluginActionPromptDescriptor[],
   useFences: boolean,
 ): string {
-  // claude-agent receives plugin kinds via the MCP tool registry; no
-  // prompt-level docs needed (MCP listTools answers the question).
-  // Hermes has no tool discovery — the system prompt is where it
-  // learns kinds exist. Only emit the fence-syntax block in that case.
+  // Only emit the fence-syntax block when the runtime requests the fallback.
   if (!useFences) return "";
   const active = descriptors.filter((d) => !isDeniedEverywhere(d.default_mode));
   if (active.length === 0) return "";
@@ -707,7 +691,7 @@ export function buildWorkPrompt(args: {
   // True when prior turns must be inlined into the system prompt because the
   // backend can't reload them out-of-band (i.e. no session resume).
   inlineTranscript: boolean;
-  /** Installed plugin action kinds — Hermes sees these in the prompt; claude-agent finds them via MCP. */
+  /** Installed plugin action kinds used by the fence fallback. */
   pluginActions?: readonly PluginActionPromptDescriptor[];
   /** Trusted server-side surface selection; never inferred from user text. */
   dataSurface?: WorkDataSurface;

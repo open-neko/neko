@@ -22,14 +22,12 @@ import {
   buildSourceConfigManagerServer,
   buildUserManagerServer,
   buildWorkMemoryServer,
-  type PluginActionDescriptor,
-} from "@neko/llm/work";
-import {
   buildRuleBuilderServer,
   buildWorkflowActionServer,
   buildWorkflowBuilderServer,
   buildWorkflowOutputServer,
-} from "@neko/llm/workflows";
+  type PluginActionDescriptor,
+} from "@neko/llm/sandbox-runtime";
 import { BrokerControlPlane, postAgentEvents } from "./broker-client";
 
 /**
@@ -37,8 +35,8 @@ import { BrokerControlPlane, postAgentEvents } from "./broker-client";
  * its in-process SDK server instances across a process boundary, so hermes'
  * `session/new` launches THIS script once for all named servers. The bridge
  * rebuilds each logical server in-process and exposes a single multiplexed
- * stdio endpoint bound to the broker control plane (the same path Claude's
- * in-box tools use). Keeping one Node process instead of one per logical MCP
+ * stdio endpoint bound to the broker control plane. Keeping one Node process
+ * instead of one per logical MCP
  * server is material: a normal chat turn mounts roughly ten servers.
  *
  * argv[2] = comma-separated server names (agent-core's mcpServers map keys). Per-run context

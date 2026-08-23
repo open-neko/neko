@@ -394,16 +394,6 @@ export async function saveProviderDraft(
 
   const merged = mergeDraft(existing, draft);
 
-  if (merged.scope === "primary" && merged.provider !== "anthropic") {
-    const { getAgentBackendSettings } = await import("./agent-backend-settings");
-    const agent = await getAgentBackendSettings(orgId);
-    if (agent.backend === "claude-agent") {
-      throw new Error(
-        "Primary provider must be Anthropic while agent backend = Claude Agent. Switch the backend in /admin/settings/agent first.",
-      );
-    }
-  }
-
   const errors = validateConfig(merged);
   if (errors.length > 0) {
     throw new Error(errors.join(" "));

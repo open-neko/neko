@@ -37,8 +37,8 @@ treated as untrusted code and runs in a default-deny sandbox:
             │                                         ▼
             │                              ┌───────────────────────────┐
             │   launch + stream  ─────────▶│  OpenShell sandbox         │
-            │   (events over stdout/SSE)   │   entry.ts → runAgentBackend│
-            │                              │   → hermes / claude         │
+            │   (events over stdout/SSE)   │   agent-entry.js            │
+            │                              │   → Hermes (ACP/MCP)        │
             │                              └────────────┬──────────────┘
             │                                  egress (default-deny)
             │                                           ▼
@@ -56,9 +56,9 @@ the box; the trusted halves stay on the host. Both the worker (channel messages)
 and the web chat route launch the sandbox through the same shared launcher
 (`@neko/llm/work` `makeSandboxRunCore`).
 
-**Backends.** Hermes streams its output and emits action/workflow fences parsed
-host-side, so its sandbox needs only the model call. Claude uses MCP tools
-mid-turn, so it additionally needs the host-side broker (see Status).
+**Runtime.** Hermes streams output and uses MCP tools through the host-side
+broker. Action/workflow fences are parsed host-side, and model credentials are
+injected by the gateway rather than copied into the sandbox.
 
 ## Configuration (developer / advanced)
 
@@ -83,10 +83,8 @@ run `openshell provider create` by hand. The proxy injects that credential on
 egress; the box only ever sees the placeholder.
 
 **Connecting binary (gotcha).** Egress is matched on the *resolved* executable
-path. For hermes/gemini that's the uv-managed Python
-(`…/uv/python/cpython-*/bin/python3.11`), not the `hermes` launcher; for claude
-it's the resolved `claude.exe` (a native binary), not the `/usr/local/bin/claude`
-symlink. `OPENNEKO_AGENT_MODEL_BINARY` must be the resolved path.
+path. Hermes connects through its Python interpreter, not the `hermes` launcher.
+`OPENNEKO_AGENT_MODEL_BINARY` must therefore be that resolved interpreter path.
 
 ## Plugins
 

@@ -76,19 +76,11 @@ type ProviderSettings struct {
 	} `json:"fields"`
 }
 
-type AgentBackendOption struct {
-	Value       string `json:"value"`
-	Label       string `json:"label"`
-	Description string `json:"description"`
-}
-
 type AgentSettings struct {
 	Agent struct {
 		Source    string `json:"source"`
-		Backend   string `json:"backend"`
 		GlobalCap int    `json:"globalCap"`
 	} `json:"agent"`
-	Options  []AgentBackendOption `json:"options"`
 	Defaults struct {
 		GlobalCap int `json:"globalCap"`
 	} `json:"defaults"`
@@ -225,9 +217,9 @@ func (c *Client) TestProvider(ctx context.Context, draft ProviderDraft) error {
 	return c.do(ctx, http.MethodPost, "/api/settings/provider/test", draft, nil)
 }
 
-func (c *Client) SaveAgent(ctx context.Context, backend string, globalCap int) error {
+func (c *Client) SaveAgent(ctx context.Context, globalCap int) error {
 	return c.do(ctx, http.MethodPut, "/api/settings/agent",
-		map[string]any{"backend": backend, "globalCap": globalCap}, nil)
+		map[string]any{"globalCap": globalCap}, nil)
 }
 
 func (c *Client) SaveProvider(ctx context.Context, draft ProviderDraft) error {

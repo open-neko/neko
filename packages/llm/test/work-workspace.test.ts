@@ -116,7 +116,7 @@ describe("work workspace", () => {
     expect(copied).toContain("skill-creator");
     expect(copied).not.toContain("pdf");
 
-    await materializeBuiltinSkills(stagedSkills, stage);
+    await materializeBuiltinSkills(stagedSkills);
     expect(await readdir(stagedSkills)).toContain("pdf");
     expect(await readFile(join(stagedSkills, "skill-creator", "SKILL.md"), "utf8"))
       .toContain("Org override.");
@@ -128,7 +128,6 @@ describe("work workspace", () => {
 
     expect(isolated.workspace.orgRoot).toContain("openneko-agent-profile_job-1-");
     expect(rootEntries.sort()).toEqual([
-      "claude",
       "knowledge",
       "memory",
       "runs",

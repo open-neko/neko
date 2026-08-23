@@ -4,8 +4,8 @@ import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
 import { and, data_source, db, desc, eq, like, llm_provider_config, or } from "@neko/db";
-import { isAgentBackendId } from "./agent-backend";
 import { maybeDecryptSecret } from "./secrets";
+import { hermesHomeForOrg } from "./hermes-home";
 import {
   ensureOpenShellProvider,
   verifyOpenShellGateway,
@@ -299,15 +299,7 @@ function decryptSecrets(secrets: Record<string, unknown> | null): Record<string,
   return out;
 }
 
-export function hermesHomeForOrg(orgId: string): string {
-  const override = process.env.HERMES_HOME?.trim();
-  if (override) return override;
-  const xdg = process.env.XDG_CONFIG_HOME?.trim();
-  const base = xdg && xdg.length > 0
-    ? xdg
-    : join(getHome(), ".config");
-  return join(base, "openneko", "hermes", orgId);
-}
+export { hermesHomeForOrg } from "./hermes-home";
 
 function readIntEnv(
   name: string,
@@ -448,7 +440,6 @@ const PROVIDER_API_HOSTS: Record<string, string> = {
  */
 function deriveAgentEgress(
   row: StoredRow,
-  backend: string,
 ): { hosts: string[]; binary: string; keyEnv: string } {
   const cfg = (row.config ?? {}) as { url?: string; baseUrl?: string };
   const baseUrl = cfg.baseUrl || cfg.url;
@@ -461,13 +452,10 @@ function deriveAgentEgress(
     }
   }
   host ??= PROVIDER_API_HOSTS[row.provider];
-  const isClaude = backend === "claude-agent";
   return {
-    hosts: [...(host ? [host] : []), ...(isClaude ? [] : ["models.dev"])],
-    binary: isClaude
-      ? "/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe"
-      : resolveHermesModelBinary(),
-    keyEnv: isClaude ? "ANTHROPIC_API_KEY" : mapHermesProvider(row.provider).keyVar,
+    hosts: [...(host ? [host] : []), "models.dev"],
+    binary: resolveHermesModelBinary(),
+    keyEnv: mapHermesProvider(row.provider).keyVar,
   };
 }
 
@@ -498,11 +486,11 @@ function setAgentEnv(key: string, operator: string, derived: string): void {
   else delete process.env[key];
 }
 
-async function provisionOpenShellRuntime(orgId: string, backend: string): Promise<void> {
+async function provisionOpenShellRuntime(orgId: string): Promise<void> {
   const row = await loadProviderRow(orgId, "primary");
   if (!row || !row.enabled) return;
 
-  const { hosts, binary, keyEnv } = deriveAgentEgress(row, backend);
+  const { hosts, binary, keyEnv } = deriveAgentEgress(row);
   setAgentEnv("OPENNEKO_AGENT_MODEL_PROVIDER", OPERATOR_AGENT_ENV.provider, "openneko-agent");
   setAgentEnv("OPENNEKO_AGENT_MODEL_HOST", OPERATOR_AGENT_ENV.host, hosts.join(","));
   setAgentEnv("OPENNEKO_AGENT_MODEL_BINARY", OPERATOR_AGENT_ENV.binary, binary);
@@ -511,15 +499,12 @@ async function provisionOpenShellRuntime(orgId: string, backend: string): Promis
   // sandbox that config must be MIRRORED in — the launcher does so when
   // OPENNEKO_AGENT_HERMES_HOME points at the host home provisionHermes writes.
   // Without it, in-box hermes finds no config and silently falls back to a
-  // default model that 404s. (claude takes the model via its backend args, so
-  // it needs no hermes home.)
-  if (backend !== "claude-agent") {
-    setAgentEnv(
-      "OPENNEKO_AGENT_HERMES_HOME",
-      OPERATOR_AGENT_ENV.hermesHome,
-      hermesHomeForOrg(orgId),
-    );
-  }
+  // default model that 404s.
+  setAgentEnv(
+    "OPENNEKO_AGENT_HERMES_HOME",
+    OPERATOR_AGENT_ENV.hermesHome,
+    hermesHomeForOrg(orgId),
+  );
 
   const apiKey = decryptSecrets(row.secrets).apiKey;
   if (!apiKey) return;
@@ -555,15 +540,6 @@ async function provisionOpenShellRuntime(orgId: string, backend: string): Promis
   );
 }
 
-async function resolveAgentBackendForOrg(orgId: string): Promise<string> {
-  const agentRow = await loadProviderRow(orgId, "agent");
-  const backendCfg = (agentRow?.config ?? {}) as { backend?: unknown };
-  return typeof backendCfg.backend === "string" &&
-    isAgentBackendId(backendCfg.backend)
-    ? backendCfg.backend
-    : "hermes";
-}
-
 /**
  * Readiness gate for any operation that is about to launch an agent sandbox.
  * This deliberately performs a fresh gateway RPC instead of consulting a
@@ -578,7 +554,7 @@ export async function verifyAgentRuntimeReady(orgId: string): Promise<void> {
     gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
     gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
   });
-  await provisionOpenShellRuntime(orgId, await resolveAgentBackendForOrg(orgId));
+  await provisionOpenShellRuntime(orgId);
 }
 
 const provisionedOrgs = new Map<string, Promise<void>>();
@@ -626,11 +602,9 @@ export async function provisionHostConfig(
     );
   }
 
-  const backend = await resolveAgentBackendForOrg(orgId);
-
   let openShellError: unknown;
   try {
-    await provisionOpenShellRuntime(orgId, backend);
+    await provisionOpenShellRuntime(orgId);
   } catch (e) {
     openShellError = e;
     console.warn(
@@ -638,14 +612,12 @@ export async function provisionHostConfig(
     );
   }
 
-  if (backend === "hermes") {
-    try {
-      await provisionHermes(orgId);
-    } catch (e) {
-      console.warn(
-        `[host-provision] hermes write failed: ${e instanceof Error ? e.message : e}`,
-      );
-    }
+  try {
+    await provisionHermes(orgId);
+  } catch (e) {
+    console.warn(
+      `[host-provision] hermes write failed: ${e instanceof Error ? e.message : e}`,
+    );
   }
 
   if (openShellError && options.requireOpenShellSync) {

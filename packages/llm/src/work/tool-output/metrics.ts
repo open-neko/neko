@@ -7,7 +7,7 @@
 // it's zero-cost when off.
 //
 // Wired into run-chat-turn's wrappedEmit at the `tool_end` boundary, so it
-// covers both backends (claude-agent and Hermes) through one seam.
+// records Hermes tool-output behavior through one seam.
 
 import { compactJson } from "./compact-json";
 

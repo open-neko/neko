@@ -4,7 +4,12 @@
 # Node 24: OpenShell injects NODE_USE_ENV_PROXY into every sandbox, but node only
 # honors it (routing fetch through the egress proxy) on 24+. On older node the
 # plugin's fetch dials direct, and DNS fails (proxy-only egress) → EAI_AGAIN.
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim AS node-distribution
+
+FROM debian:bookworm-slim
+COPY --from=node-distribution /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-distribution /usr/local/share/doc/node /usr/local/share/doc/node
+RUN ln -s node /usr/local/bin/nodejs
 
 # iproute2 + nftables: required by the supervisor's egress setup (without them
 # the sandbox hangs at "waiting for supervisor relay").

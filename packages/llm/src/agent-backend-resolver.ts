@@ -1,28 +1,17 @@
 /**
  * Per-org agent backend resolution.
  *
- * Read order: llm_provider_config (scope='agent').config.backend
- *   → env AGENT_BACKEND
- *   → default 'hermes'
- *
- * For backend='claude-agent', also reads the primary scope row to extract the
- * Anthropic API key + model. Throws AgentBackendConfigError if the primary
- * provider isn't Anthropic or the key is missing — the worker job catches
- * that and writes it to processing_job.error so the user sees a "go fix
- * /admin/settings" message instead of a stack trace.
+ * Hermes is the sole runtime. The agent row only stores concurrency settings;
+ * provider credentials are provisioned independently for Hermes.
  */
 
 import { and, db, eq, llm_provider_config } from "@neko/db";
 import {
   AGENT_DEFAULT_GLOBAL_CAP,
-  AgentBackendConfigError,
-  isAgentBackendId,
   type AgentBackend,
   type AgentBackendId,
 } from "./agent-backend";
-import { HermesBackend } from "./agent-backends/hermes";
-import { ClaudeAgentBackend } from "./agent-backends/claude-agent";
-import { maybeDecryptSecret } from "./secrets";
+import { makeAgentBackend } from "./agent-runtime";
 
 type StoredRow = {
   provider: string;
@@ -56,22 +45,8 @@ async function loadRow(orgId: string, scope: string): Promise<StoredRow | null> 
   }
 }
 
-function decryptSecrets(secrets: Record<string, unknown> | null | undefined): Record<string, string> {
-  if (!secrets) return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(secrets)) {
-    const decrypted = maybeDecryptSecret(v);
-    if (decrypted) out[k] = decrypted;
-  }
-  return out;
-}
-
 export async function resolveAgentBackendId(orgId: string): Promise<AgentBackendId> {
-  const row = await loadRow(orgId, "agent");
-  const cfg = (row?.config ?? {}) as { backend?: unknown };
-  if (typeof cfg.backend === "string" && isAgentBackendId(cfg.backend)) {
-    return cfg.backend;
-  }
+  void orgId;
   return "hermes";
 }
 
@@ -113,49 +88,6 @@ export async function resolveAgentConcurrency(orgId: string): Promise<AgentConcu
  * entry.ts (from the launcher-passed config, with a PLACEHOLDER apiKey — the
  * real key is injected by the OpenShell egress proxy, never in the sandbox).
  */
-export function makeAgentBackend(cfg: {
-  id: AgentBackendId;
-  model?: string;
-  apiKey?: string;
-}): AgentBackend {
-  if (cfg.id === "claude-agent") {
-    return new ClaudeAgentBackend({
-      apiKey: cfg.apiKey ?? "",
-      model: cfg.model ?? "",
-    });
-  }
-  return new HermesBackend();
-}
-
 export async function resolveAgentBackend(orgId: string): Promise<AgentBackend> {
-  const id = await resolveAgentBackendId(orgId);
-
-  if (id === "hermes") return makeAgentBackend({ id });
-
-  // claude-agent: pull Anthropic key + model from the primary provider row.
-  // We deliberately couple to the primary scope here so users have a single
-  // place to manage their Anthropic credentials. /admin/settings/agent enforces
-  // primary=anthropic when backend=claude-agent; this is the runtime check.
-  const primary = await loadRow(orgId, "primary");
-  if (!primary) {
-    throw new AgentBackendConfigError(
-      "claude-agent backend selected but no primary provider is configured. Open /admin/settings/agent and add an Anthropic API key.",
-    );
-  }
-  if (primary.provider !== "anthropic") {
-    throw new AgentBackendConfigError(
-      `claude-agent backend requires primary provider 'anthropic' (current: '${primary.provider}'). Open /admin/settings/agent to switch.`,
-    );
-  }
-  if (!primary.enabled) {
-    throw new AgentBackendConfigError(
-      "claude-agent backend selected but primary provider is disabled. Open /admin/settings/agent to re-enable.",
-    );
-  }
-
-  const secrets = decryptSecrets(primary.secrets);
-  const apiKey = secrets.apiKey;
-  const model = primary.model || "";
-
-  return makeAgentBackend({ id, model, apiKey });
+  return makeAgentBackend({ id: await resolveAgentBackendId(orgId) });
 }

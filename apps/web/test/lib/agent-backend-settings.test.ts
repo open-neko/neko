@@ -10,39 +10,19 @@ import {
 import { and, db, eq, llm_provider_config, pool } from "@neko/db";
 import { AGENT_DEFAULT_GLOBAL_CAP } from "@neko/llm";
 import {
-  getAgentBackendSettings,
+  getAgentSettings,
   getAgentSettingsPayload,
-  saveAgentBackendDraft,
+  saveAgentSettingsDraft,
 } from "@/lib/agent-backend-settings";
 
 const reachable = await dbReachable();
 const describeIfDb = reachable ? describe : describe.skip;
 
 if (!reachable) {
-  console.warn(
-    "[agent-backend-settings] skipping: metadata Postgres unreachable.",
-  );
+  console.warn("[agent-settings] skipping: metadata Postgres unreachable.");
 }
 
-async function readPrimary(orgId: string) {
-  const rows = await db()
-    .select({
-      provider: llm_provider_config.provider,
-      model: llm_provider_config.model,
-      enabled: llm_provider_config.enabled,
-      secrets: llm_provider_config.secrets,
-    })
-    .from(llm_provider_config)
-    .where(
-      and(
-        eq(llm_provider_config.org_id, orgId),
-        eq(llm_provider_config.scope, "primary"),
-      ),
-    );
-  return rows[0] ?? null;
-}
-
-describeIfDb("agent-backend-settings", () => {
+describeIfDb("agent-settings", () => {
   let orgId: string;
 
   beforeAll(async () => {
@@ -60,119 +40,85 @@ describeIfDb("agent-backend-settings", () => {
     await clearProvider(orgId, "primary");
   });
 
-  describe("getAgentBackendSettings", () => {
-    it("returns the shared Hermes defaults with no row", async () => {
-      const got = await getAgentBackendSettings(orgId);
-      expect(got).toEqual({
+  it("returns Hermes concurrency defaults with no row", async () => {
+    await expect(getAgentSettings(orgId)).resolves.toEqual({
+      source: "default",
+      backend: "hermes",
+      globalCap: AGENT_DEFAULT_GLOBAL_CAP,
+    });
+  });
+
+  it("returns a Hermes-only compatibility payload", async () => {
+    await expect(getAgentSettingsPayload(orgId)).resolves.toEqual({
+      agent: {
         source: "default",
         backend: "hermes",
         globalCap: AGENT_DEFAULT_GLOBAL_CAP,
-      });
-    });
-
-    it("returns DB values when row exists", async () => {
-      await seedProvider(orgId, {
-        scope: "agent",
-        provider: "claude-agent",
-        config: { backend: "claude-agent", globalCap: 30 },
-      });
-      const got = await getAgentBackendSettings(orgId);
-      expect(got).toMatchObject({
-        source: "org",
-        backend: "claude-agent",
-        globalCap: 30,
-      });
+      },
+      options: [
+        {
+          value: "hermes",
+          label: "Hermes",
+          description: "Subprocess agent. Works with any LLM provider.",
+        },
+      ],
+      defaults: { globalCap: AGENT_DEFAULT_GLOBAL_CAP },
     });
   });
 
-  describe("getAgentSettingsPayload", () => {
-    it("includes options + defaults", async () => {
-      const payload = await getAgentSettingsPayload(orgId);
-      expect(payload.agent.backend).toBe("hermes");
-      expect(payload.options.length).toBeGreaterThanOrEqual(2);
-      expect(payload.defaults).toEqual({
-        globalCap: AGENT_DEFAULT_GLOBAL_CAP,
-      });
-    });
+  it("persists only Hermes runtime concurrency", async () => {
+    await saveAgentSettingsDraft(orgId, { globalCap: 50 });
+    expect((await getAgentSettings(orgId)).globalCap).toBe(50);
+
+    const [row] = await db()
+      .select({
+        provider: llm_provider_config.provider,
+        config: llm_provider_config.config,
+      })
+      .from(llm_provider_config)
+      .where(
+        and(
+          eq(llm_provider_config.org_id, orgId),
+          eq(llm_provider_config.scope, "agent"),
+        ),
+      );
+    expect(row.provider).toBe("hermes");
+    expect(row.config).toEqual({ globalCap: 50 });
   });
 
-  describe("saveAgentBackendDraft — claude-agent auto-coerces primary", () => {
-    it("with no primary row, creates anthropic primary row with empty secrets", async () => {
-      await saveAgentBackendDraft(orgId, { backend: "claude-agent" });
-      const primary = await readPrimary(orgId);
-      expect(primary).not.toBeNull();
-      expect(primary!.provider).toBe("anthropic");
-      expect(primary!.enabled).toBe(true);
-      expect(primary!.secrets).toEqual({});
-    });
-
-    it("with primary=google-gemini, rewrites primary to anthropic and clears secrets", async () => {
-      await seedProvider(orgId, {
-        scope: "primary",
-        provider: "google-gemini",
-        model: "gemini-pro-latest",
-        secrets: { apiKey: "old-gemini-key" },
-      });
-      await saveAgentBackendDraft(orgId, { backend: "claude-agent" });
-      const primary = await readPrimary(orgId);
-      expect(primary!.provider).toBe("anthropic");
-      expect(primary!.secrets).toEqual({});
-    });
-
-    it("with primary=anthropic + key, preserves existing secrets", async () => {
-      await seedProvider(orgId, {
-        scope: "primary",
-        provider: "anthropic",
-        model: "claude-opus-4-7",
-        secrets: { apiKey: "existing-anthropic-key" },
-      });
-      await saveAgentBackendDraft(orgId, { backend: "claude-agent" });
-      const primary = await readPrimary(orgId);
-      expect(primary!.provider).toBe("anthropic");
-      expect(primary!.secrets).toMatchObject({ apiKey: "existing-anthropic-key" });
-    });
+  it("falls back to the default for an invalid cap", async () => {
+    await saveAgentSettingsDraft(orgId, { globalCap: "not-a-number" });
+    expect((await getAgentSettings(orgId)).globalCap).toBe(
+      AGENT_DEFAULT_GLOBAL_CAP,
+    );
   });
 
-  describe("saveAgentBackendDraft — hermes does not touch primary", () => {
-    it("preserves existing non-anthropic primary", async () => {
-      await seedProvider(orgId, {
-        scope: "primary",
-        provider: "google-gemini",
-        model: "gemini-pro-latest",
-        secrets: { apiKey: "gemini-key" },
-      });
-      await saveAgentBackendDraft(orgId, { backend: "hermes" });
-      const primary = await readPrimary(orgId);
-      expect(primary!.provider).toBe("google-gemini");
-      expect(primary!.secrets).toMatchObject({ apiKey: "gemini-key" });
-    });
+  it("accepts only Hermes in the legacy backend field", async () => {
+    await expect(
+      saveAgentSettingsDraft(orgId, { backend: "hermes", globalCap: 8 }),
+    ).resolves.toEqual({ source: "org", backend: "hermes", globalCap: 8 });
+    await expect(
+      saveAgentSettingsDraft(orgId, { backend: "removed-runtime", globalCap: 8 }),
+    ).rejects.toThrow("Unsupported agent backend: removed-runtime");
   });
 
-  describe("saveAgentBackendDraft — concurrency cap", () => {
-    it("persists valid numeric cap", async () => {
-      await saveAgentBackendDraft(orgId, {
-        backend: "hermes",
-        globalCap: 50,
-      });
-      const got = await getAgentBackendSettings(orgId);
-      expect(got.globalCap).toBe(50);
+  it("does not alter the primary provider", async () => {
+    await seedProvider(orgId, {
+      scope: "primary",
+      provider: "google-gemini",
+      model: "gemini-pro-latest",
+      secrets: { apiKey: "gemini-key" },
     });
-
-    it("falls back to default for invalid value", async () => {
-      await saveAgentBackendDraft(orgId, {
-        backend: "hermes",
-        globalCap: "not-a-number" as never,
-      });
-      const got = await getAgentBackendSettings(orgId);
-      expect(got.globalCap).toBe(AGENT_DEFAULT_GLOBAL_CAP);
-    });
-  });
-
-  describe("saveAgentBackendDraft — invalid backend", () => {
-    it("rejects unknown backend ids", async () => {
-      await expect(
-        saveAgentBackendDraft(orgId, { backend: "openai-agents" }),
-      ).rejects.toThrow(/Unsupported agent backend/);
-    });
+    await saveAgentSettingsDraft(orgId, { globalCap: 10 });
+    const [primary] = await db()
+      .select({ provider: llm_provider_config.provider })
+      .from(llm_provider_config)
+      .where(
+        and(
+          eq(llm_provider_config.org_id, orgId),
+          eq(llm_provider_config.scope, "primary"),
+        ),
+      );
+    expect(primary.provider).toBe("google-gemini");
   });
 });

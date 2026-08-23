@@ -184,7 +184,7 @@ services:
   openshell-ready:
     build:
       context: .
-      target: worker
+      target: openshell-ready
     restart: "no"
     entrypoint: ["/bin/sh", "-ceu"]
     command:

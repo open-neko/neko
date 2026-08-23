@@ -17,7 +17,6 @@ import {
   createTestOrg,
   dbReachable,
   deleteTestOrg,
-  seedProvider,
   uniqueOrgId,
 } from "@neko/db/test-helpers";
 import { pool } from "@neko/db";
@@ -126,36 +125,7 @@ describeIfDb("/api/settings/provider", () => {
     expect(mockProvisionHostConfig).not.toHaveBeenCalled();
   });
 
-  it("cross-section coupling: agent=claude-agent + primary=openai is rejected", async () => {
-    await seedProvider(orgId, {
-      scope: "agent",
-      provider: "claude-agent",
-      config: { backend: "claude-agent" },
-    });
-    const res = await callRoute(PUT, {
-      method: "PUT",
-      body: {
-        scope: "primary",
-        provider: "openai",
-        model: "gpt-4.1-mini",
-        enabled: true,
-        config: {},
-        secrets: { apiKey: "sk-openai" },
-      },
-    });
-    expect(res.status).toBe(400);
-    expect((res.body as { error: string }).error).toMatch(
-      /Switch the backend in \/admin\/settings\/agent first/,
-    );
-    expect(mockProvisionHostConfig).not.toHaveBeenCalled();
-  });
-
-  it("cross-section coupling allows primary=anthropic when agent=claude-agent", async () => {
-    await seedProvider(orgId, {
-      scope: "agent",
-      provider: "claude-agent",
-      config: { backend: "claude-agent" },
-    });
+  it("allows primary provider changes for the Hermes runtime", async () => {
     const res = await callRoute(PUT, {
       method: "PUT",
       body: {

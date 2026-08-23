@@ -1,4 +1,4 @@
-import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { createMcpServer, defineMcpTool } from "../mcp-server";
 import type { AgentEvent, OutputMood } from "../agent-backend";
 import type { AgentControlPlane, Wire } from "../work/control-plane";
 import {
@@ -70,7 +70,7 @@ export async function handleWorkflowOutput(
 }
 
 export function buildWorkflowOutputServer(ctx: WorkflowOutputContext) {
-  const emitOutput = tool(
+  const emitOutput = defineMcpTool(
     "emit",
     [
       "Persist a workflow output — the thing this run produced. Most",
@@ -106,7 +106,7 @@ export function buildWorkflowOutputServer(ctx: WorkflowOutputContext) {
     },
   );
 
-  return createSdkMcpServer({
+  return createMcpServer({
     name: "neko_workflow_output",
     version: "1.0.0",
     tools: [emitOutput],

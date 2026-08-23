@@ -20,7 +20,18 @@ import { fileURLToPath } from "node:url";
 import type { AgentWorkspace } from "../agent-backend";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BUILTIN_SKILLS_ROOT = resolve(HERE, "..", "..", "assets", "builtin-skills");
+const BUILTIN_SKILLS_ROOT = process.env.OPENNEKO_BUILTIN_SKILLS_ROOT?.trim()
+  ? resolve(process.env.OPENNEKO_BUILTIN_SKILLS_ROOT)
+  : resolve(
+      // The Docker image copies this directory explicitly. Without the tracer
+      // hint, Next treats the dynamic package-relative read as a request to
+      // include the entire monorepo in every server route's NFT closure.
+      /* turbopackIgnore: true */ HERE,
+      "..",
+      "..",
+      "assets",
+      "builtin-skills",
+    );
 
 function useHostWebDevelopmentHome(): boolean {
   return (
@@ -66,8 +77,6 @@ export async function ensureOrgWorkspace(orgId: string): Promise<OrgWorkspaceRoo
   const knowledgeRoot = join(orgRoot, "knowledge");
   const uploadsRoot = join(orgRoot, "uploads");
   const runsRoot = join(orgRoot, "runs");
-  const claudeProjectRoot = orgRoot;
-  const claudeConfigRoot = join(orgRoot, "claude", "config");
 
   for (const dir of [
     orgRoot,
@@ -76,12 +85,11 @@ export async function ensureOrgWorkspace(orgId: string): Promise<OrgWorkspaceRoo
     knowledgeRoot,
     uploadsRoot,
     runsRoot,
-    claudeConfigRoot,
   ]) {
     await mkdir(dir, { recursive: true });
   }
 
-  await materializeBuiltinSkills(skillsRoot, claudeProjectRoot);
+  await materializeBuiltinSkills(skillsRoot);
   await ensureKnowledgeFiles(knowledgeRoot);
 
   return {
@@ -91,8 +99,6 @@ export async function ensureOrgWorkspace(orgId: string): Promise<OrgWorkspaceRoo
     knowledgeRoot,
     uploadsRoot,
     runsRoot,
-    claudeProjectRoot,
-    claudeConfigRoot,
   };
 }
 
@@ -145,8 +151,6 @@ export async function ensureIsolatedJobWorkspace(
   const runRoot = join(runsRoot, "current");
   const artifactRoot = join(runRoot, "artifacts");
   const binRoot = join(runRoot, "bin");
-  const claudeProjectRoot = orgRoot;
-  const claudeConfigRoot = join(orgRoot, "claude", "config");
 
   for (const dir of [
     skillsRoot,
@@ -158,7 +162,6 @@ export async function ensureIsolatedJobWorkspace(
     runRoot,
     artifactRoot,
     binRoot,
-    claudeConfigRoot,
   ]) {
     await mkdir(dir, { recursive: true });
   }
@@ -174,8 +177,6 @@ export async function ensureIsolatedJobWorkspace(
     runRoot,
     artifactRoot,
     binRoot,
-    claudeProjectRoot,
-    claudeConfigRoot,
   };
 
   return {
@@ -201,8 +202,7 @@ export async function listSkillNames(skillsRoot: string): Promise<string[]> {
 export type InstalledSkill = { name: string; description: string };
 
 // Parse SKILL.md frontmatter from each skill dir. Used to build a catalog for
-// the Hermes prompt; claude-agent gets the same info via the SDK's
-// skills: "all" auto-discovery.
+// the Hermes prompt and native skill catalog.
 export async function listInstalledSkills(
   skillsRoot: string,
 ): Promise<InstalledSkill[]> {
@@ -235,15 +235,9 @@ export async function listInstalledSkills(
  * Existing directories win, so an organization-created skill or a modified
  * built-in skill can override the image copy by name.
  */
-export async function materializeBuiltinSkills(
-  skillsRoot: string,
-  claudeProjectRoot?: string,
-): Promise<void> {
+export async function materializeBuiltinSkills(skillsRoot: string): Promise<void> {
   await mkdir(skillsRoot, { recursive: true });
   await seedBuiltinSkills(skillsRoot);
-  if (claudeProjectRoot) {
-    await ensureLink(join(claudeProjectRoot, ".claude", "skills"), skillsRoot);
-  }
 }
 
 const builtinSkillFingerprints = new Map<string, Promise<string>>();

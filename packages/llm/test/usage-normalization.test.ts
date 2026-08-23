@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { normalizeClaudeAgentUsage } from "../src/agent-backends/claude-agent";
 import { normalizeHermesUsage } from "../src/agent-backends/hermes";
 import {
   combineAgentTokenUsage,
@@ -69,29 +68,6 @@ describe("provider usage normalization", () => {
       reasoningTokens: 2,
       totalTokens: 14,
       billedCostUsd: 0.125,
-      currency: "USD",
-      coverage: "complete",
-    });
-  });
-
-  it("includes Claude cache tokens in normalized input and provider cost", () => {
-    expect(
-      normalizeClaudeAgentUsage({
-        usage: {
-          input_tokens: 10,
-          output_tokens: 4,
-          cache_read_input_tokens: 30,
-          cache_creation_input_tokens: 5,
-        },
-        total_cost_usd: 0.25,
-      }),
-    ).toEqual({
-      inputTokens: 45,
-      outputTokens: 4,
-      cacheReadTokens: 30,
-      cacheWriteTokens: 5,
-      totalTokens: 49,
-      billedCostUsd: 0.25,
       currency: "USD",
       coverage: "complete",
     });

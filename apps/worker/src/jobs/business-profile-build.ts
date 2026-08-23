@@ -17,8 +17,7 @@ import { resolveResearchProviderConfig, runProfiler } from "@neko/llm";
  * business_profile_build job handler.
  *
  * 1. Load the org's data source (mcp_url) and wizard company_note.
- * 2. Run the profiler agent — uses the configured agent backend
- *    (hermes | claude-agent), queries the source via \`graphjin cli\`, and
+ * 2. Run the profiler agent through Hermes, query via \`graphjin cli\`, and
  *    synthesizes a markdown business profile.
  * 3. Retire the previous current customer_profile, insert the new one.
  * 4. Chain: enqueue an industry_insights_build job via pg-boss. The
@@ -58,8 +57,7 @@ export async function runBusinessProfileBuild(jobId: string, orgId: string) {
 
   await updateProgress(jobId, "Reading data source");
 
-  // 2. Run the profiler agent. The configured agent backend (hermes |
-  // claude-agent) does the work — same backend the metric agent uses.
+  // 2. Run the profiler through Hermes — the same runtime the metric agent uses.
   const { businessProfile } = await runProfiler({
     orgId,
     mcpUrl: source.mcp_url,
