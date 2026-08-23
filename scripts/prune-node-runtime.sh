@@ -31,6 +31,15 @@ while IFS= read -r napi_root; do
     ! -name "$node_arch" -exec rm -rf '{}' +
 done
 
+# The Linux x64 onnxruntime-node postinstall also downloads CUDA and TensorRT
+# providers. These control-plane images do not ship the NVIDIA runtime and run
+# embeddings on CPU, so the providers are unusable; the CUDA library alone is
+# over 300 MiB uncompressed. Keep the CPU runtime and shared provider shim.
+find "$runtime_root/node_modules" -type f \
+  \( -name 'libonnxruntime_providers_cuda.so' \
+     -o -name 'libonnxruntime_providers_tensorrt.so' \) \
+  -delete 2>/dev/null || true
+
 # Transformers.js imports the WebGPU entry module even on Node, but selects
 # onnxruntime-node for execution. Preserve that entry module and remove its
 # browser-only WASM engines and duplicate browser bundles from server images.

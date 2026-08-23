@@ -230,8 +230,11 @@ COPY packages/plugin-types/package.json packages/plugin-types/package.json
 COPY packages/records/package.json packages/records/package.json
 COPY packages/secret-crypt/package.json packages/secret-crypt/package.json
 COPY packages/telemetry/package.json packages/telemetry/package.json
+# onnxruntime-node defaults Linux x64 installs to its 300+ MiB CUDA provider.
+# Control-plane images use the bundled CPU runtime and ship no NVIDIA stack.
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile
+    ONNXRUNTIME_NODE_INSTALL=skip \
+      pnpm install --frozen-lockfile --side-effects-cache=false
 
 # ─── 4. source + web build ─────────────────────────────────────────────
 # Keep source assembly separate from the expensive Next.js build. Worker,
