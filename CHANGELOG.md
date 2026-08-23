@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.29.2](https://github.com/open-neko/openneko/compare/v2.29.1...v2.29.2) (2026-08-23)
+
+
+### Bug Fixes
+
+* preserve Hermes egress identity in lean worker ([3c136df](https://github.com/open-neko/openneko/commit/3c136dfc6e7749011afa3df78a136b70deb6b273))
+* preserve Hermes egress identity in lean worker ([22298bd](https://github.com/open-neko/openneko/commit/22298bd36828d08f0ef939316f6d6dc18967d6e8))
+
 ## [2.29.1](https://github.com/open-neko/openneko/compare/v2.29.0...v2.29.1) (2026-08-23)
 
 
