@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.29.0](https://github.com/open-neko/openneko/compare/v2.28.4...v2.29.0) (2026-08-23)
+
+
+### Features
+
+* make Hermes the sole lean agent runtime ([56dc6ce](https://github.com/open-neko/openneko/commit/56dc6ce43b490d61018bf88698860fa78a5c7bcf))
+* make Hermes the sole lean agent runtime ([924f57b](https://github.com/open-neko/openneko/commit/924f57b85922e14abe711065ff10e23c6523163c))
+
+
+### Bug Fixes
+
+* format setup wizard test ([c21250e](https://github.com/open-neko/openneko/commit/c21250e5ee687f0c1e4c759d9e940797d30f5fb6))
+
 ## [2.28.4](https://github.com/open-neko/openneko/compare/v2.28.3...v2.28.4) (2026-08-21)
 
 
