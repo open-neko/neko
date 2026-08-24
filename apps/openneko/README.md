@@ -32,7 +32,7 @@ You also need Docker (Docker Desktop on macOS, Docker Engine on Linux).
 ```bash
 openneko setup [--mode prod|dev|demo]   # guided install: preflight + bring-up + configure
 openneko start [--mode prod|dev|demo] [--detach]
-openneko upgrade [--version vX.Y.Z] [--mode auto|prod|dev|demo]
+openneko upgrade [--version vX.Y.Z] [--mode auto|prod|dev|demo] [--stack-only|--cli-only]
 openneko stop [--volumes]
 openneko status
 openneko logs [service…] [-f]
@@ -54,11 +54,24 @@ in the current working directory before invoking `docker compose`. A
 project- or user-level override at `~/.config/openneko/compose.override.yml`
 is appended automatically when present.
 
-`openneko upgrade` pulls newer service images plus the agent/plugin-base
-images, recreates the recorded stack mode, runs migrations, prunes old
-OpenNeko image tags, and persists the selected image tag for later starts.
-Older installs without a recorded mode are inferred from existing Docker
-Compose projects; pass `--mode` only when multiple OpenNeko stacks exist.
+`openneko upgrade` resolves the latest stable release (or the exact
+`--version`), updates the local CLI first, and re-executes that new binary
+before it pulls service and agent/plugin-base images at the same tag. Keeping
+the CLI and stack together matters because the CLI embeds the Compose topology
+used to recreate the stack. Homebrew-owned CLIs are updated through Homebrew;
+standalone CLIs use the release archive and `checksums.txt` before atomic
+replacement. The command then recreates the recorded stack mode, runs
+migrations, prunes old OpenNeko image tags, and persists the selected tag for
+later starts.
+
+Use `--stack-only` for a deliberately independent image upgrade (including a
+custom non-release image tag), or `--cli-only` to update the operator binary
+without touching Docker. A source-built `0.0.0-dev` CLI cannot self-update and
+must use `--stack-only` or be replaced with a released CLI. Installations from
+before this behavior need one final manual CLI update; subsequent
+`openneko upgrade` invocations keep both sides aligned. Older installs without
+a recorded mode are inferred from existing Docker Compose projects; pass
+`--mode` only when multiple OpenNeko stacks exist.
 
 ### Backup encryption keys
 

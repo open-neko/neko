@@ -1,12 +1,41 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/open-neko/neko/apps/openneko/internal/compose"
+	opennekoversion "github.com/open-neko/neko/apps/openneko/internal/version"
 )
+
+func TestUpgradeCLIOnlyStopsBeforeStack(t *testing.T) {
+	previousVersion := opennekoversion.Version
+	t.Cleanup(func() { opennekoversion.Version = previousVersion })
+	opennekoversion.Version = "9.8.7"
+	cmd := newUpgradeCmd()
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs([]string{"--cli-only", "--version", "v9.8.7"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := output.String(); !strings.Contains(got, "CLI upgrade complete at v9.8.7") {
+		t.Fatalf("output = %q", got)
+	}
+}
+
+func TestUpgradeRejectsConflictingScopes(t *testing.T) {
+	cmd := newUpgradeCmd()
+	cmd.SetArgs([]string{"--cli-only", "--stack-only", "--version", "v9.8.7"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("error = %v, want mutually exclusive", err)
+	}
+}
 
 func TestNormalizeUpgradeImageVersion(t *testing.T) {
 	tests := map[string]string{
