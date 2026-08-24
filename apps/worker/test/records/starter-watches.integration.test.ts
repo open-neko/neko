@@ -331,7 +331,32 @@ describeIfDb("records starter watch lifecycle", () => {
         }
         if (input.operationName === "UpsertRecordsNativeWatch") {
           watchNumber += 1;
-          return { gj_watch: [{ id: `golden-watch-${watchNumber}` }] } as T;
+          return {
+            gj_watch: [
+              {
+                id: `golden-watch-${watchNumber}`,
+                status: "paused",
+                approval: "pending",
+                enabled: false,
+                action_hash: watchNumber.toString(16).padStart(64, "0"),
+                action_approval: "pending",
+              },
+            ],
+          } as T;
+        }
+        if (input.operationName === "ReviewRecordsNativeWatchAction") {
+          return {
+            gj_watch: [
+              {
+                id: `golden-watch-${watchNumber}`,
+                status: "active",
+                approval: "approved",
+                enabled: true,
+                action_hash: watchNumber.toString(16).padStart(64, "0"),
+                action_approval: "approved",
+              },
+            ],
+          } as T;
         }
         evaluationQueries.push(input.query);
         if (input.operationName === "EvaluateRecordsStaleOpportunities") {
