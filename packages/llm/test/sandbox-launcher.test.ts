@@ -182,7 +182,6 @@ function fakeJobInput(
     run: {
       prompt: "JOB PROMPT",
       timeoutMs: 45_000,
-      maxIterations: 12,
       retries: 0,
       tag: "profile-job",
       workspace,
@@ -581,7 +580,6 @@ describe("makeSandboxRunCore", () => {
       agentAccess: {},
       agentRun: {
         timeoutMs: 45_000,
-        maxIterations: 12,
         retries: 0,
         tag: "profile-job",
       },

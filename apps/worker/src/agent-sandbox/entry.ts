@@ -79,7 +79,6 @@ interface SandboxJob {
     AgentRunOptions,
     | "userMessage"
     | "timeoutMs"
-    | "maxIterations"
     | "retries"
     | "debug"
     | "tag"

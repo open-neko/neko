@@ -241,7 +241,6 @@ export class HermesBackend implements AgentBackend {
       prompt,
       userMessage,
       timeoutMs = DEFAULT_TIMEOUT_MS,
-      maxIterations,
       retries = 1,
       debug = false,
       tag,
@@ -270,7 +269,6 @@ export class HermesBackend implements AgentBackend {
         const out = await runOnce({
           prompt: fullPrompt,
           timeoutMs,
-          maxIterations,
           debug,
           tag,
           orgId,
@@ -320,7 +318,6 @@ export class HermesBackend implements AgentBackend {
 type RunOnceArgs = {
   prompt: string;
   timeoutMs: number;
-  maxIterations: number | undefined;
   debug: boolean;
   tag: string | undefined;
   orgId: string | undefined;
@@ -342,7 +339,6 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
   const {
     prompt,
     timeoutMs,
-    maxIterations,
     debug,
     tag,
     orgId,
@@ -390,14 +386,6 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
   delete env.OPENNEKO_BROKER_TOKEN;
   if (orgId) {
     env.HERMES_HOME = hermesHomeForOrg(orgId);
-  }
-  // Hermes' ACP/TUI adapter otherwise inherits the org-wide max_turns (50),
-  // which is appropriate for interactive analysis but far too large for a
-  // bounded background job such as first-run profiling. Keep the budget on
-  // the run contract so callers can constrain one job without weakening
-  // interactive agents or mutating the staged, keyless config.yaml.
-  if (Number.isFinite(maxIterations) && Number(maxIterations) >= 1) {
-    env.HERMES_TUI_MAX_TURNS = String(Math.floor(Number(maxIterations)));
   }
   // A hard native crash (SIGSEGV/SIGABRT in compiled deps) dies without a
   // Python traceback — faulthandler makes it dump one to stderr, which the

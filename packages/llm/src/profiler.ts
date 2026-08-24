@@ -1,4 +1,8 @@
-import { shellToolName, type AgentRunOptions } from "./agent-backend";
+import {
+  agentTurnTimeoutMs,
+  shellToolName,
+  type AgentRunOptions,
+} from "./agent-backend";
 import { resolveAgentBackend } from "./agent-backend-resolver";
 import { runValidatedAgentTurn } from "./agent-validate-loop";
 import {
@@ -44,8 +48,7 @@ export function buildProfilerPrompt(args: {
 EXECUTION PATTERN:
 ${discoveryRule}
 2. Skim the tables + insights sections to identify what this business actually does (industry, offering, business model). Pick the handful of tables that matter.
-3. Run a small set of GraphQL queries to gather facts: main business event (date range, recent volume + value), top categories / products / services, geography, who is served, who does the work.
-   QUERY BUDGET: Make at most 8 GraphJin tool calls total, including catalog lookups and corrected queries. Combine related aggregates in one query. Once the budget is used, stop querying and write the profile from the facts collected; use "Not measured." for anything still unavailable.
+3. Run focused GraphQL queries to gather facts: main business event (date range, recent volume + value), top categories / products / services, geography, who is served, who does the work.
 4. Run queries by ${executeQuery}.
 5. ${
     agentic || brokered
@@ -55,6 +58,12 @@ ${discoveryRule}
    to get a corrected query, then run execute_graphql again.`
   }
 6. When you have enough facts, emit the final markdown body exactly per the OUTPUT FORMAT. No prose around it, no code fences.
+
+COMPLETION CONTRACT:
+- Treat the requested output sections as an evidence checklist, not an invitation to exhaustively explore the schema.
+- A section is ready when you have representative queried evidence for it, or the available source does not expose it and the section can honestly say "Not measured."
+- Stop querying and synthesize the profile as soon as every section is ready. Additional segmentations, alternative tables, or marginal precision that would not change the short profile are out of scope.
+- Do not get stuck repairing an optional fact. If a query cannot be corrected from the returned error and repair hint, use the evidence already collected and mark that fact "Not measured."
 
 DATA ACCESS — READ-ONLY:
 The database is queried exclusively through ${queryTool ? `the \`${queryTool}\` tool` : `\`graphjin cli\` run through the \`${shellTool}\` tool`}. GraphJin speaks GraphQL (not raw SQL). Mutations and subscriptions are forbidden and will be denied ${queryTool ? "by the trusted host broker" : "at the tool gate"}. DO NOT use \`execute_code\`, Python, raw HTTP requests, or any other path to talk to GraphJin.
@@ -206,29 +215,18 @@ export type ProfilerResult = {
   businessProfile: string;
 };
 
-const DEFAULT_PROFILER_TIMEOUT_MS = 6 * 60_000;
-const DEFAULT_PROFILER_MAX_ITERATIONS = 12;
-
 export function profilerTimeoutMs(): number {
   const env = Number(process.env.OPENNEKO_PROFILER_TIMEOUT_MS);
-  return Number.isFinite(env) && env > 0 ? env : DEFAULT_PROFILER_TIMEOUT_MS;
-}
-
-export function profilerMaxIterations(): number {
-  const env = Number(process.env.OPENNEKO_PROFILER_MAX_ITERATIONS);
-  return Number.isFinite(env) && env >= 2
-    ? Math.min(Math.floor(env), 50)
-    : DEFAULT_PROFILER_MAX_ITERATIONS;
+  return Number.isFinite(env) && env > 0 ? env : agentTurnTimeoutMs();
 }
 
 export function profilerAgentRunControls(): Pick<
   AgentRunOptions,
-  "retries" | "timeoutMs" | "maxIterations"
+  "retries" | "timeoutMs"
 > {
   return {
     retries: 0,
     timeoutMs: profilerTimeoutMs(),
-    maxIterations: profilerMaxIterations(),
   };
 }
 
@@ -290,7 +288,7 @@ export async function runProfiler(args: {
       queryTool: "mcp__neko_graphjin__execute_graphql",
     });
 
-    if (onProgress) onProgress("Running profiler agent (up to 6 minutes)…");
+    if (onProgress) onProgress("Running profiler agent…");
     const startedAt = Date.now();
     // GJ2: iterative validation loop — a profile missing required sections
     // (or containing failure text) goes back to the agent for a corrective

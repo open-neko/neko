@@ -69,13 +69,6 @@ describe("HermesBackend spawn invariants", () => {
     expect(controller.spawnCalls[0].options.env?.HERMES_YOLO_MODE).toBe("1");
   });
 
-  it("applies a per-run iteration budget without changing org config", async () => {
-    const backend = new HermesBackend();
-    await backend.run({ prompt: "profile the company", maxIterations: 12 });
-
-    expect(controller.spawnCalls[0].options.env?.HERMES_TUI_MAX_TURNS).toBe("12");
-  });
-
   it("does not leak prompt text into argv (prompt goes over JSON-RPC stdin)", async () => {
     const backend = new HermesBackend();
     await backend.run({ prompt: "system instructions", userMessage: "hi" });

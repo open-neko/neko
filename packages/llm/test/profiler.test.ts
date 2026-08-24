@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildProfilerPrompt,
   profilerAgentRunControls,
-  profilerMaxIterations,
   profilerTimeoutMs,
   validateBusinessProfile,
 } from "../src/profiler";
@@ -38,7 +37,8 @@ afterEach(() => {
 describe("profilerTimeoutMs", () => {
   it("defaults to a bounded onboarding timeout", () => {
     vi.stubEnv("OPENNEKO_PROFILER_TIMEOUT_MS", "");
-    expect(profilerTimeoutMs()).toBe(6 * 60_000);
+    vi.stubEnv("OPENNEKO_AGENT_TURN_TIMEOUT_MS", "");
+    expect(profilerTimeoutMs()).toBe(9 * 60_000);
   });
 
   it("allows an explicit override", () => {
@@ -51,14 +51,7 @@ describe("profilerTimeoutMs", () => {
     expect(profilerAgentRunControls()).toEqual({
       retries: 0,
       timeoutMs: 45_000,
-      maxIterations: 12,
     });
-  });
-
-  it("caps the profiler's model/tool loop independently of wall time", () => {
-    vi.stubEnv("OPENNEKO_PROFILER_MAX_ITERATIONS", "9");
-    expect(profilerMaxIterations()).toBe(9);
-    expect(profilerAgentRunControls().maxIterations).toBe(9);
   });
 });
 
@@ -204,6 +197,7 @@ describe("buildProfilerPrompt knowledge inlining", () => {
       },
     });
     expect(prompt).toContain("`mcp__neko_graphjin__execute_graphql`");
+    expect(prompt).toContain("Treat the requested output sections as an evidence checklist");
     expect(prompt).toContain("trusted host broker");
     expect(prompt).not.toContain("graphjin cli setup");
     expect(prompt).not.toContain("graphjin cli execute_graphql");
