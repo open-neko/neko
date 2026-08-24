@@ -423,10 +423,19 @@ describe("makeSandboxRunCore", () => {
     expect(h.calls[0]?.args).toContain("ghcr.io/open-neko/agent:test");
     expect(h.calls[0]?.args).toContain("--policy");
     expect(h.calls[0]?.args).toContain("--upload");
+    expect(h.calls[0]?.args.join(" ")).toContain(
+      "node /app/agent-entry.js --preflight",
+    );
     const execCall = h.calls.find((c) => c.args.includes("exec"));
-    expect(execCall?.args.join(" ")).toContain("node /app/agent-entry.js");
+    const execCommand = execCall?.args.join(" ") ?? "";
+    expect(execCommand).toContain("node /app/agent-entry.js");
+    // The agent self-resolves immutable image assets; the OpenShell command
+    // carries no ambient image environment across the security boundary.
+    expect(execCommand).not.toContain("OPENNEKO_BUILTIN_SKILLS_ROOT");
+    expect(execCommand).not.toContain("OPENNEKO_MCP_BRIDGE");
+    expect(execCommand).not.toContain("HERMES_DISABLE_LAZY_INSTALLS");
     // the credential alias references the OpenShell-injected var at runtime, never a value:
-    expect(execCall?.args.join(" ")).toContain('export GEMINI_API_KEY="$api_key"');
+    expect(execCommand).toContain('export GEMINI_API_KEY="$api_key"');
   });
 
   it("replaces an orphaned sandbox when a durable retry collides on the run name", async () => {

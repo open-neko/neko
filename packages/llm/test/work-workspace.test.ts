@@ -16,6 +16,7 @@ import {
   ensureOrgWorkspace,
   ensureWorkWorkspace,
   materializeBuiltinSkills,
+  resolveBuiltinSkillsRoot,
 } from "../src/work/workspace";
 
 const cleanupPaths: string[] = [];
@@ -37,6 +38,16 @@ afterEach(async () => {
 });
 
 describe("work workspace", () => {
+  it("self-locates built-in skills beside the standalone agent bundle", () => {
+    expect(
+      resolveBuiltinSkillsRoot(
+        "file:///app/agent-entry.js",
+        undefined,
+        (candidate) => candidate === "/app/assets/builtin-skills",
+      ),
+    ).toBe("/app/assets/builtin-skills");
+  });
+
   it("supports an isolated agent home in explicit host-web development mode", async () => {
     const agentHome = await mkdtemp(join(tmpdir(), "neko-agent-home-"));
     cleanupPaths.push(agentHome);

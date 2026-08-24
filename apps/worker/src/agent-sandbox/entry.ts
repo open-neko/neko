@@ -23,6 +23,7 @@ import {
   buildGraphjinAgentServer,
   buildGraphjinReadServer,
   buildWorkMemoryServer,
+  getBuiltinSkillsRoot,
   materializeBuiltinSkills,
   resolveBinaryOnPath,
   runAgentBackend,
@@ -32,6 +33,7 @@ import {
 } from "@neko/llm/sandbox-runtime";
 import { BrokerControlPlane } from "./broker-client";
 import { EVENT_MARKER, RESULT_MARKER } from "./protocol";
+import { configureAgentRuntime } from "./runtime-contract";
 
 /**
  * Runs INSIDE the agent's OpenShell sandbox (Phase 3). The launcher (work-run)
@@ -140,22 +142,6 @@ export async function main(): Promise<void> {
     brokerUrl && brokerToken
       ? new BrokerControlPlane(brokerUrl, brokerToken)
       : undefined;
-  if (brokerUrl && brokerToken) {
-    // Prefer the image-baked plain-JS bundle: hermes spawns one bridge
-    // process per server, and the tsx loader costs ~300MB RSS each vs
-    // ~80MB bundled. The .ts fallback keeps tests + dev images working.
-    const configuredBridge = process.env.OPENNEKO_MCP_BRIDGE?.trim();
-    if (!configuredBridge) {
-      const bundled = new URL(
-        "../../dist/agent-sandbox/mcp-bridge.js",
-        import.meta.url,
-      ).pathname;
-      process.env.OPENNEKO_MCP_BRIDGE = existsSync(bundled)
-        ? bundled
-        : new URL("./mcp-bridge.ts", import.meta.url).pathname;
-    }
-  }
-
   const emit = (event: AgentEvent): Promise<void> => {
     emitLine(EVENT_MARKER, event);
     return Promise.resolve();
@@ -355,7 +341,30 @@ function sandboxGraphjinClientConfig(
   return { ...next, server: sandboxReachableUrl(server) };
 }
 
-main().catch((err: unknown) => {
+async function run(): Promise<void> {
+  const runtime = configureAgentRuntime({ entryUrl: import.meta.url });
+  const skillsRoot = getBuiltinSkillsRoot();
+  if (!existsSync(skillsRoot)) {
+    throw new Error(
+      `agent runtime contract invalid: built-in skills not found at ${skillsRoot}`,
+    );
+  }
+
+  if (process.argv.includes("--preflight")) {
+    process.stdout.write(
+      `${JSON.stringify({
+        status: "ok",
+        skillsRoot,
+        mcpBridgePath: runtime.mcpBridgePath,
+        lazyInstallsDisabled: process.env.HERMES_DISABLE_LAZY_INSTALLS === "1",
+      })}\n`,
+    );
+    return;
+  }
+  await main();
+}
+
+run().catch((err: unknown) => {
   console.error(
     "[agent-sandbox] fatal:",
     err instanceof Error ? err.message : String(err),

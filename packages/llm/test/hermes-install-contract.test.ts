@@ -39,9 +39,12 @@ describe("Hermes install contract", () => {
   });
 
   it("disables network-backed lazy installs in the runtime", async () => {
-    const dockerfile = await readFile(`${REPO_ROOT}Dockerfile`, "utf8");
+    const runtimeContract = await readFile(
+      `${REPO_ROOT}apps/worker/src/agent-sandbox/runtime-contract.ts`,
+      "utf8",
+    );
 
-    expect(dockerfile).toContain("HERMES_DISABLE_LAZY_INSTALLS=1");
+    expect(runtimeContract).toContain('env.HERMES_DISABLE_LAZY_INSTALLS = "1"');
   });
 
   it("keeps Hermes out of the worker while preserving its required runtime contracts", async () => {
