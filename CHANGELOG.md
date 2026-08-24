@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.30.0](https://github.com/open-neko/openneko/compare/v2.29.3...v2.30.0) (2026-08-24)
+
+
+### Features
+
+* keep CLI and stack aligned during upgrades ([fec2317](https://github.com/open-neko/openneko/commit/fec2317cb7e93478a1db059c95a26f9b75aa69a0))
+* upgrade GraphJin and add live CI coverage ([f87409a](https://github.com/open-neko/openneko/commit/f87409a25c4e056e2f215d2f27458032b75b390e))
+* upgrade GraphJin, add live CI, and align CLI upgrades ([c38a1cf](https://github.com/open-neko/openneko/commit/c38a1cf0f55ef0df7b326021a3ab23f4ec88ac7c))
+
+
+### Bug Fixes
+
+* update GraphJin watch integration fixture ([3e46e63](https://github.com/open-neko/openneko/commit/3e46e63a972226c9c77942576e65d9c5578143c9))
+
 ## [2.29.3](https://github.com/open-neko/openneko/compare/v2.29.2...v2.29.3) (2026-08-23)
 
 
