@@ -74,6 +74,17 @@ agent:
 
 analytics_mode: true
 
+# Customer sources are read-only by default and may be absent on first boot.
+# Durable GraphJin artifacts and watches live in OpenNeko's dedicated Records
+# GraphJin plane, never in a customer database.
+artifacts:
+  enabled: false
+watches:
+  enabled: false
+  runner: off
+tasks:
+  enabled: false
+
 # Keep every JWT role explicit: GraphJin re-normalizes roles on config updates.
 roles:
   - name: user
@@ -94,17 +105,25 @@ blocklist:
   - encrypted
   - token
 
-sources:
-  - name: graphjin
-    kind: graphjin
-    metadata: true
-    catalog: true
-    control_plane: true
-    capabilities:
-      config.write: true
-    access:
-      roots:
-        gj_catalog: authenticated
-        gj_config: admin
-        gj_security: admin
-        gj_runtime: admin
+system:
+  capabilities:
+    catalog.read: true
+    security.read: true
+    config.read: true
+    config.write: true
+    runtime.read: true
+    raw_graphql.query: true
+    raw_graphql.mutate: false
+    schema.reload: false
+    schema.write: false
+    dev_tools.read: false
+    legacy_discovery.read: false
+  root_access:
+    gj_catalog: authenticated
+    gj_config: admin
+    gj_security: admin
+    gj_runtime: admin
+
+# Keep source mode explicit on a fresh install; admins add external database,
+# API, code, or file sources through OpenNeko's approved config workflow.
+sources: []

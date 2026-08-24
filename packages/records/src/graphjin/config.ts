@@ -17,7 +17,7 @@ import {
 } from "../policy/graphjin";
 import { validateRecordIdentifier } from "../naming";
 
-export const RECORDS_GRAPHJIN_VERSION = "3.18.42";
+export const RECORDS_GRAPHJIN_VERSION = "3.20.47";
 export const RECORDS_GRAPHJIN_CONFIG_FILENAME = "dev.yml";
 export const RECORDS_WATCH_WEBHOOK_SECRET_FILENAME = ".records-watch-webhook-secret";
 
@@ -243,6 +243,10 @@ export function buildRecordsGraphjinConfig(input: BuildRecordsGraphjinConfigInpu
     default_limit: defaultLimit,
     subs_poll_duration: "5s",
     db_schema_poll_duration: "0s",
+    // Records GraphJin mounts its generated config volume read-only. GraphJin
+    // 3.20's discovery cache writes immutable schema generations below the
+    // config path by default, so retain the prior live-discovery behavior.
+    discovery_cache: { enabled: false },
     secret_key: input.secretKey,
     rate_limiter: { rate, bucket },
     // Governed record writes may commit while GraphJin returns an empty
@@ -331,6 +335,9 @@ export function buildRecordsWatchGraphjinConfig(
     default_limit: 500,
     subs_poll_duration: "30s",
     db_schema_poll_duration: "0s",
+    // The isolated watch process shares the same read-only generated-config
+    // volume as the records query process.
+    discovery_cache: { enabled: false },
     secret_key: input.secretKey,
     rate_limiter: { rate: 10, bucket: 20 },
     caching: { disable: true },
@@ -372,6 +379,35 @@ export function buildRecordsWatchGraphjinConfig(
       snapshot_max_bytes: 32768,
       webhook_allow: input.watchWebhookAllow ?? [],
     },
+    system: {
+      capabilities: {
+        "catalog.read": false,
+        "security.read": false,
+        "config.read": false,
+        "config.write": false,
+        "runtime.read": false,
+        "raw_graphql.query": true,
+        "raw_graphql.mutate": true,
+        "schema.reload": false,
+        "schema.write": false,
+        "dev_tools.read": false,
+        "legacy_discovery.read": false,
+      },
+      root_access: {
+        gj_catalog: "blocked",
+        gj_security: "blocked",
+        gj_config: "blocked",
+        gj_runtime: "blocked",
+        gj_artifacts: "blocked",
+        // This process has its own signing key and is only reachable on
+        // the private network. Authenticated access lets the service own
+        // its watches without granting GraphJin's tenant-filter bypass.
+        gj_watch: "authenticated",
+        gj_watch_event: "authenticated",
+        gj_workflow: "blocked",
+        gj_workflow_execution: "blocked",
+      },
+    },
     sources: [
       {
         name: "records",
@@ -396,42 +432,6 @@ export function buildRecordsWatchGraphjinConfig(
           namespace_column: "org_id",
           owner_column: "owner_user_id",
           missing_namespace_column: "block",
-        },
-      },
-      {
-        name: "graphjin",
-        kind: "graphjin",
-        metadata: false,
-        catalog: false,
-        control_plane: true,
-        access: {
-          roots: {
-            gj_catalog: "blocked",
-            gj_security: "blocked",
-            gj_config: "blocked",
-            gj_runtime: "blocked",
-            gj_artifacts: "blocked",
-            // This process has its own signing key and is only reachable on
-            // the private network. Authenticated access lets the service own
-            // its watches without granting GraphJin's tenant-filter bypass.
-            gj_watch: "authenticated",
-            gj_watch_event: "authenticated",
-            gj_workflow: "blocked",
-            gj_workflow_execution: "blocked",
-          },
-        },
-        capabilities: {
-          "catalog.read": false,
-          "security.read": false,
-          "config.read": false,
-          "config.write": false,
-          "runtime.read": false,
-          "raw_graphql.query": true,
-          "raw_graphql.mutate": true,
-          "schema.reload": false,
-          "schema.write": false,
-          "dev_tools.read": false,
-          "legacy_discovery.read": false,
         },
       },
     ],

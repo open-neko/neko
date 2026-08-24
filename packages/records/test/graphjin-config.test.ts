@@ -44,6 +44,7 @@ describe("records GraphJin config", () => {
       disable_production_security: true,
       analytics_mode: true,
       db_schema_poll_duration: "0s",
+      discovery_cache: { enabled: false },
       caching: { disable: true },
       mcp: { disable: true, allow_mutations: false, allow_raw_queries: false },
       auth: { type: "jwt", development: false },
@@ -93,6 +94,7 @@ describe("records GraphJin config", () => {
     expect(config).toMatchObject({
       mode: "agentic",
       production: true,
+      discovery_cache: { enabled: false },
       mcp: { disable: true, allow_mutations: false },
       identity: {
         namespace_claim: "org_id",
@@ -100,6 +102,18 @@ describe("records GraphJin config", () => {
       },
       artifacts: { enabled: true, source: "records", schema: "_graphjin" },
       watches: { enabled: true, runner: "all", webhook_allow: allow },
+      system: {
+        capabilities: {
+          "raw_graphql.query": true,
+          "raw_graphql.mutate": true,
+          "config.write": false,
+        },
+        root_access: {
+          gj_watch: "authenticated",
+          gj_watch_event: "authenticated",
+          gj_artifacts: "blocked",
+        },
+      },
       sources: [
         {
           name: "records",
@@ -110,18 +124,6 @@ describe("records GraphJin config", () => {
             delete: "blocked",
             namespace_column: "org_id",
             missing_namespace_column: "block",
-          },
-        },
-        {
-          name: "graphjin",
-          kind: "graphjin",
-          control_plane: true,
-          access: {
-            roots: {
-              gj_watch: "authenticated",
-              gj_watch_event: "authenticated",
-              gj_artifacts: "blocked",
-            },
           },
         },
       ],

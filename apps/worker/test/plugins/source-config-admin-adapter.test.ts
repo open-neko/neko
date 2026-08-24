@@ -145,9 +145,10 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
       configFile,
       [
         "production: true",
+        "system:",
+        "  capabilities:",
+        "    config.write: true",
         "sources:",
-        "  - name: graphjin",
-        "    kind: graphjin",
         "  - name: adventureworks",
         "    kind: database",
         "    access:",
@@ -310,7 +311,7 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
     expect(result.ok, result.error).toBe(true);
     const preview = calls[1].body.query;
     expect(preview).toContain("update_sources");
-    // Must not wipe the meta-source via a full replace or a non-existent field.
+    // Must not wipe the top-level system config via a full source replace.
     expect(preview).not.toContain("source_add");
     expect(preview).not.toMatch(/[^_]sources:/);
     expect(await readFile(configFile, "utf8")).toContain("name: warehouse");
@@ -323,7 +324,7 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
     process.env.OPENNEKO_GRAPHJIN_CONFIG = join(root, "agentic.yml");
     await writeFile(
       process.env.OPENNEKO_GRAPHJIN_CONFIG,
-      "production: true\nsources:\n  - name: graphjin\n    kind: graphjin\n",
+      "production: true\nsystem:\n  capabilities:\n    config.write: true\nsources: []\n",
     );
     const content = [
       "openapi: 3.0.3",

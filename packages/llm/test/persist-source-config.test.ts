@@ -20,9 +20,10 @@ async function configFile(): Promise<string> {
     [
       "# keep this operator note",
       "production: true",
+      "system:",
+      "  capabilities:",
+      "    config.write: true",
       "sources:",
-      "  - name: graphjin",
-      "    kind: graphjin",
       "  - name: warehouse",
       "    kind: database",
       "    access:",
@@ -75,12 +76,8 @@ describe("persistGraphjinSourceConfigUpdate", () => {
     const raw = await readFile(file, "utf8");
     const parsed = parse(raw) as { sources: Array<Record<string, unknown>> };
     expect(raw).toContain("# keep this operator note");
-    expect(parsed.sources.map((source) => source.name)).toEqual([
-      "graphjin",
-      "warehouse",
-      "pets",
-    ]);
-    expect(parsed.sources[2]).toMatchObject({
+    expect(parsed.sources.map((source) => source.name)).toEqual(["warehouse", "pets"]);
+    expect(parsed.sources[1]).toMatchObject({
       kind: "api",
       specs_dir: "/config/specs",
     });
@@ -103,7 +100,7 @@ describe("persistGraphjinSourceConfigUpdate", () => {
     const parsed = parse(await readFile(file, "utf8")) as {
       sources: Array<{ name: string; access?: Record<string, string> }>;
     };
-    expect(parsed.sources[1]?.access).toEqual({
+    expect(parsed.sources[0]?.access).toEqual({
       read: "admin",
       write: "blocked",
       delete: "blocked",
@@ -119,7 +116,7 @@ describe("persistGraphjinSourceConfigUpdate", () => {
     const parsed = parse(await readFile(file, "utf8")) as {
       sources: Array<{ name: string }>;
     };
-    expect(parsed.sources.map((source) => source.name)).toEqual(["graphjin"]);
+    expect(parsed.sources).toEqual([]);
   });
 
   it("persists GraphJin's deterministic secret reference, not a password", async () => {

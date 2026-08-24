@@ -65,6 +65,11 @@ function runCommand(command: string, args: string[]): Promise<{ stdout: string; 
 const reachable = await recordsDbReachable();
 const describeIfLive = reachable && graphjinImage ? describe : describe.skip;
 
+if (process.env.REQUIRE_GRAPHJIN_INTEGRATION === "1") {
+  if (!reachable) throw new Error("required records Postgres is unreachable");
+  if (!graphjinImage) throw new Error("required RECORDS_GRAPHJIN_IMAGE is not set");
+}
+
 if (!reachable || !graphjinImage) {
   console.warn(
     "[records-write-executor] skipping: records Postgres or RECORDS_GRAPHJIN_IMAGE unavailable.",
@@ -157,8 +162,29 @@ describeIfLive("records write executor live integration", () => {
       values
         ('org-a', 'equipment', 'member', 'loan', true, true, true, true),
         ('org-a', 'equipment', 'admin', 'loan', true, true, true, true);
+      insert into engine.app_access_grant
+        (org_id, app_id, subject_type, subject_id)
+      values
+        ('org-a', 'equipment', 'role', 'member'),
+        ('org-a', 'equipment', 'role', 'admin');
+      insert into engine.object_access_grant
+        (org_id, app_id, subject_type, subject_id, object_api_name,
+         can_read, can_create, can_update, can_delete)
+      values
+        ('org-a', 'equipment', 'role', 'member', 'loan', true, true, true, true),
+        ('org-a', 'equipment', 'role', 'admin', 'loan', true, true, true, true);
+      insert into engine.field_access_grant
+        (org_id, app_id, subject_type, subject_id, object_api_name, field_id,
+         can_read, can_write)
+      select 'org-a', 'equipment', 'role', role_name, 'loan', field.id,
+             true, not field.read_only
+      from engine.record_field field
+      cross join (values ('member'), ('admin')) as roles(role_name)
+      where field.object_id = '00000000-0000-0000-0000-000000000701';
       insert into engine.actor (org_id, user_id, role)
-      values ('org-a', 'records-service', 'service');
+      values
+        ('org-a', 'records-service', 'service'),
+        ('org-a', 'admin-1', 'admin');
       insert into engine.identity_map
         (org_id, source_instance_id, app_id, source_user_id, source_email,
          source_name, source_is_active, app_user_id, status, linked_at)
