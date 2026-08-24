@@ -398,7 +398,7 @@ services:
     restart: "no"
 
   graphjin:
-    image: ${OPENNEKO_GRAPHJIN_IMAGE:-dosco/graphjin:3.18.42}
+    image: ${OPENNEKO_GRAPHJIN_IMAGE:-dosco/graphjin:3.20.47}
     restart: unless-stopped
     depends_on:
       graphjin-config-init:

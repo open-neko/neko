@@ -131,6 +131,30 @@ function firstRow(value: unknown, root: string): Record<string, unknown> | null 
   return isObject(candidate) ? candidate : null;
 }
 
+async function approveRecordsNativeWatchAction(input: {
+  graphjin: RecordsGraphjinTransport;
+  token: string;
+  watch: Record<string, unknown>;
+}): Promise<Record<string, unknown>> {
+  if (input.watch.action_approval === "approved") return input.watch;
+  const watchId = typeof input.watch.id === "string" ? input.watch.id : "";
+  const actionHash =
+    typeof input.watch.action_hash === "string" ? input.watch.action_hash : "";
+  if (!watchId || !/^[0-9a-f]{64}$/.test(actionHash)) {
+    throw new Error("GraphJin did not return the native watch action hash");
+  }
+  const reviewed = await input.graphjin.execute<Record<string, unknown>>({
+    operationName: "ReviewRecordsNativeWatchAction",
+    query: `mutation ReviewRecordsNativeWatchAction { gj_watch(where: { id: { eq: ${JSON.stringify(watchId)} } }, update: { action_review_json: { decision: "approve", expected_action_hash: ${JSON.stringify(actionHash)} } }) { id action_hash action_approval status approval enabled } }`,
+    token: input.token,
+  });
+  const row = firstRow(reviewed, "gj_watch");
+  if (row?.id !== watchId || row.action_approval !== "approved") {
+    throw new Error("GraphJin did not approve the native watch action");
+  }
+  return row;
+}
+
 export async function upsertRecordsNativeWatch(input: {
   graphjin: RecordsGraphjinTransport;
   token: string;
@@ -156,7 +180,6 @@ export async function upsertRecordsNativeWatch(input: {
     },
     lifecycle: "durable",
     status: "active",
-    approval: "approved",
     enabled: true,
     ...(input.webhookUrl
       ? {
@@ -174,14 +197,22 @@ export async function upsertRecordsNativeWatch(input: {
       : `insert: ${gqlValue(watchInput)}`;
   const changed = await input.graphjin.execute<Record<string, unknown>>({
     operationName: "UpsertRecordsNativeWatch",
-    query: `mutation UpsertRecordsNativeWatch { gj_watch(${selector}) { id name status approval enabled } }`,
+    query: `mutation UpsertRecordsNativeWatch { gj_watch(${selector}) { id name status approval enabled action_hash action_approval } }`,
     token: input.token,
   });
-  const updated = firstRow(changed, "gj_watch");
+  let updated = firstRow(changed, "gj_watch");
   if (typeof updated?.id !== "string" || !updated.id) {
     throw new Error("GraphJin did not return the native watch id");
   }
-  return { id: updated.id, definitionHash: input.definition.definitionHash };
+  const watchId = updated.id;
+  if (input.webhookUrl) {
+    updated = await approveRecordsNativeWatchAction({
+      graphjin: input.graphjin,
+      token: input.token,
+      watch: updated,
+    });
+  }
+  return { id: watchId, definitionHash: input.definition.definitionHash };
 }
 
 /** Rebind a durable watch after worker/container addressing changes. */
@@ -201,11 +232,18 @@ export async function updateRecordsNativeWatchDelivery(input: {
     : { kind: "inbox" };
   const changed = await input.graphjin.execute<Record<string, unknown>>({
     operationName: "UpdateRecordsNativeWatchDelivery",
-    query: `mutation UpdateRecordsNativeWatchDelivery { gj_watch(where: { id: { eq: ${JSON.stringify(input.watchId)} } }, update: { delivery_json: ${gqlValue(delivery)} }) { id } }`,
+    query: `mutation UpdateRecordsNativeWatchDelivery { gj_watch(where: { id: { eq: ${JSON.stringify(input.watchId)} } }, update: { delivery_json: ${gqlValue(delivery)} }) { id action_hash action_approval } }`,
     token: input.token,
   });
-  const updated = firstRow(changed, "gj_watch");
+  let updated = firstRow(changed, "gj_watch");
   if (updated?.id !== input.watchId) {
     throw new Error("GraphJin did not confirm the native watch delivery update");
+  }
+  if (input.webhookUrl) {
+    updated = await approveRecordsNativeWatchAction({
+      graphjin: input.graphjin,
+      token: input.token,
+      watch: updated,
+    });
   }
 }

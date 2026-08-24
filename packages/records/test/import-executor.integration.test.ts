@@ -113,6 +113,11 @@ function runKilledImportWorker(env: NodeJS.ProcessEnv): Promise<void> {
 const reachable = await recordsDbReachable();
 const describeIfLive = reachable && graphjinImage ? describe : describe.skip;
 
+if (process.env.REQUIRE_GRAPHJIN_INTEGRATION === "1") {
+  if (!reachable) throw new Error("required records Postgres is unreachable");
+  if (!graphjinImage) throw new Error("required RECORDS_GRAPHJIN_IMAGE is not set");
+}
+
 if (!reachable || !graphjinImage) {
   console.warn(
     "[records-import-executor] skipping: records Postgres or RECORDS_GRAPHJIN_IMAGE unavailable",

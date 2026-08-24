@@ -54,6 +54,11 @@ const itIfGraphjin = graphjinBinary || graphjinImage ? it : it.skip;
 const itIfGraphjinImage = graphjinImage ? it : it.skip;
 const LIVE_JWT_SECRET = "live-jwt-secret-that-is-at-least-thirty-two-bytes";
 
+if (process.env.REQUIRE_GRAPHJIN_INTEGRATION === "1") {
+  if (!reachable) throw new Error("required records Postgres is unreachable");
+  if (!graphjinImage) throw new Error("required RECORDS_GRAPHJIN_IMAGE is not set");
+}
+
 function runTestCommand(command: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -86,7 +91,7 @@ async function validateWithTestGraphjin(configDirectory: string): Promise<void> 
       graphjinImage,
       "version",
     ]);
-    expect(version.stdout).toContain("GraphJin 3.18.42");
+    expect(version.stdout).toContain("GraphJin 3.20.47");
     await runTestCommand("docker", [
       "run",
       "--rm",

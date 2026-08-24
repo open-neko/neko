@@ -56,9 +56,25 @@ describeIfDb("records starter watch lifecycle", () => {
               {
                 id: graphjinWatchId,
                 name: "watch",
+                status: "paused",
+                approval: "pending",
+                enabled: false,
+                action_hash: "b".repeat(64),
+                action_approval: "pending",
+              },
+            ],
+          } as T;
+        }
+        if (input.operationName === "ReviewRecordsNativeWatchAction") {
+          return {
+            gj_watch: [
+              {
+                id: graphjinWatchId,
                 status: "active",
                 approval: "approved",
                 enabled: true,
+                action_hash: "b".repeat(64),
+                action_approval: "approved",
               },
             ],
           } as T;
@@ -132,7 +148,22 @@ describeIfDb("records starter watch lifecycle", () => {
       expect.stringMatching(new RegExp(`^records-watch-schedule:${binding.id}:\\d+$`)),
     );
 
-    const rebind = vi.fn(async () => ({ gj_watch: [{ id: graphjinWatchId }] }));
+    const rebind = vi
+      .fn()
+      .mockResolvedValueOnce({
+        gj_watch: [{
+          id: graphjinWatchId,
+          action_hash: "c".repeat(64),
+          action_approval: "pending",
+        }],
+      })
+      .mockResolvedValueOnce({
+        gj_watch: [{
+          id: graphjinWatchId,
+          action_hash: "c".repeat(64),
+          action_approval: "approved",
+        }],
+      });
     await expect(
       reconcileRecordsNativeWatchDeliveries({
         graphjin: { execute: rebind },
@@ -300,7 +331,32 @@ describeIfDb("records starter watch lifecycle", () => {
         }
         if (input.operationName === "UpsertRecordsNativeWatch") {
           watchNumber += 1;
-          return { gj_watch: [{ id: `golden-watch-${watchNumber}` }] } as T;
+          return {
+            gj_watch: [
+              {
+                id: `golden-watch-${watchNumber}`,
+                status: "paused",
+                approval: "pending",
+                enabled: false,
+                action_hash: watchNumber.toString(16).padStart(64, "0"),
+                action_approval: "pending",
+              },
+            ],
+          } as T;
+        }
+        if (input.operationName === "ReviewRecordsNativeWatchAction") {
+          return {
+            gj_watch: [
+              {
+                id: `golden-watch-${watchNumber}`,
+                status: "active",
+                approval: "approved",
+                enabled: true,
+                action_hash: watchNumber.toString(16).padStart(64, "0"),
+                action_approval: "approved",
+              },
+            ],
+          } as T;
         }
         evaluationQueries.push(input.query);
         if (input.operationName === "EvaluateRecordsStaleOpportunities") {

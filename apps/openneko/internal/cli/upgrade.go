@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,23 +14,27 @@ import (
 
 	"github.com/open-neko/neko/apps/openneko/assets"
 	"github.com/open-neko/neko/apps/openneko/internal/compose"
+	opennekoversion "github.com/open-neko/neko/apps/openneko/internal/version"
 )
 
 func newUpgradeCmd() *cobra.Command {
 	var mode string
 	var imageVersion string
 	var noPrune bool
+	var stackOnly bool
+	var cliOnly bool
 
 	cmd := &cobra.Command{
 		Use:   "upgrade",
-		Short: "Pull newer OpenNeko images and update the current stack",
-		Long: `Pull newer OpenNeko component images, recreate the current stack, and clean
-up old OpenNeko image tags.
+		Short: "Upgrade the OpenNeko CLI and stack together",
+		Long: `Resolve an exact OpenNeko release, update the local CLI, re-execute that
+new CLI, then pull and recreate the current stack from the same release. This
+keeps the CLI's embedded Compose definitions aligned with the service images.
 
-By default the command targets the latest image tag and upgrades the current
-stack mode. It first uses the mode recorded by the last setup/start, then falls
-back to existing Docker Compose project names for older installs. Use --version
-to pin a specific image tag, and --mode if multiple OpenNeko stacks exist.`,
+The CLI honors its installation owner: Homebrew installations are upgraded
+through Homebrew; standalone installations use checksum-verified release
+artifacts and atomic replacement. Use --stack-only or --cli-only for recovery
+and specialized deployment workflows.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithCancel(cmd.Context())
@@ -38,12 +43,16 @@ to pin a specific image tag, and --mode if multiple OpenNeko stacks exist.`,
 				mode:         mode,
 				imageVersion: imageVersion,
 				noPrune:      noPrune,
+				stackOnly:    stackOnly,
+				cliOnly:      cliOnly,
 			})
 		},
 	}
 	cmd.Flags().StringVar(&mode, "mode", "auto", "Stack mode to upgrade: auto|prod|dev|demo")
-	cmd.Flags().StringVar(&imageVersion, "version", "", "OpenNeko image tag/version to install (default: latest; accepts 1.2.3 or v1.2.3)")
+	cmd.Flags().StringVar(&imageVersion, "version", "", "Exact OpenNeko release to install (default: latest stable; accepts 1.2.3 or v1.2.3)")
 	cmd.Flags().BoolVar(&noPrune, "no-prune", false, "Keep old OpenNeko image tags after the upgrade")
+	cmd.Flags().BoolVar(&stackOnly, "stack-only", false, "Upgrade only stack images; keep the current local CLI")
+	cmd.Flags().BoolVar(&cliOnly, "cli-only", false, "Upgrade only the local CLI; do not change the stack")
 	return cmd
 }
 
@@ -51,12 +60,30 @@ type upgradeOptions struct {
 	mode         string
 	imageVersion string
 	noPrune      bool
+	stackOnly    bool
+	cliOnly      bool
 }
 
 func runUpgrade(ctx context.Context, cmd *cobra.Command, opts upgradeOptions) error {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
-	target := normalizeUpgradeImageVersion(opts.imageVersion)
+	if opts.stackOnly && opts.cliOnly {
+		return errors.New("--stack-only and --cli-only are mutually exclusive")
+	}
+	target, err := resolveUpgradeTarget(ctx, opts.imageVersion, opts.stackOnly)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "Resolved OpenNeko upgrade target %s.\n", target)
+	if !opts.stackOnly {
+		if err := upgradeCLIAndReexec(ctx, target, os.Args[1:], out, errOut); err != nil {
+			return err
+		}
+		if opts.cliOnly {
+			fmt.Fprintf(out, "CLI upgrade complete at %s.\n", target)
+			return nil
+		}
+	}
 
 	sup := compose.New(assets.ComposeFS)
 	m, defaulted, err := resolveUpgradeMode(ctx, opts.mode, sup)
@@ -127,7 +154,16 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command, opts upgradeOptions) er
 		}
 	}
 
-	fmt.Fprintf(out, "Upgrade complete. Future starts will use image tag %s.\n", target)
+	if opts.stackOnly {
+		fmt.Fprintf(
+			out,
+			"Stack upgrade complete at %s; local CLI remains %s.\n",
+			target,
+			opennekoversion.Version,
+		)
+	} else {
+		fmt.Fprintf(out, "Upgrade complete. OpenNeko CLI and stack now use %s.\n", target)
+	}
 	return nil
 }
 

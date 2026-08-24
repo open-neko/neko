@@ -149,9 +149,9 @@ COPY --from=openshell-bin /usr/local/bin/openshell /usr/local/bin/openshell
 # Pinned GraphJin binary shared by the Records-aware worker, sandbox agent, and
 # the two dedicated GraphJin runtimes.
 FROM debian:bookworm-slim AS graphjin-bin
-ARG GRAPHJIN_VERSION=3.18.42
-ARG GRAPHJIN_ASSET_AMD64=470534811
-ARG GRAPHJIN_ASSET_ARM64=470534772
+ARG GRAPHJIN_VERSION=3.20.47
+ARG GRAPHJIN_ASSET_AMD64=527162704
+ARG GRAPHJIN_ASSET_ARM64=527162707
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && GRAPHJIN_ASSET_ID="$(case "${TARGETARCH}" in amd64) echo "${GRAPHJIN_ASSET_AMD64}" ;; arm64) echo "${GRAPHJIN_ASSET_ARM64}" ;; *) exit 1 ;; esac)" \

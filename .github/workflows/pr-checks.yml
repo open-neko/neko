@@ -21,6 +21,87 @@ jobs:
       - name: Verify backup and database crash recovery
         run: ./scripts/test-records-recovery.sh
 
+  graphjin-integration:
+    name: GraphJin integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      records-postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: records
+          POSTGRES_PASSWORD: records-secret
+          POSTGRES_DB: records
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U records"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      GRAPHJIN_VERSION: "3.20.47"
+      RECORDS_GRAPHJIN_IMAGE: openneko/graphjin-integration:3.20.47
+      REQUIRE_GRAPHJIN_INTEGRATION: "1"
+      OPENNEKO_PG_ENV_OVERRIDE: "1"
+      RECORDS_PG_HOST: localhost
+      RECORDS_PG_PORT: "5434"
+      RECORDS_PG_USER: records
+      RECORDS_PG_PASSWORD: records-secret
+      RECORDS_PG_DATABASE: records
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.14.1
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: AX_SKIP_SKILL_INSTALL=1 pnpm install --frozen-lockfile
+
+      - name: Build the pinned GraphJin runtime
+        run: |
+          docker buildx build \
+            --load \
+            --platform linux/amd64 \
+            --target graphjin-runtime \
+            --tag "$RECORDS_GRAPHJIN_IMAGE" \
+            .
+          docker run --rm --entrypoint graphjin \
+            "$RECORDS_GRAPHJIN_IMAGE" version | grep -F "$GRAPHJIN_VERSION"
+
+      - name: Validate shipped source-mode configs
+        run: |
+          for config in customer.sources.example.yml dev.sources.example.yml; do
+            docker run --rm --entrypoint graphjin \
+              --volume "$PWD/db/graphjin:/config:ro" \
+              "$RECORDS_GRAPHJIN_IMAGE" \
+              config --file "/config/$config" validate
+          done
+
+      - name: Configure GraphJin-to-Postgres routing
+        run: |
+          gateway="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
+          test -n "$gateway"
+          echo "RECORDS_GRAPHJIN_DB_HOST=$gateway" >> "$GITHUB_ENV"
+
+      - name: Run live GraphJin compatibility tests
+        run: |
+          pnpm --filter @neko/records exec vitest run \
+            test/policy-graphjin.integration.test.ts \
+            test/schema-graphjin.integration.test.ts \
+            test/write-executor.integration.test.ts \
+            test/import-executor.integration.test.ts \
+            --no-file-parallelism
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -65,7 +146,7 @@ jobs:
 
       - name: Install graphjin CLI
         env:
-          GRAPHJIN_VERSION: "3.18.42"
+          GRAPHJIN_VERSION: "3.20.47"
         run: |
           curl -fsSL -o /tmp/graphjin.tgz \
             "https://github.com/dosco/graphjin/releases/download/v${GRAPHJIN_VERSION}/graphjin_${GRAPHJIN_VERSION}_linux_amd64.tar.gz"

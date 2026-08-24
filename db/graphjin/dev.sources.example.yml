@@ -115,6 +115,16 @@ agent:
 
 analytics_mode: true
 
+# The AdventureWorks source is read-only. Durable GraphJin artifacts and
+# watches live in OpenNeko's dedicated Records GraphJin plane instead.
+artifacts:
+  enabled: false
+watches:
+  enabled: false
+  runner: off
+tasks:
+  enabled: false
+
 # OL5 precondition 1: define every token role explicitly. gj_config
 # role/source updates re-normalize roles; without these the implicit admin
 # role is dropped on the first apply and all tokens break.
@@ -140,28 +150,33 @@ blocklist:
   - encrypted
   - token
 
-sources:
-  - name: graphjin
-    kind: graphjin
-    metadata: true
-    catalog: true
-    control_plane: true
-    # Makes gj_config structurally mutable for the approved OpenNeko worker.
-    # access.roots below still limits both reads and writes to admin JWTs, and
-    # agent.read_only keeps the server-side LLM itself unable to mutate it.
-    capabilities:
-      config.write: true
-    access:
-      roots:
-        # authenticated, NOT public — verified live: public leaks the
-        # whole schema catalog to anonymous callers.
-        gj_catalog: authenticated
-        # Native GraphJin admin roots are the second boundary behind
-        # OpenNeko's live role checks and approval workflow.
-        gj_config: admin
-        gj_security: admin
-        gj_runtime: admin
+system:
+  # Makes gj_config structurally mutable for the approved OpenNeko worker.
+  # root_access below still limits both reads and writes to admin JWTs, and
+  # agent.read_only keeps the server-side LLM itself unable to mutate it.
+  capabilities:
+    catalog.read: true
+    security.read: true
+    config.read: true
+    config.write: true
+    runtime.read: true
+    raw_graphql.query: true
+    raw_graphql.mutate: false
+    schema.reload: false
+    schema.write: false
+    dev_tools.read: false
+    legacy_discovery.read: false
+  root_access:
+    # authenticated, NOT public — verified live: public leaks the
+    # whole schema catalog to anonymous callers.
+    gj_catalog: authenticated
+    # Native GraphJin admin roots are the second boundary behind
+    # OpenNeko's live role checks and approval workflow.
+    gj_config: admin
+    gj_security: admin
+    gj_runtime: admin
 
+sources:
   - name: adventureworks
     kind: database
     default: true

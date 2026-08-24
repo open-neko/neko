@@ -56,12 +56,27 @@ describe("records starter watches", () => {
     }
   });
 
-  it("creates an approved HMAC webhook watch and updates it idempotently", async () => {
+  it("creates and reviews an approved HMAC webhook watch idempotently", async () => {
     const execute = vi
       .fn()
       .mockResolvedValueOnce({ gj_watch: [] })
       .mockResolvedValueOnce({
-        gj_watch: [{ id: "native-watch-1", status: "active", approval: "approved" }],
+        gj_watch: [{
+          id: "native-watch-1",
+          status: "paused",
+          approval: "pending",
+          action_hash: "b".repeat(64),
+          action_approval: "pending",
+        }],
+      })
+      .mockResolvedValueOnce({
+        gj_watch: [{
+          id: "native-watch-1",
+          status: "active",
+          approval: "approved",
+          action_hash: "b".repeat(64),
+          action_approval: "approved",
+        }],
       });
     const definition = buildRecordsStarterWatchDefinition({
       orgId: "org-a",
@@ -82,15 +97,32 @@ describe("records starter watches", () => {
     });
     const mutation = execute.mock.calls[1]![0].query as string;
     expect(mutation).toContain("insert:");
-    expect(mutation).toContain('approval: "approved"');
+    expect(mutation).not.toContain('approval: "approved"');
     expect(mutation).toContain("OPENNEKO_RECORDS_WATCH_WEBHOOK_SECRET");
     expect(mutation).toContain("approved_action_hash");
+    expect(execute.mock.calls[2]?.[0]).toMatchObject({
+      operationName: "ReviewRecordsNativeWatchAction",
+      query: expect.stringContaining("action_review_json"),
+    });
   });
 
   it("rebinds a durable watch without changing its approved query", async () => {
-    const execute = vi.fn().mockResolvedValue({
-      gj_watch: [{ id: "native-watch-1" }],
-    });
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({
+        gj_watch: [{
+          id: "native-watch-1",
+          action_hash: "c".repeat(64),
+          action_approval: "pending",
+        }],
+      })
+      .mockResolvedValueOnce({
+        gj_watch: [{
+          id: "native-watch-1",
+          action_hash: "c".repeat(64),
+          action_approval: "approved",
+        }],
+      });
     await updateRecordsNativeWatchDelivery({
       graphjin: { execute },
       token: "watch-service-token",
@@ -106,5 +138,8 @@ describe("records starter watches", () => {
       }),
     );
     expect(execute.mock.calls[0]?.[0].query).not.toContain("query:");
+    expect(execute.mock.calls[1]?.[0]).toMatchObject({
+      operationName: "ReviewRecordsNativeWatchAction",
+    });
   });
 });
