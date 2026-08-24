@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.30.1](https://github.com/open-neko/openneko/compare/v2.30.0...v2.30.1) (2026-08-24)
+
+
+### Bug Fixes
+
+* bound first-run profiler agent loops ([10f33fa](https://github.com/open-neko/openneko/commit/10f33fa6e30eba15a4ea5686c401cfd26709e0d2))
+* harden the first-run agent execution contract ([d09a92e](https://github.com/open-neko/openneko/commit/d09a92e0f454465c8800c7a224603497a3f990f0))
+* make agent runtime contract self-contained ([e180c61](https://github.com/open-neko/openneko/commit/e180c619b0f3170d6667152bc0c694550835a0cb))
+* preserve agent budgets during onboarding ([6d09ba3](https://github.com/open-neko/openneko/commit/6d09ba378a6c08fb6ca2a228c15b69e8243a990b))
+
 ## [2.30.0](https://github.com/open-neko/openneko/compare/v2.29.3...v2.30.0) (2026-08-24)
 
 
