@@ -7,7 +7,7 @@ import { createAgentBroker, type RunBinding } from "../../src/agent-sandbox/brok
 import {
   BrokerControlPlane,
   postAgentEvents,
-} from "../../src/agent-sandbox/broker-client";
+} from "@neko/agent-runtime/broker-client";
 
 interface Call {
   method: string;

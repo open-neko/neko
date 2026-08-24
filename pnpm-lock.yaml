@@ -171,12 +171,37 @@ importers:
         specifier: ^2.8.1
         version: 2.9.0
     devDependencies:
+      '@neko/agent-runtime':
+        specifier: workspace:*
+        version: link:../../packages/agent-runtime
       '@types/node':
         specifier: ^20
         version: 20.19.39
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
+      esbuild:
+        specifier: 0.27.7
+        version: 0.27.7
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@20.19.39)(lightningcss@1.32.0)
+
+  packages/agent-runtime:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 1.29.0
+        version: 1.29.0(zod@4.3.6)
+      '@neko/llm':
+        specifier: workspace:*
+        version: link:../llm
+    devDependencies:
+      '@types/node':
+        specifier: ^20
+        version: 20.19.39
       esbuild:
         specifier: 0.27.7
         version: 0.27.7

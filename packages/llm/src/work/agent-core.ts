@@ -189,7 +189,7 @@ export async function runAgentBackend(
     mcpServers,
     // ACP backends mount the same servers as stdio bridge children — ship the
     // per-run context the bridge needs to rebuild them (broker coords ride the
-    // process env; see apps/worker/src/agent-sandbox/mcp-bridge.ts).
+    // process env; see packages/agent-runtime/src/mcp-bridge.ts).
     mcpBridgeEnv: mcp
       ? {
           OPENNEKO_MCP_ORG_ID: orgId,

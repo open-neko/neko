@@ -1,15 +1,18 @@
 import { existsSync, readFileSync } from "node:fs";
+import { execFile } from "node:child_process";
 import {
   appendFile,
   chmod,
   mkdir,
+  mkdtemp,
   rename,
   rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import {
   type AgentBackendId,
   type AgentEvent,
@@ -33,7 +36,13 @@ import {
 } from "@neko/llm/sandbox-runtime";
 import { BrokerControlPlane } from "./broker-client";
 import { EVENT_MARKER, RESULT_MARKER } from "./protocol";
-import { configureAgentRuntime } from "./runtime-contract";
+import {
+  configureAgentRuntime,
+  verifyAgentRuntime,
+  type AgentRuntimeContract,
+} from "./runtime-contract";
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Runs INSIDE the agent's OpenShell sandbox (Phase 3). The launcher (work-run)
@@ -344,24 +353,71 @@ function sandboxGraphjinClientConfig(
 async function run(): Promise<void> {
   const runtime = configureAgentRuntime({ entryUrl: import.meta.url });
   const skillsRoot = getBuiltinSkillsRoot();
-  if (!existsSync(skillsRoot)) {
+  if (!existsSync(skillsRoot) || skillsRoot !== runtime.builtinSkillsRoot) {
     throw new Error(
-      `agent runtime contract invalid: built-in skills not found at ${skillsRoot}`,
+      `agent runtime contract invalid: built-in skills resolved to ${skillsRoot}; expected ${runtime.builtinSkillsRoot}`,
     );
   }
 
   if (process.argv.includes("--preflight")) {
+    const checks = await runPreflight(runtime);
     process.stdout.write(
       `${JSON.stringify({
         status: "ok",
-        skillsRoot,
+        manifestPath: runtime.manifestPath,
+        declaredFiles: runtime.manifest.files.length,
+        skillsRoot: runtime.builtinSkillsRoot,
         mcpBridgePath: runtime.mcpBridgePath,
+        graphjinCompactCliPath: runtime.graphjinCompactCliPath,
         lazyInstallsDisabled: process.env.HERMES_DISABLE_LAZY_INSTALLS === "1",
+        ...checks,
       })}\n`,
     );
     return;
   }
   await main();
+}
+
+async function runPreflight(runtime: AgentRuntimeContract): Promise<{
+  skillsReady: boolean;
+  graphjinGuardReady: boolean;
+  bridgeReady: boolean;
+  bridgeServers: number;
+}> {
+  await verifyAgentRuntime(runtime);
+  const tempRoot = await mkdtemp(join(tmpdir(), "openneko-agent-runtime-"));
+  try {
+    const stagedSkills = join(tempRoot, "skills");
+    const binRoot = join(tempRoot, "bin");
+    await mkdir(binRoot, { recursive: true });
+    await materializeBuiltinSkills(stagedSkills);
+    const graphjinGuard = await ensureGraphjinGuard(
+      binRoot,
+      "/usr/local/bin/graphjin",
+    );
+    const bridgeResult = await execFileAsync(
+      process.execPath,
+      [runtime.mcpBridgePath, "--preflight"],
+      {
+        env: { PATH: process.env.PATH ?? "" },
+        timeout: 30_000,
+      },
+    );
+    const bridge = JSON.parse(bridgeResult.stdout.trim()) as {
+      status?: string;
+      servers?: number;
+    };
+    return {
+      skillsReady: existsSync(stagedSkills),
+      graphjinGuardReady:
+        existsSync(graphjinGuard) &&
+        existsSync(join(binRoot, "compact-cli.mjs")),
+      bridgeReady: bridge.status === "ok",
+      bridgeServers: bridge.servers ?? 0,
+    };
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 }
 
 run().catch((err: unknown) => {
