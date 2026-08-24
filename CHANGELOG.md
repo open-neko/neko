@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.30.2](https://github.com/open-neko/openneko/compare/v2.30.1...v2.30.2) (2026-08-24)
+
+
+### Bug Fixes
+
+* package agent runtime as a verified artifact ([d73e56c](https://github.com/open-neko/openneko/commit/d73e56c8de307d435d916dc97cc2ffbb6a063710))
+* package agent runtime as a verified artifact ([690ec3a](https://github.com/open-neko/openneko/commit/690ec3af2dd67572508ff8efd5bf6d98828206b3))
+
 ## [2.30.1](https://github.com/open-neko/openneko/compare/v2.30.0...v2.30.1) (2026-08-24)
 
 
