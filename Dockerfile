@@ -226,6 +226,7 @@ COPY patches patches
 COPY apps/web/package.json apps/web/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY packages/channels/package.json packages/channels/package.json
+COPY packages/agent-runtime/package.json packages/agent-runtime/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/evals/package.json packages/evals/package.json
 COPY packages/interaction/package.json packages/interaction/package.json
@@ -469,25 +470,13 @@ CMD ["node", "--import", "tsx/esm", "src/index.ts"]
 # ─── 5d. agent sandbox runtime (OpenShell) ─────────────────────────────
 # The agent loop running as a child inside an OpenShell sandbox (Phase 3,
 # OPENNEKO_AGENT_RUNTIME=openshell), reaching the control plane only through the
-# broker. It is deliberately NOT `FROM worker`: only two standalone ESM bundles
-# and built-in skill assets cross into the image. No worker source tree, tsx,
-# workspace package, database driver, or node_modules closure is shipped.
+# broker. It is deliberately NOT `FROM worker`: one manifest-owned artifact
+# crosses into the image. No worker source tree, tsx, workspace package,
+# database driver, or node_modules closure is shipped.
 FROM source AS agent-deploy
-RUN mkdir -p /out/agent-app/assets \
-    && cd apps/worker \
-    && pnpm exec esbuild src/agent-sandbox/entry.ts \
-      --bundle --minify --platform=node --format=esm \
-      --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
-      --metafile=/out/agent-entry-meta.json \
-      --outfile=/out/agent-app/agent-entry.js \
-    && pnpm exec esbuild src/agent-sandbox/mcp-bridge.ts \
-      --bundle --minify --platform=node --format=esm \
-      --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
-      --metafile=/out/agent-bridge-meta.json \
-      --outfile=/out/agent-app/mcp-bridge.js \
-    && ! grep -Eq 'packages/(db|records|secret-crypt|telemetry)/|node_modules/.pnpm/(pg-boss|pg@|mysql2|onnxruntime|sharp)' \
-      /out/agent-entry-meta.json /out/agent-bridge-meta.json \
-    && cp -R /app/packages/llm/assets/. /out/agent-app/assets/
+RUN pnpm --filter @neko/agent-runtime build \
+    && mkdir -p /out/agent-app \
+    && cp -R /app/packages/agent-runtime/dist/. /out/agent-app/
 
 FROM cli AS agent
 USER root
@@ -503,6 +492,9 @@ RUN groupadd -g 1000660000 sandbox \
     && install -d -o sandbox -g sandbox /sandbox
 # Keep the runtime payload immutable; only /sandbox is writable by the agent.
 COPY --from=agent-deploy --chown=root:root /out/agent-app /app
+# The build must fail if the final image loses a declared runtime file, if an
+# asset checksum drifts, or if skills/MCP/GraphJin guard construction breaks.
+RUN node /app/agent-entry.js --preflight
 WORKDIR /sandbox
 # Supervisor-replaced; launcher runs:
 #   node /app/agent-entry.js

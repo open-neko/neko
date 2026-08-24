@@ -20,7 +20,7 @@ import { copySkillOverrides } from "./workspace";
 
 // Wire protocol shared with the in-image entrypoint. The agent runs in a
 // separate container, so these can't share a module at runtime — they MUST
-// stay identical to apps/worker/src/agent-sandbox/protocol.ts (a unit test
+// stay identical to packages/agent-runtime/src/protocol.ts (a unit test
 // asserts that). The launcher greps the exec's stdout for these markers.
 const EVENT_MARKER = "__openneko_event__";
 const RESULT_MARKER = "__openneko_agent_result__";

@@ -1,0 +1,31 @@
+{
+  "name": "@neko/agent-runtime",
+  "version": "2.30.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/entry.ts",
+  "types": "./src/entry.ts",
+  "exports": {
+    "./broker-client": "./src/broker-client.ts",
+    "./mcp-bridge": "./src/mcp-bridge.ts",
+    "./protocol": "./src/protocol.ts",
+    "./runtime-contract": "./src/runtime-contract.ts"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "pretest": "pnpm build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@neko/llm": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "esbuild": "0.27.7",
+    "typescript": "^5",
+    "vitest": "^2.1.8"
+  }
+}
