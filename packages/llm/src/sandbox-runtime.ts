@@ -28,7 +28,10 @@ export {
   resolveBinaryOnPath,
 } from "./work/graphjin-guard";
 export { sandboxReachableUrl } from "./work/sandbox-net";
-export { materializeBuiltinSkills } from "./work/workspace";
+export {
+  getBuiltinSkillsRoot,
+  materializeBuiltinSkills,
+} from "./work/workspace";
 export { buildWorkflowBuilderServer } from "./workflows/builder-server";
 export { buildRuleBuilderServer } from "./workflows/rule-builder-server";
 export { buildWorkflowActionServer } from "./workflows/action-tool-server";

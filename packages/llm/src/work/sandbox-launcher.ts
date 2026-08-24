@@ -632,7 +632,8 @@ function makeSandboxCore(
         "--no-git-ignore",
         "--",
         "node",
-        "--version",
+        AGENT_ENTRY,
+        "--preflight",
       ];
       const reclaimAndCreate = async () => {
         // Run names are deterministic so a durable queue retry can collide

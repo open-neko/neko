@@ -12,26 +12,43 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, existsSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentWorkspace } from "../agent-backend";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const BUILTIN_SKILLS_ROOT = process.env.OPENNEKO_BUILTIN_SKILLS_ROOT?.trim()
-  ? resolve(process.env.OPENNEKO_BUILTIN_SKILLS_ROOT)
-  : resolve(
-      // The Docker image copies this directory explicitly. Without the tracer
-      // hint, Next treats the dynamic package-relative read as a request to
-      // include the entire monorepo in every server route's NFT closure.
-      /* turbopackIgnore: true */ HERE,
-      "..",
-      "..",
-      "assets",
-      "builtin-skills",
-    );
+export function resolveBuiltinSkillsRoot(
+  moduleUrl = import.meta.url,
+  configuredRoot = process.env.OPENNEKO_BUILTIN_SKILLS_ROOT,
+  pathExists: (candidate: string) => boolean = existsSync,
+): string {
+  if (configuredRoot?.trim()) return resolve(configuredRoot);
+
+  const moduleDir = dirname(fileURLToPath(moduleUrl));
+  // esbuild collapses this module into /app/agent-entry.js in the sandbox
+  // image, alongside assets/. Source and server builds retain the package
+  // layout and use the second candidate.
+  const bundled = resolve(moduleDir, "assets", "builtin-skills");
+  if (pathExists(bundled)) return bundled;
+  return resolve(
+    // Without the tracer hint, Next treats the dynamic package-relative read
+    // as a request to include the entire monorepo in every server route's NFT
+    // closure.
+    /* turbopackIgnore: true */ moduleDir,
+    "..",
+    "..",
+    "assets",
+    "builtin-skills",
+  );
+}
+
+const BUILTIN_SKILLS_ROOT = resolveBuiltinSkillsRoot();
+
+export function getBuiltinSkillsRoot(): string {
+  return BUILTIN_SKILLS_ROOT;
+}
 
 function useHostWebDevelopmentHome(): boolean {
   return (

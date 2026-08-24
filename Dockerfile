@@ -491,11 +491,9 @@ RUN mkdir -p /out/agent-app/assets \
 
 FROM cli AS agent
 USER root
-# OpenNeko pre-installs the ACP/MCP feature set. Never let a sandbox spend its
-# startup budget trying (and, under egress policy, retrying) a PyPI lazy install.
-ENV HERMES_DISABLE_LAZY_INSTALLS=1 \
-    OPENNEKO_BUILTIN_SKILLS_ROOT=/app/assets/builtin-skills \
-    OPENNEKO_MCP_BRIDGE=/app/mcp-bridge.js
+# The entry bundle self-locates its sibling assets and applies its non-secret
+# runtime defaults. OpenShell can therefore keep a clean supervised environment
+# and inject only the job context and credentials explicitly granted per run.
 # Supervisor egress-netns tools + a non-root `sandbox` user (high UID, OpenShell
 # convention). node/Hermes/GraphJin/LibreOffice already come from `cli`.
 RUN apt-get update && apt-get install -y --no-install-recommends iproute2 nftables \

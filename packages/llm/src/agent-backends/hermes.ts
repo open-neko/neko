@@ -82,7 +82,12 @@ function hermesAgentLogTail(hermesHome: string | undefined): string {
   try {
     const lines = readFileSync(join(hermesHome, "logs", "agent.log"), "utf8")
       .split("\n")
-      .filter((l) => l.trim() && !l.includes("Prompt on session"));
+      .filter(
+        (l) =>
+          l.trim() &&
+          !l.includes("Prompt on session") &&
+          !l.includes("conversation turn:"),
+      );
     const errs = lines.filter((l) =>
       /ERROR|CRITICAL|Traceback|Unhandled|fatal|Killed|Segmentation/i.test(l),
     );
@@ -663,9 +668,11 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
       // branch a plain timeout masquerades as an unexplained agent death
       // (this WAS the long-undiagnosed "hermes exited mid-turn" flake).
       if (timedOut) {
+        const activity = hermesAgentLogTail(env.HERMES_HOME);
         throw new Error(
           `hermes turn exceeded its ${Math.round(timeoutMs / 1000)}s budget and was terminated ` +
-            `(OPENNEKO_AGENT_TURN_TIMEOUT_MS overrides)`,
+            `(OPENNEKO_AGENT_TURN_TIMEOUT_MS overrides)` +
+            (activity ? `; agent activity: ${activity}` : ""),
           { cause: e },
         );
       }
