@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildProfilerPrompt,
   profilerAgentRunControls,
+  profilerMaxIterations,
   profilerTimeoutMs,
   validateBusinessProfile,
 } from "../src/profiler";
@@ -50,7 +51,14 @@ describe("profilerTimeoutMs", () => {
     expect(profilerAgentRunControls()).toEqual({
       retries: 0,
       timeoutMs: 45_000,
+      maxIterations: 12,
     });
+  });
+
+  it("caps the profiler's model/tool loop independently of wall time", () => {
+    vi.stubEnv("OPENNEKO_PROFILER_MAX_ITERATIONS", "9");
+    expect(profilerMaxIterations()).toBe(9);
+    expect(profilerAgentRunControls().maxIterations).toBe(9);
   });
 });
 

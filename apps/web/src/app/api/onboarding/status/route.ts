@@ -20,6 +20,7 @@ import {
 } from "@/lib/db";
 import { getCurrentActor } from "@/lib/actor";
 import { isDemoMode, DEMO_SEATS } from "@/lib/demo-mode";
+import { profileBuildFailureMessage } from "@/lib/onboarding-failure";
 
 const STAGE_KINDS: StageKind[] = [
   "business_profile_build",
@@ -27,9 +28,6 @@ const STAGE_KINDS: StageKind[] = [
   "bootstrap_metrics_build",
   "metric_refresh",
 ];
-
-const PROFILE_BUILD_FAILED_MESSAGE =
-  "Setup could not finish because the agent became unavailable. Confirm `openneko status` shows serving, re-test the model in Admin → Settings → Agent, then try again.";
 
 function isStageKind(s: string): s is StageKind {
   return (STAGE_KINDS as string[]).includes(s);
@@ -147,7 +145,7 @@ export async function GET() {
   let profileRows: Array<{ id: string; version: number }>;
   let jobRows: Array<{ id: string; status: string }>;
   let wizardRows: Array<{ active_seats: string[] | null }>;
-  let lastJobRows: Array<{ id: string; status: string }>;
+  let lastJobRows: Array<{ id: string; status: string; error: string | null }>;
   try {
     [profileRows, jobRows, wizardRows, lastJobRows] = await Promise.all([
       db()
@@ -181,6 +179,7 @@ export async function GET() {
         .select({
           id: processing_job.id,
           status: processing_job.status,
+          error: processing_job.error,
         })
         .from(processing_job)
         .where(
@@ -247,7 +246,7 @@ export async function GET() {
     status = {
       state: "failed",
       jobId: lastJobRows[0].id,
-      message: PROFILE_BUILD_FAILED_MESSAGE,
+      message: profileBuildFailureMessage(lastJobRows[0].error),
     };
   } else {
     status = { state: "needs_wizard" };

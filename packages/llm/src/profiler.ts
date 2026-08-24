@@ -45,6 +45,7 @@ EXECUTION PATTERN:
 ${discoveryRule}
 2. Skim the tables + insights sections to identify what this business actually does (industry, offering, business model). Pick the handful of tables that matter.
 3. Run a small set of GraphQL queries to gather facts: main business event (date range, recent volume + value), top categories / products / services, geography, who is served, who does the work.
+   QUERY BUDGET: Make at most 8 GraphJin tool calls total, including catalog lookups and corrected queries. Combine related aggregates in one query. Once the budget is used, stop querying and write the profile from the facts collected; use "Not measured." for anything still unavailable.
 4. Run queries by ${executeQuery}.
 5. ${
     agentic || brokered
@@ -206,16 +207,28 @@ export type ProfilerResult = {
 };
 
 const DEFAULT_PROFILER_TIMEOUT_MS = 6 * 60_000;
+const DEFAULT_PROFILER_MAX_ITERATIONS = 12;
 
 export function profilerTimeoutMs(): number {
   const env = Number(process.env.OPENNEKO_PROFILER_TIMEOUT_MS);
   return Number.isFinite(env) && env > 0 ? env : DEFAULT_PROFILER_TIMEOUT_MS;
 }
 
-export function profilerAgentRunControls(): Pick<AgentRunOptions, "retries" | "timeoutMs"> {
+export function profilerMaxIterations(): number {
+  const env = Number(process.env.OPENNEKO_PROFILER_MAX_ITERATIONS);
+  return Number.isFinite(env) && env >= 2
+    ? Math.min(Math.floor(env), 50)
+    : DEFAULT_PROFILER_MAX_ITERATIONS;
+}
+
+export function profilerAgentRunControls(): Pick<
+  AgentRunOptions,
+  "retries" | "timeoutMs" | "maxIterations"
+> {
   return {
     retries: 0,
     timeoutMs: profilerTimeoutMs(),
+    maxIterations: profilerMaxIterations(),
   };
 }
 

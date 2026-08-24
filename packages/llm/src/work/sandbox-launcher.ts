@@ -122,6 +122,7 @@ type SerializableAgentRunOptions = Pick<
   AgentRunOptions,
   | "userMessage"
   | "timeoutMs"
+  | "maxIterations"
   | "retries"
   | "debug"
   | "tag"
@@ -136,6 +137,9 @@ function serializableAgentRunOptions(
   return {
     ...(run.userMessage !== undefined ? { userMessage: run.userMessage } : {}),
     ...(run.timeoutMs !== undefined ? { timeoutMs: run.timeoutMs } : {}),
+    ...(run.maxIterations !== undefined
+      ? { maxIterations: run.maxIterations }
+      : {}),
     ...(run.retries !== undefined ? { retries: run.retries } : {}),
     ...(run.debug !== undefined ? { debug: run.debug } : {}),
     ...(run.tag !== undefined ? { tag: run.tag } : {}),

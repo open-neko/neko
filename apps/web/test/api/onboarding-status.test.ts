@@ -59,6 +59,7 @@ async function insertJob(
     | "metric_refresh",
   status: "queued" | "running" | "succeeded" | "failed",
   progress?: { message?: string },
+  error?: string,
 ): Promise<string> {
   const ins = await db()
     .insert(processing_job)
@@ -69,6 +70,7 @@ async function insertJob(
       trigger: "test",
       trigger_payload: {},
       progress: progress ?? {},
+      error,
       ...(status === "running" || status === "succeeded" || status === "failed"
         ? { started_at: new Date() }
         : {}),
@@ -134,6 +136,41 @@ describeIfDb("/api/onboarding/status GET (enriched)", () => {
     expect(body.state).toBe("processing");
     expect(body.currentStage?.kind).toBe("business_profile_build");
     expect(body.currentStage?.message).toBeNull();
+  });
+
+  it("reports an agent-loop timeout instead of claiming the runtime vanished", async () => {
+    await insertJob(
+      orgId,
+      "business_profile_build",
+      "failed",
+      undefined,
+      "hermes turn exceeded its 360s budget and was terminated",
+    );
+
+    const res = await callRoute(GET);
+    expect(res.body).toMatchObject({
+      state: "failed",
+      message: expect.stringContaining("time limit"),
+    });
+    expect((res.body as { message: string }).message).not.toContain(
+      "agent became unavailable",
+    );
+  });
+
+  it("keeps runtime recovery guidance for an actual sandbox failure", async () => {
+    await insertJob(
+      orgId,
+      "business_profile_build",
+      "failed",
+      undefined,
+      "agent sandbox exited 1: builtin-skills not found",
+    );
+
+    const res = await callRoute(GET);
+    expect(res.body).toMatchObject({
+      state: "failed",
+      message: expect.stringContaining("agent became unavailable"),
+    });
   });
 
   it("counts metric_refresh jobs after the latest bootstrap_metrics_build", async () => {

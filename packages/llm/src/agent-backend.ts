@@ -178,6 +178,9 @@ export type AgentRunOptions = {
   prompt: string;
   userMessage?: string;
   timeoutMs?: number;
+  /** Maximum model/tool iterations for this turn. Backends that support an
+   *  iteration budget must finish (or summarize) when it is exhausted. */
+  maxIterations?: number;
   retries?: number;
   debug?: boolean;
   tag?: string;
