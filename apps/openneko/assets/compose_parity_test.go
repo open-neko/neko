@@ -55,6 +55,92 @@ func TestPackagedGraphJinReusesReleasedRuntime(t *testing.T) {
 	}
 }
 
+func TestVendoredAgentBinaryCannotBeOverridden(t *testing.T) {
+	rootRaw, err := os.ReadFile("../../../compose.openshell.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	packagedRaw, err := ComposeFS.ReadFile("compose/openshell.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, document := range map[string]composeParityDocument{
+		"source":   loadComposeParityDocument(t, rootRaw),
+		"packaged": loadComposeParityDocument(t, packagedRaw),
+	} {
+		for _, serviceName := range []string{"web", "worker"} {
+			if _, exists := document.Services[serviceName].Environment["OPENNEKO_AGENT_MODEL_BINARY"]; exists {
+				t.Fatalf("%s %s exposes an override for the vendored agent executable", label, serviceName)
+			}
+		}
+	}
+}
+
+func TestStorageReconciliationGatesEveryDatabaseConsumer(t *testing.T) {
+	rootRaw, err := os.ReadFile("../../../compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	packagedRaw, err := ComposeFS.ReadFile("compose/core.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, document := range map[string]composeParityDocument{
+		"source":   loadComposeParityDocument(t, rootRaw),
+		"packaged": loadComposeParityDocument(t, packagedRaw),
+	} {
+		reconcile, ok := document.Services["storage-reconcile"]
+		if !ok {
+			t.Fatalf("%s compose is missing storage-reconcile", label)
+		}
+		if want := []string{"storage", "reconcile"}; !reflect.DeepEqual(reconcile.Command, want) {
+			t.Fatalf("%s storage-reconcile command = %v, want %v", label, reconcile.Command, want)
+		}
+		for _, database := range []string{"neko-db", "records-db"} {
+			if reconcile.DependsOn[database].Condition != "service_healthy" {
+				t.Fatalf("%s storage-reconcile must wait for healthy %s", label, database)
+			}
+		}
+		for _, key := range []string{
+			"NEKO_PG_HOST", "NEKO_PG_DATABASE", "RECORDS_PG_HOST", "RECORDS_PG_DATABASE",
+		} {
+			if _, ok := reconcile.Environment[key]; !ok {
+				t.Fatalf("%s storage-reconcile is missing %s", label, key)
+			}
+		}
+		for _, consumer := range []string{
+			"neko-migrate", "neko-backup", "records-graphjin", "records-watch-graphjin",
+		} {
+			if document.Services[consumer].DependsOn["storage-reconcile"].Condition != "service_completed_successfully" {
+				t.Fatalf("%s %s can start before storage reconciliation", label, consumer)
+			}
+		}
+	}
+}
+
+func TestDatabaseImagesEnforcePinnedGlibcStorageABI(t *testing.T) {
+	root := repoRootForTest(t)
+	dockerfile, err := os.ReadFile(root + "/Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(dockerfile)
+	for _, required := range []string{
+		"FROM pgvector/pgvector:0.8.6-pg16-bookworm@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b AS postgres-runtime",
+		`LABEL org.openneko.storage-contract="1"`,
+		`test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.36"`,
+		"FROM postgres-runtime AS neko-db",
+		"FROM postgres-runtime AS records-db",
+	} {
+		if !strings.Contains(raw, required) {
+			t.Fatalf("Dockerfile does not enforce storage ABI line %q", required)
+		}
+	}
+	if strings.Contains(raw, "FROM postgres:16-alpine AS postgres-runtime") {
+		t.Fatal("stateful database runtime regressed to Alpine/musl")
+	}
+}
+
 type composeParityDependency struct {
 	Condition string `yaml:"condition"`
 }

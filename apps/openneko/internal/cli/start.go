@@ -73,8 +73,9 @@ type bringUpOptions struct {
 }
 
 // bringUpStack runs the staged bring-up shared by `start` and `setup`:
-// private neko-migrate container → pre-pull the agent image → compose up the
-// rest. Extracted from newStartCmd so setup reuses the exact same path.
+// reconcile both database volumes → private neko-migrate container → pre-pull
+// the agent image → compose up the rest. Extracted from newStartCmd so setup
+// reuses the exact same path.
 func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, opts bringUpOptions) error {
 	m := mode
 	if m == "" {
@@ -151,9 +152,24 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 		quietPull = []string{"--quiet-pull"}
 	}
 
-	// Stage 1: run the one-shot migration to completion and capture its exit
-	// code directly. `run --rm` starts neko-db (its healthcheck dependency),
-	// runs the migrate command in the foreground, and returns its exit status.
+	// Stage 1: reconcile the two persisted database volumes before any
+	// application container can read or write them. `run --rm` starts both
+	// database services, waits for their healthchecks, and returns the storage
+	// gate's exit status directly. This step is never bypassed by --skip-migrate:
+	// schema changes may be operator-controlled, but an incompatible storage ABI
+	// must always fail closed.
+	reconcileArgs := append([]string{"run", "--rm", "-T"}, pullFlag...)
+	reconcileArgs = append(reconcileArgs, quietPull...)
+	reconcileArgs = append(reconcileArgs, "storage-reconcile")
+	if code, err := sup.Run(ctx, project, files, reconcileArgs, os.Stdout, os.Stderr); err != nil {
+		return err
+	} else if code != 0 {
+		return WithExit(code, fmt.Errorf("database storage reconciliation failed"))
+	}
+
+	// Stage 2: run the one-shot schema migration to completion and capture its
+	// exit code directly. Storage and database dependencies are already ready,
+	// so --no-deps prevents Compose from launching a duplicate reconciliation.
 	//
 	// We deliberately do NOT use `up -d neko-migrate` + a separate
 	// `compose wait`: on a re-deploy against an already-migrated database the
@@ -163,7 +179,7 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 	// A foreground `run` has no such race. The same command provisions the
 	// gateway's dedicated DB role even when --skip-migrate skips schema changes.
 	// No database port needs to cross the Docker network boundary.
-	migrateArgs := append([]string{"run", "--rm", "-T"}, pullFlag...)
+	migrateArgs := append([]string{"run", "--rm", "-T", "--no-deps"}, pullFlag...)
 	migrateArgs = append(migrateArgs, quietPull...)
 	migrateArgs = append(migrateArgs, "neko-migrate")
 	if code, err := sup.Run(ctx, project, files, migrateArgs, os.Stdout, os.Stderr); err != nil {
@@ -190,7 +206,7 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 		}
 	}
 
-	// Stage 2: bring up the rest.
+	// Stage 3: bring up the rest.
 	upArgs := []string{"up"}
 	if opts.detach {
 		upArgs = append(upArgs, "-d")

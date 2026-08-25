@@ -269,8 +269,10 @@ jobs:
         run: |
           set -euo pipefail
           # v2.30.4 measured 1459.5 MiB on linux/amd64 after deduplicating
-          # shared layers (1235.7 MiB on arm64). The budget retains enforcement
-          # while admitting the deliberately restored workspace runtime.
+          # shared layers (1235.7 MiB on arm64). The enforced Bookworm/glibc
+          # database ABI adds about 148 MiB once (neko-db and records-db share
+          # it; the demo still retains Alpine), leaving a narrow ceiling that
+          # still catches accidental growth.
           MAX_MIB=$(jq -er '.uniqueStack' scripts/image-size-budgets.json)
           bash scripts/check-image-stack-size.sh \
             "${{ steps.tag.outputs.value }}" \

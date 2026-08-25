@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import {
   atomicWriteFile,
+  migrateGraphjinSystemSource,
   patchGraphjinSourcesJwtSecret,
 } from "./sources-config.ts";
 
@@ -117,13 +118,21 @@ const { graphjinSigningSecretB64 } = await import("./token.ts");
 const secret = graphjinSigningSecretB64(orgId);
 
 const raw = await readFile(CONFIG_PATH, "utf8");
-const patched = patchGraphjinSourcesJwtSecret(raw, secret);
-if (patched.changed) {
+const migrated = migrateGraphjinSystemSource(raw);
+const patched = patchGraphjinSourcesJwtSecret(migrated.content, secret);
+if (migrated.changed || patched.changed) {
   await atomicWriteFile(CONFIG_PATH, patched.content);
+}
+if (migrated.changed) {
+  console.log(
+    `[graphjin-secret-init] migrated legacy GraphJin system source in ${CONFIG_PATH}`,
+  );
+}
+if (patched.changed) {
   console.log(
     `[graphjin-secret-init] reconciled per-org JWT secret in ${CONFIG_PATH} (org ${orgId})`,
   );
-} else {
+} else if (!migrated.changed) {
   console.log(
     `[graphjin-secret-init] per-org JWT secret already current in ${CONFIG_PATH} (org ${orgId})`,
   );

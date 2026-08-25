@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   SOURCES_SECRET_PLACEHOLDER,
   atomicWriteFile,
+  migrateGraphjinSystemSource,
   patchGraphjinSourcesJwtSecret,
   shouldReconcileDemoSourceAuthMode,
 } from "../src/graphjin/sources-config";
@@ -46,6 +47,72 @@ describe("patchGraphjinSourcesJwtSecret", () => {
     const patched = patchGraphjinSourcesJwtSecret(anonymous, "s==");
     expect(patched.changed).toBe(false);
     expect(patched.content).toBe(anonymous);
+  });
+});
+
+describe("migrateGraphjinSystemSource", () => {
+  it("moves the removed graphjin pseudo-source to top-level system config", () => {
+    const legacy = `mode: agentic
+sources:
+  - name: graphjin
+    kind: graphjin
+    capabilities:
+      config.write: true
+    access:
+      roots:
+        gj_catalog: authenticated
+        gj_config: admin
+  - name: adventureworks
+    kind: database
+    default: true
+`;
+
+    const migrated = migrateGraphjinSystemSource(legacy);
+
+    expect(migrated.changed).toBe(true);
+    expect(migrated.content).not.toContain("kind: graphjin");
+    expect(migrated.content).toContain("name: adventureworks");
+    expect(migrated.content).toContain("system:");
+    expect(migrated.content).toContain("catalog.read: true");
+    expect(migrated.content).toContain("config.write: true");
+    expect(migrated.content).toContain("gj_catalog: authenticated");
+    expect(migrated.content).toContain("gj_config: admin");
+  });
+
+  it("preserves explicit system restrictions while filling missing defaults", () => {
+    const legacy = `mode: agentic
+system:
+  capabilities:
+    config.write: false
+  root_access:
+    gj_catalog: admin
+sources:
+  - name: graphjin
+    kind: graphjin
+`;
+
+    const migrated = migrateGraphjinSystemSource(legacy);
+
+    expect(migrated.content).toContain("config.write: false");
+    expect(migrated.content).toContain("gj_catalog: admin");
+    expect(migrated.content).toContain("runtime.read: true");
+    expect(migrated.content).toContain("gj_runtime: admin");
+  });
+
+  it("leaves an already-current config byte-for-byte unchanged", () => {
+    const current = `mode: agentic
+system:
+  capabilities:
+    catalog.read: true
+sources:
+  - name: app
+    kind: database
+`;
+
+    expect(migrateGraphjinSystemSource(current)).toEqual({
+      content: current,
+      changed: false,
+    });
   });
 });
 
@@ -99,6 +166,7 @@ describe("atomicWriteFile", () => {
 describe("host-provision re-exports", () => {
   it("exposes the same functions as sources-config", () => {
     expect(hostProvision.patchGraphjinSourcesJwtSecret).toBe(patchGraphjinSourcesJwtSecret);
+    expect(hostProvision.migrateGraphjinSystemSource).toBe(migrateGraphjinSystemSource);
     expect(hostProvision.shouldReconcileDemoSourceAuthMode).toBe(
       shouldReconcileDemoSourceAuthMode,
     );

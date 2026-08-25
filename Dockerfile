@@ -48,43 +48,25 @@ RUN ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack 
     && corepack enable \
     && corepack prepare pnpm@9.14.1 --activate
 
-# Postgres data planes share one Alpine base and one pgBackRest layer. The
-# upstream pgvector image publishes Debian variants only, so build the pinned
-# extension into Postgres Alpine and remove the compiler toolchain in the same
-# layer. Records does not need pgvector itself, but reusing this exact image
-# makes the combined pull smaller than two independent Postgres roots.
-FROM postgres:16-alpine AS postgres-runtime
-ARG PGVECTOR_VERSION=0.8.6
-ARG PGVECTOR_SHA256=10bf9938906e5d643bbc4a7eea104b6f57ba4898e5b76b20e60484ea1d5a7f8f
-ARG PGBACKREST_VERSION=2.58.0-r0
+# Stateful Postgres data planes have an enforced storage ABI: PostgreSQL 16 on
+# Debian Bookworm/glibc. Text indexes persist in named volumes, so switching
+# their libc/collation provider (for example, to Alpine/musl) can make an
+# existing btree silently disagree with equality lookups. Keep the base
+# immutable. If its collation provider/version changes, bump the compiled
+# StorageContractVersion so existing volumes are rebuilt exactly once. Records
+# does not need pgvector, but sharing this exact base keeps the combined pull
+# deduplicated.
+FROM pgvector/pgvector:0.8.6-pg16-bookworm@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b AS postgres-runtime
+LABEL org.openneko.storage-contract="1"
 USER root
-# The Alpine pgBackRest package unnecessarily depends on the distribution's
-# current PostgreSQL server (18), while this image already has PostgreSQL 16 and
-# a compatible libpq. `apk fetch` still verifies the repository signature; only
-# its runtime payload is extracted, avoiding a second database server.
-#
-# The upstream Postgres build also records its LLVM compiler version. Disabling
-# extension bitcode avoids downloading that compiler; the native extension
-# remains fully functional and portable.
-RUN apk add --no-cache libbz2 libssh2 \
-    && apk fetch --no-cache --output /tmp pgbackrest \
-    && test -f "/tmp/pgbackrest-${PGBACKREST_VERSION}.apk" \
-    && tar -xzf "/tmp/pgbackrest-${PGBACKREST_VERSION}.apk" \
-      --exclude='.SIGN.*' --exclude='.PKGINFO' -C / \
-    && rm "/tmp/pgbackrest-${PGBACKREST_VERSION}.apk" \
-    && pgbackrest version \
-    && apk add --no-cache --virtual .pgvector-build build-base \
-    && wget -qO /tmp/pgvector.tar.gz \
-      "https://github.com/pgvector/pgvector/archive/refs/tags/v${PGVECTOR_VERSION}.tar.gz" \
-    && echo "${PGVECTOR_SHA256}  /tmp/pgvector.tar.gz" | sha256sum -c - \
-    && tar -xzf /tmp/pgvector.tar.gz -C /tmp \
-    && cd "/tmp/pgvector-${PGVECTOR_VERSION}" \
-    && make with_llvm=no OPTFLAGS="" \
-    && make with_llvm=no install \
-    && strip --strip-unneeded "$(pg_config --pkglibdir)/vector.so" \
-    && cd / \
-    && rm -rf /tmp/pgvector* \
-    && apk del .pgvector-build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      libssh2-1=1.10.0-3+b1 \
+      pgbackrest=2.58.0-1.pgdg12+1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.36" \
+    && test "$(pg_config --version)" = "PostgreSQL 16.15 (Debian 16.15-1.pgdg12+2)" \
+    && pgbackrest version | grep -Fx 'pgBackRest 2.58.0'
 COPY apps/worker/scripts/postgres-pgbackrest-entrypoint.sh /usr/local/bin/openneko-postgres-entrypoint
 RUN chmod 0755 /usr/local/bin/openneko-postgres-entrypoint
 ENTRYPOINT ["/usr/local/bin/openneko-postgres-entrypoint"]
@@ -507,9 +489,9 @@ CMD ["node", "--version"]
 # ─── 5c. neko-cli runtime ──────────────────────────────────────────────
 # Minimal image containing just the openneko Go binary. Used as the
 # `neko-migrate` one-shot container in compose: starts, runs
-# `openneko migrate`, exits. web / worker / neko-graphjin all depend on
-# its successful completion via service_completed_successfully, so by
-# the time they boot the schema is in place.
+# `openneko storage reconcile` and `openneko migrate`, then exits. Every
+# database consumer is gated on those one-shots, so persisted indexes and the
+# schema are both valid before application startup.
 #
 # The binary is static (CGO_ENABLED=0), so the distroless static image is the
 # complete runtime. Its Debian CA bundle keeps managed-Postgres TLS working.

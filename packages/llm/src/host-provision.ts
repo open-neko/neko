@@ -1,10 +1,10 @@
-import { realpathSync } from "node:fs";
 import { mkdir, chmod } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
 import { and, data_source, db, desc, eq, like, llm_provider_config, or } from "@neko/db";
 import { maybeDecryptSecret } from "./secrets";
+import { VENDORED_HERMES_MODEL_BINARY } from "./agent-runtime-contract";
 import { hermesHomeForOrg } from "./hermes-home";
 import {
   ensureOpenShellProvider,
@@ -16,7 +16,6 @@ const HERMES_DELEGATION_DEFAULT_MAX_ITERATIONS = 50;
 const HERMES_DELEGATION_DEFAULT_MAX_CONCURRENT_CHILDREN = 3;
 const HERMES_DELEGATION_DEFAULT_MAX_SPAWN_DEPTH = 1;
 const HERMES_DELEGATION_DEFAULT_CHILD_TIMEOUT_SECONDS = 0;
-const HERMES_PYTHON_ENTRYPOINT = "/usr/local/uv/tools/hermes-agent/bin/python";
 
 type StoredRow = {
   provider: string;
@@ -109,11 +108,13 @@ export {
   SOURCES_SECRET_PLACEHOLDER,
   SOURCES_JWT_SECRET_RE,
   LEGACY_PACKAGED_DEMO_GRAPHJIN_CONFIG,
+  migrateGraphjinSystemSource,
   patchGraphjinSourcesJwtSecret,
   shouldReconcileDemoSourceAuthMode,
 } from "./graphjin/sources-config";
 import {
   atomicWriteFile,
+  migrateGraphjinSystemSource,
   patchGraphjinSourcesJwtSecret,
   shouldReconcileDemoSourceAuthMode,
 } from "./graphjin/sources-config";
@@ -135,15 +136,16 @@ import {
  */
 async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
   const cfgPath = process.env.OPENNEKO_GRAPHJIN_CONFIG?.trim();
-  let wroteSecret = false;
+  let wroteConfig = false;
   let reconcileDemoAuthMode = false;
   if (cfgPath) {
     const { readFile } = await import("node:fs/promises");
     try {
       const raw = await readFile(cfgPath, "utf8");
       const { graphjinSigningSecretB64 } = await import("./graphjin/token");
+      const migrated = migrateGraphjinSystemSource(raw);
       const patched = patchGraphjinSourcesJwtSecret(
-        raw,
+        migrated.content,
         graphjinSigningSecretB64(orgId),
       );
       reconcileDemoAuthMode = shouldReconcileDemoSourceAuthMode(
@@ -151,16 +153,16 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
         patched.content,
         process.env.OPENNEKO_STACK_MODE,
       );
-      if (patched.changed) {
+      if (migrated.changed || patched.changed) {
         await atomicWriteFile(cfgPath, patched.content);
-        wroteSecret = true;
+        wroteConfig = true;
         console.log(
-          `[host-provision] reconciled per-org JWT secret in ${cfgPath} (sources mode)`,
+          `[host-provision] reconciled GraphJin agentic config in ${cfgPath}`,
         );
       }
     } catch (e) {
       console.warn(
-        `[host-provision] graphjin config secret write failed: ${e instanceof Error ? e.message : e}`,
+        `[host-provision] GraphJin agentic config reconciliation failed: ${e instanceof Error ? e.message : e}`,
       );
     }
   }
@@ -201,11 +203,11 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
       "[host-provision] reconciled packaged demo data source auth_mode=jwt",
     );
   }
-  if (authMode === "jwt" && !wroteSecret) return;
+  if (authMode === "jwt" && !wroteConfig) return;
 
   const { mintGraphjinToken } = await import("./graphjin/token");
   const token = mintGraphjinToken({ orgId, userId: null, role: "service" });
-  // Only when WE just wrote the secret does the server need a reload
+  // Only when WE just changed the config does the server need a reload
   // window (reload_on_config_change, observed ~10s on 3.18.37). An
   // in-stack GraphJin may simply still be starting alongside us, so give
   // it a few short attempts; an unmanaged external or legacy endpoint
@@ -213,7 +215,7 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
   const inStackGraphjin = /^https?:\/\/(graphjin|neko-graphjin|records-graphjin)[:/]/.test(
     src.graphqlUrl,
   );
-  const maxAttempts = wroteSecret ? 6 : inStackGraphjin ? 4 : 1;
+  const maxAttempts = wroteConfig ? 6 : inStackGraphjin ? 4 : 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const res = await fetch(src.graphqlUrl, {
@@ -323,24 +325,7 @@ function readBoolEnv(name: string, fallback: boolean): boolean {
   return fallback;
 }
 
-/**
- * OpenShell binds network policy to the caller reported by /proc/<pid>/exe.
- * Hermes is a Python console script, so that identity is the fully resolved
- * uv-managed interpreter, not /usr/local/bin/hermes or its versionless
- * symlink. Resolve it from the runtime image instead of pinning a Python patch
- * version that can change when uv refreshes its managed 3.11 installation.
- */
-export function resolveHermesModelBinary(
-  entrypoint = HERMES_PYTHON_ENTRYPOINT,
-): string {
-  try {
-    return realpathSync(entrypoint);
-  } catch {
-    // Local source-only tooling may provision config without the container
-    // toolchain installed. Production images assert this entrypoint exists.
-    return entrypoint;
-  }
-}
+export { VENDORED_HERMES_MODEL_BINARY } from "./agent-runtime-contract";
 
 function hermesDelegationConfigLines(): string[] {
   const maxIterations = readIntEnv(
@@ -440,7 +425,7 @@ const PROVIDER_API_HOSTS: Record<string, string> = {
  */
 function deriveAgentEgress(
   row: StoredRow,
-): { hosts: string[]; binary: string; keyEnv: string } {
+): { hosts: string[]; keyEnv: string } {
   const cfg = (row.config ?? {}) as { url?: string; baseUrl?: string };
   const baseUrl = cfg.baseUrl || cfg.url;
   let host: string | undefined;
@@ -454,20 +439,21 @@ function deriveAgentEgress(
   host ??= PROVIDER_API_HOSTS[row.provider];
   return {
     hosts: [...(host ? [host] : []), "models.dev"],
-    binary: resolveHermesModelBinary(),
     keyEnv: mapHermesProvider(row.provider).keyVar,
   };
 }
 
 /**
  * Self-configure the agent sandbox from the org's model config — derive the
- * egress (host/binary/key-env; explicit env overrides win) and sync the
+ * egress (host/key-env; explicit env overrides win) and sync the
  * model key into a gateway-side provider so the proxy injects it on the
  * wire (the key never enters the box). Replaces the manual `openshell
  * provider create` + hand-set egress env.
  */
-// Operator-supplied values (compose env) win permanently; empty or unset
-// means "derive from the org's provider config". Snapshotted at module load,
+// Operator-supplied provider/host/key/home values win permanently; empty or
+// unset means "derive from the org's provider config". The model executable is
+// intentionally absent: it is a vendored runtime contract, never an operator
+// setting. Values here are snapshotted at module load,
 // BEFORE any provisioning pass mutates process.env — the previous `||=`
 // writes made the FIRST pass's derived values permanent, so a provider
 // switch left the sandbox egress allowlist and key env var pinned to the old
@@ -475,7 +461,6 @@ function deriveAgentEgress(
 const OPERATOR_AGENT_ENV = {
   provider: process.env.OPENNEKO_AGENT_MODEL_PROVIDER || "",
   host: process.env.OPENNEKO_AGENT_MODEL_HOST || "",
-  binary: process.env.OPENNEKO_AGENT_MODEL_BINARY || "",
   keyEnv: process.env.OPENNEKO_AGENT_MODEL_KEY_ENV || "",
   hermesHome: process.env.OPENNEKO_AGENT_HERMES_HOME || "",
 };
@@ -490,10 +475,9 @@ async function provisionOpenShellRuntime(orgId: string): Promise<void> {
   const row = await loadProviderRow(orgId, "primary");
   if (!row || !row.enabled) return;
 
-  const { hosts, binary, keyEnv } = deriveAgentEgress(row);
+  const { hosts, keyEnv } = deriveAgentEgress(row);
   setAgentEnv("OPENNEKO_AGENT_MODEL_PROVIDER", OPERATOR_AGENT_ENV.provider, "openneko-agent");
   setAgentEnv("OPENNEKO_AGENT_MODEL_HOST", OPERATOR_AGENT_ENV.host, hosts.join(","));
-  setAgentEnv("OPENNEKO_AGENT_MODEL_BINARY", OPERATOR_AGENT_ENV.binary, binary);
   setAgentEnv("OPENNEKO_AGENT_MODEL_KEY_ENV", OPERATOR_AGENT_ENV.keyEnv, keyEnv);
   // hermes reads its model + provider from config.yaml under HERMES_HOME. In the
   // sandbox that config must be MIRRORED in — the launcher does so when
@@ -536,7 +520,7 @@ async function provisionOpenShellRuntime(orgId: string): Promise<void> {
   }
   if (lastError !== undefined) throw lastError;
   console.log(
-    `[host-provision] OpenShell agent runtime self-configured: provider="${process.env.OPENNEKO_AGENT_MODEL_PROVIDER}" egress="${hosts.join(",")}" binary="${process.env.OPENNEKO_AGENT_MODEL_BINARY}" keyEnv=${keyEnv}`,
+    `[host-provision] OpenShell agent runtime self-configured: provider="${process.env.OPENNEKO_AGENT_MODEL_PROVIDER}" egress="${hosts.join(",")}" binary="${VENDORED_HERMES_MODEL_BINARY}" keyEnv=${keyEnv}`,
   );
 }
 

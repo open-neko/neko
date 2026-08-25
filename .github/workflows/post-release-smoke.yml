@@ -148,14 +148,38 @@ jobs:
           agent_binary=$(resolve_interpreter \
             "ghcr.io/open-neko/agent:$OPENNEKO_VERSION")
           configured_binary=$(docker run --rm --entrypoint node \
+            -e OPENNEKO_AGENT_MODEL_BINARY=/stale/operator/python \
             "ghcr.io/open-neko/neko-worker:$OPENNEKO_VERSION" \
             --import tsx/esm --input-type=module --eval \
-            'import { resolveHermesModelBinary } from "@neko/llm"; console.log(resolveHermesModelBinary())')
+            'import { VENDORED_HERMES_MODEL_BINARY } from "@neko/llm"; console.log(VENDORED_HERMES_MODEL_BINARY)')
           echo "worker Hermes executable: $worker_binary"
           echo "agent Hermes executable:  $agent_binary"
           echo "OpenNeko policy executable: $configured_binary"
           test "$worker_binary" = "$agent_binary"
           test "$configured_binary" = "$agent_binary"
+
+      - name: Verify enforced database storage contract
+        if: ${{ steps.ctx.outputs.build_ok == 'true' }}
+        env:
+          OPENNEKO_VERSION: ${{ steps.ctx.outputs.tag }}
+        run: |
+          set -euo pipefail
+          contract=$(docker run --rm \
+            "ghcr.io/open-neko/neko-cli:$OPENNEKO_VERSION" \
+            storage contract)
+          echo "OpenNeko storage contract: $contract"
+          test "$contract" = "1"
+          for image in neko-db records-db; do
+            ref="ghcr.io/open-neko/${image}:$OPENNEKO_VERSION"
+            image_contract=$(docker image inspect \
+              --format '{{ index .Config.Labels "org.openneko.storage-contract" }}' \
+              "$ref")
+            runtime=$(docker run --rm --entrypoint sh "$ref" -ceu \
+              'printf "%s / %s\n" "$(getconf GNU_LIBC_VERSION)" "$(pg_config --version)"')
+            echo "$image: contract=$image_contract runtime=$runtime"
+            test "$image_contract" = "$contract"
+            test "$runtime" = "glibc 2.36 / PostgreSQL 16.15 (Debian 16.15-1.pgdg12+2)"
+          done
 
       - name: openneko start (detached) against pre-pulled images
         if: ${{ steps.ctx.outputs.build_ok == 'true' }}
@@ -182,6 +206,46 @@ jobs:
           openneko status -v || true
           openneko logs || true
           exit 1
+
+      - name: Verify reconciled database volumes and pg-boss equality
+        if: ${{ steps.ctx.outputs.build_ok == 'true' }}
+        run: |
+          set -euo pipefail
+          container_for() {
+            docker ps -q \
+              --filter label=com.docker.compose.project=openneko-prod \
+              --filter "label=com.docker.compose.service=$1" | head -1
+          }
+          neko_db=$(container_for neko-db)
+          records_db=$(container_for records-db)
+          worker=$(container_for worker)
+          test -n "$neko_db"
+          test -n "$records_db"
+          test -n "$worker"
+
+          verify_contract() {
+            container=$1
+            user=$2
+            database=$3
+            marker=$(docker exec "$container" psql -v ON_ERROR_STOP=1 -U "$user" -d "$database" -Atc \
+              "select contract_version = 1 from openneko_internal.storage_contract where singleton = 1;")
+            collation=$(docker exec "$container" psql -v ON_ERROR_STOP=1 -U "$user" -d "$database" -Atc \
+              "select datcollversion = pg_database_collation_actual_version(oid) and datcollversion = '2.36' from pg_database where datname = current_database();")
+            test "$marker" = "t"
+            test "$collation" = "t"
+          }
+          verify_contract "$neko_db" neko neko
+          verify_contract "$records_db" records records
+
+          # Match the production failure exactly: the parent row must be found
+          # through indexed equality, or pg-boss's send-it FK insert fails.
+          test "$(docker exec "$neko_db" psql -v ON_ERROR_STOP=1 -U neko -d neko -Atc \
+            "select exists(select 1 from pgboss.queue where name = '__pgboss__send-it');")" = "t"
+          if docker logs --since 5m "$worker" 2>&1 | grep -F \
+            'violates foreign key constraint "q_fkey"'; then
+            echo "::error::pg-boss send-it FK failure survived storage reconciliation"
+            exit 1
+          fi
 
       - name: OpenShell sandbox callback smoke
         if: ${{ steps.ctx.outputs.build_ok == 'true' }}

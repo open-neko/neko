@@ -172,6 +172,16 @@ func restartUpgradedStack(ctx context.Context, sup *compose.Supervisor, project 
 		return err
 	}
 	configureOpenShellDBURL()
+	// Enter a real maintenance boundary before replacing either database image.
+	// Without this, old worker/GraphJin containers can reconnect in the window
+	// between Postgres becoming healthy and the new storage-reconcile one-shot
+	// acquiring its locks. Stopping the whole project is intentionally simple:
+	// no database consumer can be omitted as the service graph evolves.
+	if code, err := sup.Run(ctx, project, files, []string{"stop"}, os.Stdout, os.Stderr); err != nil {
+		return err
+	} else if code != 0 {
+		return WithExit(code, fmt.Errorf("failed to enter upgrade maintenance mode"))
+	}
 	// Force the one-shot init containers onto the current network too. Compose
 	// otherwise reuses already-exited containers during the one-time migration
 	// from the legacy dynamic <project>_default network, leaving them unable to
