@@ -146,8 +146,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=openshell-bin /usr/local/bin/openshell /usr/local/bin/openshell
 
-# Pinned GraphJin binary shared by the Records-aware worker, sandbox agent, and
-# the two dedicated GraphJin runtimes.
+# Pinned GraphJin binary used by the Records-aware worker and dedicated
+# GraphJin runtimes. The sandbox agent deliberately does not inherit it.
 FROM debian:bookworm-slim AS graphjin-bin
 ARG GRAPHJIN_VERSION=3.20.47
 ARG GRAPHJIN_ASSET_AMD64=527162704
@@ -163,14 +163,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/* \
     && graphjin version
 
-# The worker and sandbox agent both require npm plus the pinned GraphJin CLI.
-# Keeping those payloads in one common parent makes their large GraphJin layer
-# byte-identical, so the worker reuses the payload already required by the agent.
+# The worker requires npm plus the pinned GraphJin CLI.
 FROM npm-runtime AS graphjin-node-runtime
 COPY --from=graphjin-bin /usr/local/bin/graphjin /usr/local/bin/graphjin
 
-# ─── 2b. agent runtime: Hermes + GraphJin (sandbox only) ───────────────
-FROM graphjin-node-runtime AS agent-base
+# ─── 2b. agent runtime: Hermes (sandbox only) ─────────────────────────
+# Customer data is available only through the host broker, so this stage must
+# not inherit the native GraphJin client or its independently versioned state.
+FROM npm-runtime AS agent-base
 ARG HERMES_AGENT_REF=a91a57fa5a13d516c38b07a141a9ce8a3daabeb0
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git python3 python3-pip \
@@ -490,7 +490,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends iproute2 nftabl
 RUN groupadd -g 1000660000 sandbox \
     && useradd -u 1000660000 -g sandbox -d /sandbox -M sandbox \
     && install -d -o sandbox -g sandbox /sandbox \
-    && rm -f /usr/local/bin/graphjin \
     && test ! -e /usr/local/bin/graphjin
 # Keep the runtime payload immutable; only /sandbox is writable by the agent.
 COPY --from=agent-deploy --chown=root:root /out/agent-app /app

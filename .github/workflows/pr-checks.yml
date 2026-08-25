@@ -30,9 +30,14 @@ jobs:
       - name: Re-run preflight from the final image
         run: |
           docker run --rm \
+            --user 1000660000:1000660000 \
             --entrypoint node \
             openneko/agent:pr-check \
             /app/agent-entry.js --preflight
+          docker run --rm \
+            --entrypoint /bin/sh \
+            openneko/agent:pr-check \
+            -c 'test ! -e /usr/local/bin/graphjin'
 
   records-recovery:
     name: Records recovery
@@ -89,7 +94,10 @@ jobs:
           cache: pnpm
 
       - name: Install
-        run: AX_SKIP_SKILL_INSTALL=1 pnpm install --frozen-lockfile
+        run: >-
+          AX_SKIP_SKILL_INSTALL=1
+          ONNXRUNTIME_NODE_INSTALL=skip
+          pnpm install --frozen-lockfile
 
       - name: Build the pinned GraphJin runtime
         run: |
