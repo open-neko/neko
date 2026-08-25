@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.30.6](https://github.com/open-neko/openneko/compare/v2.30.5...v2.30.6) (2026-08-25)
+
+
+### Bug Fixes
+
+* **ci:** avoid GraphJin release API rate limits ([5221b58](https://github.com/open-neko/openneko/commit/5221b5860159e9d32c1ca0fbca75840ad59c41e5))
+* **ci:** download pinned GraphJin release directly ([0334497](https://github.com/open-neko/openneko/commit/0334497b2fa4ffbe82fc586ccbf5158bfbac6406))
+
 ## [2.30.5](https://github.com/open-neko/openneko/compare/v2.30.4...v2.30.5) (2026-08-25)
 
 

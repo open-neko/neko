@@ -1,6 +1,6 @@
 {
   "name": "@neko/worker",
-  "version": "2.30.5",
+  "version": "2.30.6",
   "private": true,
   "type": "module",
   "scripts": {
