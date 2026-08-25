@@ -23,7 +23,11 @@ import type { RunWorkflowAgentBackendInput } from "../src/workflows/agent-core";
  */
 const h = vi.hoisted(() => {
   const calls: { args: string[] }[] = [];
-  const state = { holdExec: false, collideOnNextCreate: false };
+  const state = {
+    holdExec: false,
+    collideOnNextCreate: false,
+    execLines: undefined as string[] | undefined,
+  };
   function spawn(_cmd: string, args: string[]) {
     calls.push({ args });
     const isExec = args.includes("exec");
@@ -46,7 +50,7 @@ const h = vi.hoisted(() => {
         : [],
     );
     const lines = isExec
-      ? [
+      ? state.execLines ?? [
           'noise before\n',
           `\n__openneko_event__${JSON.stringify({ type: "message", role: "assistant", content: "hi" })}\n`,
           `\n__openneko_agent_result__${JSON.stringify({ status: "completed", finalText: "hi there", backendState: { t: 1 } })}\n`,
@@ -367,6 +371,7 @@ describe("makeSandboxRunCore", () => {
     h.calls.length = 0;
     h.state.holdExec = false;
     h.state.collideOnNextCreate = false;
+    h.state.execLines = undefined;
     jobCapture.jobs.length = 0;
     jobCapture.policies.length = 0;
   });
@@ -436,6 +441,88 @@ describe("makeSandboxRunCore", () => {
     expect(execCommand).not.toContain("HERMES_DISABLE_LAZY_INSTALLS");
     // the credential alias references the OpenShell-injected var at runtime, never a value:
     expect(execCommand).toContain('export GEMINI_API_KEY="$api_key"');
+  });
+
+  it("serializes and drains streamed events before accepting the result", async () => {
+    h.state.execLines = [
+      `__openneko_event__${JSON.stringify({ type: "message", role: "assistant", content: "first" })}\n`,
+      `__openneko_event__${JSON.stringify({ type: "message", role: "assistant", content: "second" })}\n`,
+      `__openneko_agent_result__${JSON.stringify({ status: "completed", finalText: "firstsecond" })}\n`,
+    ];
+    const events: string[] = [];
+    let activeEmits = 0;
+    let maxActiveEmits = 0;
+    const runCore = makeSandboxRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    const result = await runCore(
+      fakeInput(async (event) => {
+        if (event.type !== "message") return;
+        activeEmits += 1;
+        maxActiveEmits = Math.max(maxActiveEmits, activeEmits);
+        if (event.content === "first") {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        events.push(event.content);
+        activeEmits -= 1;
+      }),
+    );
+
+    expect(result.status).toBe("completed");
+    expect(events).toEqual(["first", "second"]);
+    expect(maxActiveEmits).toBe(1);
+  });
+
+  it("rejects an empty completed result with no answer event", async () => {
+    h.state.execLines = [
+      `__openneko_agent_result__${JSON.stringify({ status: "completed", finalText: "", rawText: "" })}\n`,
+    ];
+    const runCore = makeSandboxRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    await expect(runCore(fakeInput(async () => {}))).rejects.toThrow(
+      /completed without assistant output or surface/,
+    );
+  });
+
+  it("rejects the run when ordered event delivery fails", async () => {
+    const runCore = makeSandboxRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    await expect(
+      runCore(
+        fakeInput(async (event) => {
+          if (event.type === "message") throw new Error("database unavailable");
+        }),
+      ),
+    ).rejects.toThrow(/agent event delivery failed: database unavailable/);
+  });
+
+  it("accepts a surface-only completed result", async () => {
+    h.state.execLines = [
+      `__openneko_event__${JSON.stringify({ type: "surface", messages: [{ version: "v1.0" }] })}\n`,
+      `__openneko_agent_result__${JSON.stringify({ status: "completed", finalText: "", rawText: "" })}\n`,
+    ];
+    const events: AgentEvent[] = [];
+    const runCore = makeSandboxRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+
+    const result = await runCore(
+      fakeInput(async (event) => void events.push(event)),
+    );
+
+    expect(result.status).toBe("completed");
+    expect(events.filter((event) => event.type === "surface")).toEqual([
+      expect.objectContaining({ type: "surface" }),
+    ]);
   });
 
   it("replaces an orphaned sandbox when a durable retry collides on the run name", async () => {
