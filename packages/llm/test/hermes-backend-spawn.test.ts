@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createMockSpawn, makeController } from "./helpers/fake-acp-process";
+import {
+  chunkNotification,
+  createMockSpawn,
+  makeController,
+} from "./helpers/fake-acp-process";
 
 const controller = makeController();
 
@@ -15,7 +19,11 @@ vi.mock("node:child_process", async () => {
 
 beforeEach(() => {
   controller.spawnCalls.length = 0;
-  controller.setScript({});
+  controller.setScript({
+    notificationsByMethod: {
+      "session/prompt": [chunkNotification("sess-1", "OK")],
+    },
+  });
 });
 
 afterEach(() => {

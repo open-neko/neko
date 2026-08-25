@@ -45,6 +45,21 @@ Docker stage runs it during the image build, and PR CI builds the final agent
 image and runs it again. Release smoke tests therefore exercise the same
 contract used by OpenShell sandbox creation.
 
+## Turn protocol guarantees
+
+The tagged stdout protocol is ordered and lossless at the process boundary:
+
+1. Agent events are delivered to the host serially in marker order.
+2. The launcher drains every event handler before accepting the result marker.
+3. A `completed` result must contain assistant output or be accompanied by a
+   user-visible surface event. A content-free ACP `end_turn` is retried only
+   when no tool activity occurred; if it repeats, the run fails with an
+   explicit diagnostic instead of persisting an empty success.
+
+These guarantees are behavioral parts of the runtime artifact contract. Keep
+the delayed-event, empty-completion, and surface-only regression tests when
+changing the bundle, launcher, backend, or stdout protocol.
+
 ## Changing runtime dependencies
 
 When sandbox code starts reading a new filesystem resource, add it to

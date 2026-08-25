@@ -138,6 +138,72 @@ describe("HermesBackend ACP behavior", () => {
     expect(result.finalText).toBe("abc");
   });
 
+  it("retries a content-free end_turn, then fails instead of completing empty", async () => {
+    let promptCalls = 0;
+    controller.setScript({
+      responders: {
+        "session/new": () => ({ sessionId: `sess-empty-${promptCalls}` }),
+        "session/prompt": () => {
+          promptCalls += 1;
+          return { stopReason: "end_turn" };
+        },
+      },
+    });
+    const events: Array<{ type: string; message?: string }> = [];
+    const backend = new HermesBackend();
+
+    const result = await backend.run({
+      prompt: "p",
+      workspace: FAKE_WORKSPACE,
+      retries: 1,
+      onEvent: (event) => {
+        events.push(event as { type: string; message?: string });
+      },
+    });
+
+    expect(promptCalls).toBe(2);
+    expect(result).toMatchObject({
+      status: "failed",
+      finalText: "",
+      error: expect.stringContaining("completed without assistant output"),
+    });
+    expect(events.filter((event) => event.type === "error")).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("stopReason=end_turn"),
+      }),
+    ]);
+  });
+
+  it("awaits async event handlers in chunk order before returning", async () => {
+    const sessionId = "sess-ordered-events";
+    controller.setScript({
+      responders: {
+        "session/new": () => ({ sessionId }),
+        "session/prompt": (_p, ctx) => {
+          ctx.emitNotification(chunkNotification(sessionId, "first"));
+          ctx.emitNotification(chunkNotification(sessionId, "second"));
+          return { stopReason: "end_turn" };
+        },
+      },
+    });
+    const contents: string[] = [];
+    const backend = new HermesBackend();
+
+    await backend.run({
+      prompt: "p",
+      workspace: FAKE_WORKSPACE,
+      onEvent: async (event) => {
+        if (event.type !== "message") return;
+        if (event.content === "first") {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        contents.push(event.content);
+      },
+    });
+
+    expect(contents).toEqual(["first", "second"]);
+  });
+
   it("emits tool_start then tool_end with matching toolCallId", async () => {
     const sessionId = "sess-tool";
     controller.setScript({

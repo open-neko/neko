@@ -8,6 +8,7 @@ import { join } from "node:path";
 import {
   agentTurnTimeoutMs,
   type AgentBackend,
+  type AgentEvent,
   type AgentRunOptions,
   type AgentRunResult,
   type AgentTokenUsage,
@@ -261,7 +262,11 @@ export class HermesBackend implements AgentBackend {
       await onEvent({ type: "status", message: "Hermes is working…" });
     }
 
-    const maxAttempts = onEvent ? 1 : retries + 1;
+    // Streaming turns normally cannot be retried because replaying tool and
+    // message events would duplicate visible work. A completely empty ACP
+    // turn is the exception: runOnce marks it retryable only when Hermes
+    // emitted neither content nor tool activity.
+    const maxAttempts = retries + 1;
     let lastErr: Error | undefined;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -286,6 +291,13 @@ export class HermesBackend implements AgentBackend {
               `[hermes] attempt ${attempt + 1}/${maxAttempts} failed: ${out.error}`,
             );
           }
+          if (onEvent && !out.retryable) break;
+          if (onEvent && attempt + 1 < maxAttempts) {
+            await onEvent({
+              type: "status",
+              message: "Hermes returned no output; retrying…",
+            });
+          }
           continue;
         }
         return {
@@ -301,6 +313,7 @@ export class HermesBackend implements AgentBackend {
             `[hermes] attempt ${attempt + 1}/${maxAttempts} failed: ${lastErr.message}`,
           );
         }
+        if (onEvent) break;
       }
     }
 
@@ -333,6 +346,7 @@ type RunOnceOutcome = {
   finalText: string;
   rawText?: string;
   error?: string;
+  retryable?: boolean;
 };
 
 async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
@@ -529,6 +543,19 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
     let accumulatedText = "";
     let emittedOutsideLen = 0;
     let surfaceEmittedDuringStream = false;
+    let toolActivityObserved = false;
+    let eventQueue = Promise.resolve();
+    let eventError: Error | undefined;
+    const emitQueued = (event: AgentEvent): void => {
+      if (!onEvent) return;
+      eventQueue = eventQueue.then(async () => {
+        try {
+          await onEvent(event);
+        } catch (error) {
+          eventError ??= error instanceof Error ? error : new Error(String(error));
+        }
+      });
+    };
 
     client.onNotification((notif) => {
       const update = notif.update;
@@ -542,7 +569,7 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
             const delta = outside.slice(emittedOutsideLen);
             if (delta) {
               emittedOutsideLen = outside.length;
-              void onEvent({ type: "message", role: "assistant", content: delta });
+              emitQueued({ type: "message", role: "assistant", content: delta });
             }
             // Streaming surface emit: the fence regex requires a closing ```,
             // so a partial fence returns no messages and we wait for the next chunk.
@@ -550,17 +577,18 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
               const parsed = extractSurfaceMessages(accumulatedText);
               if (parsed.messages.length > 0) {
                 surfaceEmittedDuringStream = true;
-                void onEvent({ type: "surface", messages: parsed.messages });
+                emitQueued({ type: "surface", messages: parsed.messages });
               }
             }
           }
           return;
         }
         case "agent_thought_chunk": {
-          if (debug && onEvent) void onEvent({ type: "status", message: "Thinking…" });
+          if (debug) emitQueued({ type: "status", message: "Thinking…" });
           return;
         }
         case "tool_call": {
+          toolActivityObserved = true;
           if (!onEvent) return;
           // A render_cards call IS the answer surface, not a tool step: pull the
           // a2ui messages from the call input and emit them, skipping the pill.
@@ -570,11 +598,11 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
             );
             if (messages.length > 0) {
               surfaceEmittedDuringStream = true;
-              void onEvent({ type: "surface", messages });
+              emitQueued({ type: "surface", messages });
             }
             return;
           }
-          void onEvent({
+          emitQueued({
             type: "tool_start",
             id: update.toolCallId,
             name: update.kind || "tool",
@@ -587,18 +615,19 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
           return;
         }
         case "tool_call_update": {
+          toolActivityObserved = true;
           if (!onEvent) return;
           const id = update.toolCallId;
           const status = update.status;
           if (status === "completed" || status === "failed") {
-            void onEvent({
+            emitQueued({
               type: "tool_end",
               id,
               result: status === "completed" ? update.rawOutput ?? update.content : undefined,
               error: status === "failed" ? extractErrorText(update.content ?? update.rawOutput) : undefined,
             });
           } else {
-            void onEvent({
+            emitQueued({
               type: "tool_delta",
               id,
               delta: { status: status ?? "in_progress", content: update.content, rawOutput: update.rawOutput },
@@ -609,7 +638,7 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
         case "plan": {
           if (!onEvent) return;
           const next = update.entries.find((e) => e.status !== "completed");
-          if (next) void onEvent({ type: "status", message: next.content });
+          if (next) emitQueued({ type: "status", message: next.content });
           return;
         }
         default:
@@ -618,15 +647,18 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
     });
 
     let promptError: string | undefined;
+    let promptStopReason: string | undefined;
+    let promptUsage: ReturnType<typeof normalizeHermesUsage>;
     try {
-      const promptResponse = await client.request<{ usage?: unknown }>("session/prompt", {
+      const promptResponse = await client.request<{
+        usage?: unknown;
+        stopReason?: string;
+      }>("session/prompt", {
         sessionId,
         prompt: [{ type: "text", text: prompt }],
       });
-      const usage = normalizeHermesUsage(promptResponse.usage);
-      if (onEvent && usage) {
-        await onEvent({ type: "usage", source: "outer", usage });
-      }
+      promptStopReason = promptResponse.stopReason;
+      promptUsage = normalizeHermesUsage(promptResponse.usage);
     } catch (e) {
       if (e instanceof AcpProtocolError) {
         promptError = `hermes: ${e.message}`;
@@ -641,6 +673,28 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
     if (promptError) {
       return { finalText: "", error: promptError };
     }
+    await eventQueue;
+    if (eventError) throw eventError;
+
+    // ACP considers `end_turn` with no chunks a valid protocol response. It is
+    // not a valid OpenNeko answer: accepting it used to persist a green run
+    // with no assistant message, leaving the UI apparently dead. Retry only
+    // when no tool ran, then fail with an explicit diagnostic.
+    if (!accumulatedText.trim() && !surfaceEmittedDuringStream) {
+      return {
+        finalText: "",
+        error:
+          `hermes completed without assistant output or surface` +
+          ` (stopReason=${promptStopReason ?? "unknown"})`,
+        retryable: !toolActivityObserved,
+      };
+    }
+
+    if (promptUsage) {
+      emitQueued({ type: "usage", source: "outer", usage: promptUsage });
+      await eventQueue;
+      if (eventError) throw eventError;
+    }
 
     let finalText = accumulatedText;
     if (onEvent) {
@@ -648,7 +702,9 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
       const markdownText = extractMarkdownText(parsed.messages);
       finalText = (markdownText || parsed.text).trim();
       if (parsed.messages.length > 0 && !surfaceEmittedDuringStream) {
-        await onEvent({ type: "surface", messages: parsed.messages });
+        emitQueued({ type: "surface", messages: parsed.messages });
+        await eventQueue;
+        if (eventError) throw eventError;
       }
     }
 
