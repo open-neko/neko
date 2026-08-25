@@ -37,7 +37,7 @@ treated as untrusted code and runs in a default-deny sandbox:
             │                                         ▼
             │                              ┌───────────────────────────┐
             │   launch + stream  ─────────▶│  OpenShell sandbox         │
-            │   (events over stdout/SSE)   │   agent-entry.js            │
+            │   (events over stdout/SSE)   │   worker workspace + tsx    │
             │                              │   → Hermes (ACP/MCP)        │
             │                              └────────────┬──────────────┘
             │                                  egress (default-deny)
@@ -56,9 +56,17 @@ the box; the trusted halves stay on the host. Both the worker (channel messages)
 and the web chat route launch the sandbox through the same shared launcher
 (`@neko/llm/work` `makeSandboxRunCore`).
 
-**Runtime.** Hermes streams output and uses MCP tools through the host-side
-broker. Action/workflow fences are parsed host-side, and model credentials are
-injected by the gateway rather than copied into the sandbox.
+**Runtime.** The image uses the v2.28 architecture: a production `pnpm deploy`
+closure of the worker workspace, with the sandbox entrypoint executed from
+source through its deployed `tsx` dependency. Hermes streams output and uses
+MCP tools through the host-side broker. Action/workflow fences are parsed
+host-side, and model credentials are injected by the gateway rather than copied
+into the sandbox. GraphJin follows the same contract: work and workflow reads
+use the native `neko_graphjin` MCP server with an actor-bound broker token;
+background agent jobs use an explicit service identity. The GraphJin binary,
+source URL, and credentials are absent from the agent image, so there is no
+shell or raw-HTTP fallback when the broker contract is unavailable—the run
+fails closed instead.
 
 ## Configuration (developer / advanced)
 

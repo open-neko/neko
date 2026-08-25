@@ -62,6 +62,7 @@ describe("runWorkflowAgentBackend", () => {
     expect(captured?.mcpServers).toEqual(
       expect.objectContaining({
         neko_action: expect.anything(),
+        neko_graphjin: expect.anything(),
         neko_memory: expect.anything(),
         neko_workflow_output: expect.anything(),
       }),

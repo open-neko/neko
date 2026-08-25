@@ -17,7 +17,7 @@ import { resolveResearchProviderConfig, runProfiler } from "@neko/llm";
  * business_profile_build job handler.
  *
  * 1. Load the org's data source (mcp_url) and wizard company_note.
- * 2. Run the profiler agent through Hermes, query via \`graphjin cli\`, and
+ * 2. Run the profiler agent through Hermes, query via the native broker, and
  *    synthesizes a markdown business profile.
  * 3. Retire the previous current customer_profile, insert the new one.
  * 4. Chain: enqueue an industry_insights_build job via pg-boss. The

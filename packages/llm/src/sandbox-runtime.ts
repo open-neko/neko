@@ -24,11 +24,6 @@ export {
   type PluginActionDescriptor,
 } from "./work/tools";
 export {
-  ensureGraphjinGuard,
-  resolveBinaryOnPath,
-} from "./work/graphjin-guard";
-export { sandboxReachableUrl } from "./work/sandbox-net";
-export {
   getBuiltinSkillsRoot,
   materializeBuiltinSkills,
 } from "./work/workspace";

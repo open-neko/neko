@@ -1,6 +1,6 @@
 // Tool-output token instrumentation. Confirms where the /work loop actually
 // spends tokens before we change any agent behavior. Every tool result (most
-// importantly GraphJin's `graphjin cli` JSON stdout) is measured here: raw
+// importantly GraphJin query-tool JSON output) is measured here: raw
 // bytes, an estimated token count, and — by running the lossless compactor in
 // "dry-run" — the tokens we COULD save. Nothing the model sees changes; this is
 // a measurement probe, gated entirely behind OPENNEKO_TOOL_OUTPUT_METRICS so

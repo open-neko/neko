@@ -104,8 +104,8 @@ function installedKindsBlock(
 Installed action kinds — when a step calls for one of these, use the
 EXACT \`kind\` value below; do NOT substitute a generic kind like
 \`send_message\` (the policy rules and the executing adapter both match
-on the exact kind, so a generic name silently fails to route). Use the
-listed scope exactly too:
+on the exact kind, so a generic name silently fails to route).
+Always use the exact scope listed for an installed kind:
 ${rows}
 `;
 }
@@ -220,10 +220,15 @@ export function buildWorkflowRunnerPrompt(
   input: BuildWorkflowRunnerPromptInput,
 ): string {
   const { workflow, mode, memoryContext, mcpTools, backend, workspace, knowledge } = input;
+  if (!mcpTools) {
+    throw new Error("Workflow runs require the native GraphJin broker tool");
+  }
   const pluginActions = input.pluginActions ?? [];
   const shellTool = shellToolName(backend);
   const dataAccessSection = buildDataAccessSection({
     shellTool,
+    queryTool: "mcp__neko_graphjin__execute_graphql",
+    queryIdentity: "actor",
     workspace,
     knowledge,
     inlineKnowledge: "syntax",

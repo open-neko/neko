@@ -5,7 +5,11 @@ import type {
   AgentWorkspace,
 } from "../agent-backend";
 import type { AgentControlPlane } from "../work/control-plane";
-import { buildLibraryServer, buildWorkMemoryServer } from "../work/tools";
+import {
+  buildGraphjinReadServer,
+  buildLibraryServer,
+  buildWorkMemoryServer,
+} from "../work/tools";
 import { buildWorkflowActionServer } from "./action-tool-server";
 import { buildWorkflowOutputServer } from "./output-tool-server";
 
@@ -58,6 +62,11 @@ export async function runWorkflowAgentBackend(
   const mcp = backend.capabilities.mcpTools;
   const mcpServers = mcp
     ? {
+        neko_graphjin: buildGraphjinReadServer({
+          orgId,
+          runId,
+          controlPlane,
+        }),
         neko_workflow_output: buildWorkflowOutputServer({
           orgId,
           workflowRunId,

@@ -146,8 +146,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=openshell-bin /usr/local/bin/openshell /usr/local/bin/openshell
 
-# Pinned GraphJin binary shared by the Records-aware worker, sandbox agent, and
-# the two dedicated GraphJin runtimes.
+# Pinned GraphJin binary shared by the Records-aware worker and the two
+# dedicated GraphJin runtimes. The sandbox agent deliberately does not inherit
+# this lineage: all agent GraphJin reads cross the authenticated host broker.
 FROM debian:bookworm-slim AS graphjin-bin
 ARG GRAPHJIN_VERSION=3.20.47
 ARG GRAPHJIN_ASSET_AMD64=527162704
@@ -163,14 +164,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/* \
     && graphjin version
 
-# The worker and sandbox agent both require npm plus the pinned GraphJin CLI.
-# Keeping those payloads in one common parent makes their large GraphJin layer
-# byte-identical, so the worker reuses the payload already required by the agent.
+# The worker requires npm plus the pinned GraphJin CLI for trusted host-side
+# Records configuration. It is never part of the sandbox agent image.
 FROM npm-runtime AS graphjin-node-runtime
 COPY --from=graphjin-bin /usr/local/bin/graphjin /usr/local/bin/graphjin
 
-# ─── 2b. agent runtime: Hermes + GraphJin (sandbox only) ───────────────
-FROM graphjin-node-runtime AS agent-base
+# ─── 2b. agent runtime: Hermes (sandbox only) ──────────────────────────
+FROM npm-runtime AS agent-base
 ARG HERMES_AGENT_REF=a91a57fa5a13d516c38b07a141a9ce8a3daabeb0
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git python3 python3-pip \
@@ -469,43 +469,41 @@ CMD ["node", "--import", "tsx/esm", "src/index.ts"]
 # ─── 5d. agent sandbox runtime (OpenShell) ─────────────────────────────
 # The agent loop running as a child inside an OpenShell sandbox (Phase 3,
 # OPENNEKO_AGENT_RUNTIME=openshell), reaching the control plane only through the
-# broker. It is deliberately NOT `FROM worker`: only two standalone ESM bundles
-# and built-in skill assets cross into the image. No worker source tree, tsx,
-# workspace package, database driver, or node_modules closure is shipped.
+# broker. Restore the v2.28 runtime architecture: deploy the worker workspace's
+# production dependency closure, including tsx, @neko/llm, its assets, and every
+# runtime file addressed through the normal Node workspace layout. This avoids
+# maintaining a second, bundle-specific filesystem contract.
 FROM source AS agent-deploy
-RUN mkdir -p /out/agent-app/assets \
-    && cd apps/worker \
-    && pnpm exec esbuild src/agent-sandbox/entry.ts \
-      --bundle --minify --platform=node --format=esm \
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm --filter @neko/worker deploy --prod /out/agent-app
+# Keep the v2.28 multiplexed bridge optimization. The entrypoint itself remains
+# workspace source executed through tsx; the bridge is path-stable for clean
+# Hermes child environments and does not load embedding dependencies.
+RUN cd apps/worker && pnpm exec esbuild src/agent-sandbox/mcp-bridge.ts \
+      --bundle --platform=node --format=esm \
+      --external:onnxruntime-node --external:@huggingface/transformers \
       --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
-      --metafile=/out/agent-entry-meta.json \
-      --outfile=/out/agent-app/agent-entry.js \
-    && pnpm exec esbuild src/agent-sandbox/mcp-bridge.ts \
-      --bundle --minify --platform=node --format=esm \
-      --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
-      --metafile=/out/agent-bridge-meta.json \
-      --outfile=/out/agent-app/mcp-bridge.js \
-    && ! grep -Eq 'packages/(db|records|secret-crypt|telemetry)/|node_modules/.pnpm/(pg-boss|pg@|mysql2|onnxruntime|sharp)' \
-      /out/agent-entry-meta.json /out/agent-bridge-meta.json \
-    && cp -R /app/packages/llm/assets/. /out/agent-app/assets/
+      --outfile=/out/agent-app/dist/agent-sandbox/mcp-bridge.js
 
 FROM cli AS agent
 USER root
-# The entry bundle self-locates its sibling assets and applies its non-secret
-# runtime defaults. OpenShell can therefore keep a clean supervised environment
-# and inject only the job context and credentials explicitly granted per run.
+# OpenNeko pre-installs the ACP/MCP feature set. Never let a sandbox spend its
+# startup budget trying a lazy install through the restricted egress policy.
+ENV HERMES_DISABLE_LAZY_INSTALLS=1
 # Supervisor egress-netns tools + a non-root `sandbox` user (high UID, OpenShell
-# convention). node/Hermes/GraphJin/LibreOffice already come from `cli`.
+# convention). GraphJin never enters this image; the agent can reach it only
+# through the authenticated host broker.
 RUN apt-get update && apt-get install -y --no-install-recommends iproute2 nftables \
     && rm -rf /var/lib/apt/lists/*
 RUN groupadd -g 1000660000 sandbox \
     && useradd -u 1000660000 -g sandbox -d /sandbox -M sandbox \
     && install -d -o sandbox -g sandbox /sandbox
-# Keep the runtime payload immutable; only /sandbox is writable by the agent.
-COPY --from=agent-deploy --chown=root:root /out/agent-app /app
+# The deployed workspace is readable by the sandbox user and contains the
+# runtime source, production node_modules closure, built-in assets, and bridge.
+COPY --from=agent-deploy --chown=1000660000:1000660000 /out/agent-app /app
 WORKDIR /sandbox
 # Supervisor-replaced; launcher runs:
-#   node /app/agent-entry.js
+#   cd /app && node --import tsx/esm /app/src/agent-sandbox/entry.ts
 CMD ["node", "--version"]
 
 # ─── 5c. neko-cli runtime ──────────────────────────────────────────────

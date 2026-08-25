@@ -10,7 +10,6 @@ export {
 } from "./client";
 
 export * from "./token";
-export * from "./client-auth";
 export * from "./agent";
 export * from "./config-change";
 export * from "./openapi-spec";

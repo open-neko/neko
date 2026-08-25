@@ -102,6 +102,8 @@ describe("buildDataAccessSection layering", () => {
 
   const base = {
     shellTool: "bash",
+    queryTool: "mcp__neko_graphjin__execute_graphql",
+    queryIdentity: "service" as const,
     workspace,
     knowledge: {
       tables: "{}",
@@ -118,19 +120,18 @@ describe("buildDataAccessSection layering", () => {
       inlineKnowledge: "syntax",
     });
     expect(section).toContain("gj_catalog");
-    expect(section).toContain("DISCOVERED ON DEMAND");
-    expect(section).toContain("help:discovery");
-    // The legacy "everything is prefetched" framing must be gone.
-    expect(section).not.toContain("get_discovery_schema");
+    expect(section).toContain("Discover schema detail on demand");
+    expect(section).toContain('gj_catalog(id: "help:<topic>")');
+    expect(section).not.toContain("complete prefetched schema");
   });
 
-  it("legacy mode is unchanged: broad dumps prefetched, discovery tools banned", () => {
+  it("legacy mode uses the prefetched pack without discovery", () => {
     const section = buildDataAccessSection({
       ...base,
       knowledge: { ...base.knowledge, mode: "legacy" },
       inlineKnowledge: "syntax",
     });
-    expect(section).toContain("get_discovery_schema");
+    expect(section).toContain("complete prefetched schema");
     expect(section).not.toContain("gj_catalog");
   });
 });

@@ -145,6 +145,7 @@ describe("buildProfilerPrompt knowledge inlining", () => {
       orgName: "Acme",
       companyNote: "",
       shellTool: "terminal",
+      queryTool: "mcp__neko_graphjin__execute_graphql",
       knowledge: {
         mode: "agentic",
         tables: bigTables,
@@ -157,7 +158,8 @@ describe("buildProfilerPrompt knowledge inlining", () => {
     expect(prompt).not.toContain(bigInsights);
     expect(prompt).toContain("join: public.hub_0.col_0 -> public.other_0.id");
     expect(prompt).toContain("- help:topic0");
-    expect(prompt).toContain("Only use `graphjin cli execute_graphql`");
+    expect(prompt).toContain("Only use `mcp__neko_graphjin__execute_graphql`");
+    expect(prompt).not.toContain("graphjin cli");
     expect(prompt).not.toContain("graphjin cli health");
     expect(prompt).not.toContain("graphjin cli find_path");
     expect(prompt).not.toContain("graphjin cli explore_relationships");
@@ -171,6 +173,7 @@ describe("buildProfilerPrompt knowledge inlining", () => {
       orgName: "Acme",
       companyNote: "",
       shellTool: "terminal",
+      queryTool: "mcp__neko_graphjin__execute_graphql",
       knowledge: {
         mode: "legacy",
         tables: bigTables,

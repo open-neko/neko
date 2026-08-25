@@ -51,6 +51,7 @@ function requireEnv(name: string): string {
 }
 
 export type BridgeServerContext = {
+  runKind: "work" | "workflow" | "agent-job";
   orgId: string;
   threadId: string;
   runId: string;
@@ -77,7 +78,11 @@ export function buildBridgeServer(
   const common = { orgId, runId, emit, controlPlane };
   switch (name) {
     case "neko_graphjin":
-      return buildGraphjinReadServer({ orgId, controlPlane });
+      return buildGraphjinReadServer({
+        orgId,
+        ...(ctx.runKind === "agent-job" ? {} : { runId }),
+        controlPlane,
+      });
     case "neko_graphjin_agent":
       return buildGraphjinAgentServer({ orgId, runId, controlPlane });
     case "neko_skills":
@@ -288,6 +293,12 @@ async function main(): Promise<void> {
     brokerToken,
   );
   const server = await buildMultiplexedBridgeServer(names, {
+    runKind:
+      process.env.OPENNEKO_MCP_MODE === "workflow"
+        ? "workflow"
+        : process.env.OPENNEKO_MCP_MODE === "agent-job"
+          ? "agent-job"
+          : "work",
     orgId: requireEnv("OPENNEKO_MCP_ORG_ID"),
     threadId: requireEnv("OPENNEKO_MCP_THREAD_ID"),
     runId: requireEnv("OPENNEKO_MCP_RUN_ID"),

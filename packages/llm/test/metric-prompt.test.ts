@@ -32,6 +32,10 @@ const fakeInput = {
   chartHint: "bar" as const,
 };
 
+const directDataAccess = {
+  queryTool: "mcp__neko_graphjin__execute_graphql",
+} as const;
+
 describe("buildMetricPrompt", () => {
   it("returns a single string composed from required sections", () => {
     const prompt = buildMetricPrompt({
@@ -39,6 +43,7 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
+      ...directDataAccess,
     });
     expect(typeof prompt).toBe("string");
     // Sentinel anchors from each section.
@@ -58,6 +63,7 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
+      ...directDataAccess,
     });
     expect(prompt).toContain(fakeKnowledge.tables);
     expect(prompt).toContain(fakeKnowledge.namespaces);
@@ -65,14 +71,15 @@ describe("buildMetricPrompt", () => {
     expect(prompt).toContain(fakeKnowledge.syntax);
   });
 
-  it("uses the configured shell tool name throughout", () => {
+  it("does not expose a shell path for direct GraphJin access", () => {
     const prompt = buildMetricPrompt({
       input: fakeInput,
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "Bash",
+      ...directDataAccess,
     });
-    expect(prompt).toContain("`Bash`");
+    expect(prompt).not.toContain("`Bash`");
     expect(prompt).not.toContain("`terminal`");
   });
 
@@ -82,7 +89,7 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
-      queryTool: "mcp__neko_graphjin__execute_graphql",
+      ...directDataAccess,
     });
     expect(prompt).toContain("`mcp__neko_graphjin__execute_graphql`");
     expect(prompt).toContain("service credential never enter your sandbox");
@@ -104,15 +111,16 @@ describe("buildMetricPrompt", () => {
   });
 
   it("rejects ambiguous direct and delegated data surfaces", () => {
+    const ambiguous = {
+      input: fakeInput,
+      knowledge: fakeKnowledge,
+      workspace: fakeWorkspace,
+      shellTool: "terminal",
+      queryTool: "mcp__neko_graphjin__execute_graphql",
+      dataAgentTool: "mcp__neko_graphjin_agent__ask",
+    } as unknown as Parameters<typeof buildMetricPrompt>[0];
     expect(() =>
-      buildMetricPrompt({
-        input: fakeInput,
-        knowledge: fakeKnowledge,
-        workspace: fakeWorkspace,
-        shellTool: "terminal",
-        queryTool: "mcp__neko_graphjin__execute_graphql",
-        dataAgentTool: "mcp__neko_graphjin_agent__ask",
-      }),
+      buildMetricPrompt(ambiguous),
     ).toThrow("choose either queryTool or agentTool");
   });
 
@@ -122,6 +130,7 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
+      ...directDataAccess,
     });
     for (const key of [
       "reasoning",
@@ -148,6 +157,7 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
+      ...directDataAccess,
     });
     expect(prompt).toContain('"cardTitle": "Top Product"');
     expect(prompt).toContain(
@@ -166,6 +176,7 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
+      ...directDataAccess,
       memoryContext: ctx,
     });
     expect(prompt).toContain(ctx);
@@ -178,6 +189,7 @@ describe("buildMetricPrompt", () => {
       workspace: fakeWorkspace,
       shellTool: "terminal",
       supportsMemorySearch: true,
+      ...directDataAccess,
     });
     const withoutSearch = buildMetricPrompt({
       input: fakeInput,
@@ -185,6 +197,7 @@ describe("buildMetricPrompt", () => {
       workspace: fakeWorkspace,
       shellTool: "terminal",
       supportsMemorySearch: false,
+      ...directDataAccess,
     });
     expect(withSearch).not.toContain("mcp__neko_memory__save");
     expect(withoutSearch).not.toContain("mcp__neko_memory__save");
@@ -197,6 +210,7 @@ describe("buildMetricPrompt", () => {
       workspace: fakeWorkspace,
       shellTool: "terminal",
       supportsMemorySearch: true,
+      ...directDataAccess,
     });
     expect(prompt).toContain("mcp__neko_memory__search");
   });
@@ -208,6 +222,7 @@ describe("buildMetricPrompt", () => {
       workspace: fakeWorkspace,
       shellTool: "terminal",
       supportsMemorySearch: false,
+      ...directDataAccess,
     });
     expect(prompt).not.toContain("mcp__neko_memory__search");
   });
@@ -218,6 +233,7 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
+      ...directDataAccess,
     });
     expect(prompt).toContain("flattened");
     expect(prompt).toContain("distinct: [parent_id]");
@@ -230,6 +246,7 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
+      ...directDataAccess,
     });
     expect(prompt).toContain("max(<date_col>)");
   });
@@ -240,6 +257,7 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
+      ...directDataAccess,
     });
     expect(prompt).toContain("TTM");
     expect(prompt).toContain("snapshot");

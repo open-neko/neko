@@ -96,7 +96,7 @@ describeIfDb("SEC5 dual-identity audit", () => {
         onEvents: async () => {},
       });
       try {
-        const token = broker.tokenFor({ runId: run.id, orgId });
+        const token = broker.tokenFor({ runId: run.id, orgId, kind: "work" });
         const res = await fetch(`http://127.0.0.1:${broker.port}/v1/plugins/list`, {
           method: "POST",
           headers: {

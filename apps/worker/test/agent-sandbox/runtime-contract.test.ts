@@ -14,6 +14,16 @@ describe("agent sandbox runtime contract", () => {
     ).toBe("/app/mcp-bridge.js");
   });
 
+  it("self-locates the bridge in the deployed worker workspace", () => {
+    expect(
+      resolveMcpBridgePath(
+        "file:///app/src/agent-sandbox/entry.ts",
+        (candidate) =>
+          candidate === "/app/dist/agent-sandbox/mcp-bridge.js",
+      ),
+    ).toBe("/app/dist/agent-sandbox/mcp-bridge.js");
+  });
+
   it("applies only the non-secret runtime defaults the agent owns", () => {
     const env: NodeJS.ProcessEnv = {};
     const runtime = configureAgentRuntime({

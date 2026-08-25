@@ -170,7 +170,6 @@ spawn depth allows it.
 
 function buildWorkflowToolsSection(
   supportsWorkflowTool: boolean,
-  shellTool: string,
 ): string {
   if (supportsWorkflowTool) {
     return `<workflows>
@@ -213,11 +212,10 @@ A workflow can run on a schedule, when the data changes, or both:
   The workflow's \`steps\` are the response (e.g. "DM Amit on Slack with
   the low-stock details"); \`triggers.when\` is the condition.
 
-  Before setting \`triggers.when\`, introspect the data source with the
-  available GraphJin discovery surface. In source-mode, query \`gj_catalog\`
-  through \`graphjin cli execute_graphql\` for table cards, columns, and
-  relationship edges. Only use MCP dev tools such as \`list_tables\`,
-  \`describe_table\`, or \`get_table_sample\` when the server exposes them.
+  Before setting \`triggers.when\`, introspect the data source with
+  \`mcp__neko_graphjin__execute_graphql\`. Query \`gj_catalog\` for table
+  cards, columns, and relationship edges, then confirm the table, columns,
+  and primary key. Do not use shell commands or GraphJin dev tools.
 
   \`triggers.when\` shape:
   \`\`\`json
@@ -280,11 +278,9 @@ both:
   \`triggers.when\` is the condition. Omit \`triggers\` entirely for a
   manual workflow.
 
-Before writing \`triggers.when\`, introspect the data source with your
-\`${shellTool}\` tool. In source-mode, query \`gj_catalog\` through
-\`graphjin cli execute_graphql\`; in legacy/tool deployments, use available
-GraphJin CLI discovery commands. Confirm the table, columns, and
-\`primary_key\`. \`primary_key\` is
+Before writing \`triggers.when\`, introspect the data source with
+\`mcp__neko_graphjin__execute_graphql\`. Query \`gj_catalog\`, then confirm
+the table, columns, and \`primary_key\`. \`primary_key\` is
 required and drives idempotency. If the workflow's steps write back to
 the watched table, add \`triggers.when.idempotency_key_template\` (e.g.
 \`"reorder-{primary_key}"\`).
@@ -470,10 +466,10 @@ When the user attaches files, their message will end with lines like:
   I've attached a file:
   - uploads/<threadId>/<filename>  (<filename>, <size> KB)
 
-Those paths are relative to your cwd. Open them with the \`Read\` tool
-(or \`${shellTool}\` for non-text formats) before answering — the user
-expects you to actually read what they attached. Cite the relative path
-when you reference content from the file.
+Those paths are relative to your cwd. Before answering, read the file with
+the \`Read\` tool (or \`${shellTool}\` for non-text formats) — the user expects
+you to actually inspect what they attached. Cite the relative path when you
+reference content from the file.
 </attachments>
 </workspace>`;
 }
@@ -756,7 +752,7 @@ that flags churn risk every Monday."
         })
       : "",
     dataSurface === "customer"
-      ? buildWorkflowToolsSection(supportsWorkflowTool, shellTool)
+      ? buildWorkflowToolsSection(supportsWorkflowTool)
       : "",
     dataSurface === "customer" ? buildPoliciesSection(supportsPolicyTool) : "",
     dataSurface === "customer"
@@ -770,6 +766,8 @@ that flags churn risk every Monday."
       ? buildRecordsAccessSection(appContext, recordContext)
       : buildDataAccessSection({
           shellTool,
+          queryTool: "mcp__neko_graphjin__execute_graphql",
+          queryIdentity: "actor",
           workspace,
           knowledge,
           inlineKnowledge: "syntax",

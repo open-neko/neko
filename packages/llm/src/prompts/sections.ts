@@ -4,7 +4,7 @@
 // canonical data-access rules belongs here so the wording can't drift
 // between agents.
 
-import { knowledgePackPaths, type KnowledgePackContents } from "../knowledge-pack";
+import type { KnowledgePackContents } from "../knowledge-pack";
 import type { AgentWorkspace } from "../agent-backend";
 
 export const GRAPHJIN_DATE_RULE = `- For GraphJin date/range filters, do not put multiple operators under
@@ -33,17 +33,6 @@ export const GRAPHJIN_AGGREGATE_RULE = `- Make the database do the math. When th
   thousands of rows. Only pull raw rows when the user needs the rows
   themselves (e.g. "list the orders"); then page with \`limit\`/\`offset\`
   and take the smallest set that answers the question.`;
-
-// Tells the agent how to read the columnar form the graphjin wrapper emits for
-// large result sets (see ensureGraphjinGuard's compaction step). Must name the
-// same marker the wrapper writes.
-export const GRAPHJIN_COLUMNAR_RULE = `- Large result sets arrive compacted: in place of an array of row
-  objects you'll get a columnar table —
-  \`{"__neko_cols__":{"cols":["productid","quantity"],"rows":[[1,408],[2,427]]}}\`.
-  Read each row positionally: \`rows[i][k]\` is the value for \`cols[k]\`.
-  It's the same data with the column names stated once. Smaller results
-  stay as ordinary JSON, so handle either shape and never assume a bare
-  array of objects.`;
 
 export type MemorySaveMode = "tool" | "fence" | "none";
 
@@ -123,6 +112,8 @@ export type DataAccessOptions = {
   shellTool: string;
   /** Query-only broker tool used by isolated, non-interactive jobs. */
   queryTool?: string;
+  /** Identity the trusted broker uses when it executes the query. */
+  queryIdentity?: "actor" | "service";
   /** Read-only GraphJin server-agent tool used by delegated jobs. */
   agentTool?: string;
   workspace: AgentWorkspace;
@@ -135,136 +126,12 @@ export type DataAccessOptions = {
 };
 
 export function buildDataAccessSection(opts: DataAccessOptions): string {
-  const { shellTool, workspace, knowledge, inlineKnowledge } = opts;
-  const paths = knowledgePackPaths(workspace.knowledgeRoot);
-
   if (opts.queryTool && opts.agentTool) {
     throw new Error("choose either queryTool or agentTool, not both");
   }
   if (opts.agentTool) return buildBrokeredAgentDataAccessSection(opts);
   if (opts.queryTool) return buildBrokeredDataAccessSection(opts);
-
-  // Agentic deployments (GraphJin sources mode, GJ4 actor tokens) layer
-  // knowledge differently: a slim role-aware bootstrap is inlined and
-  // everything deeper is discovered ON DEMAND through gj_catalog queries
-  // that run under the caller's own token.
-  if (knowledge.mode === "agentic") {
-    return buildAgenticDataAccessSection(opts, paths);
-  }
-
-  const knowledgeBlock =
-    inlineKnowledge === "all"
-      ? `================================================================================
-Tables — every table in the database (name, schema, column_count):
-================================================================================
-
-${knowledge.tables}
-
-================================================================================
-Namespaces — multi-database routing context:
-================================================================================
-
-${knowledge.namespaces}
-
-================================================================================
-Insights — hub tables, hot relationships, relationship paths, query templates, data-quality flags:
-================================================================================
-
-${knowledge.insights}
-
-================================================================================
-GraphJin DSL reference (syntax.json) — operators, aggregations, pagination, expression aggregates, common mistakes. Authoritative.
-================================================================================
-
-${knowledge.syntax}`
-      : `================================================================================
-GraphJin DSL reference (syntax.json) — operators, aggregations,
-pagination, expression aggregates, common mistakes. Authoritative.
-================================================================================
-
-${knowledge.syntax}`;
-
-  const fileGuidance =
-    inlineKnowledge === "syntax"
-      ? `Supplementary knowledge lives on disk (read with your \`${shellTool}\`
-tool when targeted lookup helps — but the DSL below is authoritative,
-don't re-derive it from these files):
-
-- ${paths.files.index} (start here — index of the rest)
-- ${paths.files.tables} (every table, schema, column count)
-- ${paths.files.namespaces} (multi-DB namespace routing, if any)
-- ${paths.files.insights} (hub tables, hot relationships, relationship paths, query templates)
-
-`
-      : "";
-
-  return `<data_access>
-The configured GraphJin database is the authoritative source for any
-operational question (revenue, customers, orders, inventory, employees,
-sales, products, etc.). When the user attaches a file or explicitly
-references uploaded data, read the file and use it — it's the source of
-truth for that turn. Otherwise default to the database.
-
-The GraphJin DSL reference is inlined below in full — operators,
-aggregations, pagination, expression aggregates, and the common
-mistakes that produce "OpQuery: expecting an aliased field name" or
-"table not found: <name>_sum" errors. Do NOT \`cat\` it from disk;
-shell-tool output is capped and you'll lose the aggregation examples
-that sit past the cap. Just read it from this prompt.
-
-${fileGuidance}Do NOT call \`graphjin cli list_tables\` / \`describe_table\` /
-\`get_query_syntax\` / \`get_schema_insights\` / \`get_discovery_schema\` —
-those broad discovery dumps duplicate work that's already prefetched.
-
-Run queries via the \`${shellTool}\` tool:
-
-  graphjin cli execute_graphql --args '{"query":"<your read-only graphql>"}'
-
-If a response contains an \`errors\` array, run:
-
-  graphjin cli fix_query_error --args '{"query":"<failing>","error":"<msg>"}'
-
-to get a corrected query, then run execute_graphql again.
-
-These targeted read-only tools are also available when they help:
-
-  graphjin cli get_table_sample --args '{"table":"<name>"}'
-    Call before writing a filter on a string or enum column. The
-    response includes real distinct values with row counts (e.g.
-    city: "Toronto" 1037, "New York" 664), available aggregations,
-    foreign keys, and analytics-mode rules. Without it you're
-    guessing literals — "Toronto" vs "TORONTO", "Cell phones" vs
-    "Cellphones" — and a wrong guess returns zero rows silently.
-  graphjin cli find_path --args '{"from_table":"<table>","to_table":"<table>"}'
-  graphjin cli explore_relationships --args '{"table":"<name>"}'
-
-For metric / time-series / top-N shapes, lift the template from the
-\`patterns\` block in the inlined syntax below (\`metric_by_dimension\`,
-\`time_series\`, \`top_n\`) and substitute real names into the
-placeholders in \`right_example\`. Each pattern's \`rule\` field tells
-you where to root the query — getting that wrong (e.g. rooting at the
-fact table and trying to bucket with \`distinct\`) is the most common
-cause of compile errors on aggregating queries.
-
-Talk to GraphJin only through \`${shellTool}\` running \`graphjin cli\`.
-\`execute_code\`, Python, raw HTTP, or any other path bypasses the tool
-gate that blocks mutations and subscriptions, and produces results the
-rest of the system can't trace. Mutations and subscriptions are blocked
-at the tool gate regardless.
-
-For date/range filters: ${GRAPHJIN_DATE_RULE.replace(/^- /, "")}
-
-${GRAPHJIN_FANOUT_RULE.replace(/^- /, "")}
-
-${GRAPHJIN_AGGREGATE_RULE.replace(/^- /, "")}
-
-${GRAPHJIN_COLUMNAR_RULE.replace(/^- /, "")}
-
-Never invent or interpolate. If a query returned no rows, the answer
-is "no data", not a guess.
-
-${knowledgeBlock}
-</data_access>`;
+  throw new Error("GraphJin data access requires a native broker tool");
 }
 
 function buildBrokeredAgentDataAccessSection(opts: DataAccessOptions): string {
@@ -272,7 +139,10 @@ function buildBrokeredAgentDataAccessSection(opts: DataAccessOptions): string {
   if (!agentTool) throw new Error("agent data access requires agentTool");
 
   return `<data_access>
-The configured GraphJin database is the authoritative source for this metric.
+The configured GraphJin database is the authoritative source for operational
+questions. When the user attaches a file or explicitly references uploaded
+data, read the file and use it as the source of truth for that turn. Otherwise
+default to the database.
 Delegate database discovery and querying by calling \`${agentTool}\` once with:
 
   {
@@ -317,7 +187,7 @@ ${GRAPHJIN_AGGREGATE_RULE}
 }
 
 function buildBrokeredDataAccessSection(opts: DataAccessOptions): string {
-  const { queryTool, knowledge } = opts;
+  const { queryTool, knowledge, queryIdentity = "service" } = opts;
   if (!queryTool) throw new Error("brokered data access requires queryTool");
   const agentic = knowledge.mode === "agentic";
   const knowledgeBlock = agentic
@@ -375,7 +245,7 @@ Execute every database read by calling \`${queryTool}\` with:
   { "query": "<your read-only GraphQL query>" }
 
 This tool is implemented by the trusted OpenNeko host. The source URL and
-short-lived service credential never enter your sandbox. The host rejects
+short-lived ${queryIdentity === "actor" ? "actor credential" : "service credential"} never enter your sandbox. The host rejects
 mutations and subscriptions before GraphJin sees them. No shell, raw HTTP,
 configuration, or write path is available for database access.
 
@@ -513,112 +383,4 @@ export function compactTableDigest(raw: string): string {
     out += `… ${dropped} more — list the rest via gj_catalog (kind: "table").\n`;
   }
   return out.trimEnd();
-}
-
-function buildAgenticDataAccessSection(
-  opts: DataAccessOptions,
-  paths: ReturnType<typeof knowledgePackPaths>,
-): string {
-  const { shellTool, knowledge } = opts;
-
-  // Inline a COMPACT table digest in agentic mode: pointing the model at a
-  // file costs every question several discovery calls before its first real
-  // query (measured ~3x slower to first answer). But the raw pack file is
-  // pretty-printed JSON (10s of KB) and inlining it verbatim broke runs —
-  // compress to one short line per table and hard-cap the block.
-  const tablesBlock = `================================================================================
-Tables visible to your role (deeper detail via gj_catalog on demand):
-================================================================================
-
-${compactTableDigest(knowledge.tables)}
-
-${(() => {
-  const insights = compactInsightsDigest(knowledge.insights);
-  return insights
-    ? `================================================================================
-Hub tables — join paths and ready query templates (adapt, don't rediscover):
-A join path "s1.child.col -> s2.parent.col" means child rows reference parent;
-traverse it by nesting in one query: { child(limit: 20) { col parent { ... } } }.
-================================================================================
-
-${insights}
-
-`
-    : "";
-})()}`;
-
-  return `<data_access>
-The configured GraphJin database is the authoritative source for any
-operational question (revenue, customers, orders, inventory, employees,
-sales, products, etc.). When the user attaches a file or explicitly
-references uploaded data, read the file and use it — it's the source of
-truth for that turn. Otherwise default to the database.
-
-This deployment runs GraphJin in agentic (sources) mode: schema
-knowledge is DISCOVERED ON DEMAND through the \`gj_catalog\` root, and
-every query — including catalog queries — runs under YOUR access token,
-so you only ever see what your role allows. A slim bootstrap is
-provided; do not assume it is the whole schema.
-
-Discovery pattern (all via the \`${shellTool}\` tool):
-
-  graphjin cli execute_graphql --args '{"query":"query { gj_catalog(search: \\"<what you need>\\", limit: 10) { id kind name summary } }"}'
-  graphjin cli execute_graphql --args '{"query":"query { gj_catalog(id: \\"table:<db>:<schema>.<table>\\") { id name summary details_json examples_json edges_json } }"}'
-  graphjin cli execute_graphql --args '{"query":"query { gj_catalog(where: { kind: { eq: \\"column\\" } }, search: \\"<table>\\", limit: 30) { id name summary } }"}'
-
-Catalog row kinds: help, database, table, column, relationship,
-function, capability. \`gj_catalog(id: "...")\` returns one detailed
-card — details_json carries columns/types/keys, examples_json carries
-ready-to-adapt queries, edges_json carries join paths. When unsure
-where to look, pull \`gj_catalog(id: "help:discovery")\`.
-
-Discover before you query: pull the table card (and column rows for
-filter literals) before writing a non-trivial query — guessing column
-names or string literals returns zero rows silently. For join planning,
-use relationship catalog rows plus table-card \`details_json\`,
-\`examples_json\`, and \`edges_json\`. Source-mode deployments may disable
-GraphJin dev tools, so do not call \`find_path\`, \`explore_relationships\`,
-\`get_table_sample\`, \`list_tables\`, \`describe_table\`, or \`health\`.
-
-Run data queries the same way:
-
-  graphjin cli execute_graphql --args '{"query":"<your read-only graphql>"}'
-
-If a response contains an \`errors\` array, check
-\`errors[].extensions.graphjin_repair\` first, then correct the query
-yourself. Do not call \`fix_query_error\` in source-mode; that MCP dev
-tool may be disabled.
-
-Talk to GraphJin only through \`${shellTool}\` running \`graphjin cli\`.
-\`execute_code\`, Python, raw HTTP, or any other path bypasses the tool
-gate that blocks mutations and subscriptions, and produces results the
-rest of the system can't trace. Mutations and subscriptions are blocked
-at the tool gate regardless.
-
-For date/range filters: ${GRAPHJIN_DATE_RULE.replace(/^- /, "")}
-
-${GRAPHJIN_FANOUT_RULE.replace(/^- /, "")}
-
-${GRAPHJIN_AGGREGATE_RULE.replace(/^- /, "")}
-
-${GRAPHJIN_COLUMNAR_RULE.replace(/^- /, "")}
-
-Never invent or interpolate. If a query returned no rows, the answer
-is "no data", not a guess.
-
-${tablesBlock}================================================================================
-Help-card index — what the catalog can teach you (pull any card's full
-guidance on demand with gj_catalog(id: "help:<topic>")):
-================================================================================
-
-${compactHelpCardIndex(knowledge.insights)}
-
-================================================================================
-Query-DSL essentials — filters, query shape, and the aggregate patterns
-(distinct + sum_<col> replaces row pagination). Pull other help cards
-for mutations, fragments, errors:
-================================================================================
-
-${knowledge.syntax}
-</data_access>`;
 }

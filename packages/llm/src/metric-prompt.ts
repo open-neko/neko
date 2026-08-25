@@ -145,17 +145,23 @@ const METRIC_HARD_CONSTRAINTS = `<hard_constraints>
   anyway.
 </hard_constraints>`;
 
-export function buildMetricPrompt(args: {
+type MetricPromptBaseArgs = {
   input: MetricPromptInput;
   knowledge: KnowledgePackContents;
   workspace: AgentWorkspace;
   shellTool: string;
-  queryTool?: string;
-  dataAgentTool?: string;
   memoryContext?: string;
   /** True when the backend supports `mcp__neko_memory__search`. */
   supportsMemorySearch?: boolean;
-}): string {
+};
+
+type MetricPromptDataAccess =
+  | { queryTool: string; dataAgentTool?: never }
+  | { queryTool?: never; dataAgentTool: string };
+
+export function buildMetricPrompt(
+  args: MetricPromptBaseArgs & MetricPromptDataAccess,
+): string {
   const {
     input,
     knowledge,

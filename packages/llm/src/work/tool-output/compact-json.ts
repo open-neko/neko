@@ -1,6 +1,6 @@
 // Lossless structural compaction of JSON tool output (Headroom "SmartCrusher"
 // idea, in-process and information-preserving). The dominant token sink in the
-// /work loop is GraphJin query results: the agent runs `graphjin cli` and the
+// /work loop is GraphJin results returned by the native broker tool, and the
 // raw GraphQL JSON stdout flows straight into model context, where an array of
 // N rows repeats every column key N times. This module rewrites a uniform array
 // of flat objects into a columnar envelope (keys stated once, values as rows),

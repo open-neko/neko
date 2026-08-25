@@ -13,6 +13,8 @@ import { sandboxBrokerHost } from "./sandbox-net";
 export interface RunBinding {
   runId: string;
   orgId: string;
+  /** Agent jobs have no work_run actor and intentionally use service reads. */
+  kind: "work" | "workflow" | "agent-job";
   /** Present for chat/workflow runs so broker-emitted events can be persisted. */
   threadId?: string;
 }
@@ -168,6 +170,7 @@ async function handle(
             ? { operationName: body.operationName }
             : {}),
           orgId: binding.orgId,
+          ...(binding.kind === "agent-job" ? {} : { runId: binding.runId }),
         }),
       );
     case "/v1/graphjin/agent":

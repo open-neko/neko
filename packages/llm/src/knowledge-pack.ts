@@ -15,17 +15,9 @@ const INDEX_BODY = `# GraphJin knowledge pack
 This directory holds JSON files prefetched from the running GraphJin
 server's HTTP discovery endpoints (\`/api/v1/discovery/{section}\`),
 plus this index. The four JSONs are regenerated on every worker boot
-and on demand. Do NOT run \`graphjin cli list_tables\` /
-\`describe_table\` / \`get_query_syntax\` / \`get_schema_insights\` /
-\`get_discovery_schema\` — those broad discovery dumps are already on
-disk in the JSONs below.
-
-For targeted relationship questions, these read-only CLI tools are allowed:
-
-- \`graphjin cli find_path --args '{"from_table":"<table>","to_table":"<table>"}'\`
-  — exact relationship path between two specific tables.
-- \`graphjin cli explore_relationships --args '{"table":"<name>"}'\`
-  — connected tables around one focal table.
+and on demand. Broad discovery dumps are already on disk in the JSONs
+below. Use the runtime's native GraphQL query tool for database reads;
+never use a shell command, direct GraphJin connection, or dev tool.
 
 ## Files
 
@@ -41,8 +33,7 @@ For targeted relationship questions, these read-only CLI tools are allowed:
 - **\`insights.json\`** — hub tables, hot relationships,
   pre-computed \`relationship_paths\`, query templates,
   data-quality flags. Read this **first** when planning a
-  multi-table query. Use \`find_path\` or \`explore_relationships\`
-  whenever a targeted relationship lookup would help.
+  multi-table query. Use the relationship paths already present here.
 
 - **\`syntax.json\`** — the GraphJin DSL reference (operators,
   aggregations, pagination, ordering, expression aggregates,
@@ -52,23 +43,16 @@ For targeted relationship questions, these read-only CLI tools are allowed:
 
 ## Running queries
 
-After consulting the files above, run queries via your shell tool:
+After consulting the files above, call the runtime's native GraphQL query
+tool with:
 
-\`\`\`
-graphjin cli execute_graphql --args '{"query":"<read-only graphql>"}'
-\`\`\`
-
-The CLI takes its arguments as a single JSON object via \`--args\`. Use
-\`--args-file <path>\` (or \`--args-file -\` for stdin) when the GraphQL
-body is long enough that quoting it inline gets unwieldy.
-
-If a query returns errors, run:
-
-\`\`\`
-graphjin cli fix_query_error --args '{"query":"<failing>","error":"<msg>"}'
+\`\`\`json
+{ "query": "<read-only graphql>" }
 \`\`\`
 
-to get a corrected query, then run \`execute_graphql\` again.
+If a query returns errors, read the GraphQL error and any
+\`errors[].extensions.graphjin_repair\` hint, correct the query, and call the
+same native tool again.
 
 **Mutations and subscriptions are not allowed.** Any query containing
 the words \`mutation\` or \`subscription\` is denied at the tool gate.
@@ -239,14 +223,14 @@ This directory holds a SLIM bootstrap prefetched from the role-aware
 \`gj_catalog\` root: table and database summaries, the help-card index,
 and the query-DSL essentials. It is deliberately not the whole schema.
 
-Everything deeper you discover ON DEMAND with catalog queries through
-your shell tool — they run under YOUR access token, so you only ever
-see what your role allows:
+Everything deeper you discover ON DEMAND with catalog queries through the
+runtime's native GraphQL query tool. The trusted broker executes them under
+your actor identity, so you only ever see what your role allows:
 
-\`\`\`
-graphjin cli execute_graphql --args '{"query":"query { gj_catalog(search: \\"orders customers join\\", limit: 10) { id kind name summary } }"}'
-graphjin cli execute_graphql --args '{"query":"query { gj_catalog(id: \\"table:<db>:<schema>.<table>\\") { id name summary details_json examples_json edges_json } }"}'
-graphjin cli execute_graphql --args '{"query":"query { gj_catalog(where: { kind: { eq: \\"column\\" } }, search: \\"<table name>\\", limit: 30) { id name summary } }"}'
+\`\`\`graphql
+query { gj_catalog(search: "orders customers join", limit: 10) { id kind name summary } }
+query { gj_catalog(id: "table:<db>:<schema>.<table>") { id name summary details_json examples_json edges_json } }
+query { gj_catalog(where: { kind: { eq: "column" } }, search: "<table name>", limit: 30) { id name summary } }
 \`\`\`
 
 Catalog row kinds: help, database, table, column, relationship,
@@ -274,13 +258,13 @@ deployments may disable GraphJin dev tools, so do not call \`find_path\`,
 
 ## Running queries
 
-\`\`\`
-graphjin cli execute_graphql --args '{"query":"<read-only graphql>"}'
+\`\`\`json
+{ "query": "<read-only graphql>" }
 \`\`\`
 
 If a query returns errors, use \`errors[].extensions.graphjin_repair\`
-when present, or \`graphjin cli fix_query_error\`. Mutations and
-subscriptions are denied at the tool gate.
+when present, correct the query, and call the same native tool again.
+Mutations and subscriptions are denied at the broker.
 `;
 
 const HELP_DETAIL_IDS = ["help:query", "help:filters"] as const;

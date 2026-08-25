@@ -4,11 +4,6 @@ import {
   knowledgePackPaths,
   readKnowledgePack,
 } from "../knowledge-pack";
-import {
-  ensureGraphjinGuard,
-  resolveBinaryOnPath,
-} from "../work/graphjin-guard";
-import { ensureGraphjinGuardWithActorAuth } from "../work/graphjin-actor-guard";
 import { formatGlobalMemoryPromptContext as defaultFormatGlobalMemoryPromptContext } from "../work/memory";
 import {
   createWorkRun,
@@ -197,35 +192,13 @@ export async function runWorkflowTurn(
   };
 
   const workspace = await ensureWorkWorkspace(orgId, threadId, workRunId);
-  // Production resolves and guards GraphJin inside the OpenShell sandbox.
-  // The host path is retained only for the in-process test harness.
-  const graphjinBinary =
-    runCore === defaultRunWorkflowAgentBackend
-      ? await resolveBinaryOnPath("graphjin")
-      : null;
-  if (runCore === defaultRunWorkflowAgentBackend && !graphjinBinary) {
-    const errMsg = "graphjin CLI is not installed on PATH.";
-    await emit({ type: "error", message: errMsg });
-    await finishWorkRun(workRunId, "failed", errMsg);
-    await finishWorkflowRun({
-      workflowRunId: workflowRun.id,
-      status: "failed",
-      error: errMsg,
-    });
-    await emit({ type: "done", result: { status: "failed" } });
-    throw new Error(errMsg);
-  }
-  if (graphjinBinary) {
-    await ensureGraphjinGuardWithActorAuth({
-      orgId,
-      graphjinBinary,
-      binRoot: workspace.binRoot,
-      runRoot: workspace.runRoot,
-      actor: { userId: null, role: "service" },
-    });
-  }
 
   try {
+    if (!backend.capabilities.mcpTools) {
+      throw new Error(
+        "Workflow data access requires the native GraphJin broker tool; this backend does not support MCP tools.",
+      );
+    }
     await wrappedEmit({
       type: "status",
       message: `Starting workflow "${workflow.name}" (${triggerKind})…`,

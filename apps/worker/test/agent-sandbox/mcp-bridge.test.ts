@@ -3,7 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildBridgeServer,
   buildMultiplexedBridgeServer,
@@ -32,6 +32,7 @@ const SERVERS = [
 
 function ctx() {
   return {
+    runKind: "work" as const,
     orgId: "org-1",
     threadId: "11111111-1111-4111-8111-111111111111",
     runId: "22222222-2222-4222-8222-222222222222",
@@ -50,6 +51,28 @@ function ctx() {
   };
 }
 
+async function callGraphjinTool(runKind: "work" | "agent-job") {
+  const queryGraphjinRead = vi.fn(async () => ({ data: { ok: true } }));
+  const logical = buildBridgeServer("neko_graphjin", {
+    ...ctx(),
+    runKind,
+    controlPlane: { queryGraphjinRead } as unknown as BrokerControlPlane,
+  });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await logical.instance.connect(serverTransport);
+  const client = new Client({ name: "graphjin-identity-test", version: "1.0.0" });
+  await client.connect(clientTransport);
+  try {
+    await client.callTool({
+      name: "execute_graphql",
+      arguments: { query: "query { sales_order { entity_id } }" },
+    });
+  } finally {
+    await client.close();
+  }
+  return queryGraphjinRead;
+}
+
 describe("mcp-bridge buildBridgeServer", () => {
   it("constructs a connectable server for every name hermes mounts", () => {
     for (const name of SERVERS) {
@@ -61,6 +84,23 @@ describe("mcp-bridge buildBridgeServer", () => {
 
   it("throws on unknown server names", () => {
     expect(() => buildBridgeServer("neko_nope", ctx())).toThrow(/unknown server/);
+  });
+
+  it("binds work GraphJin reads to the actor run", async () => {
+    const query = await callGraphjinTool("work");
+    expect(query).toHaveBeenCalledWith({
+      orgId: "org-1",
+      runId: "22222222-2222-4222-8222-222222222222",
+      query: "query { sales_order { entity_id } }",
+    });
+  });
+
+  it("omits a run binding for service-identity agent jobs", async () => {
+    const query = await callGraphjinTool("agent-job");
+    expect(query).toHaveBeenCalledWith({
+      orgId: "org-1",
+      query: "query { sales_order { entity_id } }",
+    });
   });
 
   it("multiplexes logical servers while preserving Hermes-facing tool names", async () => {

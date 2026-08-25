@@ -75,9 +75,9 @@ describe("startAgentBroker token registry", () => {
   it("mints one stable token per run and resolves it over HTTP", async () => {
     const handle = await startAgentBroker({ controlPlane: stubControlPlane(), port: 0 });
     try {
-      const a = handle.tokenFor({ runId: "r1", orgId: "o1" });
-      expect(handle.tokenFor({ runId: "r1", orgId: "o1" })).toBe(a); // reused
-      expect(handle.tokenFor({ runId: "r2", orgId: "o1" })).not.toBe(a); // per-run
+      const a = handle.tokenFor({ runId: "r1", orgId: "o1", kind: "work" });
+      expect(handle.tokenFor({ runId: "r1", orgId: "o1", kind: "work" })).toBe(a); // reused
+      expect(handle.tokenFor({ runId: "r2", orgId: "o1", kind: "work" })).not.toBe(a); // per-run
 
       expect(handle.url).toBe(`http://host.openshell.internal:${handle.port}`);
 
@@ -91,11 +91,11 @@ describe("startAgentBroker token registry", () => {
   it("releases a run's token so it stops resolving", async () => {
     const handle = await startAgentBroker({ controlPlane: stubControlPlane(), port: 0 });
     try {
-      const tok = handle.tokenFor({ runId: "r1", orgId: "o1" });
+      const tok = handle.tokenFor({ runId: "r1", orgId: "o1", kind: "work" });
       handle.release("r1");
       expect((await postEvents(handle.port, tok)).status).toBe(401);
       // a token minted after release is a fresh one, not the revoked value:
-      expect(handle.tokenFor({ runId: "r1", orgId: "o1" })).not.toBe(tok);
+      expect(handle.tokenFor({ runId: "r1", orgId: "o1", kind: "work" })).not.toBe(tok);
     } finally {
       await handle.close();
     }
@@ -119,7 +119,11 @@ describe("startAgentBroker token registry", () => {
     cp.listRecordCatalog = vi.fn(async () => ({ apps: [] }));
     const handle = await startAgentBroker({ controlPlane: cp, port: 0 });
     try {
-      const token = handle.tokenFor({ runId: "trusted-run", orgId: "trusted-org" });
+      const token = handle.tokenFor({
+        runId: "trusted-run",
+        orgId: "trusted-org",
+        kind: "work",
+      });
       const response = await fetch(
         new URL("/v1/records/catalog", `http://127.0.0.1:${handle.port}`),
         {
@@ -164,6 +168,7 @@ describe("ensureAgentBroker (SEC9: always on)", () => {
         runId: "r-live",
         orgId: "o1",
         threadId: "t1",
+        kind: "work",
       });
       const event = { type: "status", message: "Approval pending" };
       expect((await postEvents(a!.port, token, [event])).status).toBe(200);
