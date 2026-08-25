@@ -12,6 +12,25 @@ same effect; it does not produce a partial installation.
 Adobe Marketplace/Composer keys are not pack inputs. They are needed only when
 Composer downloads Magento itself from Adobe's repository.
 
+## Data access policy
+
+The read-only Magento source includes the operational customer, address, order,
+status-history, payment-status, invoice, shipment, refund, catalog, inventory,
+store, cron, and indexer data needed to run the store. Customer names, email,
+telephone numbers, addresses, customer identifiers, order notes, IP addresses,
+shipping data, and payment transaction references are available to
+authenticated OpenNeko actors. They are not globally classified as forbidden
+data.
+
+The source remains SELECT-only. A narrow, unconditional blocklist is reserved
+for secrets that should never cross the database boundary: password hashes,
+account recovery and confirmation tokens, guest-order protect codes, encrypted
+payment numbers, raw payment-gateway payloads, and bank routing numbers. Admin
+credentials, OAuth tokens, reset-token tables, quote payments, and vault token
+tables are not exposed at all. Deployments that need tighter restrictions
+should apply an explicit actor/role policy instead of silently removing data
+required by every operator.
+
 ## Prerequisites
 
 - A running OpenNeko production stack.
@@ -20,7 +39,9 @@ Composer downloads Magento itself from Adobe's repository.
 - MariaDB 10.6+ or MySQL 8.0+ reachable from the customer GraphJin container.
 - A dedicated analytics account with SELECT-only grants. Start with
   [`docs/analytics-user.sql`](docs/analytics-user.sql) and narrow its host and
-  table grants for production.
+  table grants for production. Existing table-specific grants must include the
+  customer, customer-address, order-address, status-history, and order-payment
+  tables listed in `graphjin/sources.yaml` before upgrading to pack 0.2.1.
 - Optionally, a least-privilege Magento Integration token for the governed
   action. This does not make writes executable until OpenNeko is upgraded to a
   tagged GraphJin release that supports curated OpenAPI mutations.

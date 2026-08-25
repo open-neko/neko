@@ -383,7 +383,7 @@ describe("makeSandboxRunCore", () => {
     expect(jobCapture.jobs.at(-1)?.model).toBeUndefined();
   });
 
-  it("removes customer GraphJin egress and installs a deny guard for records turns", async () => {
+  it("never injects direct GraphJin credentials into records turns", async () => {
     const runCore = makeSandboxRunCore({
       agentImage: "ghcr.io/open-neko/agent:test",
       onLog: () => {},
@@ -395,9 +395,9 @@ describe("makeSandboxRunCore", () => {
     expect(jobCapture.jobs.at(-1)).toMatchObject({
       kind: "work",
       dataSurface: "records",
-      graphjinEnabled: false,
-      graphjinDenied: true,
     });
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinEnabled");
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinDenied");
     expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinServerUrl");
     expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinClientConfig");
   });
@@ -424,16 +424,19 @@ describe("makeSandboxRunCore", () => {
     ]);
     // result parsed from the RESULT line:
     expect(result).toEqual({ status: "completed", finalText: "hi there", backendState: { t: 1 } });
-    // create used the agent image; exec ran the standalone bundle:
+    // create used the agent image; preflight and exec ran the deployed
+    // workspace entry through its production tsx dependency:
     expect(h.calls[0]?.args).toContain("ghcr.io/open-neko/agent:test");
     expect(h.calls[0]?.args).toContain("--policy");
     expect(h.calls[0]?.args).toContain("--upload");
     expect(h.calls[0]?.args.join(" ")).toContain(
-      "node /app/agent-entry.js --preflight",
+      "node --import tsx/esm /app/src/agent-sandbox/entry.ts --preflight",
     );
     const execCall = h.calls.find((c) => c.args.includes("exec"));
     const execCommand = execCall?.args.join(" ") ?? "";
-    expect(execCommand).toContain("node /app/agent-entry.js");
+    expect(execCommand).toContain(
+      "node --import tsx/esm /app/src/agent-sandbox/entry.ts",
+    );
     // The agent self-resolves immutable image assets; the OpenShell command
     // carries no ambient image environment across the security boundary.
     expect(execCommand).not.toContain("OPENNEKO_BUILTIN_SKILLS_ROOT");
@@ -623,7 +626,7 @@ describe("makeSandboxRunCore", () => {
     expect(h.calls.filter((c) => c.args.includes("delete"))).toHaveLength(1);
   });
 
-  it("serializes the per-run GraphJin client config into workflow sandbox jobs", async () => {
+  it("does not serialize GraphJin credentials into workflow sandbox jobs", async () => {
     const orgRoot = await mkdtemp(join(tmpdir(), "ws-"));
     const workspace = fullWorkspace(orgRoot);
     const clientDir = join(workspace.runRoot, "gj-auth", "graphjin");
@@ -643,11 +646,8 @@ describe("makeSandboxRunCore", () => {
 
     await runCore(fakeWorkflowInput(async () => {}, undefined, workspace));
 
-    expect(jobCapture.jobs.at(-1)?.graphjinClientConfig).toMatchObject({
-      server: "http://localhost:8080/api/v1/mcp",
-      token: "run-token",
-      subject: "service",
-    });
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinClientConfig");
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinServerUrl");
   });
 
   it("gives model-only jobs no GraphJin capability or artifact persistence", async () => {
@@ -663,7 +663,6 @@ describe("makeSandboxRunCore", () => {
 
     expect(jobCapture.jobs.at(-1)).toMatchObject({
       kind: "agent-job",
-      graphjinEnabled: false,
       agentAccess: {},
       agentRun: {
         timeoutMs: 45_000,
@@ -699,7 +698,6 @@ describe("makeSandboxRunCore", () => {
     const job = jobCapture.jobs.at(-1);
     expect(job).toMatchObject({
       kind: "agent-job",
-      graphjinEnabled: false,
       agentAccess: { graphjinRead: true },
     });
     expect(job).not.toHaveProperty("graphjinWriteGrants");
@@ -709,7 +707,6 @@ describe("makeSandboxRunCore", () => {
     await runCore(fakeJobInput(workspace, { graphjinAgent: true }));
     expect(jobCapture.jobs.at(-1)).toMatchObject({
       kind: "agent-job",
-      graphjinEnabled: false,
       agentAccess: { graphjinAgent: true },
     });
   });

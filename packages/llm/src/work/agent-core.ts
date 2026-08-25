@@ -18,6 +18,7 @@ import {
   buildAuditViewerServer,
   buildChannelManagerServer,
   buildDataSourceManagerServer,
+  buildGraphjinReadServer,
   buildSourceConfigManagerServer,
   buildUserManagerServer,
   buildLibraryServer,
@@ -120,6 +121,13 @@ export async function runAgentBackend(
           }),
         }
       : {
+        // Customer reads are GraphQL tool calls brokered through the trusted
+        // host. No GraphJin binary, source URL, or credential enters the box.
+        neko_graphjin: buildGraphjinReadServer({
+          orgId,
+          runId,
+          controlPlane,
+        }),
         // Rendering is per-channel: the card server only ships to web turns.
         ...(wantsCards ? { neko_ui: buildRenderCardsServer(emit) } : {}),
         neko_skills: buildSkillBuilderServer(workspace.skillsRoot),
@@ -189,9 +197,10 @@ export async function runAgentBackend(
     mcpServers,
     // ACP backends mount the same servers as stdio bridge children — ship the
     // per-run context the bridge needs to rebuild them (broker coords ride the
-    // process env; see packages/agent-runtime/src/mcp-bridge.ts).
+    // process env; see apps/worker/src/agent-sandbox/mcp-bridge.ts).
     mcpBridgeEnv: mcp
       ? {
+          OPENNEKO_MCP_MODE: "work",
           OPENNEKO_MCP_ORG_ID: orgId,
           OPENNEKO_MCP_THREAD_ID: threadId,
           OPENNEKO_MCP_RUN_ID: runId,

@@ -56,9 +56,11 @@ The analytics work and pack substrate may be developed against a local GraphJin
 canary. The production Magento pack must not make its installed operator action
 executable until GraphJin has published a tagged release satisfying the upstream
 plan. That release must also contain the table-column blocklist enforcement fix
-required by the analytics source. OpenNeko's post-install check deliberately
-queries a blocked `sales_order.customer_email` field and fails closed unless
-GraphJin rejects it; a version number alone is not accepted as privacy evidence.
+required by the analytics source. OpenNeko's post-install check verifies that
+operational `sales_order.customer_id` and `sales_order.customer_email` are
+readable, then deliberately queries the blocked guest-order
+`sales_order.protect_code` secret and fails closed unless GraphJin rejects it; a
+version number alone is not accepted as security evidence.
 
 Release order:
 
@@ -601,9 +603,11 @@ what the shipped queries require, such as:
 - `store`, `store_group`, `store_website`
 - `cron_schedule`, `indexer_state`
 
-Explicitly block admin, authorization, OAuth, password/reset, quote-payment,
-payment, vault, and unnecessary customer PII tables/columns. Avoid direct
-customer table exposure unless a reviewed metric requires minimized fields.
+Expose customer, address, order, order-history, and operational payment fields
+needed for authenticated store operations. Explicitly block admin,
+authorization, OAuth, password/reset, raw payment gateway, guest-order secret,
+and vault credential tables/columns. PII is classified operational data, not an
+unconditional denial rule; deployments may add actor/role restrictions.
 
 Preflight detects Magento table prefix, SQL mode, Magento version, timezone,
 websites/stores, base currencies, MSI presence, and required table/column
@@ -971,14 +975,15 @@ Packaging:
 Release gates:
 
 - The exact GraphJin released version is pinned everywhere.
-- The pinned GraphJin release enforces column blocklists on both direct tables
-  and logical table aliases, and the negative Magento customer-email canary
-  passes.
+- The pinned GraphJin release allows the positive Magento customer-ID/email
+  canary, enforces secret-column blocklists on both direct tables and logical
+  table aliases, and rejects the negative guest-order protect-code canary.
 - Full OpenNeko CI and Magento pack E2E are green.
 - Fresh install, no-op reinstall, upgrade with drift, doctor, rollback simulation,
   and safe uninstall pass.
-- No credentials, admin tokens, Marketplace keys, customer PII, or full
-  authenticated Magento schema are committed.
+- No credentials, admin tokens, Marketplace keys, production customer PII, or
+  full authenticated Magento schema are committed. Customer PII remains
+  queryable from the customer's connected store at runtime.
 - Operator action defaults to approval-required.
 - Cancel/refund/ship/inventory mutations are absent, not merely hidden in UI.
 
@@ -1053,8 +1058,8 @@ Recommended sequence:
    foundation).
 2. **PR 2:** provenance tables, stores, planner, drift, rollback engine.
 3. **PR 3:** worker control plane and Go CLI lifecycle commands.
-4. **PR 4:** Magento DB preflight, connection modes, analytics source, privacy
-   blocklist.
+4. **PR 4:** Magento DB preflight, connection modes, authenticated operational
+   reads, and secret-data blocklist.
 5. **PR 5:** deterministic metric mode and Magento saved queries/cards.
 6. **PR 6:** workflows, watchers, task-focused skills, and pack artifact bundle.
 7. **PR 7:** curated Swagger 2 -> OAS3 build/verification pipeline.

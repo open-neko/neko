@@ -499,9 +499,8 @@ export function buildChannelManagerServer(opts: {
  * ADMIN must approve. Registration creates a disabled placeholder; the
  * admin enters connection details + credentials in the settings form
  * (forms are for credential entry only, never the model path). The
- * GraphJin discovery itself (discover_databases / plan_database_setup /
- * test_database_connection) runs through `graphjin cli` like every
- * other read.
+ * GraphJin discovery itself runs through trusted control-plane methods; no
+ * source credential or direct GraphJin connection enters the agent sandbox.
  */
 export function buildDataSourceManagerServer(opts: {
   orgId: string;
@@ -970,11 +969,13 @@ export function buildSkillBuilderServer(skillsRoot: string) {
 }
 
 /**
- * Query-only GraphJin surface for non-interactive jobs. The broker owns the
- * source URL and short-lived service token; neither enters the sandbox.
+ * Query-only GraphJin surface for sandboxed agents. The broker owns the source
+ * URL and mints a short-lived token for the bound run actor on each call;
+ * neither enters the sandbox.
  */
 export function buildGraphjinReadServer(opts: {
   orgId: string;
+  runId?: string;
   controlPlane?: AgentControlPlane;
 }) {
   const controlPlane = requireControlPlane(opts.controlPlane);
@@ -993,6 +994,7 @@ export function buildGraphjinReadServer(opts: {
     async (args) => {
       const result = await controlPlane.queryGraphjinRead({
         orgId: opts.orgId,
+        ...(opts.runId ? { runId: opts.runId } : {}),
         query: args.query,
         ...(args.variables ? { variables: args.variables } : {}),
         ...(args.operationName ? { operationName: args.operationName } : {}),

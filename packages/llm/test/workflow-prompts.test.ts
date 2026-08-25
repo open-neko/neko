@@ -61,20 +61,16 @@ describe("buildWorkflowRunnerPrompt", () => {
     expect(prompt).not.toContain("```neko_action_request");
   });
 
-  it("uses fence instructions when mcpTools=false", () => {
-    const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools: false });
-    expect(prompt).toContain("```neko_workflow_output");
-    expect(prompt).toContain("```neko_action_request");
-    expect(prompt).not.toContain("mcp__neko_workflow_output__emit");
-    expect(prompt).not.toContain("mcp__neko_action__request");
+  it("fails closed when the native GraphJin broker tool is unavailable", () => {
+    expect(() =>
+      buildWorkflowRunnerPrompt({ ...base, mcpTools: false }),
+    ).toThrow(/native GraphJin broker tool/);
   });
 
-  it.each([true, false])(
-    "surfaces installed plugin action kinds (mcpTools=%s) and uses one as the fence example",
-    (mcpTools) => {
+  it("surfaces installed plugin action kinds to the native tool path", () => {
       const prompt = buildWorkflowRunnerPrompt({
         ...base,
-        mcpTools,
+        mcpTools: true,
         pluginActions: [
           {
             kind: "send_slack_dm",
@@ -93,18 +89,12 @@ describe("buildWorkflowRunnerPrompt", () => {
       expect(prompt).toContain('example payload: {"user":"amit","text":"Stock is low."}');
       // denied-everywhere kinds are not advertised
       expect(prompt).not.toContain("lookup_slack_entity");
-      if (!mcpTools) {
-        // the fence example uses a real installed kind, not the placeholder
-        expect(prompt).toContain('"kind": "send_slack_dm"');
-        expect(prompt).not.toContain('"kind": "send_message"');
-      }
-    },
-  );
+  });
 
-  it("uses an internal record action's scope in the workflow fence example", () => {
+  it("surfaces an internal record action's scope to the native action tool", () => {
     const prompt = buildWorkflowRunnerPrompt({
       ...base,
-      mcpTools: false,
+      mcpTools: true,
       pluginActions: [
         {
           kind: "record_create",
@@ -115,28 +105,25 @@ describe("buildWorkflowRunnerPrompt", () => {
       ],
     });
 
-    expect(prompt).toContain('"scope": "internal"');
     expect(prompt).toContain("`record_create` (scope: internal)");
     expect(prompt).toContain("Always use the exact scope listed");
   });
 
-  it("includes the workflow's overlay and steps in both branches", () => {
-    for (const mcpTools of [true, false]) {
-      const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools });
-      expect(prompt).toContain("Show INR in lakhs.");
-      expect(prompt).toContain("Pull last 7 days of revenue");
-    }
+  it("includes the workflow's overlay and steps", () => {
+    const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools: true });
+    expect(prompt).toContain("Show INR in lakhs.");
+    expect(prompt).toContain("Pull last 7 days of revenue");
   });
 
-  it("includes data_access guidance pointing at the knowledge pack", () => {
-    const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools: false });
+  it("uses native brokered GraphQL for data access", () => {
+    const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools: true });
     expect(prompt).toContain("<data_access>");
-    expect(prompt).toContain("graphjin cli execute_graphql");
-    expect(prompt).toContain(sampleWorkspace.knowledgeRoot);
+    expect(prompt).toContain("mcp__neko_graphjin__execute_graphql");
+    expect(prompt).not.toContain("graphjin cli");
   });
 
   it("inlines syntax.json so cat-truncation can't hide the aggregation patterns", () => {
-    const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools: false });
+    const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools: true });
     expect(prompt).toContain(sampleKnowledge.syntax);
   });
 
@@ -145,15 +132,6 @@ describe("buildWorkflowRunnerPrompt", () => {
     expect(prompt).toContain("<long_term_memory>");
     expect(prompt).toContain("mcp__neko_memory__search");
     expect(prompt).toContain("mcp__neko_memory__save");
-  });
-
-  it("omits MCP memory tools and never falls back to a save fence when mcpTools=false", () => {
-    const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools: false });
-    expect(prompt).toContain("<long_term_memory>");
-    expect(prompt).not.toContain("mcp__neko_memory__search");
-    expect(prompt).not.toContain("mcp__neko_memory__save");
-    // No fence-save path for workflow runner (runtime doesn't parse one).
-    expect(prompt).not.toContain("```neko_memory");
   });
 
   it("uses native dynamic delegation guidance for Hermes workflow runs", () => {

@@ -51,6 +51,7 @@ function requireEnv(name: string): string {
 }
 
 export type BridgeServerContext = {
+  runKind: "work" | "workflow" | "agent-job";
   orgId: string;
   threadId: string;
   runId: string;
@@ -63,27 +64,6 @@ export type BridgeServerContext = {
   triggeredByObservationId?: string | null;
   recordScope?: { appId: string; objectApiName: string };
 };
-
-/** Every logical server the packaged bridge is allowed to expose. */
-export const BRIDGE_SERVER_NAMES = [
-  "neko_graphjin",
-  "neko_graphjin_agent",
-  "neko_skills",
-  "neko_memory",
-  "neko_library",
-  "neko_records",
-  "neko_workflow_builder",
-  "neko_workflow_output",
-  "neko_action",
-  "neko_rule_builder",
-  "neko_plugin_manager",
-  "neko_user_manager",
-  "neko_channel_manager",
-  "neko_data_source_manager",
-  "neko_source_config_manager",
-  "neko_audit",
-  "neko_plugin_actions",
-] as const;
 
 export function buildBridgeServer(
   name: string,
@@ -98,7 +78,11 @@ export function buildBridgeServer(
   const common = { orgId, runId, emit, controlPlane };
   switch (name) {
     case "neko_graphjin":
-      return buildGraphjinReadServer({ orgId, controlPlane });
+      return buildGraphjinReadServer({
+        orgId,
+        ...(ctx.runKind === "agent-job" ? {} : { runId }),
+        controlPlane,
+      });
     case "neko_graphjin_agent":
       return buildGraphjinAgentServer({ orgId, runId, controlPlane });
     case "neko_skills":
@@ -299,30 +283,6 @@ async function warmUpBroker(baseUrl: string, name: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (process.argv[2] === "--preflight") {
-    const controlPlane = new BrokerControlPlane("http://127.0.0.1:9", "preflight");
-    const ctx: BridgeServerContext = {
-      orgId: "preflight-org",
-      threadId: "11111111-1111-4111-8111-111111111111",
-      runId: "22222222-2222-4222-8222-222222222222",
-      workflowRunId: "33333333-3333-4333-8333-333333333333",
-      triggeredByObservationId: null,
-      skillsRoot: "/tmp/openneko-agent-runtime-preflight-skills",
-      pluginActions: [
-        {
-          kind: "preflight_action",
-          description: "Agent runtime bridge preflight action",
-          scope: "external",
-        },
-      ],
-      controlPlane,
-    };
-    for (const name of BRIDGE_SERVER_NAMES) buildBridgeServer(name, ctx);
-    process.stdout.write(
-      `${JSON.stringify({ status: "ok", servers: BRIDGE_SERVER_NAMES.length })}\n`,
-    );
-    return;
-  }
   const names = [...new Set((process.argv[2] ?? "").split(",").filter(Boolean))];
   if (names.length === 0) throw new Error("mcp-bridge: missing server-name argument");
   const brokerUrl = requireEnv("OPENNEKO_BROKER_URL");
@@ -333,6 +293,12 @@ async function main(): Promise<void> {
     brokerToken,
   );
   const server = await buildMultiplexedBridgeServer(names, {
+    runKind:
+      process.env.OPENNEKO_MCP_MODE === "workflow"
+        ? "workflow"
+        : process.env.OPENNEKO_MCP_MODE === "agent-job"
+          ? "agent-job"
+          : "work",
     orgId: requireEnv("OPENNEKO_MCP_ORG_ID"),
     threadId: requireEnv("OPENNEKO_MCP_THREAD_ID"),
     runId: requireEnv("OPENNEKO_MCP_RUN_ID"),

@@ -104,8 +104,8 @@ function installedKindsBlock(
 Installed action kinds — when a step calls for one of these, use the
 EXACT \`kind\` value below; do NOT substitute a generic kind like
 \`send_message\` (the policy rules and the executing adapter both match
-on the exact kind, so a generic name silently fails to route). Use the
-listed scope exactly too:
+on the exact kind, so a generic name silently fails to route).
+Always use the exact scope listed for an installed kind:
 ${rows}
 `;
 }
@@ -133,73 +133,6 @@ operator and stop; re-attempting after a denial is wasted effort.
 </actions>`;
 }
 
-const FENCE_OUTPUTS_BLOCK = `<outputs>
-Most workflow value is non-mutating. Emit outputs liberally as fenced
-JSON blocks that the runtime will execute as workflow outputs. Use
-exactly this format, one block per output:
-
-\`\`\`neko_workflow_output
-{
-  "kind": "observation",
-  "title": "APAC revenue dipped 14% WoW",
-  "body": "Revenue fell from ₹3.2L to ₹2.75L between …",
-  "scope": "apac_revenue",
-  "topic": "weekly_check",
-  "mood": "watch"
-}
-\`\`\`
-
-Allowed \`kind\` values: \`report\`, \`summary\`, \`briefing_card_proposal\`,
-\`chart\`, \`table\`, \`file\`, \`message_draft\`, \`finding\`,
-\`observation\`, \`recommendation\`.
-Allowed \`mood\` values: \`good\`, \`watch\`, \`act\`.
-
-Other tags: \`scope\` (e.g. "apac_revenue"), \`topic\` (more specific),
-\`artifactPath\`, \`timeWindowStart\`, \`timeWindowEnd\`,
-\`freshnessTtlSeconds\`. Use them when they fit; omit otherwise.
-
-When this workflow is observe-and-report (check a signal, flag if it
-moves), \`kind: "observation"\` is the right shape — emit and end.
-Emit each fence exactly once. The fence body must be valid JSON.
-</outputs>`;
-
-function buildFenceActionsBlock(
-  pluginActions: readonly PluginActionPromptDescriptor[],
-): string {
-  const example = activeKinds(pluginActions)[0];
-  const exampleKind = example?.kind ?? "send_message";
-  const exampleScope = example?.scope ?? "external";
-  return `<actions>
-Workflows decide; actions mutate. When a step needs to change real-world
-or internal state, propose it as a fenced JSON block that the runtime
-will route through policy. Use exactly this format:
-
-\`\`\`neko_action_request
-{
-  "scope": "${exampleScope}",
-  "kind": "${exampleKind}",
-  "payload": { /* kind-specific fields */ },
-  "risk_level": "low",
-  "summary": "One plain sentence naming WHAT will change and WHY."
-}
-\`\`\`
-${installedKindsBlock(pluginActions)}
-Allowed \`scope\`: \`internal\` (memory_write, briefing_create,
-schedule_workflow, and installed kinds marked internal) or \`external\`
-(installed kinds marked external, plus generic mutate_record, open_pr,
-run_command, …). Always use the exact scope listed for an installed kind.
-\`risk_level\` is an internal tag (\`low\`, \`medium\`, \`high\`,
-\`critical\`) policy uses to route — fill it in honestly, but never
-repeat the value back to the operator in prose. \`summary\` is what the
-operator may read — one plain sentence naming WHAT will change and WHY.
-
-The runtime evaluates policy. If denied, no second attempt will help;
-surface the reason to the operator and stop. If approved or
-auto-approved, the action is queued for execution. The fence body must
-be valid JSON.
-  </actions>`;
-}
-
 function buildNativeDelegationBlock(backend: AgentBackendId): string {
   void backend;
   return `<delegation>
@@ -220,10 +153,15 @@ export function buildWorkflowRunnerPrompt(
   input: BuildWorkflowRunnerPromptInput,
 ): string {
   const { workflow, mode, memoryContext, mcpTools, backend, workspace, knowledge } = input;
+  if (!mcpTools) {
+    throw new Error("Workflow runs require the native GraphJin broker tool");
+  }
   const pluginActions = input.pluginActions ?? [];
   const shellTool = shellToolName(backend);
   const dataAccessSection = buildDataAccessSection({
     shellTool,
+    queryTool: "mcp__neko_graphjin__execute_graphql",
+    queryIdentity: "actor",
     workspace,
     knowledge,
     inlineKnowledge: "syntax",
@@ -246,10 +184,8 @@ ${overlay}
     : "";
 
   const memorySection = buildMemorySection({
-    searchTool: mcpTools,
-    // Workflow runner has no fence-save pipeline. When MCP isn't
-    // available the agent simply can't write memories.
-    saveMode: mcpTools ? "tool" : "none",
+    searchTool: true,
+    saveMode: "tool",
     memoryContext,
   });
 
@@ -257,10 +193,8 @@ ${overlay}
     ? `<goal>${workflow.goal.trim()}</goal>\n`
     : "";
 
-  const outputsBlock = mcpTools ? MCP_OUTPUTS_BLOCK : FENCE_OUTPUTS_BLOCK;
-  const actionsBlock = mcpTools
-    ? buildMcpActionsBlock(pluginActions)
-    : buildFenceActionsBlock(pluginActions);
+  const outputsBlock = MCP_OUTPUTS_BLOCK;
+  const actionsBlock = buildMcpActionsBlock(pluginActions);
 
   return `<role>
 You are running a saved OpenNeko workflow as part of an operational loop.

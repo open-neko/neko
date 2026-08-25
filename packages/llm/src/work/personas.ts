@@ -109,6 +109,7 @@ export async function upsertOperatorProfile(input: {
 /** The run's acting principal (K1 columns), for persona resolution. */
 export async function getWorkRunActor(
   runId: string,
+  orgId?: string,
 ): Promise<{ userId: string | null; role: string | null }> {
   const [row] = await db()
     .select({
@@ -116,7 +117,11 @@ export async function getWorkRunActor(
       role: work_run.actor_role,
     })
     .from(work_run)
-    .where(eq(work_run.id, runId))
+    .where(
+      orgId
+        ? and(eq(work_run.id, runId), eq(work_run.org_id, orgId))
+        : eq(work_run.id, runId),
+    )
     .limit(1);
   return row ?? { userId: null, role: null };
 }

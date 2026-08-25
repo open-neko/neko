@@ -210,12 +210,9 @@ export async function runMetricAgent(
       knowledge,
       workspace: isolated.workspace,
       shellTool: shellToolName(backend.id),
-      queryTool:
-        graphjinPath === "direct"
-          ? "mcp__neko_graphjin__execute_graphql"
-          : undefined,
-      dataAgentTool:
-        graphjinPath === "agent" ? "mcp__neko_graphjin_agent__ask" : undefined,
+      ...(graphjinPath === "direct"
+        ? { queryTool: "mcp__neko_graphjin__execute_graphql" }
+        : { dataAgentTool: "mcp__neko_graphjin_agent__ask" }),
       memoryContext,
       supportsMemorySearch,
     });

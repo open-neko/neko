@@ -7,7 +7,7 @@ import { createAgentBroker, type RunBinding } from "../../src/agent-sandbox/brok
 import {
   BrokerControlPlane,
   postAgentEvents,
-} from "@neko/agent-runtime/broker-client";
+} from "../../src/agent-sandbox/broker-client";
 
 interface Call {
   method: string;
@@ -250,7 +250,12 @@ describe("agent broker", () => {
     events = [];
     server = createAgentBroker({
       controlPlane: fake.cp,
-      resolveRun: (t) => (t === "good" ? { runId: "r1", orgId: "o1" } : undefined),
+      resolveRun: (t) =>
+        t === "good"
+          ? { runId: "r1", orgId: "o1", kind: "work" }
+          : t === "job"
+            ? { runId: "j1", orgId: "o1", kind: "agent-job" }
+            : undefined,
       onEvents: async (binding, evs) => {
         events.push({ binding, evs });
       },
@@ -352,6 +357,33 @@ describe("agent broker", () => {
       runId: "r1",
       instruction: "Count all orders",
       maxSteps: 6,
+    });
+  });
+
+  it("uses actor identity for work GraphJin reads and service identity for jobs", async () => {
+    const work = new BrokerControlPlane(baseUrl, "good");
+    await work.queryGraphjinRead({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      query: "query { sales_order { entity_id } }",
+    });
+
+    const job = new BrokerControlPlane(baseUrl, "job");
+    await job.queryGraphjinRead({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      query: "query { sales_order { entity_id } }",
+    });
+
+    const reads = fake.calls.filter((call) => call.method === "graphjin-read");
+    expect(reads[0]?.input).toEqual({
+      orgId: "o1",
+      runId: "r1",
+      query: "query { sales_order { entity_id } }",
+    });
+    expect(reads[1]?.input).toEqual({
+      orgId: "o1",
+      query: "query { sales_order { entity_id } }",
     });
   });
 
@@ -478,7 +510,7 @@ describe("agent broker", () => {
       { type: "message", text: "hi" } as unknown as AgentEvent,
     ]);
     expect(events).toHaveLength(1);
-    expect(events[0]?.binding).toEqual({ runId: "r1", orgId: "o1" });
+    expect(events[0]?.binding).toEqual({ runId: "r1", orgId: "o1", kind: "work" });
     expect(events[0]?.evs[0]).toMatchObject({ type: "message", text: "hi" });
   });
 

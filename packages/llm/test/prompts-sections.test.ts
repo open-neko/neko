@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   GRAPHJIN_AGGREGATE_RULE,
-  GRAPHJIN_COLUMNAR_RULE,
   GRAPHJIN_DATE_RULE,
   GRAPHJIN_FANOUT_RULE,
   buildDataAccessSection,
@@ -112,118 +111,59 @@ describe("buildMemorySection", () => {
 });
 
 describe("buildDataAccessSection", () => {
-  it("inlines the GraphJin date rule and the anti-fanout rule", () => {
-    const section = buildDataAccessSection({
-      shellTool: "Bash",
+  const native = (overrides: Partial<Parameters<typeof buildDataAccessSection>[0]> = {}) =>
+    buildDataAccessSection({
+      shellTool: "terminal",
+      queryTool: "mcp__neko_graphjin__execute_graphql",
+      queryIdentity: "actor",
       workspace: fakeWorkspace,
       knowledge: fakeKnowledge,
       inlineKnowledge: "syntax",
+      ...overrides,
     });
-    // Date rule body (without the leading "- " bullet).
+
+  it("requires a native broker tool instead of falling back to the shell", () => {
+    expect(() =>
+      buildDataAccessSection({
+        shellTool: "terminal",
+        workspace: fakeWorkspace,
+        knowledge: fakeKnowledge,
+        inlineKnowledge: "syntax",
+      }),
+    ).toThrow(/native broker tool/);
+  });
+
+  it("uses only the native GraphQL query tool", () => {
+    const section = native();
+    expect(section).toContain("mcp__neko_graphjin__execute_graphql");
+    expect(section).toContain("short-lived actor credential");
+    expect(section).not.toContain("graphjin cli");
+    expect(section).not.toContain("`terminal`");
+  });
+
+  it("inlines correctness rules for native queries", () => {
+    const section = native();
     expect(section).toContain("multiple operators under");
-    // Fanout rule body.
     expect(section).toContain("flattened");
     expect(section).toContain("distinct: [parent_id]");
+    expect(section).toContain("Make the database do the math");
   });
 
-  it("tells the agent to aggregate server-side (query-shaping) in both knowledge modes", () => {
-    const legacy = buildDataAccessSection({
-      shellTool: "Bash",
-      workspace: fakeWorkspace,
-      knowledge: fakeKnowledge,
-      inlineKnowledge: "syntax",
-    });
-    const agentic = buildDataAccessSection({
-      shellTool: "Bash",
-      workspace: fakeWorkspace,
-      knowledge: { ...fakeKnowledge, mode: "agentic" },
-      inlineKnowledge: "syntax",
-    });
-    for (const section of [legacy, agentic]) {
-      expect(section).toContain("Make the database do the math");
-      expect(section).toContain("limit");
-    }
-  });
-
-  it("teaches the agent to read the columnar table form in both modes", () => {
-    const legacy = buildDataAccessSection({
-      shellTool: "Bash",
-      workspace: fakeWorkspace,
-      knowledge: fakeKnowledge,
-      inlineKnowledge: "syntax",
-    });
-    const agentic = buildDataAccessSection({
-      shellTool: "Bash",
-      workspace: fakeWorkspace,
-      knowledge: { ...fakeKnowledge, mode: "agentic" },
-      inlineKnowledge: "syntax",
-    });
-    for (const section of [legacy, agentic]) {
-      // Must name the same marker the guard wrapper emits.
-      expect(section).toContain("__neko_cols__");
-      expect(section).toContain("positionally");
-    }
-  });
-
-  it("uses the configured shell tool name", () => {
-    const bash = buildDataAccessSection({
-      shellTool: "Bash",
-      workspace: fakeWorkspace,
-      knowledge: fakeKnowledge,
-      inlineKnowledge: "syntax",
-    });
-    const term = buildDataAccessSection({
-      shellTool: "terminal",
-      workspace: fakeWorkspace,
-      knowledge: fakeKnowledge,
-      inlineKnowledge: "syntax",
-    });
-    expect(bash).toContain("`Bash`");
-    expect(bash).not.toContain("`terminal`");
-    expect(term).toContain("`terminal`");
-    expect(term).not.toContain("`Bash`");
-  });
-
-  it("`syntax` mode inlines syntax + points at file paths for the rest", () => {
-    const section = buildDataAccessSection({
-      shellTool: "Bash",
-      workspace: fakeWorkspace,
-      knowledge: fakeKnowledge,
-      inlineKnowledge: "syntax",
-    });
+  it("inlines the prefetched pack for legacy sources", () => {
+    const section = native();
     expect(section).toContain(fakeKnowledge.syntax);
-    // File-path guidance for tables/namespaces/insights only appears
-    // in `syntax` mode (not `all` mode).
-    expect(section).toContain("/tmp/wsp/knowledge");
-    // Tables/namespaces/insights bodies should NOT be inlined.
-    expect(section).not.toContain(fakeKnowledge.tables);
-    expect(section).not.toContain(fakeKnowledge.namespaces);
-    expect(section).not.toContain(fakeKnowledge.insights);
-  });
-
-  it("`all` mode inlines tables + namespaces + insights + syntax (no file-path pointer)", () => {
-    const section = buildDataAccessSection({
-      shellTool: "terminal",
-      workspace: fakeWorkspace,
-      knowledge: fakeKnowledge,
-      inlineKnowledge: "all",
-    });
     expect(section).toContain(fakeKnowledge.tables);
     expect(section).toContain(fakeKnowledge.namespaces);
     expect(section).toContain(fakeKnowledge.insights);
-    expect(section).toContain(fakeKnowledge.syntax);
   });
 
-  it("blocks discovery commands the agent shouldn't be running", () => {
-    const section = buildDataAccessSection({
-      shellTool: "Bash",
-      workspace: fakeWorkspace,
-      knowledge: fakeKnowledge,
-      inlineKnowledge: "syntax",
+  it("uses compact catalog-first guidance for agentic sources", () => {
+    const section = native({
+      knowledge: { ...fakeKnowledge, mode: "agentic" },
     });
-    expect(section).toContain("Do NOT call");
-    expect(section).toContain("list_tables");
-    expect(section).toContain("describe_table");
+    expect(section).toContain("gj_catalog");
+    expect(section).toContain("only execute GraphQL queries");
+    expect(section).not.toContain("graphjin cli");
   });
 });
 
@@ -246,9 +186,4 @@ describe("constants stay shaped right (consumed verbatim by other prompts)", () 
     expect(GRAPHJIN_AGGREGATE_RULE).toContain("limit");
   });
 
-  it("GRAPHJIN_COLUMNAR_RULE starts as a bullet and names the wrapper's marker", () => {
-    expect(GRAPHJIN_COLUMNAR_RULE.startsWith("- ")).toBe(true);
-    expect(GRAPHJIN_COLUMNAR_RULE).toContain("__neko_cols__");
-    expect(GRAPHJIN_COLUMNAR_RULE).toContain("cols");
-  });
 });

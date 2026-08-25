@@ -4,11 +4,6 @@ import {
   knowledgePackPaths,
   readKnowledgePack,
 } from "../knowledge-pack";
-import {
-  ensureGraphjinGuard,
-  resolveBinaryOnPath,
-} from "../work/graphjin-guard";
-import { ensureGraphjinGuardWithActorAuth } from "../work/graphjin-actor-guard";
 import { formatGlobalMemoryPromptContext as defaultFormatGlobalMemoryPromptContext } from "../work/memory";
 import {
   createWorkRun,
@@ -20,17 +15,11 @@ import {
 } from "../work/store";
 import { ensureWorkWorkspace } from "../work/workspace";
 import { inProcessControlPlane } from "../work/control-plane";
-import { handleActionRequest } from "./action-server";
 import {
   runWorkflowAgentBackend as defaultRunWorkflowAgentBackend,
 } from "./agent-core";
-import {
-  extractActionRequestFences,
-  extractValueFence,
-  extractWorkflowOutputFences,
-} from "./fence-parsers";
+import { extractValueFence } from "./fence-parsers";
 import { clampAnalysisMinutes } from "./value";
-import { handleWorkflowOutput } from "./output-server";
 import {
   buildWorkflowRunnerPrompt,
   type PluginActionPromptDescriptor,
@@ -197,35 +186,13 @@ export async function runWorkflowTurn(
   };
 
   const workspace = await ensureWorkWorkspace(orgId, threadId, workRunId);
-  // Production resolves and guards GraphJin inside the OpenShell sandbox.
-  // The host path is retained only for the in-process test harness.
-  const graphjinBinary =
-    runCore === defaultRunWorkflowAgentBackend
-      ? await resolveBinaryOnPath("graphjin")
-      : null;
-  if (runCore === defaultRunWorkflowAgentBackend && !graphjinBinary) {
-    const errMsg = "graphjin CLI is not installed on PATH.";
-    await emit({ type: "error", message: errMsg });
-    await finishWorkRun(workRunId, "failed", errMsg);
-    await finishWorkflowRun({
-      workflowRunId: workflowRun.id,
-      status: "failed",
-      error: errMsg,
-    });
-    await emit({ type: "done", result: { status: "failed" } });
-    throw new Error(errMsg);
-  }
-  if (graphjinBinary) {
-    await ensureGraphjinGuardWithActorAuth({
-      orgId,
-      graphjinBinary,
-      binRoot: workspace.binRoot,
-      runRoot: workspace.runRoot,
-      actor: { userId: null, role: "service" },
-    });
-  }
 
   try {
+    if (!backend.capabilities.mcpTools) {
+      throw new Error(
+        "Workflow data access requires the native GraphJin broker tool; this backend does not support MCP tools.",
+      );
+    }
     await wrappedEmit({
       type: "status",
       message: `Starting workflow "${workflow.name}" (${triggerKind})…`,
@@ -277,27 +244,6 @@ export async function runWorkflowTurn(
     }
 
     let persistedText = result.finalText.trim() || assistantText.trim();
-
-    if (!backend.capabilities.mcpTools && persistedText) {
-      persistedText = await processWorkflowFences({
-        text: persistedText,
-        outputCtx: {
-          orgId,
-          workflowRunId: workflowRun.id,
-          workRunId,
-          emit: wrappedEmit,
-        },
-        actionCtx: {
-          orgId,
-          workflowRunId: workflowRun.id,
-          workRunId,
-          triggeredByObservationId:
-            workflowRun.triggeredByObservationId ?? null,
-          emit: wrappedEmit,
-        },
-        onParseError: (msg) => wrappedEmit({ type: "error", message: msg }),
-      });
-    }
 
     // Per-run analysis value estimate (works for both backends — the
     // `neko_value` fence rides in the agent's final text). Parse, clamp,
@@ -401,46 +347,4 @@ export async function runWorkflowTurn(
       finalText: assistantText,
     };
   }
-}
-
-type ProcessWorkflowFencesInput = {
-  text: string;
-  outputCtx: Parameters<typeof handleWorkflowOutput>[0];
-  actionCtx: Parameters<typeof handleActionRequest>[0];
-  onParseError: (message: string) => Promise<void> | void;
-};
-
-async function processWorkflowFences(
-  input: ProcessWorkflowFencesInput,
-): Promise<string> {
-  const { outputCtx, actionCtx, onParseError } = input;
-  let text = input.text;
-
-  const outputs = extractWorkflowOutputFences(text);
-  text = outputs.text;
-  for (const payload of outputs.payloads) {
-    await handleWorkflowOutput(outputCtx, payload);
-  }
-  if (outputs.errors.length > 0) {
-    await onParseError(
-      `workflow output fence(s) invalid: ${outputs.errors
-        .map((e) => e.reason)
-        .join("; ")}`,
-    );
-  }
-
-  const actions = extractActionRequestFences(text);
-  text = actions.text;
-  for (const payload of actions.payloads) {
-    await handleActionRequest(actionCtx, payload);
-  }
-  if (actions.errors.length > 0) {
-    await onParseError(
-      `action request fence(s) invalid: ${actions.errors
-        .map((e) => e.reason)
-        .join("; ")}`,
-    );
-  }
-
-  return text;
 }

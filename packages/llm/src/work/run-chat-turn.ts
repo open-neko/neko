@@ -1,10 +1,4 @@
-import {
-  data_source,
-  db,
-  desc,
-  eq,
-  getGraphjinConfigSettingsForOrg,
-} from "@neko/db";
+import { getGraphjinConfigSettingsForOrg } from "@neko/db";
 import type { AgentChatMessage, AgentEvent } from "../agent-backend";
 import { resolveAgentBackend as defaultResolveAgentBackend } from "../agent-backend-resolver";
 import { normalizeGraphjinAgentUsage } from "../usage-normalization";
@@ -34,10 +28,6 @@ import {
   prefetchKnowledgeForOrg as defaultPrefetchKnowledgeForOrg,
   readKnowledgePack,
 } from "../knowledge-pack";
-import {
-  ensureGraphjinGuard as defaultEnsureGraphjinGuard,
-  resolveBinaryOnPath as defaultResolveBinaryOnPath,
-} from "./graphjin-guard";
 import {
   formatWorkMemoryPromptContext as defaultFormatWorkMemoryPromptContext,
   effectiveMemoryLayer,
@@ -114,8 +104,6 @@ export type RunChatTurnOptions = {
 export type RunChatTurnDeps = {
   resolveAgentBackend: typeof defaultResolveAgentBackend;
   ensureWorkWorkspace: typeof defaultEnsureWorkWorkspace;
-  resolveBinaryOnPath: typeof defaultResolveBinaryOnPath;
-  ensureGraphjinGuard: typeof defaultEnsureGraphjinGuard;
   formatWorkMemoryPromptContext: typeof defaultFormatWorkMemoryPromptContext;
   prefetchKnowledgeForOrg: typeof defaultPrefetchKnowledgeForOrg;
   listInstalledSkills: typeof defaultListInstalledSkills;
@@ -202,8 +190,6 @@ export async function runChatTurn(
 
   const resolveAgentBackend = deps.resolveAgentBackend ?? defaultResolveAgentBackend;
   const ensureWorkWorkspace = deps.ensureWorkWorkspace ?? defaultEnsureWorkWorkspace;
-  const resolveBinaryOnPath = deps.resolveBinaryOnPath ?? defaultResolveBinaryOnPath;
-  const ensureGraphjinGuard = deps.ensureGraphjinGuard ?? defaultEnsureGraphjinGuard;
   const formatWorkMemoryPromptContext =
     deps.formatWorkMemoryPromptContext ?? defaultFormatWorkMemoryPromptContext;
   const prefetchKnowledgeForOrg =
@@ -404,64 +390,16 @@ export async function runChatTurn(
     }
   };
 
-  // Production resolves and guards GraphJin inside the OpenShell sandbox.
-  // The host path is retained only for the in-process test harness.
-  const graphjinBinary =
-    runCore === runAgentBackend ? await resolveBinaryOnPath("graphjin") : null;
-  if (runCore === runAgentBackend && !graphjinBinary && dataSurface === "customer") {
-    const errMsg = "graphjin CLI is not installed on PATH.";
-    await wrappedEmit({ type: "error", message: errMsg });
-    await finishWorkRun(runId, "failed", errMsg);
-    await wrappedEmit({ type: "done", result: { status: "failed" } });
-    throw new Error(errMsg);
-  }
-  // K1 actor drives the guard (GJ4 token + GJ5 grants), the persona
-  // (CV3) and the memory layer (CV2).
+  // K1 actor drives the brokered GraphJin identity, persona (CV3), and
+  // memory layer (CV2). GraphJin credentials never enter the agent sandbox.
   const actor = await getWorkRunActor(runId);
-  // GJ4: when the data source runs source mode (auth_mode='jwt'), the
-  // run's CLI calls carry this run's actor token — a per-run client.json
-  // the guard pins XDG_CONFIG_HOME at. Legacy mode is unchanged.
-  let guardXdg: string | undefined;
-  if (dataSurface === "customer") {
-    const { data_source, db, desc, eq } = await import("@neko/db");
-    const [src] = await db()
-      .select({ authMode: data_source.auth_mode, mcpUrl: data_source.mcp_url })
-      .from(data_source)
-      .where(eq(data_source.org_id, orgId))
-      .orderBy(desc(data_source.is_default), data_source.created_at)
-      .limit(1);
-    if (src?.authMode === "jwt" && src.mcpUrl) {
-      const { provisionGraphjinClientAuth } = await import(
-        "../graphjin/client-auth"
-      );
-      const auth = await provisionGraphjinClientAuth({
-        runRoot: workspace.runRoot,
-        serverUrl: src.mcpUrl,
-        orgId,
-        userId: actor.userId,
-        role:
-          actor.role === "admin" || actor.role === "member"
-            ? actor.role
-            : "service",
-      });
-      guardXdg = auth.xdgConfigHome;
-    }
-  }
-  // GJ5: an org policy may grant an admin actor specific write
-  // subcommands; everyone else keeps the read-only guard.
-  const { resolveGraphjinWriteGrants } = await import("./graphjin-actor-guard");
-  const writeGrants = dataSurface === "customer"
-    ? await resolveGraphjinWriteGrants(orgId, actor)
-    : [];
-  if (graphjinBinary) {
-    await ensureGraphjinGuard(workspace.binRoot, graphjinBinary, {
-      ...(guardXdg ? { xdgConfigHome: guardXdg } : {}),
-      ...(writeGrants.length > 0 ? { allowSubcommands: writeGrants } : {}),
-      ...(dataSurface === "records" ? { denyAll: true } : {}),
-    });
-  }
 
   try {
+    if (dataSurface === "customer" && !backend.capabilities.mcpTools) {
+      throw new Error(
+        "Customer data access requires the native GraphJin broker tool; this backend does not support MCP tools.",
+      );
+    }
     await wrappedEmit({
       type: "status",
       message: `Starting ${backendLabel(backend.id)}…`,

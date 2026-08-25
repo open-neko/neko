@@ -1,7 +1,5 @@
 export * from "./workspace";
 export * from "./sandbox-net";
-export * from "./graphjin-guard";
-export * from "./graphjin-actor-guard";
 export * from "./behavior-monitor";
 export * from "./deployment-profile";
 export * from "./data-surface";

@@ -72,10 +72,9 @@ const FAKE_WORKSPACE = {
 };
 
 const HERMES_CAPABILITIES = {
-  mcpTools: false,
-  sdkStopHook: false,
+  mcpTools: true,
   sessionResume: false,
-  canUseToolGate: false,
+  nativeDelegation: "hermes-delegate-task",
 } as const;
 
 async function insertThread(orgId: string) {
@@ -106,8 +105,6 @@ describeIfDb("runChatTurn — neko_memory fence persistence", () => {
         run: mockBackendRun,
       })),
       ensureWorkWorkspace: vi.fn(async () => FAKE_WORKSPACE),
-      resolveBinaryOnPath: vi.fn(async () => "/usr/local/bin/graphjin"),
-      ensureGraphjinGuard: vi.fn(async () => undefined),
       formatWorkMemoryPromptContext: vi.fn(async () => ""),
       listInstalledSkills: vi.fn(async () => []),
       prefetchKnowledgeForOrg: vi.fn(async () => ({ ok: true as const, files: [], mode: "legacy" as const })),

@@ -43,10 +43,10 @@ import {
 } from "@open-neko/plugin-install/secrets";
 import { applyPackGraphjinConfig } from "./graphjin-config.js";
 import {
-  MAGENTO_ANALYTICS_TABLES,
   runMagentoPreflight,
   type MagentoPreflightResult,
 } from "./magento-preflight.js";
+import { magentoGraphjinTables } from "./magento-source-policy.js";
 import {
   inspectPackArtifactCurrent,
   inspectInstalledPackArtifactCurrent,
@@ -154,16 +154,34 @@ async function runMagentoAnalyticsSmoke(endpoint: string, orgId: string): Promis
       `Magento analytics smoke query failed: ${result.errors?.map((error) => error.message).join("; ") ?? "sales_order result unavailable"}`,
     );
   }
-  const sensitive = await graphjinQuery<{ sales_order?: Array<{ customer_email?: string }> }>({
+  const operational = await graphjinQuery<{
+    sales_order?: Array<{
+      customer_id?: string | number;
+      customer_email?: string;
+      customer_firstname?: string;
+    }>;
+  }>({
     baseUrl: endpoint,
     headers,
     query:
-      'query MagentoPackSensitiveColumnCanary { sales_order(where: { created_at: { gte: "1970-01-01 00:00:00" } }, limit: 1) { customer_email } }',
+      'query MagentoPackOperationalDataCanary { sales_order(where: { created_at: { gte: "1970-01-01 00:00:00" } }, limit: 1) { customer_id customer_email customer_firstname } }',
     signal: AbortSignal.timeout(30_000),
   });
-  if (!sensitive.errors?.length) {
+  if (operational.errors?.length || !Array.isArray(operational.data?.sales_order)) {
     throw new Error(
-      "Magento analytics privacy check failed: GraphJin did not enforce the sales_order customer_email blocklist",
+      `Magento operational data check failed: ${operational.errors?.map((error) => error.message).join("; ") ?? "sales_order result unavailable"}`,
+    );
+  }
+  const secret = await graphjinQuery<{ sales_order?: Array<{ protect_code?: string }> }>({
+    baseUrl: endpoint,
+    headers,
+    query:
+      'query MagentoPackSecretColumnCanary { sales_order(where: { created_at: { gte: "1970-01-01 00:00:00" } }, limit: 1) { protect_code } }',
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!secret.errors?.length) {
+    throw new Error(
+      "Magento secret-data check failed: GraphJin did not enforce the sales_order protect_code blocklist",
     );
   }
 }
@@ -561,77 +579,6 @@ async function resolveSecrets(
   return { values, cleared, store };
 }
 
-function graphjinTables(prefix: string, available: string[]): Record<string, unknown>[] {
-  const sensitiveColumns: Record<string, string[]> = {
-    sales_order: [
-      "protect_code",
-      "customer_id",
-      "billing_address_id",
-      "quote_address_id",
-      "quote_id",
-      "shipping_address_id",
-      "customer_dob",
-      "customer_email",
-      "customer_firstname",
-      "customer_lastname",
-      "customer_middlename",
-      "customer_prefix",
-      "customer_suffix",
-      "customer_taxvat",
-      "ext_customer_id",
-      "remote_ip",
-      "x_forwarded_for",
-      "customer_note",
-      "customer_gender",
-      "gift_message_id",
-    ],
-    sales_order_item: [
-      "quote_item_id",
-      "product_options",
-      "additional_data",
-      "description",
-      "ext_order_item_id",
-      "gift_message_id",
-    ],
-    sales_invoice: [
-      "billing_address_id",
-      "shipping_address_id",
-      "transaction_id",
-      "customer_note",
-    ],
-    sales_invoice_item: ["additional_data", "description"],
-    sales_creditmemo: [
-      "shipping_address_id",
-      "billing_address_id",
-      "transaction_id",
-      "customer_note",
-    ],
-    sales_creditmemo_item: ["additional_data", "description"],
-    sales_shipment: [
-      "customer_id",
-      "shipping_address_id",
-      "billing_address_id",
-      "packages",
-      "shipping_label",
-      "customer_note",
-    ],
-    sales_shipment_item: ["additional_data", "description"],
-    inventory_reservation: ["metadata"],
-    cron_schedule: ["messages"],
-  };
-  return MAGENTO_ANALYTICS_TABLES.filter((name) => available.includes(name)).map((name) => ({
-    name,
-    table: `${prefix}${name}`,
-    source: "magento_analytics",
-    // GraphJin 3.18.42 normalizes sources before it parses newly supplied
-    // table entries in the same config patch. Keep the derived database
-    // explicit so reload validation routes the table to the new source.
-    database: "magento_analytics",
-    read_only: true,
-    ...(sensitiveColumns[name] ? { blocklist: sensitiveColumns[name] } : {}),
-  }));
-}
-
 function graphjinRelationships(bundle: SolutionPackBundle, available: string[]): Record<string, unknown>[] {
   const artifact = bundle.artifacts.find((value) => value.kind === "relationships");
   const relationships = artifactRecord(artifact!).relationships as Array<Record<string, unknown>>;
@@ -720,7 +667,7 @@ function graphjinUpdate(
           })),
         }
       : {}),
-    tables: graphjinTables(preflight.tablePrefix, preflight.availableAnalyticsTables),
+    tables: magentoGraphjinTables(preflight.tablePrefix, preflight.availableAnalyticsTables),
     relationships: graphjinRelationships(bundle, preflight.availableAnalyticsTables),
   };
 }
@@ -806,8 +753,8 @@ export class PackService {
       permissions: {
         database: "view-only reporting",
         apiWrite: "specific Magento changes require approval and must be enabled individually",
-        customerPii: "blocked",
-        paymentData: "blocked",
+        customerPii: "available to authenticated read-only queries",
+        paymentData: "operational fields available; credentials and raw gateway payloads blocked",
       },
     };
   }

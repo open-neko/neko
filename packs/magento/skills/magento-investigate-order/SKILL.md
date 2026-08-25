@@ -12,16 +12,18 @@ metadata:
 
 # Investigate a Magento order
 
-Produce a privacy-minimized lifecycle explanation for one exact order. Query
-`magento_analytics` for evidence and treat it as read-only.
+Produce a lifecycle explanation for one exact order. Query `magento_analytics`
+for evidence and treat it as read-only.
 
 ## Resolve the order
 
 Accept a numeric Magento `entity_id` or storefront `increment_id`. Resolve it
 to exactly one order before continuing. If there are no matches, say which
 identifier was checked. If multiple stores can contain the supplied identifier,
-use store scope and other non-personal facts to disambiguate; never choose the
-first match silently.
+use store scope and the supplied customer or order details to disambiguate;
+never choose the first match silently. Customer email, name, contact details,
+and addresses are available for legitimate store operations and may be used
+when the request needs them.
 
 Keep both identifiers in working context. The governed comment action requires
 the numeric `entity_id`, even when the user supplied an increment ID.
@@ -44,11 +46,12 @@ an order can be placed without being paid, invoiced without being shipped, or
 credited without being cancelled. Do not infer an event from status text when
 the corresponding document is absent.
 
-Do not request, query, or display customer names, email, phone, addresses, IP
-addresses, payment/vault details, credentials, tokens, password data, or Adobe
-Marketplace keys. The pack excludes those fields deliberately. If internal
-status-history records are unavailable through an approved source, say so
-instead of claiming the timeline is complete.
+Query and return only the customer and order fields needed for the operator's
+request. Never request or display password hashes, reset or confirmation
+tokens, guest-order protect codes, encrypted payment numbers, raw gateway
+payloads, credentials, or Adobe Marketplace keys. These secret fields remain
+blocked by the source even though operational customer and payment data is
+available. Use order status history when it is relevant to the timeline.
 
 ## Explain the finding
 

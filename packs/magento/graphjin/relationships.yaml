@@ -6,6 +6,21 @@ relationships:
     right: sales_order_item.order_id
     cardinality: one_to_many
   - left: sales_order.entity_id
+    right: sales_order_address.parent_id
+    cardinality: one_to_many
+  - left: sales_order.entity_id
+    right: sales_order_status_history.parent_id
+    cardinality: one_to_many
+  - left: sales_order.entity_id
+    right: sales_order_payment.parent_id
+    cardinality: one_to_one
+  - left: sales_order.customer_id
+    right: customer_entity.entity_id
+    cardinality: many_to_one
+  - left: customer_entity.entity_id
+    right: customer_address_entity.parent_id
+    cardinality: one_to_many
+  - left: sales_order.entity_id
     right: sales_invoice.order_id
     cardinality: one_to_many
   - left: sales_invoice.entity_id

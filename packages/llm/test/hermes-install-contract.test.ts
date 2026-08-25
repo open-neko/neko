@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -39,19 +39,12 @@ describe("Hermes install contract", () => {
   });
 
   it("disables network-backed lazy installs in the runtime", async () => {
-    const [runtimeContract, runtimeBuilder] = await Promise.all([
-      readFile(
-        `${REPO_ROOT}packages/agent-runtime/src/runtime-contract.ts`,
-        "utf8",
-      ),
-      readFile(
-        `${REPO_ROOT}packages/agent-runtime/scripts/build.mjs`,
-        "utf8",
-      ),
-    ]);
+    const runtimeContract = await readFile(
+      `${REPO_ROOT}apps/worker/src/agent-sandbox/runtime-contract.ts`,
+      "utf8",
+    );
 
-    expect(runtimeContract).toContain("manifest.runtimeDefaults");
-    expect(runtimeBuilder).toContain('HERMES_DISABLE_LAZY_INSTALLS: "1"');
+    expect(runtimeContract).toContain('env.HERMES_DISABLE_LAZY_INSTALLS = "1"');
   });
 
   it("keeps Hermes out of the worker while preserving its required runtime contracts", async () => {
@@ -80,5 +73,51 @@ describe("Hermes install contract", () => {
     expect(workerStage).not.toContain("uv tool install");
     expect(workerStage).not.toContain("COPY --from=agent-base");
     expect(workerStage).not.toContain("COPY --from=npm-payload");
+  });
+
+  it("ships the agent as the v2.28 production workspace closure", async () => {
+    const dockerfile = await readFile(`${REPO_ROOT}Dockerfile`, "utf8");
+    const agentDeploy = dockerfile.slice(
+      dockerfile.indexOf("FROM source AS agent-deploy"),
+      dockerfile.indexOf("FROM cli AS agent"),
+    );
+    const agentStage = dockerfile.slice(
+      dockerfile.indexOf("FROM cli AS agent"),
+      dockerfile.indexOf("# ─── 5c."),
+    );
+
+    expect(agentDeploy).toContain(
+      "pnpm --filter @neko/worker deploy --prod /out/agent-app",
+    );
+    expect(agentDeploy).not.toContain("--outfile=/out/agent-app/agent-entry.js");
+    expect(dockerfile).toContain("FROM npm-runtime AS agent-base");
+    expect(dockerfile).not.toContain("FROM graphjin-node-runtime AS agent-base");
+    expect(agentStage).toContain(
+      "node --import tsx/esm /app/src/agent-sandbox/entry.ts",
+    );
+    expect(agentStage).not.toContain("/usr/local/bin/graphjin");
+  });
+
+  it("has no production GraphJin CLI execution fallback", async () => {
+    const roots = [
+      `${REPO_ROOT}packages/llm/src`,
+      `${REPO_ROOT}apps/worker/src/agent-sandbox`,
+    ];
+    const files = (
+      await Promise.all(
+        roots.map(async (root) =>
+          (await readdir(root, { recursive: true }))
+            .filter((file) => file.endsWith(".ts"))
+            .map((file) => `${root}/${file}`),
+        ),
+      )
+    ).flat();
+    const source = (await Promise.all(files.map((file) => readFile(file, "utf8")))).join(
+      "\n",
+    );
+
+    expect(source).not.toContain("graphjin cli execute_graphql");
+    expect(source).not.toContain("OPENNEKO_GRAPHJIN_BIN");
+    expect(source).not.toContain("OPENNEKO_GRAPHJIN_WRITE_GRANTS");
   });
 });
