@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.30.4](https://github.com/open-neko/openneko/compare/v2.30.3...v2.30.4) (2026-08-25)
+
+
+### Bug Fixes
+
+* **agent:** restore workspace runtime and Magento GraphJin reads ([632f9ec](https://github.com/open-neko/openneko/commit/632f9ec80499bab068647d8526237270988427de))
+* **agent:** restore workspace runtime and native GraphJin broker ([45b7e3b](https://github.com/open-neko/openneko/commit/45b7e3beaacf80eb13f84b5f3cd771299ba3314f))
+* **magento:** allow operational data through GraphJin ([7f01212](https://github.com/open-neko/openneko/commit/7f0121280fbbdc2cc7a4157d776208a913dc8ab4))
+
 ## [2.30.3](https://github.com/open-neko/openneko/compare/v2.30.2...v2.30.3) (2026-08-25)
 
 
