@@ -35,6 +35,7 @@ function build(
     supportsPolicyTool?: boolean;
     supportsSourceConfigTool?: boolean;
     supportsPluginManagerTool?: boolean;
+    supportsGraphjinTool?: boolean;
     pluginCatalog?: PluginCatalog;
     installedSkills?: Array<{ name: string; description: string }>;
     pluginActions?: Array<{
@@ -60,6 +61,7 @@ function build(
     supportsPolicyTool: overrides.supportsPolicyTool ?? false,
     supportsSourceConfigTool: overrides.supportsSourceConfigTool ?? false,
     supportsPluginManagerTool: overrides.supportsPluginManagerTool ?? false,
+    supportsGraphjinTool: overrides.supportsGraphjinTool ?? false,
     pluginCatalog: overrides.pluginCatalog,
     installedSkills: overrides.installedSkills,
     pluginActions: overrides.pluginActions,
@@ -99,6 +101,15 @@ describe("buildWorkPrompt records data surface", () => {
     expect(prompt).not.toContain("<data_access>");
     expect(prompt).not.toContain("graphjin cli execute_graphql");
     expect(prompt).not.toContain("neko_source_config_manager");
+  });
+});
+
+describe("buildWorkPrompt customer data surface", () => {
+  it("routes GraphJin reads through the run-bound broker tool", () => {
+    const prompt = build("hermes", { supportsGraphjinTool: true });
+    expect(prompt).toContain("`mcp__neko_graphjin__execute_graphql`");
+    expect(prompt).toContain("trusted OpenNeko host");
+    expect(prompt).not.toContain("graphjin cli execute_graphql");
   });
 });
 

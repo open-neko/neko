@@ -98,7 +98,7 @@ export function buildBridgeServer(
   const common = { orgId, runId, emit, controlPlane };
   switch (name) {
     case "neko_graphjin":
-      return buildGraphjinReadServer({ orgId, controlPlane });
+      return buildGraphjinReadServer({ orgId, runId, controlPlane });
     case "neko_graphjin_agent":
       return buildGraphjinAgentServer({ orgId, runId, controlPlane });
     case "neko_skills":

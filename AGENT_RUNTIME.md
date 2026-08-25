@@ -35,15 +35,19 @@ layout.
 `node /app/agent-entry.js --preflight` verifies:
 
 1. The artifact contains exactly the files declared by the manifest.
-2. Every file matches its declared digest and every role exists.
+2. Every file matches its declared digest and every role exists. Artifact
+   directories are normalized to read-only, world-traversable permissions and
+   files to read-only, world-readable permissions.
 3. Built-in skills can be materialized into a run workspace.
 4. Every supported logical MCP server can be constructed by the shipped bridge.
-5. The GraphJin guard can stage the manifest-owned compact CLI.
+5. The GraphJin guard can stage the manifest-owned compact CLI and rejects
+   direct data-source access inside the sandbox.
 
 The package test suite runs this preflight with a clean environment. The final
-Docker stage runs it during the image build, and PR CI builds the final agent
-image and runs it again. Release smoke tests therefore exercise the same
-contract used by OpenShell sandbox creation.
+Docker stage runs it as the unprivileged `sandbox` user during the image build,
+and PR CI builds the final agent image and runs it again. Release smoke tests
+therefore exercise the same filesystem identity and contract used by OpenShell
+sandbox creation.
 
 ## Turn protocol guarantees
 
@@ -59,6 +63,22 @@ The tagged stdout protocol is ordered and lossless at the process boundary:
 These guarantees are behavioral parts of the runtime artifact contract. Keep
 the delayed-event, empty-completion, and surface-only regression tests when
 changing the bundle, launcher, backend, or stdout protocol.
+
+## GraphJin protocol contract
+
+Sandboxed chat, workflow, profiler, metric, and job agents read customer data
+through `mcp__neko_graphjin__execute_graphql`. The packaged MCP bridge sends the
+request to the run-bound host broker. The host selects the source, resolves the
+work-run actor, mints a short-lived actor token for that call, rejects mutations
+and subscriptions, and performs the GraphQL request.
+
+The source URL, actor token, signing material, native GraphJin binary, and direct
+data-source egress never enter the sandbox. A manifest-owned deny shim gives
+legacy skill instructions an explicit migration error, so an obsolete
+independently versioned client initialization state machine cannot break ask
+runs or become a policy bypass. Tests cover prompt routing, chat/workflow server
+mounting, bridge construction, broker org/run binding, and the image preflight
+denial.
 
 ## Changing runtime dependencies
 
@@ -79,6 +99,7 @@ control-plane dependencies across the boundary.
 pnpm --filter @neko/agent-runtime typecheck
 pnpm --filter @neko/agent-runtime test
 docker build --target agent -t openneko/agent:contract-test .
-docker run --rm --entrypoint node openneko/agent:contract-test \
+docker run --rm --user 1000660000:1000660000 --entrypoint node \
+  openneko/agent:contract-test \
   /app/agent-entry.js --preflight
 ```

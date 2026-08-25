@@ -18,6 +18,7 @@ import {
   buildAuditViewerServer,
   buildChannelManagerServer,
   buildDataSourceManagerServer,
+  buildGraphjinReadServer,
   buildSourceConfigManagerServer,
   buildUserManagerServer,
   buildLibraryServer,
@@ -120,6 +121,13 @@ export async function runAgentBackend(
           }),
         }
       : {
+        // Customer reads cross the OpenShell boundary only through the
+        // run-bound broker. The source URL and actor token stay host-side.
+        neko_graphjin: buildGraphjinReadServer({
+          orgId,
+          runId,
+          controlPlane,
+        }),
         // Rendering is per-channel: the card server only ships to web turns.
         ...(wantsCards ? { neko_ui: buildRenderCardsServer(emit) } : {}),
         neko_skills: buildSkillBuilderServer(workspace.skillsRoot),

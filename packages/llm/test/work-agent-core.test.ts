@@ -53,7 +53,10 @@ describe("runAgentBackend", () => {
     });
 
     expect(captured?.mcpServers).toEqual(
-      expect.objectContaining({ neko_records: expect.anything() }),
+      expect.objectContaining({
+        neko_graphjin: expect.anything(),
+        neko_records: expect.anything(),
+      }),
     );
     expect(captured?.mcpBridgeEnv).toMatchObject({
       OPENNEKO_MCP_ORG_ID: "org-1",

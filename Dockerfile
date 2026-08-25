@@ -489,12 +489,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends iproute2 nftabl
     && rm -rf /var/lib/apt/lists/*
 RUN groupadd -g 1000660000 sandbox \
     && useradd -u 1000660000 -g sandbox -d /sandbox -M sandbox \
-    && install -d -o sandbox -g sandbox /sandbox
+    && install -d -o sandbox -g sandbox /sandbox \
+    && rm -f /usr/local/bin/graphjin \
+    && test ! -e /usr/local/bin/graphjin
 # Keep the runtime payload immutable; only /sandbox is writable by the agent.
 COPY --from=agent-deploy --chown=root:root /out/agent-app /app
 # The build must fail if the final image loses a declared runtime file, if an
-# asset checksum drifts, or if skills/MCP/GraphJin guard construction breaks.
+# asset checksum drifts, if the sandbox user cannot traverse it, or if
+# skills/MCP/GraphJin guard construction breaks.
+USER sandbox
 RUN node /app/agent-entry.js --preflight
+USER root
 WORKDIR /sandbox
 # Supervisor-replaced; launcher runs:
 #   node /app/agent-entry.js

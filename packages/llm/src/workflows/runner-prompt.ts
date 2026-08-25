@@ -224,6 +224,12 @@ export function buildWorkflowRunnerPrompt(
   const shellTool = shellToolName(backend);
   const dataAccessSection = buildDataAccessSection({
     shellTool,
+    ...(mcpTools
+      ? {
+          queryTool: "mcp__neko_graphjin__execute_graphql",
+          queryIdentity: "actor" as const,
+        }
+      : {}),
     workspace,
     knowledge,
     inlineKnowledge: "syntax",

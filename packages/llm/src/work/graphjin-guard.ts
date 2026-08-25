@@ -93,7 +93,7 @@ export async function ensureGraphjinGuard(
     xdgConfigHome?: string;
     /** GJ5: write subcommands this run's policy grants (admin actors only). */
     allowSubcommands?: string[];
-    /** Records-mode isolation: customer GraphJin is not a permitted data plane. */
+    /** Sandbox isolation: direct customer GraphJin access is not permitted. */
     denyAll?: boolean;
   } = {},
 ): Promise<string> {
@@ -118,7 +118,7 @@ export async function ensureGraphjinGuard(
     "",
     ...(opts.denyAll
       ? [
-          "echo \"Customer GraphJin is unavailable in a records-scoped turn. Use the native neko_records tools.\" >&2",
+          "echo \"Direct GraphJin CLI access is unavailable in this sandbox. Use mcp__neko_graphjin__execute_graphql for customer data or the native neko_records tools for generated apps.\" >&2",
           "exit 2",
           "",
         ]

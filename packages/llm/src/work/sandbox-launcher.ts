@@ -14,8 +14,8 @@ import {
 import type { RunWorkflowAgentBackendInput } from "../workflows/agent-core";
 import type { RunWorkflowTurnDeps } from "../workflows/run-workflow-turn";
 import type { RunAgentBackendInput } from "./agent-core";
+import type { RunBinding } from "./broker";
 import type { RunChatTurnDeps } from "./run-chat-turn";
-import { resolveSandboxReachableUrl } from "./sandbox-net";
 import { copySkillOverrides } from "./workspace";
 
 // Wire protocol shared with the in-image entrypoint. The agent runs in a
@@ -61,21 +61,11 @@ export interface SandboxLauncherOptions {
    * keyAliases, process env) is what hermes uses. Set for the hermes backend.
    */
   hermesHomeHostPath?: string;
-  /**
-   * GJ6: path of the graphjin binary inside the agent image — the org's
-   * data-source host is allowed for this binary so `graphjin cli` can
-   * reach the GraphJin server from the box.
-   */
-  graphjinBinaryInBox?: string;
   /** Broker coordinates for Hermes MCP tools. */
   brokerUrl?: string;
   /** Mint a per-run bearer token bound to {runId, orgId, threadId} (the broker forces
    *  org/run from the binding, never the request body). */
-  brokerTokenFor?: (binding: {
-    runId: string;
-    orgId: string;
-    threadId?: string;
-  }) => string;
+  brokerTokenFor?: (binding: RunBinding) => string;
   /** Release the run's token after it finishes (called in the run's finally). */
   brokerRelease?: (runId: string) => void;
   execTimeoutMs?: number;
@@ -463,43 +453,13 @@ function makeSandboxCore(
       ]),
     ) as RunAgentBackendInput["workspace"];
 
-    // Non-interactive jobs never receive direct source egress or a GraphJin
-    // token. Their graphjinRead capability is a brokered query-only MCP tool.
-    const graphjinDenied =
+    // Every sandboxed path uses the brokered query-only MCP tool. The source
+    // URL and actor token remain on the trusted host; no data-source egress is
+    // granted to the sandbox's general-purpose binaries.
+    const recordsScoped =
       !isJob &&
       kind === "work" &&
       (input as RunAgentBackendInput).dataSurface === "records";
-    const graphjinEnabled = !isJob && !graphjinDenied;
-
-    // Job agents are always read-only. Interactive/workflow turns retain
-    // their existing actor-policy grant resolution.
-    const graphjinWriteGrants =
-      graphjinEnabled && !isJob
-        ? await resolveRunGraphjinGrants(input.orgId, input.runId)
-        : [];
-
-    // GJ6: the box must reach the org's GraphJin server — resolved here
-    // (host-side, where the DB lives) both for the egress rule and for the
-    // in-box client.json (entry.ts rewrites loopback to the host alias).
-    const dataEgress: Awaited<ReturnType<typeof resolveDataSourceEgress>> = graphjinEnabled
-      ? await resolveDataSourceEgress(
-          input.orgId,
-          (() => {
-            const binary =
-              opts.graphjinBinaryInBox ?? "/usr/local/bin/graphjin";
-            return binary.endsWith("/graphjin")
-              ? [binary, `${binary}.real`]
-              : [binary];
-          })(),
-        )
-      : { rules: [] };
-    const storedGraphjinClientConfig = graphjinEnabled
-      ? await readRunGraphjinClientConfig(input.workspace.runRoot)
-      : null;
-    const graphjinClientConfig =
-      storedGraphjinClientConfig && dataEgress.serverUrl
-        ? { ...storedGraphjinClientConfig, server: dataEgress.serverUrl }
-        : storedGraphjinClientConfig;
 
     const threadId = isJob
       ? `agent-job:${input.runId}`
@@ -518,8 +478,6 @@ function makeSandboxCore(
       backendId: input.backend.id,
       // Hermes reads its model from the staged config.yaml.
       workspace: boxWorkspace,
-      graphjinEnabled,
-      ...(graphjinDenied ? { graphjinDenied: true } : {}),
       ...(kind === "work"
         ? {
             backendState: (input as RunAgentBackendInput).backendState,
@@ -543,9 +501,6 @@ function makeSandboxCore(
               agentAccess: jobInput?.access ?? {},
               agentRun: serializableAgentRunOptions(jobInput?.run ?? { prompt: inputPrompt }),
             }),
-      ...(graphjinWriteGrants.length > 0 ? { graphjinWriteGrants } : {}),
-      ...(dataEgress.serverUrl ? { graphjinServerUrl: dataEgress.serverUrl } : {}),
-      ...(graphjinClientConfig ? { graphjinClientConfig } : {}),
     };
 
     // MCP tools reach the control plane via the broker — node's
@@ -566,7 +521,6 @@ function makeSandboxCore(
     const egressRules: SandboxEgressRule[] = [
       ...(opts.modelEgress ?? []),
       ...brokerEgress,
-      ...dataEgress.rules,
     ];
 
     const stageDir = await mkdtemp(path.join(tmpdir(), "oss-agent-"));
@@ -579,7 +533,7 @@ function makeSandboxCore(
       const staged = await stageSandboxWorkspace(input.workspace, stageDir, {
         // A records-scoped turn must remain functional during a rolling
         // upgrade even if the sandbox image predates the records skill.
-        requiredSkillNames: graphjinDenied ? ["records"] : [],
+        requiredSkillNames: recordsScoped ? ["records"] : [],
       });
       const stageRuntimeRoot = path.join(
         staged.workspace.runRoot,
@@ -675,7 +629,7 @@ function makeSandboxCore(
 
       log(
         `agent sandbox ready: ${name} (backend=${input.backend.id}, kind=${kind}, ` +
-          `graphjin=${graphjinEnabled}, skill_overrides=${staged.skillOverrides.length})`,
+          `graphjin=brokered, skill_overrides=${staged.skillOverrides.length})`,
       );
       await input.emit({ type: "status", message: "Launching agent…" });
       return await execAndStream(
@@ -692,6 +646,7 @@ function makeSandboxCore(
                     runId: input.runId,
                     orgId: input.orgId,
                     threadId,
+                    kind,
                   }),
                 }
               : {}),
@@ -742,88 +697,6 @@ function makeSandboxCore(
 }
 
 /** `policy update` adding the model endpoint(s) scoped to the backend binary. */
-/** GJ6: the org's GraphJin host as a per-run egress allow entry. Best-effort. */
-async function resolveDataSourceEgress(
-  orgId: string,
-  graphjinBinaries: readonly string[],
-): Promise<{
-  rules: Array<{ host: string; binary: string; port?: number }>;
-  serverUrl?: string;
-}> {
-  try {
-    const { data_source, db, desc, eq } = await import("@neko/db");
-    const [src] = await db()
-      .select({ mcpUrl: data_source.mcp_url })
-      .from(data_source)
-      .where(eq(data_source.org_id, orgId))
-      .orderBy(desc(data_source.is_default), data_source.created_at)
-      .limit(1);
-    if (!src?.mcpUrl) return { rules: [] };
-    const sandboxUrl = await resolveSandboxReachableUrl(src.mcpUrl);
-    const u = new URL(sandboxUrl);
-    const port = Number(u.port) || (u.protocol === "https:" ? 443 : 80);
-    return {
-      rules: graphjinBinaries.map((binary) => ({
-        host: u.hostname,
-        port,
-        binary,
-      })),
-      serverUrl: sandboxUrl,
-    };
-  } catch (err) {
-    console.warn(
-      `[agent-sandbox] data-source egress lookup failed: ${err instanceof Error ? err.message : err}`,
-    );
-    return { rules: [] };
-  }
-}
-
-async function readRunGraphjinClientConfig(
-  runRoot: string | undefined,
-): Promise<Record<string, unknown> | null> {
-  if (!runRoot) return null;
-  const candidates = [
-    path.join(runRoot, "gj-auth", "graphjin", "client.json"),
-    path.join(runRoot, "gj-auth", ".config", "graphjin", "client.json"),
-    path.join(
-      runRoot,
-      "gj-auth",
-      "Library",
-      "Application Support",
-      "graphjin",
-      "client.json",
-    ),
-  ];
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(await readFile(candidate, "utf8")) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-/** GJ5 host-side grant resolution for the in-box guard rebuild. Best-effort. */
-async function resolveRunGraphjinGrants(
-  orgId: string,
-  runId: string,
-): Promise<string[]> {
-  try {
-    const { getWorkRunActor } = await import("./personas");
-    const { resolveGraphjinWriteGrants } = await import(
-      "./graphjin-actor-guard"
-    );
-    const actor = await getWorkRunActor(runId);
-    return await resolveGraphjinWriteGrants(orgId, actor);
-  } catch {
-    return [];
-  }
-}
-
 export function buildModelEgressArgs(
   name: string,
   egress: ReadonlyArray<{ host: string; binary: string; port?: number }>,
@@ -869,43 +742,31 @@ export function buildScopedEgressArgs(
  * bound to its control plane and passes the handle so every backend can reach
  * policy-gated host capabilities and return their UI events mid-turn.
  */
-export function agentRuntimeDepsFromEnv(broker?: {
+type SandboxBrokerHandle = {
   url: string;
-  tokenFor: (binding: {
-    runId: string;
-    orgId: string;
-    threadId?: string;
-  }) => string;
+  tokenFor: (binding: RunBinding) => string;
   release?: (runId: string) => void;
-}): Pick<Partial<RunChatTurnDeps>, "runCore"> {
+};
+
+export function agentRuntimeDepsFromEnv(
+  broker?: SandboxBrokerHandle,
+): Pick<Partial<RunChatTurnDeps>, "runCore"> {
   return {
     runCore: makeSandboxRunCore(sandboxLauncherOptionsFromEnv(broker)),
   };
 }
 
-export function workflowRuntimeDepsFromEnv(broker?: {
-  url: string;
-  tokenFor: (binding: {
-    runId: string;
-    orgId: string;
-    threadId?: string;
-  }) => string;
-  release?: (runId: string) => void;
-}): Pick<Partial<RunWorkflowTurnDeps>, "runCore"> {
+export function workflowRuntimeDepsFromEnv(
+  broker?: SandboxBrokerHandle,
+): Pick<Partial<RunWorkflowTurnDeps>, "runCore"> {
   return {
     runCore: makeSandboxWorkflowRunCore(sandboxLauncherOptionsFromEnv(broker)),
   };
 }
 
-function sandboxLauncherOptionsFromEnv(broker?: {
-  url: string;
-  tokenFor: (binding: {
-    runId: string;
-    orgId: string;
-    threadId?: string;
-  }) => string;
-  release?: (runId: string) => void;
-}): SandboxLauncherOptions {
+function sandboxLauncherOptionsFromEnv(
+  broker?: SandboxBrokerHandle,
+): SandboxLauncherOptions {
   // Comma-separated: the model endpoint AND any resolution hosts (hermes needs
   // models.dev), all scoped to the backend's one connecting binary.
   const hosts = (process.env.OPENNEKO_AGENT_MODEL_HOST ?? "")
@@ -927,8 +788,6 @@ function sandboxLauncherOptionsFromEnv(broker?: {
     modelEgress: binary ? hosts.map((host) => ({ host, binary })) : [],
     keyAliases: keyEnv ? [{ from: credName, to: keyEnv }] : undefined,
     hermesHomeHostPath: process.env.OPENNEKO_AGENT_HERMES_HOME || undefined,
-    graphjinBinaryInBox:
-      process.env.OPENNEKO_AGENT_GRAPHJIN_BINARY || undefined,
     brokerUrl: broker?.url,
     brokerTokenFor: broker?.tokenFor,
     brokerRelease: broker?.release,

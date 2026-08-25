@@ -171,7 +171,18 @@ spawn depth allows it.
 function buildWorkflowToolsSection(
   supportsWorkflowTool: boolean,
   shellTool: string,
+  supportsGraphjinTool: boolean,
 ): string {
+  const introspection = supportsGraphjinTool
+    ? `Before setting \`triggers.when\`, query \`gj_catalog\` through
+  \`mcp__neko_graphjin__execute_graphql\` for table cards, columns, and
+  relationship edges. Confirm the table, columns, and \`primary_key\` from
+  those role-scoped results.`
+    : `Before setting \`triggers.when\`, introspect the data source with the
+  available GraphJin discovery surface. In source-mode, query \`gj_catalog\`
+  through \`graphjin cli execute_graphql\` for table cards, columns, and
+  relationship edges. Only use MCP dev tools such as \`list_tables\`,
+  \`describe_table\`, or \`get_table_sample\` when the server exposes them.`;
   if (supportsWorkflowTool) {
     return `<workflows>
 The operator can ask you to set up, modify, or look up workflows directly
@@ -213,11 +224,7 @@ A workflow can run on a schedule, when the data changes, or both:
   The workflow's \`steps\` are the response (e.g. "DM Amit on Slack with
   the low-stock details"); \`triggers.when\` is the condition.
 
-  Before setting \`triggers.when\`, introspect the data source with the
-  available GraphJin discovery surface. In source-mode, query \`gj_catalog\`
-  through \`graphjin cli execute_graphql\` for table cards, columns, and
-  relationship edges. Only use MCP dev tools such as \`list_tables\`,
-  \`describe_table\`, or \`get_table_sample\` when the server exposes them.
+  ${introspection}
 
   \`triggers.when\` shape:
   \`\`\`json
@@ -280,11 +287,8 @@ both:
   \`triggers.when\` is the condition. Omit \`triggers\` entirely for a
   manual workflow.
 
-Before writing \`triggers.when\`, introspect the data source with your
-\`${shellTool}\` tool. In source-mode, query \`gj_catalog\` through
-\`graphjin cli execute_graphql\`; in legacy/tool deployments, use available
-GraphJin CLI discovery commands. Confirm the table, columns, and
-\`primary_key\`. \`primary_key\` is
+${introspection.replace("Before setting", "Before writing")}
+\`primary_key\` is
 required and drives idempotency. If the workflow's steps write back to
 the watched table, add \`triggers.when.idempotency_key_template\` (e.g.
 \`"reorder-{primary_key}"\`).
@@ -687,6 +691,8 @@ export function buildWorkPrompt(args: {
   supportsPolicyTool: boolean;
   supportsSourceConfigTool: boolean;
   supportsPluginManagerTool?: boolean;
+  /** Customer GraphJin reads are brokered when the backend mounts MCP tools. */
+  supportsGraphjinTool?: boolean;
   pluginCatalog?: PluginCatalog;
   // True when prior turns must be inlined into the system prompt because the
   // backend can't reload them out-of-band (i.e. no session resume).
@@ -716,6 +722,7 @@ export function buildWorkPrompt(args: {
     supportsPolicyTool,
     supportsSourceConfigTool,
     supportsPluginManagerTool = false,
+    supportsGraphjinTool = false,
     pluginCatalog,
     inlineTranscript,
     pluginActions,
@@ -756,7 +763,11 @@ that flags churn risk every Monday."
         })
       : "",
     dataSurface === "customer"
-      ? buildWorkflowToolsSection(supportsWorkflowTool, shellTool)
+      ? buildWorkflowToolsSection(
+          supportsWorkflowTool,
+          shellTool,
+          supportsGraphjinTool,
+        )
       : "",
     dataSurface === "customer" ? buildPoliciesSection(supportsPolicyTool) : "",
     dataSurface === "customer"
@@ -770,6 +781,12 @@ that flags churn risk every Monday."
       ? buildRecordsAccessSection(appContext, recordContext)
       : buildDataAccessSection({
           shellTool,
+          ...(supportsGraphjinTool
+            ? {
+                queryTool: "mcp__neko_graphjin__execute_graphql",
+                queryIdentity: "actor" as const,
+              }
+            : {}),
           workspace,
           knowledge,
           inlineKnowledge: "syntax",

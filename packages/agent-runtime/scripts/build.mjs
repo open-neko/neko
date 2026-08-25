@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  cp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -91,6 +99,7 @@ await writeFile(
   join(distRoot, manifestName),
   `${JSON.stringify(manifest, null, 2)}\n`,
 );
+await normalizeArtifactPermissions(distRoot);
 
 async function walkFiles(root) {
   const files = [];
@@ -101,4 +110,14 @@ async function walkFiles(root) {
     else throw new Error(`agent runtime artifact cannot contain ${entry.name}`);
   }
   return files;
+}
+
+async function normalizeArtifactPermissions(root) {
+  await chmod(root, 0o755);
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    const absolutePath = join(root, entry.name);
+    if (entry.isDirectory()) await normalizeArtifactPermissions(absolutePath);
+    else if (entry.isFile()) await chmod(absolutePath, 0o644);
+    else throw new Error(`agent runtime artifact cannot contain ${entry.name}`);
+  }
 }

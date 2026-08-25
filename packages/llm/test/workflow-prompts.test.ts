@@ -57,6 +57,8 @@ describe("buildWorkflowRunnerPrompt", () => {
     const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools: true });
     expect(prompt).toContain("mcp__neko_workflow_output__emit");
     expect(prompt).toContain("mcp__neko_action__request");
+    expect(prompt).toContain("mcp__neko_graphjin__execute_graphql");
+    expect(prompt).not.toContain("graphjin cli execute_graphql");
     expect(prompt).not.toContain("```neko_workflow_output");
     expect(prompt).not.toContain("```neko_action_request");
   });

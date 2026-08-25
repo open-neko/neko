@@ -970,11 +970,13 @@ export function buildSkillBuilderServer(skillsRoot: string) {
 }
 
 /**
- * Query-only GraphJin surface for non-interactive jobs. The broker owns the
- * source URL and short-lived service token; neither enters the sandbox.
+ * Query-only GraphJin surface for sandboxed agents. The broker owns the source
+ * URL and mints a short-lived token for the bound run actor on each call;
+ * neither enters the sandbox.
  */
 export function buildGraphjinReadServer(opts: {
   orgId: string;
+  runId?: string;
   controlPlane?: AgentControlPlane;
 }) {
   const controlPlane = requireControlPlane(opts.controlPlane);
@@ -993,6 +995,7 @@ export function buildGraphjinReadServer(opts: {
     async (args) => {
       const result = await controlPlane.queryGraphjinRead({
         orgId: opts.orgId,
+        ...(opts.runId ? { runId: opts.runId } : {}),
         query: args.query,
         ...(args.variables ? { variables: args.variables } : {}),
         ...(args.operationName ? { operationName: args.operationName } : {}),

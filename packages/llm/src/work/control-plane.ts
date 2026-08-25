@@ -111,11 +111,24 @@ export function assertReadOnlyGraphql(query: string): void {
   // can cause a harmless false positive, while accepting either operation
   // would turn the broker into a write bypass for legacy GraphJin sources.
   if (/\b(?:mutation|subscription)\b/i.test(text)) {
-    throw new Error("GraphJin job broker allows query operations only");
+    throw new Error("GraphJin agent broker allows query operations only");
   }
   if (!text.startsWith("{") && !/^query\b/i.test(text)) {
-    throw new Error("GraphJin job broker requires an explicit query operation");
+    throw new Error("GraphJin agent broker requires an explicit query operation");
   }
+}
+
+export function graphjinReadPrincipal(actor: {
+  userId: string | null;
+  role: string | null;
+}): { userId: string | null; role: "admin" | "member" | "service" } {
+  if (actor.role === "admin" || actor.role === "member") {
+    return { userId: actor.userId, role: actor.role };
+  }
+  if (actor.role === "service") {
+    return { userId: null, role: "service" };
+  }
+  throw new Error("GraphJin read actor has an invalid role");
 }
 
 async function requireSourceConfigAccess(input: {
@@ -411,6 +424,8 @@ export interface AgentControlPlane {
   searchLibraryForRun(args: LibrarySearchArgs): Promise<LibrarySearchResult[]>;
   queryGraphjinRead(input: {
     orgId: string;
+    /** Trusted work-run binding used to mint the same actor identity as chat. */
+    runId?: string | null;
     query: string;
     variables?: Record<string, unknown>;
     operationName?: string;
@@ -819,6 +834,7 @@ export class InProcessControlPlane implements AgentControlPlane {
 
   async queryGraphjinRead(input: {
     orgId: string;
+    runId?: string | null;
     query: string;
     variables?: Record<string, unknown>;
     operationName?: string;
@@ -840,11 +856,20 @@ export class InProcessControlPlane implements AgentControlPlane {
 
     const headers: Record<string, string> = {};
     if (source.authMode === "jwt") {
+      let principal: ReturnType<typeof graphjinReadPrincipal> = {
+        userId: null,
+        role: "service",
+      };
+      if (input.runId) {
+        const { getWorkRunActor } = await import("./personas");
+        const actor = await getWorkRunActor(input.runId, input.orgId);
+        principal = graphjinReadPrincipal(actor);
+      }
       const { mintGraphjinToken } = await import("../graphjin/token");
       headers.authorization = `Bearer ${mintGraphjinToken({
         orgId: input.orgId,
-        userId: null,
-        role: "service",
+        userId: principal.userId,
+        role: principal.role,
       })}`;
     }
     const { graphjinQuery } = await import("../graphjin/client");

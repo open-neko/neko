@@ -121,8 +121,10 @@ ${application}${usage}
 
 export type DataAccessOptions = {
   shellTool: string;
-  /** Query-only broker tool used by isolated, non-interactive jobs. */
+  /** Query-only broker tool used by sandboxed chat, workflow, and job agents. */
   queryTool?: string;
+  /** Interactive runs preserve their work-run actor; jobs use service reads. */
+  queryIdentity?: "actor" | "service";
   /** Read-only GraphJin server-agent tool used by delegated jobs. */
   agentTool?: string;
   workspace: AgentWorkspace;
@@ -319,10 +321,11 @@ ${GRAPHJIN_AGGREGATE_RULE}
 function buildBrokeredDataAccessSection(opts: DataAccessOptions): string {
   const { queryTool, knowledge } = opts;
   if (!queryTool) throw new Error("brokered data access requires queryTool");
+  const actorBound = opts.queryIdentity === "actor";
   const agentic = knowledge.mode === "agentic";
   const knowledgeBlock = agentic
     ? `================================================================================
-Tables visible to the service role (deeper detail via gj_catalog):
+Tables visible to this run's role (deeper detail via gj_catalog):
 ================================================================================
 
 ${compactTableDigest(knowledge.tables)}
@@ -374,10 +377,14 @@ Execute every database read by calling \`${queryTool}\` with:
 
   { "query": "<your read-only GraphQL query>" }
 
-This tool is implemented by the trusted OpenNeko host. The source URL and
-short-lived service credential never enter your sandbox. The host rejects
-mutations and subscriptions before GraphJin sees them. No shell, raw HTTP,
-configuration, or write path is available for database access.
+This tool is implemented by the trusted OpenNeko host. ${
+  actorBound
+    ? `The source URL and short-lived actor credential never enter your sandbox;
+the broker binds each call to this org and work run.`
+    : `The source URL and short-lived service credential never enter your sandbox;
+the broker binds each call to this org's read-only job capability.`
+} The host rejects mutations and subscriptions before GraphJin sees them. No
+shell, raw HTTP, configuration, or write path is available for database access.
 
 ${
   agentic

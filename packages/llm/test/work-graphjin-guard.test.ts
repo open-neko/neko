@@ -144,7 +144,7 @@ describe("ensureGraphjinGuard wrapper script", () => {
     }
   });
 
-  it("installs an explicit records-mode deny wrapper", async () => {
+  it("installs an explicit sandbox direct-access deny wrapper", async () => {
     const guardDir = await mkdtemp(join(tmpdir(), "neko-guard-records-"));
     try {
       const deniedWrapper = await ensureGraphjinGuard(guardDir, "/bin/echo", {
@@ -156,7 +156,8 @@ describe("ensureGraphjinGuard wrapper script", () => {
         { encoding: "utf8" },
       );
       expect(result.status).toBe(2);
-      expect(result.stderr).toContain("records-scoped turn");
+      expect(result.stderr).toContain("Direct GraphJin CLI access is unavailable");
+      expect(result.stderr).toContain("mcp__neko_graphjin__execute_graphql");
       expect(result.stdout).not.toContain("execute_graphql");
     } finally {
       await rm(guardDir, { recursive: true, force: true });

@@ -404,11 +404,15 @@ export async function runChatTurn(
     }
   };
 
-  // Production resolves and guards GraphJin inside the OpenShell sandbox.
-  // The host path is retained only for the in-process test harness.
+  // Hermes reads customer data through the brokered MCP server. Keep the
+  // guarded CLI only for a legacy in-process backend without MCP support.
+  const directGraphjin =
+    dataSurface === "customer" && !backend.capabilities.mcpTools;
   const graphjinBinary =
-    runCore === runAgentBackend ? await resolveBinaryOnPath("graphjin") : null;
-  if (runCore === runAgentBackend && !graphjinBinary && dataSurface === "customer") {
+    runCore === runAgentBackend && directGraphjin
+      ? await resolveBinaryOnPath("graphjin")
+      : null;
+  if (runCore === runAgentBackend && directGraphjin && !graphjinBinary) {
     const errMsg = "graphjin CLI is not installed on PATH.";
     await wrappedEmit({ type: "error", message: errMsg });
     await finishWorkRun(runId, "failed", errMsg);
@@ -422,7 +426,7 @@ export async function runChatTurn(
   // run's CLI calls carry this run's actor token — a per-run client.json
   // the guard pins XDG_CONFIG_HOME at. Legacy mode is unchanged.
   let guardXdg: string | undefined;
-  if (dataSurface === "customer") {
+  if (directGraphjin) {
     const { data_source, db, desc, eq } = await import("@neko/db");
     const [src] = await db()
       .select({ authMode: data_source.auth_mode, mcpUrl: data_source.mcp_url })
@@ -450,14 +454,13 @@ export async function runChatTurn(
   // GJ5: an org policy may grant an admin actor specific write
   // subcommands; everyone else keeps the read-only guard.
   const { resolveGraphjinWriteGrants } = await import("./graphjin-actor-guard");
-  const writeGrants = dataSurface === "customer"
+  const writeGrants = directGraphjin
     ? await resolveGraphjinWriteGrants(orgId, actor)
     : [];
   if (graphjinBinary) {
     await ensureGraphjinGuard(workspace.binRoot, graphjinBinary, {
       ...(guardXdg ? { xdgConfigHome: guardXdg } : {}),
       ...(writeGrants.length > 0 ? { allowSubcommands: writeGrants } : {}),
-      ...(dataSurface === "records" ? { denyAll: true } : {}),
     });
   }
 
@@ -481,6 +484,8 @@ export async function runChatTurn(
     const supportsWorkflowTool = customerSurface && backend.capabilities.mcpTools;
     const supportsPolicyTool = customerSurface && backend.capabilities.mcpTools;
     const supportsPluginManagerTool =
+      customerSurface && backend.capabilities.mcpTools;
+    const supportsGraphjinTool =
       customerSurface && backend.capabilities.mcpTools;
     const sourceConfigSettings = dataSurface === "customer"
       ? await getGraphjinConfigSettingsForOrg(orgId)
@@ -586,6 +591,7 @@ export async function runChatTurn(
       supportsPolicyTool,
       supportsSourceConfigTool,
       supportsPluginManagerTool,
+      supportsGraphjinTool,
       pluginCatalog,
       inlineTranscript,
       pluginActions: customerSurface ? (opts.pluginActions ?? []) : [],

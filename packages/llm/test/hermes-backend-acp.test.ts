@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   chunkNotification,
   createMockSpawn,
@@ -29,7 +32,9 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const { HermesBackend } = await import("../src/agent-backends/hermes");
+const { HermesBackend, hermesAgentLogTail } = await import(
+  "../src/agent-backends/hermes"
+);
 
 const FAKE_WORKSPACE = {
   orgRoot: "/tmp/neko-test/org",
@@ -52,6 +57,29 @@ function captureRequests(): { seen: SeenRequest[]; record: (m: string, p: unknow
 }
 
 describe("HermesBackend ACP behavior", () => {
+  it("extracts safe provider activity from Hermes's timestamped agent log", async () => {
+    const home = await mkdtemp(join(tmpdir(), "hermes-agent-log-"));
+    try {
+      await mkdir(join(home, "logs"), { recursive: true });
+      await writeFile(
+        join(home, "logs", "agent.log"),
+        [
+          "2026-08-25 06:47:01,123 INFO Provider client created for google-gemini",
+          "Prompt on session: private system prompt",
+          "private multiline prompt continuation",
+          "2026-08-25 06:47:02,456 ERROR Provider request failed: connection reset",
+        ].join("\n"),
+      );
+
+      const tail = hermesAgentLogTail(home);
+      expect(tail).toContain("Provider request failed: connection reset");
+      expect(tail).not.toContain("private system prompt");
+      expect(tail).not.toContain("multiline prompt continuation");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("always uses session/new — never session/load — even when backendState carries a sessionKey", async () => {
     // Hermes ACP session/load replays prior history as session/update events.
     // The worker already injects history into the prompt

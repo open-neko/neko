@@ -13,6 +13,7 @@ import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentEvent, AgentWorkspace } from "../src/agent-backend";
 import type { RunAgentBackendInput } from "../src/work/agent-core";
+import type { RunBinding } from "../src/work/broker";
 import type { RunWorkflowAgentBackendInput } from "../src/workflows/agent-core";
 
 /**
@@ -383,7 +384,7 @@ describe("makeSandboxRunCore", () => {
     expect(jobCapture.jobs.at(-1)?.model).toBeUndefined();
   });
 
-  it("removes customer GraphJin egress and installs a deny guard for records turns", async () => {
+  it("never injects direct GraphJin credentials into records turns", async () => {
     const runCore = makeSandboxRunCore({
       agentImage: "ghcr.io/open-neko/agent:test",
       onLog: () => {},
@@ -395,9 +396,9 @@ describe("makeSandboxRunCore", () => {
     expect(jobCapture.jobs.at(-1)).toMatchObject({
       kind: "work",
       dataSurface: "records",
-      graphjinEnabled: false,
-      graphjinDenied: true,
     });
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinEnabled");
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinDenied");
     expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinServerUrl");
     expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinClientConfig");
   });
@@ -623,7 +624,7 @@ describe("makeSandboxRunCore", () => {
     expect(h.calls.filter((c) => c.args.includes("delete"))).toHaveLength(1);
   });
 
-  it("serializes the per-run GraphJin client config into workflow sandbox jobs", async () => {
+  it("does not serialize GraphJin credentials into workflow sandbox jobs", async () => {
     const orgRoot = await mkdtemp(join(tmpdir(), "ws-"));
     const workspace = fullWorkspace(orgRoot);
     const clientDir = join(workspace.runRoot, "gj-auth", "graphjin");
@@ -643,11 +644,8 @@ describe("makeSandboxRunCore", () => {
 
     await runCore(fakeWorkflowInput(async () => {}, undefined, workspace));
 
-    expect(jobCapture.jobs.at(-1)?.graphjinClientConfig).toMatchObject({
-      server: "http://localhost:8080/api/v1/mcp",
-      token: "run-token",
-      subject: "service",
-    });
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinClientConfig");
+    expect(jobCapture.jobs.at(-1)).not.toHaveProperty("graphjinServerUrl");
   });
 
   it("gives model-only jobs no GraphJin capability or artifact persistence", async () => {
@@ -663,7 +661,6 @@ describe("makeSandboxRunCore", () => {
 
     expect(jobCapture.jobs.at(-1)).toMatchObject({
       kind: "agent-job",
-      graphjinEnabled: false,
       agentAccess: {},
       agentRun: {
         timeoutMs: 45_000,
@@ -699,7 +696,6 @@ describe("makeSandboxRunCore", () => {
     const job = jobCapture.jobs.at(-1);
     expect(job).toMatchObject({
       kind: "agent-job",
-      graphjinEnabled: false,
       agentAccess: { graphjinRead: true },
     });
     expect(job).not.toHaveProperty("graphjinWriteGrants");
@@ -709,17 +705,20 @@ describe("makeSandboxRunCore", () => {
     await runCore(fakeJobInput(workspace, { graphjinAgent: true }));
     expect(jobCapture.jobs.at(-1)).toMatchObject({
       kind: "agent-job",
-      graphjinEnabled: false,
       agentAccess: { graphjinAgent: true },
     });
   });
 
   it("scopes broker egress to node, injects url+token, and releases on finish", async () => {
     const released: string[] = [];
+    const bindings: RunBinding[] = [];
     const runCore = makeSandboxRunCore({
       agentImage: "ghcr.io/open-neko/agent:test",
       brokerUrl: "http://host.openshell.internal:4199",
-      brokerTokenFor: ({ runId, orgId }) => `tok-${orgId}-${runId}`,
+      brokerTokenFor: (binding) => {
+        bindings.push(binding);
+        return `tok-${binding.orgId}-${binding.runId}`;
+      },
       brokerRelease: (runId) => released.push(runId),
       onLog: () => {},
     });
@@ -745,6 +744,14 @@ describe("makeSandboxRunCore", () => {
       "OPENNEKO_BROKER_URL='http://host.openshell.internal:4199'",
     );
     expect(execCall?.args.join(" ")).toContain("OPENNEKO_BROKER_TOKEN='tok-org-1-run-1'");
+    expect(bindings).toEqual([
+      {
+        runId: "run-1",
+        orgId: "org-1",
+        threadId: "thr-1",
+        kind: "work",
+      },
+    ]);
     // the token is dropped when the run ends:
     expect(released).toEqual(["run-1"]);
   });

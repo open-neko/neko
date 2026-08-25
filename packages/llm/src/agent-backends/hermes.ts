@@ -78,21 +78,26 @@ export function ensureRenderStub(): string {
 
 /** Last error-ish lines of hermes' own agent.log — the file dies with the
  *  sandbox, so a mid-turn death must read it NOW or never. */
-function hermesAgentLogTail(hermesHome: string | undefined): string {
+export function hermesAgentLogTail(hermesHome: string | undefined): string {
   if (!hermesHome) return "";
   try {
     const lines = readFileSync(join(hermesHome, "logs", "agent.log"), "utf8")
       .split("\n")
       .filter(
         (l) =>
-          l.trim() &&
+          /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[,.]\d+)?\s+(?:DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+/.test(
+            l,
+          ) &&
           !l.includes("Prompt on session") &&
           !l.includes("conversation turn:"),
       );
     const errs = lines.filter((l) =>
       /ERROR|CRITICAL|Traceback|Unhandled|fatal|Killed|Segmentation/i.test(l),
     );
-    return (errs.length ? errs : lines).slice(-8).join("\n").slice(-900);
+    const activity = lines.filter((l) =>
+      /provider|client created|API call|request|response|timeout|denied|failed|error/i.test(l),
+    );
+    return (errs.length ? errs : activity).slice(-8).join("\n").slice(-900);
   } catch {
     return "";
   }
@@ -681,11 +686,13 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
     // with no assistant message, leaving the UI apparently dead. Retry only
     // when no tool ran, then fail with an explicit diagnostic.
     if (!accumulatedText.trim() && !surfaceEmittedDuringStream) {
+      const activity = hermesAgentLogTail(env.HERMES_HOME);
       return {
         finalText: "",
         error:
           `hermes completed without assistant output or surface` +
-          ` (stopReason=${promptStopReason ?? "unknown"})`,
+          ` (stopReason=${promptStopReason ?? "unknown"})` +
+          (activity ? `; agent activity: ${activity}` : ""),
         retryable: !toolActivityObserved,
       };
     }

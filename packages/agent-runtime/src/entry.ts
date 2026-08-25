@@ -2,13 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import {
   appendFile,
-  chmod,
   mkdir,
   mkdtemp,
-  rename,
   rm,
   symlink,
-  writeFile,
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,10 +25,8 @@ import {
   buildWorkMemoryServer,
   getBuiltinSkillsRoot,
   materializeBuiltinSkills,
-  resolveBinaryOnPath,
   runAgentBackend,
   runWorkflowAgentBackend,
-  sandboxReachableUrl,
   type RunAgentBackendInput,
 } from "@neko/llm/sandbox-runtime";
 import { BrokerControlPlane } from "./broker-client";
@@ -74,10 +69,6 @@ interface SandboxJob {
   mode?: "live" | "headless";
   triggeredByObservationId?: string | null;
   workspace: AgentWorkspace;
-  /** Whether the raw GraphJin binary is replaced with the guarded client. */
-  graphjinEnabled?: boolean;
-  /** Install a deny wrapper even though no customer GraphJin egress/token exists. */
-  graphjinDenied?: boolean;
   /** Explicit least-privilege envelope for non-interactive agent jobs. */
   agentAccess?: {
     graphjinRead?: boolean;
@@ -95,14 +86,6 @@ interface SandboxJob {
     | "backendState"
     | "wantsCards"
   >;
-  /** GJ5: policy write grants resolved host-side (the box has no DB). */
-  graphjinWriteGrants?: string[];
-  /** GJ6: the org's GraphJin MCP URL, resolved host-side. Lets the box
-   *  build a client.json even in legacy (token-less) mode. */
-  graphjinServerUrl?: string;
-  /** GJ6/GJ4: host-side per-run GraphJin client config ({server, token, ...}).
-   *  The sandbox rewrites only server reachability and preserves the actor token. */
-  graphjinClientConfig?: Record<string, unknown>;
 }
 
 function requireEnv(name: string): string {
@@ -156,75 +139,22 @@ export async function main(): Promise<void> {
     return Promise.resolve();
   };
 
-  // GJ6: the workspace's bin/graphjin wrapper was generated host-side with
-  // host paths baked in — rebuild it for the box, pinned at the uploaded
-  // per-run client.json (GJ4 token) and carrying the host-resolved policy
-  // grants (GJ5). Without a graphjin binary in the image this is a no-op.
-  const graphjinEnabled =
-    job.kind === "agent-job"
-      ? job.graphjinEnabled === true
-      : job.graphjinEnabled !== false;
-  const graphjinBinary = graphjinEnabled
-    || job.graphjinDenied === true
-    ? await resolveBinaryOnPath("graphjin")
-    : null;
-  if (graphjinBinary) {
-    const gjAuth = join(job.workspace.runRoot, "gj-auth");
-    const clientJsonPath = join(gjAuth, "graphjin", "client.json");
-    const uploadedConfig = existsSync(clientJsonPath)
-      ? JSON.parse(readFileSync(clientJsonPath, "utf8")) as Record<string, unknown>
-      : null;
-    const clientConfig = sandboxGraphjinClientConfig(
-      job.graphjinClientConfig ?? uploadedConfig,
-      job.graphjinServerUrl,
-    );
-    let hasRunAuth = false;
-    if (clientConfig) {
-      await mkdir(join(gjAuth, "graphjin"), { recursive: true });
-      await writeFile(clientJsonPath, JSON.stringify(clientConfig));
-      await chmod(clientJsonPath, 0o600).catch(() => {});
-      hasRunAuth = true;
-    }
-    await mkdir(job.workspace.binRoot, { recursive: true });
-    // Defense-in-depth: the model sometimes ignores the "query only via the
-    // shell tool" contract and shells out to `graphjin` from execute_code (a
-    // Python subprocess with a minimal PATH), hitting the raw binary at
-    // /usr/local/bin/graphjin with the wrong auth — which fails and sends it
-    // into a retry loop, and would bypass the mutation gate. Move the real
-    // binary aside and shadow the standard PATH entry with the guard wrapper, so
-    // ANY `graphjin` invocation (any PATH) gets the guarded, correctly-authed
-    // CLI (the wrapper exports the run's XDG_CONFIG_HOME regardless of caller).
-    let realBinary = graphjinBinary;
-    if (graphjinBinary === "/usr/local/bin/graphjin") {
-      try {
-        await rename("/usr/local/bin/graphjin", "/usr/local/bin/graphjin.real");
-        realBinary = "/usr/local/bin/graphjin.real";
-      } catch {
-        /* not writable / already shadowed — fall back to binRoot-only guard */
-      }
-    }
-    await ensureGraphjinGuard(job.workspace.binRoot, realBinary, {
-      ...(hasRunAuth ? { xdgConfigHome: gjAuth } : {}),
-      ...(job.graphjinWriteGrants?.length
-        ? { allowSubcommands: job.graphjinWriteGrants }
-        : {}),
-      ...(job.graphjinDenied ? { denyAll: true } : {}),
-    });
-    if (realBinary === "/usr/local/bin/graphjin.real") {
-      // The move vacated /usr/local/bin/graphjin — point it at the guard wrapper.
-      await symlink(
-        join(job.workspace.binRoot, "graphjin"),
-        "/usr/local/bin/graphjin",
-      ).catch(() => {});
-    }
-    // The backend prepends binRoot to PATH for its children, but hermes'
-    // terminal tool spawns LOGIN shells (`bash -lic`) and /etc/profile resets
-    // PATH — silently un-guarding `graphjin`. Login shells re-source these
-    // files after the reset, so the wrapper wins the lookup again.
-    const pathLine = `\nexport PATH="${job.workspace.binRoot}:$PATH"\n`;
-    for (const rc of [".bash_profile", ".profile", ".bashrc"]) {
-      await appendFile(join(homedir(), rc), pathLine).catch(() => {});
-    }
+  // Customer reads are brokered; no source URL, actor token, or GraphJin
+  // egress enters the sandbox. Shadow the legacy binary with an explicit deny
+  // wrapper so old skills fail closed with a useful migration instruction.
+  await mkdir(job.workspace.binRoot, { recursive: true });
+  await ensureGraphjinGuard(
+    job.workspace.binRoot,
+    "/usr/local/bin/graphjin.unavailable",
+    { denyAll: true },
+  );
+  // The backend prepends binRoot to PATH for its children, but hermes'
+  // terminal tool spawns LOGIN shells (`bash -lic`) and /etc/profile resets
+  // PATH. Login shells re-source these files after the reset, so the explicit
+  // broker-migration diagnostic still wins the lookup.
+  const pathLine = `\nexport PATH="${job.workspace.binRoot}:$PATH"\n`;
+  for (const rc of [".bash_profile", ".profile", ".bashrc"]) {
+    await appendFile(join(homedir(), rc), pathLine).catch(() => {});
   }
 
   const kind = job.kind ?? "work";
@@ -337,19 +267,6 @@ export async function main(): Promise<void> {
   emitLine(RESULT_MARKER, result);
 }
 
-function sandboxGraphjinClientConfig(
-  config: Record<string, unknown> | null | undefined,
-  fallbackServerUrl: string | undefined,
-): Record<string, unknown> | null {
-  const next = config ? { ...config } : {};
-  const server =
-    typeof next.server === "string" && next.server.trim()
-      ? next.server
-      : fallbackServerUrl;
-  if (!server) return null;
-  return { ...next, server: sandboxReachableUrl(server) };
-}
-
 async function run(): Promise<void> {
   const runtime = configureAgentRuntime({ entryUrl: import.meta.url });
   const skillsRoot = getBuiltinSkillsRoot();
@@ -381,6 +298,7 @@ async function run(): Promise<void> {
 async function runPreflight(runtime: AgentRuntimeContract): Promise<{
   skillsReady: boolean;
   graphjinGuardReady: boolean;
+  directGraphjinDenied: boolean;
   bridgeReady: boolean;
   bridgeServers: number;
 }> {
@@ -394,6 +312,18 @@ async function runPreflight(runtime: AgentRuntimeContract): Promise<{
     const graphjinGuard = await ensureGraphjinGuard(
       binRoot,
       "/usr/local/bin/graphjin",
+      { denyAll: true },
+    );
+    const directGraphjinDenied = await execFileAsync(
+      graphjinGuard,
+      ["cli", "execute_graphql", "--args", '{"query":"query { x }"}'],
+      { env: { PATH: process.env.PATH ?? "" }, timeout: 30_000 },
+    ).then(
+      () => false,
+      (error: unknown) =>
+        String((error as { stderr?: unknown }).stderr ?? "").includes(
+          "Direct GraphJin CLI access is unavailable",
+        ),
     );
     const bridgeResult = await execFileAsync(
       process.execPath,
@@ -412,6 +342,7 @@ async function runPreflight(runtime: AgentRuntimeContract): Promise<{
       graphjinGuardReady:
         existsSync(graphjinGuard) &&
         existsSync(join(binRoot, "compact-cli.mjs")),
+      directGraphjinDenied,
       bridgeReady: bridge.status === "ok",
       bridgeServers: bridge.servers ?? 0,
     };

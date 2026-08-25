@@ -250,7 +250,12 @@ describe("agent broker", () => {
     events = [];
     server = createAgentBroker({
       controlPlane: fake.cp,
-      resolveRun: (t) => (t === "good" ? { runId: "r1", orgId: "o1" } : undefined),
+      resolveRun: (token) =>
+        token === "good"
+          ? { runId: "r1", orgId: "o1", kind: "work" }
+          : token === "job"
+            ? { runId: "job-1", orgId: "o1", kind: "agent-job" }
+            : undefined,
       onEvents: async (binding, evs) => {
         events.push({ binding, evs });
       },
@@ -352,6 +357,35 @@ describe("agent broker", () => {
       runId: "r1",
       instruction: "Count all orders",
       maxSteps: 6,
+    });
+  });
+
+  it("binds GraphJin reads to the authenticated org and actor run", async () => {
+    const cp = new BrokerControlPlane(baseUrl, "good");
+    await cp.queryGraphjinRead({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      query: "query { orders { id } }",
+    });
+
+    expect(fake.calls.find((call) => call.method === "graphjin-read")?.input).toEqual({
+      orgId: "o1",
+      runId: "r1",
+      query: "query { orders { id } }",
+    });
+  });
+
+  it("uses service identity for GraphJin reads from non-interactive jobs", async () => {
+    const cp = new BrokerControlPlane(baseUrl, "job");
+    await cp.queryGraphjinRead({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      query: "query { orders { id } }",
+    });
+
+    expect(fake.calls.find((call) => call.method === "graphjin-read")?.input).toEqual({
+      orgId: "o1",
+      query: "query { orders { id } }",
     });
   });
 
@@ -478,7 +512,11 @@ describe("agent broker", () => {
       { type: "message", text: "hi" } as unknown as AgentEvent,
     ]);
     expect(events).toHaveLength(1);
-    expect(events[0]?.binding).toEqual({ runId: "r1", orgId: "o1" });
+    expect(events[0]?.binding).toEqual({
+      runId: "r1",
+      orgId: "o1",
+      kind: "work",
+    });
     expect(events[0]?.evs[0]).toMatchObject({ type: "message", text: "hi" });
   });
 
