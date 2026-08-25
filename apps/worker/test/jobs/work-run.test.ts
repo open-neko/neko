@@ -67,10 +67,9 @@ const FAKE_WORKSPACE = {
 };
 
 const HERMES_CAPABILITIES = {
-  mcpTools: false,
-  sdkStopHook: false,
+  mcpTools: true,
   sessionResume: false,
-  canUseToolGate: false,
+  nativeDelegation: "hermes-delegate-task",
 } as const;
 
 type EmitFn = (event: AgentEvent) => Promise<void>;
@@ -119,7 +118,6 @@ describeIfDb("runChatTurn", () => {
 
   const mockBackendRun = vi.fn();
   const mockEnqueue = vi.fn();
-  const mockResolveBinary = vi.fn();
 
   function makeDeps(over: Partial<RunChatTurnDeps> = {}): Partial<RunChatTurnDeps> {
     return {
@@ -129,8 +127,6 @@ describeIfDb("runChatTurn", () => {
         run: mockBackendRun,
       })),
       ensureWorkWorkspace: vi.fn(async () => FAKE_WORKSPACE),
-      resolveBinaryOnPath: mockResolveBinary,
-      ensureGraphjinGuard: vi.fn(async () => undefined),
       formatWorkMemoryPromptContext: vi.fn(async () => ""),
       listInstalledSkills: vi.fn(async () => []),
       prefetchKnowledgeForOrg: vi.fn(async () => ({ ok: true as const, files: [], mode: "legacy" as const })),
@@ -144,7 +140,6 @@ describeIfDb("runChatTurn", () => {
     await createTestOrg(orgId);
     mockBackendRun.mockReset();
     mockEnqueue.mockReset().mockResolvedValue("queued-job-id");
-    mockResolveBinary.mockReset().mockResolvedValue("/usr/local/bin/graphjin");
   });
 
   afterEach(async () => {
@@ -413,34 +408,6 @@ describeIfDb("runChatTurn", () => {
       .from(work_run)
       .where(eq(work_run.id, run.id));
     expect(final).toHaveLength(0);
-  });
-
-  it("graphjin binary missing → fails fast with a clear error", async () => {
-    const thread = await insertWorkThread(orgId);
-    const run = await insertWorkRun({ orgId, threadId: thread.id });
-    mockResolveBinary.mockResolvedValue(null);
-
-    const emit = buildEmit({ orgId, threadId: thread.id, runId: run.id });
-    await expect(
-      runChatTurn(
-        {
-          orgId,
-          threadId: thread.id,
-          runId: run.id,
-          message: "x",
-          emit,
-        },
-        makeDeps(),
-      ),
-    ).rejects.toThrow(/graphjin CLI is not installed/);
-
-    expect(mockBackendRun).not.toHaveBeenCalled();
-    const final = await db()
-      .select({ status: work_run.status, error: work_run.error })
-      .from(work_run)
-      .where(eq(work_run.id, run.id))
-      .limit(1);
-    expect(final[0]?.status).toBe("failed");
   });
 
   it("neko_workflow_save fence → persists workflow, emits surface card, strips fence from message", async () => {
