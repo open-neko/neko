@@ -15,17 +15,11 @@ import {
 } from "../work/store";
 import { ensureWorkWorkspace } from "../work/workspace";
 import { inProcessControlPlane } from "../work/control-plane";
-import { handleActionRequest } from "./action-server";
 import {
   runWorkflowAgentBackend as defaultRunWorkflowAgentBackend,
 } from "./agent-core";
-import {
-  extractActionRequestFences,
-  extractValueFence,
-  extractWorkflowOutputFences,
-} from "./fence-parsers";
+import { extractValueFence } from "./fence-parsers";
 import { clampAnalysisMinutes } from "./value";
-import { handleWorkflowOutput } from "./output-server";
 import {
   buildWorkflowRunnerPrompt,
   type PluginActionPromptDescriptor,
@@ -251,27 +245,6 @@ export async function runWorkflowTurn(
 
     let persistedText = result.finalText.trim() || assistantText.trim();
 
-    if (!backend.capabilities.mcpTools && persistedText) {
-      persistedText = await processWorkflowFences({
-        text: persistedText,
-        outputCtx: {
-          orgId,
-          workflowRunId: workflowRun.id,
-          workRunId,
-          emit: wrappedEmit,
-        },
-        actionCtx: {
-          orgId,
-          workflowRunId: workflowRun.id,
-          workRunId,
-          triggeredByObservationId:
-            workflowRun.triggeredByObservationId ?? null,
-          emit: wrappedEmit,
-        },
-        onParseError: (msg) => wrappedEmit({ type: "error", message: msg }),
-      });
-    }
-
     // Per-run analysis value estimate (works for both backends — the
     // `neko_value` fence rides in the agent's final text). Parse, clamp,
     // strip from the persisted text so it never shows in the summary.
@@ -374,46 +347,4 @@ export async function runWorkflowTurn(
       finalText: assistantText,
     };
   }
-}
-
-type ProcessWorkflowFencesInput = {
-  text: string;
-  outputCtx: Parameters<typeof handleWorkflowOutput>[0];
-  actionCtx: Parameters<typeof handleActionRequest>[0];
-  onParseError: (message: string) => Promise<void> | void;
-};
-
-async function processWorkflowFences(
-  input: ProcessWorkflowFencesInput,
-): Promise<string> {
-  const { outputCtx, actionCtx, onParseError } = input;
-  let text = input.text;
-
-  const outputs = extractWorkflowOutputFences(text);
-  text = outputs.text;
-  for (const payload of outputs.payloads) {
-    await handleWorkflowOutput(outputCtx, payload);
-  }
-  if (outputs.errors.length > 0) {
-    await onParseError(
-      `workflow output fence(s) invalid: ${outputs.errors
-        .map((e) => e.reason)
-        .join("; ")}`,
-    );
-  }
-
-  const actions = extractActionRequestFences(text);
-  text = actions.text;
-  for (const payload of actions.payloads) {
-    await handleActionRequest(actionCtx, payload);
-  }
-  if (actions.errors.length > 0) {
-    await onParseError(
-      `action request fence(s) invalid: ${actions.errors
-        .map((e) => e.reason)
-        .join("; ")}`,
-    );
-  }
-
-  return text;
 }
