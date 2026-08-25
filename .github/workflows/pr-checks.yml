@@ -10,6 +10,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-recovery-contract:
+    name: Release recovery contract
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify failed-to-recovered release transitions
+        run: bash scripts/check-release-recovery-contract.sh
+
   records-recovery:
     name: Records recovery
     runs-on: ubuntu-latest

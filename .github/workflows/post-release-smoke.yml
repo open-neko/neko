@@ -4,7 +4,8 @@ name: post-release smoke
 # published artifacts and asks `openneko status` whether the stack serves. If
 # the build FAILED, or the smoke fails, it demotes that release off "Latest"
 # (gh release edit --prerelease) so `releases/latest` falls back to the last
-# good version — a broken release never becomes the one users download.
+# good version. A successful recovery promotes the stable release again before
+# Deploy-to-VM resolves `releases/latest`.
 
 on:
   workflow_run:
@@ -196,6 +197,18 @@ jobs:
             --gateway openneko \
             --from "ghcr.io/open-neko/agent:$OPENNEKO_VERSION" \
             --no-keep --no-tty -- /bin/true
+
+      # Failed releases are demoted to prerelease by the failure path below.
+      # A manual recovery must reverse that state before this workflow ends:
+      # Deploy-to-VM is triggered by our completion and resolves releases/latest.
+      - name: Promote recovered stable release to "Latest" after smoke
+        if: ${{ success() && steps.ctx.outputs.stable == 'true' && steps.ctx.outputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ steps.ctx.outputs.tag }}" \
+            --prerelease=false --latest \
+            --repo "${{ github.repository }}"
 
       # Any failure above — build incomplete OR the stack never served — demotes
       # the release so installers fall back to the last good version.
