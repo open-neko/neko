@@ -1,6 +1,6 @@
 {
   "name": "@neko/db",
-  "version": "2.30.4",
+  "version": "2.30.5",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",

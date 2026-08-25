@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.30.5](https://github.com/open-neko/openneko/compare/v2.30.4...v2.30.5) (2026-08-25)
+
+
+### Bug Fixes
+
+* **ci:** recover v2.30.4 workspace-runtime release ([27354e5](https://github.com/open-neko/openneko/commit/27354e510089ae47e6dc633435d36cbe659049ed))
+* **ci:** recover workspace-runtime releases ([04b7454](https://github.com/open-neko/openneko/commit/04b7454ecb9fa604e66a6d18971ba418921a6cc2))
+
 ## [2.30.4](https://github.com/open-neko/openneko/compare/v2.30.3...v2.30.4) (2026-08-25)
 
 
