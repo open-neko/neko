@@ -101,6 +101,50 @@ describe("createCoalescingEmit", () => {
     expect(h.persisted[1].event).toMatchObject({ content: "second burst." });
   });
 
+  it("does not let a later event overtake a slow idle flush", async () => {
+    const persisted: AgentEvent[] = [];
+    let releaseFirstPersist: (() => void) | undefined;
+    let firstPersistStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      firstPersistStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseFirstPersist = resolve;
+    });
+    const { emit, finalize } = createCoalescingEmit(
+      {
+        orgId: "org_test",
+        threadId: "thr_test",
+        runId: "run_test",
+        flushIdleMs: 100,
+      },
+      {
+        persistEvent: (async (args: { event: AgentEvent }) => {
+          if (args.event.type === "message") {
+            firstPersistStarted?.();
+            await gate;
+          }
+          persisted.push(args.event);
+          return persisted.length;
+        }) as CoalescingEmitDeps["persistEvent"],
+        notify: () => {},
+      },
+    );
+
+    await emit({ type: "message", role: "assistant", content: "answer" });
+    vi.advanceTimersByTime(100);
+    await started;
+    const laterEmit = emit({ type: "done", result: { status: "completed" } });
+    await Promise.resolve();
+    expect(persisted).toEqual([]);
+
+    releaseFirstPersist?.();
+    await laterEmit;
+    await finalize();
+
+    expect(persisted.map((event) => event.type)).toEqual(["message", "done"]);
+  });
+
   it("flushes prior buffer when role flips", async () => {
     const h = makeHarness();
 

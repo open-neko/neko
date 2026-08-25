@@ -1057,6 +1057,9 @@ function execAndStream(
     let result: AgentRunResult | undefined;
     let stderr = "";
     let settled = false;
+    let sawAnswerEvent = false;
+    let eventError: Error | undefined;
+    let eventQueue = Promise.resolve();
     let timer: ReturnType<typeof setTimeout>;
     const cleanup = () => {
       clearTimeout(timer);
@@ -1075,7 +1078,28 @@ function execAndStream(
       const ev = line.indexOf(EVENT_MARKER);
       if (ev >= 0) {
         try {
-          void emit(JSON.parse(line.slice(ev + EVENT_MARKER.length)) as AgentEvent);
+          const event = JSON.parse(
+            line.slice(ev + EVENT_MARKER.length),
+          ) as AgentEvent;
+          sawAnswerEvent ||=
+            (event.type === "message" &&
+              event.role === "assistant" &&
+              event.content.trim().length > 0) ||
+            (event.type === "surface" && event.messages.length > 0) ||
+            event.type === "action_request_emit" ||
+            event.type === "needs_input" ||
+            event.type === "output_emit";
+          // The bundled runtime can exit immediately after its result marker.
+          // Serialize and drain host-side handlers so a fast process cannot
+          // overtake message persistence or reorder streamed deltas.
+          eventQueue = eventQueue.then(async () => {
+            try {
+              await emit(event);
+            } catch (error) {
+              eventError ??=
+                error instanceof Error ? error : new Error(String(error));
+            }
+          });
         } catch {
           /* ignore a partial/garbled event line */
         }
@@ -1102,14 +1126,42 @@ function execAndStream(
     });
     child.on("close", (code) => {
       if (settled) return;
-      settled = true;
-      cleanup();
-      if (result) return resolve(result);
-      reject(
-        new Error(
-          `agent sandbox exited ${code} without a result line; stderr=${stderr.slice(0, 500)}`,
-        ),
-      );
+      void (async () => {
+        await eventQueue;
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (eventError) {
+          reject(new Error(`agent event delivery failed: ${eventError.message}`));
+          return;
+        }
+        if (result) {
+          const hasResultOutput =
+            (typeof result.finalText === "string" &&
+              result.finalText.trim().length > 0) ||
+            (typeof result.rawText === "string" &&
+              result.rawText.trim().length > 0);
+          if (
+            result.status === "completed" &&
+            !hasResultOutput &&
+            !sawAnswerEvent
+          ) {
+            reject(
+              new Error(
+                "agent runtime contract violation: completed without assistant output or surface",
+              ),
+            );
+            return;
+          }
+          resolve(result);
+          return;
+        }
+        reject(
+          new Error(
+            `agent sandbox exited ${code} without a result line; stderr=${stderr.slice(0, 500)}`,
+          ),
+        );
+      })();
     });
   });
 }

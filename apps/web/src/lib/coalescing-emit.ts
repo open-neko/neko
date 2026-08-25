@@ -63,6 +63,8 @@ export function createCoalescingEmit(
 
   let buffer: { role: "assistant" | "user"; content: string } | null = null;
   let bufferTimer: ReturnType<typeof setTimeout> | null = null;
+  let persistQueue = Promise.resolve();
+  let persistError: Error | undefined;
 
   const clearTimer = () => {
     if (bufferTimer) {
@@ -71,9 +73,19 @@ export function createCoalescingEmit(
     }
   };
 
-  const persist = async (event: AgentEvent): Promise<void> => {
-    const id = await persistEvent({ orgId, threadId, runId, event });
-    notify(runId, event, id);
+  const persist = (event: AgentEvent): Promise<void> => {
+    const pending = persistQueue.then(async () => {
+      const id = await persistEvent({ orgId, threadId, runId, event });
+      notify(runId, event, id);
+    });
+    // Idle-timer flushes and explicit emits can overlap. Keep persistence and
+    // subscriber notification in one ordered queue so a slow earlier write
+    // can never be overtaken by a later event.
+    persistQueue = pending.catch((error: unknown) => {
+      persistError ??=
+        error instanceof Error ? error : new Error(String(error));
+    });
+    return pending;
   };
 
   const flushBuffer = async (): Promise<void> => {
@@ -108,7 +120,9 @@ export function createCoalescingEmit(
       }
       clearTimer();
       bufferTimer = setTimeout(() => {
-        void flushBuffer();
+        void flushBuffer().catch(() => {
+          // persistQueue records the error; finalize() reports it to the run.
+        });
       }, flushIdleMs);
       return;
     }
@@ -122,6 +136,8 @@ export function createCoalescingEmit(
   const finalize = async (): Promise<void> => {
     clearTimer();
     if (buffer) await flushBuffer();
+    await persistQueue;
+    if (persistError) throw persistError;
   };
 
   return { emit, finalize };
