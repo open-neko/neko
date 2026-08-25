@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -124,24 +124,6 @@ describe("ensureGraphjinGuard wrapper script", () => {
   it("is syntactically valid bash", () => {
     const r = spawnSync("bash", ["-n", wrapper], { encoding: "utf8" });
     expect(r.status, `bash -n stderr: ${r.stderr}`).toBe(0);
-  });
-
-  it("uses the compact CLI declared by the packaged agent runtime", async () => {
-    const guardDir = await mkdtemp(join(tmpdir(), "neko-guard-runtime-cli-"));
-    const source = join(guardDir, "runtime-compact-cli.mjs");
-    const previous = process.env.OPENNEKO_GRAPHJIN_COMPACT_CLI;
-    try {
-      await writeFile(source, "// packaged runtime compactor\n");
-      process.env.OPENNEKO_GRAPHJIN_COMPACT_CLI = source;
-      await ensureGraphjinGuard(guardDir, "/bin/echo");
-      await expect(readFile(join(guardDir, "compact-cli.mjs"), "utf8")).resolves.toBe(
-        "// packaged runtime compactor\n",
-      );
-    } finally {
-      if (previous === undefined) delete process.env.OPENNEKO_GRAPHJIN_COMPACT_CLI;
-      else process.env.OPENNEKO_GRAPHJIN_COMPACT_CLI = previous;
-      await rm(guardDir, { recursive: true, force: true });
-    }
   });
 
   it("installs an explicit records-mode deny wrapper", async () => {

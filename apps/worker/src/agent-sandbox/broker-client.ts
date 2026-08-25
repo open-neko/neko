@@ -2,7 +2,7 @@ import type { AgentEvent } from "@neko/llm";
 import type { AgentControlPlane } from "@neko/llm/work";
 
 /**
- * Sandbox AgentControlPlane implementation that posts to the broker over the egress
+ * AgentControlPlane implementation that posts to the broker over the egress
  * proxy. Used inside the agent sandbox (Phase 2c) so the agent reaches the
  * control plane through one narrow, authenticated channel instead of the DB.
  */

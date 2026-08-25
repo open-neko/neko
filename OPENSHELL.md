@@ -58,9 +58,7 @@ and the web chat route launch the sandbox through the same shared launcher
 
 **Runtime.** Hermes streams output and uses MCP tools through the host-side
 broker. Action/workflow fences are parsed host-side, and model credentials are
-injected by the gateway rather than copied into the sandbox. The sandbox
-payload is built and validated as one manifest-owned artifact; see
-[AGENT_RUNTIME.md](AGENT_RUNTIME.md) for its filesystem contract and preflight.
+injected by the gateway rather than copied into the sandbox.
 
 ## Configuration (developer / advanced)
 

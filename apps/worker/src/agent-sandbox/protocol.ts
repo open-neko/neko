@@ -1,5 +1,5 @@
 /**
- * Wire protocol between the packaged agent runtime and the host launcher. The
+ * Wire protocol between the agent sandbox entry and the host launcher. The
  * sandbox streams these tagged JSON lines over the exec's stdout; the launcher
  * greps for them (EVENT lines → host emit, the RESULT line → AgentRunResult).
  * Kept separate from entry.ts so importing the markers never triggers entry's

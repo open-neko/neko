@@ -5,12 +5,30 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  BRIDGE_SERVER_NAMES,
   buildBridgeServer,
   buildMultiplexedBridgeServer,
   multiplexedToolName,
-} from "../src/mcp-bridge.js";
-import { BrokerControlPlane } from "../src/broker-client.js";
+} from "../../src/agent-sandbox/mcp-bridge.js";
+import { BrokerControlPlane } from "../../src/agent-sandbox/broker-client.js";
+
+const SERVERS = [
+  "neko_graphjin",
+  "neko_graphjin_agent",
+  "neko_skills",
+  "neko_memory",
+  "neko_records",
+  "neko_workflow_builder",
+  "neko_workflow_output",
+  "neko_action",
+  "neko_rule_builder",
+  "neko_plugin_manager",
+  "neko_user_manager",
+  "neko_channel_manager",
+  "neko_data_source_manager",
+  "neko_source_config_manager",
+  "neko_audit",
+  "neko_plugin_actions",
+];
 
 function ctx() {
   return {
@@ -23,6 +41,7 @@ function ctx() {
     pluginActions: [
       {
         kind: "send_slack_message",
+        pluginId: "@open-neko/plugin-slack",
         description: "send",
         scope: "external" as const,
       },
@@ -33,7 +52,7 @@ function ctx() {
 
 describe("mcp-bridge buildBridgeServer", () => {
   it("constructs a connectable server for every name hermes mounts", () => {
-    for (const name of BRIDGE_SERVER_NAMES) {
+    for (const name of SERVERS) {
       const server = buildBridgeServer(name, ctx());
       expect(server.instance, name).toBeTruthy();
       expect(typeof server.instance.connect, name).toBe("function");

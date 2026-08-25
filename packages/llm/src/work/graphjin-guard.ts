@@ -1,6 +1,6 @@
 import { writeFile, readFile, access } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Path to the stdin->stdout compactor the wrapper pipes GraphJin output
@@ -8,8 +8,6 @@ import { fileURLToPath } from "node:url";
 // bundler — e.g. the Next.js build collecting page data — would otherwise
 // evaluate import.meta.url + fileURLToPath at eval time, which throws there.
 function compactCliSource(): string {
-  const configured = process.env.OPENNEKO_GRAPHJIN_COMPACT_CLI?.trim();
-  if (configured) return resolve(configured);
   return fileURLToPath(new URL("./tool-output/compact-cli.mjs", import.meta.url));
 }
 

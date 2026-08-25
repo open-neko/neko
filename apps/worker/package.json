@@ -35,7 +35,6 @@
     "yaml": "^2.8.1"
   },
   "devDependencies": {
-    "@neko/agent-runtime": "workspace:*",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",
     "esbuild": "0.27.7",
