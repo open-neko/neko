@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.30.3](https://github.com/open-neko/openneko/compare/v2.30.2...v2.30.3) (2026-08-25)
+
+
+### Bug Fixes
+
+* enforce agent runtime turn delivery contract ([#246](https://github.com/open-neko/openneko/issues/246)) ([64215aa](https://github.com/open-neko/openneko/commit/64215aa8b120e7c792fc20c6137b9fd3f4c0eb0f))
+
 ## [2.30.2](https://github.com/open-neko/openneko/compare/v2.30.1...v2.30.2) (2026-08-24)
 
 
