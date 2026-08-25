@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  MAGENTO_ANALYTICS_TABLES,
   readMagentoVersion,
   supportedMagentoDatabase,
 } from "../src/packs/magento-preflight.js";
@@ -40,6 +41,18 @@ describe("Magento version preflight", () => {
 });
 
 describe("Magento database compatibility", () => {
+  it("requires the operational customer and order support tables", () => {
+    expect(MAGENTO_ANALYTICS_TABLES).toEqual(
+      expect.arrayContaining([
+        "customer_entity",
+        "customer_address_entity",
+        "sales_order_address",
+        "sales_order_status_history",
+        "sales_order_payment",
+      ]),
+    );
+  });
+
   it("accepts the declared MariaDB and MySQL floors", () => {
     expect(supportedMagentoDatabase("10.6.18-MariaDB").type).toBe("mariadb");
     expect(supportedMagentoDatabase("8.0.39").type).toBe("mysql");

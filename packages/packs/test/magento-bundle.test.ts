@@ -71,6 +71,37 @@ describe("Magento solution pack", () => {
       access: { write: "blocked", delete: "blocked" },
     });
   });
+
+  it("exposes operational customer data while retaining secret-only denials", async () => {
+    const bundle = await loadSolutionPack(magentoRoot);
+    const analytics = bundle.artifacts.find((artifact) => artifact.key === "source.magento_analytics");
+    expect(analytics?.content).toMatchObject({
+      allowlist: {
+        tables: expect.arrayContaining([
+          "customer_entity",
+          "customer_address_entity",
+          "sales_order_address",
+          "sales_order_status_history",
+          "sales_order_payment",
+        ]),
+      },
+      blocklist: {
+        tables: expect.not.arrayContaining([
+          "customer_entity",
+          "customer_address_entity",
+          "sales_order_payment",
+        ]),
+        columns: expect.arrayContaining([
+          "password_hash",
+          "rp_token",
+          "protect_code",
+          "cc_number_enc",
+        ]),
+      },
+    });
+    expect((analytics?.content as { blocklist?: { columns?: string[] } })?.blocklist?.columns)
+      .not.toEqual(expect.arrayContaining(["email", "telephone", "customer_firstname"]));
+  });
 });
 
 describe("manifest and bundle safety", () => {

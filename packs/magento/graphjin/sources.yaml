@@ -24,12 +24,17 @@ sources:
       tables:
         - sales_order
         - sales_order_item
+        - sales_order_address
+        - sales_order_status_history
+        - sales_order_payment
         - sales_invoice
         - sales_invoice_item
         - sales_creditmemo
         - sales_creditmemo_item
         - sales_shipment
         - sales_shipment_item
+        - customer_entity
+        - customer_address_entity
         - catalog_product_entity
         - catalog_product_entity_decimal
         - catalog_product_entity_int
@@ -53,40 +58,20 @@ sources:
         - oauth_consumer
         - password_reset_request_event
         - quote_payment
-        - sales_order_payment
         - vault_payment_token
-        - customer_entity
-        - customer_address_entity
       columns:
         - password_hash
         - rp_token
+        - rp_token_created_at
+        - confirmation
         - token
-        - email
-        - telephone
         - protect_code
-        - customer_id
-        - billing_address_id
-        - shipping_address_id
-        - quote_address_id
-        - quote_id
-        - customer_dob
-        - customer_firstname
-        - customer_lastname
-        - customer_middlename
-        - customer_prefix
-        - customer_suffix
-        - customer_taxvat
-        - ext_customer_id
-        - remote_ip
-        - x_forwarded_for
-        - customer_note
-        - customer_gender
-        - gift_message_id
-        - product_options
-        - additional_data
-        - transaction_id
-        - packages
-        - shipping_label
+        - cc_number_enc
+        - cc_secure_verify
+        - cc_debug_request_body
+        - cc_debug_response_body
+        - cc_debug_response_serialized
+        - echeck_routing_number
 
   # This source is installed unconditionally but cannot execute writes until
   # pack readiness validates the released GraphJin capability, token, and ACL.

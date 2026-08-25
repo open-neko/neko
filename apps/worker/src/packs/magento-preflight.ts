@@ -2,6 +2,7 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { createConnection, type Connection } from "mysql2/promise";
 import type { RowDataPacket } from "mysql2";
+import { MAGENTO_READ_TABLES } from "./magento-source-policy.js";
 
 interface GrantRow extends RowDataPacket {}
 
@@ -24,39 +25,22 @@ interface StoreRow extends RowDataPacket {
   store_id: number;
 }
 
-export const MAGENTO_ANALYTICS_TABLES = [
-  "sales_order",
-  "sales_order_item",
-  "sales_invoice",
-  "sales_invoice_item",
-  "sales_creditmemo",
-  "sales_creditmemo_item",
-  "sales_shipment",
-  "sales_shipment_item",
-  "catalog_product_entity",
-  "catalog_product_entity_decimal",
-  "catalog_product_entity_int",
-  "catalog_product_entity_varchar",
-  "catalog_category_product",
-  "inventory_source_item",
-  "inventory_reservation",
-  "cataloginventory_stock_item",
-  "store",
-  "store_group",
-  "store_website",
-  "cron_schedule",
-  "indexer_state",
-] as const;
+export const MAGENTO_ANALYTICS_TABLES = MAGENTO_READ_TABLES;
 
 const REQUIRED_TABLES = [
   "sales_order",
   "sales_order_item",
+  "sales_order_address",
+  "sales_order_status_history",
+  "sales_order_payment",
   "sales_invoice",
   "sales_invoice_item",
   "sales_creditmemo",
   "sales_creditmemo_item",
   "sales_shipment",
   "sales_shipment_item",
+  "customer_entity",
+  "customer_address_entity",
   "catalog_product_entity",
   "inventory_source_item",
   "store",
