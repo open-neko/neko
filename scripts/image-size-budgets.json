@@ -7,7 +7,7 @@
   "neko-db": 140,
   "records-db": 140,
   "neko-backup": 45,
-  "agent": 575,
+  "agent": 800,
   "plugin-base": 100,
-  "uniqueStack": 1200
+  "uniqueStack": 1500
 }
