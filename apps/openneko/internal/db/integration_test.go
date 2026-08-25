@@ -300,3 +300,108 @@ FROM pg_database WHERE datname = current_database()`).Scan(&recorded, &actual); 
 		t.Fatal("second reconciliation should be a contract no-op")
 	}
 }
+
+func TestStorageReconcileInitializesAlpineCreatedVolume(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+
+	volume := fmt.Sprintf("openneko-storage-alpine-origin-%d", time.Now().UnixNano())
+	start := func(image string, readyOccurrences int) *postgres.PostgresContainer {
+		container, err := postgres.Run(ctx,
+			image,
+			postgres.WithDatabase("neko"),
+			postgres.WithUsername("neko"),
+			postgres.WithPassword("secret"),
+			testcontainers.WithMounts(testcontainers.VolumeMount(volume, "/var/lib/postgresql/data")),
+			testcontainers.WithWaitStrategy(
+				wait.ForLog("database system is ready to accept connections").
+					WithOccurrence(readyOccurrences).
+					WithStartupTimeout(2*time.Minute),
+			),
+		)
+		if err != nil {
+			t.Fatalf("start %s: %v", image, err)
+		}
+		return container
+	}
+	connect := func(container *postgres.PostgresContainer) *pgx.Conn {
+		dsn, err := container.ConnectionString(ctx, "sslmode=disable")
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn, err := pgx.Connect(ctx, dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return conn
+	}
+
+	// Releases that first created their volume under Alpine/musl left the
+	// database collation version NULL because musl exposes no version string.
+	alpine := start("postgres:16-alpine", 2)
+	conn := connect(alpine)
+	if _, err := conn.Exec(ctx, `
+CREATE TABLE public.legacy_probe (name text PRIMARY KEY);
+INSERT INTO public.legacy_probe(name) VALUES ('alpha'), ('Zulu'), ('eclair')`); err != nil {
+		t.Fatalf("seed Alpine-created volume: %v", err)
+	}
+	var recorded, actual *string
+	if err := conn.QueryRow(ctx, `
+SELECT datcollversion, pg_database_collation_actual_version(oid)
+FROM pg_database WHERE datname = current_database()`).Scan(&recorded, &actual); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != nil || actual != nil {
+		t.Fatalf("Alpine origin must have no collation version: recorded=%v actual=%v", recorded, actual)
+	}
+	if err := conn.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := alpine.Terminate(ctx); err != nil {
+		t.Fatalf("stop Alpine container: %v", err)
+	}
+
+	glibc := start(enforcedStorageImage, 1)
+	t.Cleanup(func() {
+		if err := glibc.Terminate(context.Background(), testcontainers.RemoveVolumes(volume)); err != nil {
+			t.Logf("cleanup upgraded storage volume: %v", err)
+		}
+	})
+	conn = connect(glibc)
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+	if err := conn.QueryRow(ctx, `
+SELECT datcollversion, pg_database_collation_actual_version(oid)
+FROM pg_database WHERE datname = current_database()`).Scan(&recorded, &actual); err != nil {
+		t.Fatal(err)
+	}
+	if recorded != nil || actual == nil || *actual != db.StorageCollationVersion {
+		t.Fatalf("test must exercise NULL-to-glibc transition: recorded=%v actual=%v", recorded, actual)
+	}
+
+	repaired, err := db.ReconcileStorage(ctx, conn, t.Logf)
+	if err != nil {
+		t.Fatalf("reconcile Alpine-created volume: %v", err)
+	}
+	if !repaired {
+		t.Fatal("Alpine-created volume must be repaired")
+	}
+	if err := conn.QueryRow(ctx, `
+SELECT datcollversion, pg_database_collation_actual_version(oid)
+FROM pg_database WHERE datname = current_database()`).Scan(&recorded, &actual); err != nil {
+		t.Fatal(err)
+	}
+	if recorded == nil || actual == nil || *recorded != *actual || *actual != db.StorageCollationVersion {
+		t.Fatalf("collation version was not initialized: recorded=%v actual=%v", recorded, actual)
+	}
+
+	if _, err := conn.Exec(ctx, `SET enable_seqscan = off`); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM public.legacy_probe WHERE name = 'alpha')`).Scan(&found); err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("indexed lookup failed after Alpine-origin reconciliation")
+	}
+}

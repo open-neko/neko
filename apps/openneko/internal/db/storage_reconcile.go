@@ -115,7 +115,21 @@ CREATE TABLE IF NOT EXISTS openneko_internal.storage_contract (
 	if _, err := conn.Exec(ctx, "REINDEX DATABASE "+quotedDatabase); err != nil {
 		return false, fmt.Errorf("reindex database %q: %w", state.database, err)
 	}
-	if _, err := conn.Exec(ctx, "ALTER DATABASE "+quotedDatabase+" REFRESH COLLATION VERSION"); err != nil {
+	if state.recorded == nil {
+		// PostgreSQL deliberately rejects REFRESH COLLATION VERSION when the
+		// recorded version is NULL but the current provider reports a version.
+		// Databases originally created under Alpine/musl have exactly that state
+		// when first opened by the enforced glibc image. After rebuilding every
+		// index above, initialize the catalog marker to the already-validated
+		// runtime version and verify it below before recording our own contract.
+		if _, err := conn.Exec(ctx, `
+UPDATE pg_catalog.pg_database
+SET datcollversion = $1
+WHERE datname = current_database()
+  AND datcollversion IS NULL`, *state.actual); err != nil {
+			return false, fmt.Errorf("initialize collation version for database %q: %w", state.database, err)
+		}
+	} else if _, err := conn.Exec(ctx, "ALTER DATABASE "+quotedDatabase+" REFRESH COLLATION VERSION"); err != nil {
 		return false, fmt.Errorf("refresh collation version for database %q: %w", state.database, err)
 	}
 

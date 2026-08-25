@@ -23,11 +23,38 @@ func (f *fakeStorageConn) Exec(_ context.Context, sql string, args ...any) (pgco
 	if strings.HasPrefix(sql, "ALTER DATABASE ") {
 		f.recorded = f.actual
 	}
+	if strings.Contains(sql, "UPDATE pg_catalog.pg_database") {
+		version := args[0].(string)
+		f.recorded = &version
+	}
 	if strings.Contains(sql, "INSERT INTO openneko_internal.storage_contract") {
 		version := args[0].(int)
 		f.contract = &version
 	}
 	return pgconn.CommandTag{}, nil
+}
+
+func TestReconcileStorageInitializesMissingLegacyCollationVersion(t *testing.T) {
+	c := &fakeStorageConn{
+		database: "neko",
+		provider: "c",
+		recorded: nil,
+		actual:   storageString(StorageCollationVersion),
+	}
+	repaired, err := ReconcileStorage(context.Background(), c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repaired {
+		t.Fatal("expected storage repair")
+	}
+	joined := strings.Join(c.exec, "\n")
+	if !strings.Contains(joined, "UPDATE pg_catalog.pg_database") {
+		t.Fatalf("missing legacy collation initialization:\n%s", joined)
+	}
+	if strings.Contains(joined, " REFRESH COLLATION VERSION") {
+		t.Fatalf("PostgreSQL rejects NULL-to-version refreshes:\n%s", joined)
+	}
 }
 
 func (f *fakeStorageConn) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
