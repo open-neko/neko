@@ -151,14 +151,12 @@ COPY --from=openshell-bin /usr/local/bin/openshell /usr/local/bin/openshell
 # this lineage: all agent GraphJin reads cross the authenticated host broker.
 FROM debian:bookworm-slim AS graphjin-bin
 ARG GRAPHJIN_VERSION=3.20.47
-ARG GRAPHJIN_ASSET_AMD64=527162704
-ARG GRAPHJIN_ASSET_ARM64=527162707
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
-    && GRAPHJIN_ASSET_ID="$(case "${TARGETARCH}" in amd64) echo "${GRAPHJIN_ASSET_AMD64}" ;; arm64) echo "${GRAPHJIN_ASSET_ARM64}" ;; *) exit 1 ;; esac)" \
+    && case "${TARGETARCH}" in amd64|arm64) ;; *) exit 1 ;; esac \
     && curl -fsSL --retry 10 --retry-delay 5 --retry-all-errors \
-      -H 'Accept: application/octet-stream' -o /tmp/graphjin.tgz \
-      "https://api.github.com/repos/dosco/graphjin/releases/assets/${GRAPHJIN_ASSET_ID}" \
+      -o /tmp/graphjin.tgz \
+      "https://github.com/dosco/graphjin/releases/download/v${GRAPHJIN_VERSION}/graphjin_${GRAPHJIN_VERSION}_linux_${TARGETARCH}.tar.gz" \
     && tar -xzf /tmp/graphjin.tgz -C /usr/local/bin graphjin \
     && rm /tmp/graphjin.tgz \
     && rm -rf /var/lib/apt/lists/* \

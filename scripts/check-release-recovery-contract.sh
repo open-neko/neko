@@ -23,4 +23,13 @@ grep -Fq -- "--prerelease=false --latest" "$smoke_workflow"
 grep -Fq "failure() && steps.ctx.outputs.stable == 'true' && steps.ctx.outputs.tag != ''" "$smoke_workflow"
 grep -Fq -- "--prerelease --latest=false" "$smoke_workflow"
 
+# Release builds must use the immutable versioned GraphJin asset URL. The API
+# asset-ID endpoint is rate limited for unauthenticated Docker build steps and
+# can return 403 even while the release asset itself remains healthy.
+if grep -Fq "api.github.com/repos/dosco/graphjin/releases/assets" Dockerfile; then
+  echo "GraphJin build still depends on the rate-limited GitHub API asset endpoint" >&2
+  exit 1
+fi
+grep -Fq 'releases/download/v${GRAPHJIN_VERSION}/graphjin_${GRAPHJIN_VERSION}_linux_${TARGETARCH}.tar.gz' Dockerfile
+
 echo "release recovery contract is intact"
