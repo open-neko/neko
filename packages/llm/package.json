@@ -1,6 +1,6 @@
 {
   "name": "@neko/llm",
-  "version": "2.30.7",
+  "version": "2.30.8",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",

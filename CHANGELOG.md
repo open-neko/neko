@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.30.8](https://github.com/open-neko/openneko/compare/v2.30.7...v2.30.8) (2026-08-26)
+
+
+### Bug Fixes
+
+* **workflows:** make cron scheduling durable ([b9c4423](https://github.com/open-neko/openneko/commit/b9c4423df2bd6f6316ccb4896f8e1e8357a126ce))
+* **workflows:** make cron scheduling durable ([cad5dfc](https://github.com/open-neko/openneko/commit/cad5dfcc0329c9447d902df5f00ee2e4898f5f22))
+
 ## [2.30.7](https://github.com/open-neko/openneko/compare/v2.30.6...v2.30.7) (2026-08-26)
 
 
