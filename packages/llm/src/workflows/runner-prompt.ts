@@ -10,6 +10,7 @@ import {
   buildMemorySection,
 } from "../prompts/sections";
 import type { WorkflowRecord } from "./store";
+import { GRAPHJIN_EXECUTE_GRAPHQL_TOOL_TITLE } from "../graphjin/mcp-names";
 
 export type BuildWorkflowRunnerPromptInput = {
   workflow: WorkflowRecord;
@@ -160,8 +161,9 @@ export function buildWorkflowRunnerPrompt(
   const shellTool = shellToolName(backend);
   const dataAccessSection = buildDataAccessSection({
     shellTool,
-    queryTool: "mcp__neko_graphjin__execute_graphql",
+    queryTool: GRAPHJIN_EXECUTE_GRAPHQL_TOOL_TITLE,
     queryIdentity: "actor",
+    readOnly: true,
     workspace,
     knowledge,
     inlineKnowledge: "syntax",

@@ -22,7 +22,7 @@ export const WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS = [
   "AskUserQuestion",
   "Agent",
   "Skill",
-  "mcp__neko_ui__render_cards",
+  "mcp_neko_ui_render_cards",
   "mcp__neko_memory__search",
   "mcp__neko_memory__save",
   "mcp__neko_library__search",

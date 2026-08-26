@@ -13,11 +13,12 @@ import {
   buildChannelManagerServer,
   buildDataSourceManagerServer,
   buildGraphjinAgentServer,
-  buildGraphjinReadServer,
+  buildGraphjinMcpServer,
   buildLibraryServer,
   buildPluginActionServer,
   buildPluginManagerServer,
   buildRecordsReadServer,
+  buildRenderCardsServer,
   buildSkillBuilderServer,
   buildSourceConfigManagerServer,
   buildUserManagerServer,
@@ -77,8 +78,10 @@ export function buildBridgeServer(
       : () => {};
   const common = { orgId, runId, emit, controlPlane };
   switch (name) {
+    case "neko_ui":
+      return buildRenderCardsServer(emit);
     case "neko_graphjin":
-      return buildGraphjinReadServer({
+      return buildGraphjinMcpServer({
         orgId,
         ...(ctx.runKind === "agent-job" ? {} : { runId }),
         controlPlane,
@@ -326,11 +329,28 @@ const invokedDirectly =
   process.argv[1]?.endsWith("mcp-bridge.ts") ||
   process.argv[1]?.endsWith("mcp-bridge.js");
 if (invokedDirectly) {
-  main().catch((err: unknown) => {
-    console.error(
-      "[mcp-bridge] fatal:",
-      err instanceof Error ? err.message : String(err),
-    );
+  main().catch(async (err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[mcp-bridge] fatal:", message);
+    // Hermes stores MCP child stderr inside the ephemeral sandbox. Persist a
+    // sanitized startup failure through the normal run event sink as well, so
+    // a lost tool surface is diagnosable after teardown instead of silently
+    // degrading the agent to filesystem/terminal tools.
+    const brokerUrl = process.env.OPENNEKO_BROKER_URL;
+    const brokerToken = process.env.OPENNEKO_BROKER_TOKEN;
+    if (brokerUrl && brokerToken) {
+      try {
+        await postAgentEvents(brokerUrl, brokerToken, [
+          {
+            type: "error",
+            message: `Agent tool bridge failed to start: ${message}`,
+          },
+        ]);
+      } catch {
+        // The original stderr message remains the last-resort diagnostic when
+        // the broker itself is unreachable.
+      }
+    }
     process.exit(1);
   });
 }

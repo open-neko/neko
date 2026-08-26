@@ -118,7 +118,8 @@ describe("buildWorkflowRunnerPrompt", () => {
   it("uses native brokered GraphQL for data access", () => {
     const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools: true });
     expect(prompt).toContain("<data_access>");
-    expect(prompt).toContain("mcp__neko_graphjin__execute_graphql");
+    expect(prompt).toContain("mcp_neko_graphjin_execute_graphql");
+    expect(prompt).toContain("mcp_neko_graphjin_query_catalog");
     expect(prompt).not.toContain("graphjin cli");
   });
 

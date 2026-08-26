@@ -7,11 +7,20 @@ import {
 } from "../prompts/sections";
 import type { InstalledSkill } from "./workspace";
 import type { PluginCatalog } from "./control-plane";
+import {
+  GRAPHJIN_EXECUTE_GRAPHQL_TOOL_TITLE,
+  GRAPHJIN_QUERY_CATALOG_TOOL_TITLE,
+  GRAPHJIN_VALIDATE_WHERE_TOOL_TITLE,
+} from "../graphjin/mcp-names";
 import type {
   AppWorkContext,
   RecordWorkContext,
   WorkDataSurface,
 } from "./data-surface";
+import {
+  A2UI_RENDER_ACP_TITLE,
+  A2UI_RENDER_TOOL_NAME,
+} from "./a2ui-contract";
 
 // Re-export so external callers (and tests) that import GRAPHJIN_DATE_RULE
 // from "@neko/llm/work" don't break.
@@ -78,13 +87,15 @@ heuristic as urgency, priority, or overdue status.
 }
 
 // Web-only (callers gate this behind wantsCards). Hermes renders through a
-// `render_cards` tool mounted via the neko_ui MCP server and a per-turn stdio
-// render server. The component catalog + message schema live on
+// `render_cards` tool mounted via the single brokered neko_ui MCP server. The
+// component catalog + generated message schema live on
 // the TOOL's description (ST1: the channel supplies its own rendering
 // vocabulary; the base prompt stays channel-neutral). See
 // docs/PER_CHANNEL_RENDERING.md.
 function buildRenderingSection(supportsCardTool: boolean): string {
-  const tool = supportsCardTool ? "mcp__neko_ui__render_cards" : "render_cards";
+  const tool = supportsCardTool
+    ? A2UI_RENDER_ACP_TITLE
+    : A2UI_RENDER_TOOL_NAME;
   return `<rendering>
 Call \`${tool}\` for every web answer that contains two or more figures, a
 comparison, a table, findings, a decision, a form, or an error-recovery path.
@@ -212,10 +223,12 @@ A workflow can run on a schedule, when the data changes, or both:
   The workflow's \`steps\` are the response (e.g. "DM Amit on Slack with
   the low-stock details"); \`triggers.when\` is the condition.
 
-  Before setting \`triggers.when\`, introspect the data source with
-  \`mcp__neko_graphjin__execute_graphql\`. Query \`gj_catalog\` for table
-  cards, columns, and relationship edges, then confirm the table, columns,
-  and primary key. Do not use shell commands or GraphJin dev tools.
+  Before setting \`triggers.when\`, call
+  \`${GRAPHJIN_QUERY_CATALOG_TOOL_TITLE}\` with the operator's natural-language
+  condition. Inspect the returned table card, columns, and relationship edges,
+  then confirm the table, columns, and primary key. Validate the finished
+  filter with \`${GRAPHJIN_VALIDATE_WHERE_TOOL_TITLE}\`. Do not use shell
+  commands or GraphJin dev tools.
 
   \`triggers.when\` shape:
   \`\`\`json
@@ -278,11 +291,13 @@ both:
   \`triggers.when\` is the condition. Omit \`triggers\` entirely for a
   manual workflow.
 
-Before writing \`triggers.when\`, introspect the data source with
-\`mcp__neko_graphjin__execute_graphql\`. Query \`gj_catalog\`, then confirm
-the table, columns, and \`primary_key\`. \`primary_key\` is
-required and drives idempotency. If the workflow's steps write back to
-the watched table, add \`triggers.when.idempotency_key_template\` (e.g.
+Before writing \`triggers.when\`, call
+\`${GRAPHJIN_QUERY_CATALOG_TOOL_TITLE}\` with the operator's natural-language
+condition, inspect the returned table card, columns, and relationships, then
+confirm the table, columns, and \`primary_key\`. Validate the finished filter
+with \`${GRAPHJIN_VALIDATE_WHERE_TOOL_TITLE}\`. \`primary_key\` is required
+and drives idempotency. If the workflow's steps write back to the watched
+table, add \`triggers.when.idempotency_key_template\` (e.g.
 \`"reorder-{primary_key}"\`).
 
 Rules: emit the fence at most once per turn; body must be valid JSON;
@@ -365,7 +380,7 @@ runtime, or reload impact, complete these steps in order:
    status.
 
 When an edit needs operator input, call \`list_source_secret_names\` as needed,
-then use \`render_cards\` to present a bound A2UI v1.0 form with the relevant
+then use \`${A2UI_RENDER_ACP_TITLE}\` to present a bound A2UI v1.0 form with the relevant
 fields and one proposal action. In the next turn, validate the submitted values
 and call \`request_source_config_change\`. The source form offers Database, API,
 and Files. Use Conditional groups so the selected kind shows its own fields.
@@ -766,7 +781,7 @@ that flags churn risk every Monday."
       ? buildRecordsAccessSection(appContext, recordContext)
       : buildDataAccessSection({
           shellTool,
-          queryTool: "mcp__neko_graphjin__execute_graphql",
+          queryTool: GRAPHJIN_EXECUTE_GRAPHQL_TOOL_TITLE,
           queryIdentity: "actor",
           workspace,
           knowledge,

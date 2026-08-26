@@ -7,6 +7,7 @@ import {
 describe("render_cards catalog", () => {
   it("advertises the v1.0 envelope and interactive form primitives", () => {
     expect(RENDER_CARDS_DESCRIPTION).toContain("A2UI v1.0");
+    expect(RENDER_CARDS_DESCRIPTION).toContain("{messages:[...]}");
     expect(RENDER_CARDS_DESCRIPTION).toContain("urn:openneko:catalog:work:v2");
     expect(RENDER_CARDS_DESCRIPTION).toContain("TextField");
     expect(RENDER_CARDS_DESCRIPTION).toContain("ChoicePicker");
@@ -21,6 +22,7 @@ describe("render_cards catalog", () => {
     expect(RENDER_CARDS_DESCRIPTION).toContain("/form/openApiSpec/id");
     expect(RENDER_CARDS_DESCRIPTION).toContain("Storage backend");
     expect(RENDER_CARDS_DESCRIPTION).toContain("/form/localFiles/sourceName");
+    expect(RENDER_CARDS_DESCRIPTION).toContain('"messages": [');
   });
 
   it("gives the model a strict v1 component schema", () => {

@@ -1,81 +1,4 @@
-/** Strict schema shown to models and enforced for newly generated surfaces. */
-export const RENDER_CARDS_INPUT_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["messages"],
-  properties: {
-    messages: {
-      type: "array",
-      minItems: 1,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["version"],
-        properties: {
-          version: { const: "v1.0" },
-          createSurface: {
-            type: "object",
-            additionalProperties: false,
-            required: ["surfaceId", "catalogId"],
-            properties: {
-              surfaceId: { type: "string", minLength: 1 },
-              catalogId: { const: "urn:openneko:catalog:work:v2" },
-              surfaceProperties: { type: "object" },
-              sendDataModel: { type: "boolean" },
-              components: { $ref: "#/$defs/components" },
-              dataModel: { type: "object" },
-            },
-          },
-          updateComponents: {
-            type: "object",
-            additionalProperties: false,
-            required: ["surfaceId", "components"],
-            properties: {
-              surfaceId: { type: "string", minLength: 1 },
-              components: { $ref: "#/$defs/components" },
-            },
-          },
-          updateDataModel: {
-            type: "object",
-            additionalProperties: false,
-            required: ["surfaceId"],
-            properties: {
-              surfaceId: { type: "string", minLength: 1 },
-              path: { type: "string" },
-              value: {},
-            },
-          },
-          deleteSurface: {
-            type: "object",
-            additionalProperties: false,
-            required: ["surfaceId"],
-            properties: { surfaceId: { type: "string", minLength: 1 } },
-          },
-        },
-        oneOf: [
-          { required: ["createSurface"] },
-          { required: ["updateComponents"] },
-          { required: ["updateDataModel"] },
-          { required: ["deleteSurface"] },
-        ],
-      },
-    },
-  },
-  $defs: {
-    components: {
-      type: "array",
-      minItems: 1,
-      items: {
-        type: "object",
-        required: ["id", "component"],
-        properties: {
-          id: { type: "string", minLength: 1 },
-          component: { type: "string", minLength: 1 },
-        },
-      },
-    },
-  },
-} as const;
+export { RENDER_CARDS_INPUT_SCHEMA } from "./a2ui-contract";
 
 /** Catalog supplied with the render_cards tool for conversational web surfaces. */
 export const RENDER_CARDS_DESCRIPTION = [
@@ -83,7 +6,7 @@ export const RENDER_CARDS_DESCRIPTION = [
   "You MUST use this for answers with 2+ figures, comparisons, tables, findings,",
   "decisions, configuration forms, or recovery actions. The surface is canonical:",
   "do not repeat its prose or figures in the final message.",
-  "Send an array of protocol messages. New surfaces use one createSurface message with",
+  "Call the tool with `{messages:[...]}`. New surfaces use one createSurface message with",
   '`version:"v1.0"`, catalogId `urn:openneko:catalog:work:v2`, globally unique surfaceId,',
   "components, and an initial dataModel. Every surface has a component with id `root`.",
   "Property bindings use `{ path: \"/json/pointer\" }`.",
@@ -128,7 +51,8 @@ export const RENDER_CARDS_DESCRIPTION = [
   "Never substitute seasonal norms or invented values for unavailable live data.",
   "",
   "Example — editable source proposal:",
-  "[",
+  "{",
+  '  "messages": [',
   '  {"version":"v1.0","createSurface":{',
   '    "surfaceId":"source-form-<unique>","catalogId":"urn:openneko:catalog:work:v2",',
   '    "dataModel":{"form":{"name":"","kind":["database"],"type":"postgres","host":"","port":5432,"dbname":"","user":"","secretRef":"","openApiSpec":null,"backend":["local"],"localFiles":null,"bucket":"","prefix":"","region":"","endpoint":"","publicBaseUrl":"","presignTtl":"15m"}},',
@@ -176,5 +100,6 @@ export const RENDER_CARDS_DESCRIPTION = [
   '      {"id":"submitCloudFile","component":"Button","child":"submitLabel","variant":"primary","requires":[{"path":"/form/name"},{"path":"/form/bucket"}],"action":{"event":{"name":"submit_source_config","context":{"prompt":"Create the read-only cloud file source proposal using the selected backend, bucket, prefix, endpoint, public base URL, and bounded presign TTL values.","values":{"path":"/form"}}}}}',
   "    ]",
   "  }}",
-  "]",
+  "  ]",
+  "}",
 ].join("\n");

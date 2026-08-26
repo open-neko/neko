@@ -11,7 +11,7 @@ import {
 import { makeAgentBackend } from "@neko/llm/agent-runtime";
 import {
   buildGraphjinAgentServer,
-  buildGraphjinReadServer,
+  buildGraphjinMcpServer,
   buildWorkMemoryServer,
   getBuiltinSkillsRoot,
   materializeBuiltinSkills,
@@ -140,7 +140,7 @@ export async function main(): Promise<void> {
         ? {
             ...(graphjinRead
               ? {
-                  neko_graphjin: buildGraphjinReadServer({
+                  neko_graphjin: buildGraphjinMcpServer({
                     orgId: job.orgId,
                     controlPlane,
                   }),

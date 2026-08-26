@@ -101,6 +101,18 @@ export class BrokerControlPlane implements AgentControlPlane {
     return this.post("/v1/graphjin/query", input);
   }
 
+  listGraphjinTools(
+    input: Parameters<AgentControlPlane["listGraphjinTools"]>[0],
+  ): ReturnType<AgentControlPlane["listGraphjinTools"]> {
+    return this.post("/v1/graphjin/tools/list", input);
+  }
+
+  callGraphjinTool(
+    input: Parameters<AgentControlPlane["callGraphjinTool"]>[0],
+  ): ReturnType<AgentControlPlane["callGraphjinTool"]> {
+    return this.post("/v1/graphjin/tools/call", input);
+  }
+
   askGraphjinDataAgent(
     input: Parameters<AgentControlPlane["askGraphjinDataAgent"]>[0],
   ): ReturnType<AgentControlPlane["askGraphjinDataAgent"]> {

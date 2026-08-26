@@ -193,6 +193,7 @@ snapshot. No prose around the JSON.
       agentTool: dataAgentTool,
       workspace,
       knowledge,
+      readOnly: true,
       // One-shot agent can't iterate — inline the full pack.
       inlineKnowledge: "all",
     }),

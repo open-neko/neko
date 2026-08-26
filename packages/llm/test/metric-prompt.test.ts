@@ -33,7 +33,7 @@ const fakeInput = {
 };
 
 const directDataAccess = {
-  queryTool: "mcp__neko_graphjin__execute_graphql",
+  queryTool: "mcp_neko_graphjin_execute_graphql",
 } as const;
 
 describe("buildMetricPrompt", () => {
@@ -91,7 +91,7 @@ describe("buildMetricPrompt", () => {
       shellTool: "terminal",
       ...directDataAccess,
     });
-    expect(prompt).toContain("`mcp__neko_graphjin__execute_graphql`");
+    expect(prompt).toContain("`mcp_neko_graphjin_execute_graphql`");
     expect(prompt).toContain("service credential never enter your sandbox");
     expect(prompt).not.toContain("graphjin cli execute_graphql");
   });
@@ -102,11 +102,11 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
-      dataAgentTool: "mcp__neko_graphjin_agent__ask",
+      dataAgentTool: "mcp_neko_graphjin_agent_ask",
     });
-    expect(prompt).toContain("`mcp__neko_graphjin_agent__ask`");
+    expect(prompt).toContain("`mcp_neko_graphjin_agent_ask`");
     expect(prompt).toContain("globally read-only");
-    expect(prompt).not.toContain("mcp__neko_graphjin__execute_graphql");
+    expect(prompt).not.toContain("mcp_neko_graphjin_execute_graphql");
     expect(prompt).not.toContain("graphjin cli execute_graphql");
   });
 
@@ -116,8 +116,8 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
-      queryTool: "mcp__neko_graphjin__execute_graphql",
-      dataAgentTool: "mcp__neko_graphjin_agent__ask",
+      queryTool: "mcp_neko_graphjin_execute_graphql",
+      dataAgentTool: "mcp_neko_graphjin_agent_ask",
     } as unknown as Parameters<typeof buildMetricPrompt>[0];
     expect(() =>
       buildMetricPrompt(ambiguous),

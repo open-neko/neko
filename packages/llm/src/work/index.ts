@@ -9,6 +9,7 @@ export {
   buildChannelManagerServer,
   buildDataSourceManagerServer,
   buildGraphjinAgentServer,
+  buildGraphjinMcpServer,
   buildGraphjinReadServer,
   buildLibraryServer,
   buildRecordsReadServer,
