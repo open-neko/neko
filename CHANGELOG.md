@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.30.7](https://github.com/open-neko/openneko/compare/v2.30.6...v2.30.7) (2026-08-26)
+
+
+### Bug Fixes
+
+* enforce backup storage owner contract ([0da713b](https://github.com/open-neko/openneko/commit/0da713b927e9969ded9115a202a25228d3bd54ba))
+* make production runtime recovery durable ([30c11e5](https://github.com/open-neko/openneko/commit/30c11e57862f3b70d50636ee3fda6dfde64c4272))
+* make production runtime recovery durable ([1500216](https://github.com/open-neko/openneko/commit/1500216394cbe1a901d32fbb4c7c8406c13a047c))
+* reconcile Alpine-origin database volumes ([c917698](https://github.com/open-neko/openneko/commit/c917698076d98ceaf96e746e22ee87e20b4b717d))
+
 ## [2.30.6](https://github.com/open-neko/openneko/compare/v2.30.5...v2.30.6) (2026-08-25)
 
 
