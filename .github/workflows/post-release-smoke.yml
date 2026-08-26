@@ -169,16 +169,20 @@ jobs:
             storage contract)
           echo "OpenNeko storage contract: $contract"
           test "$contract" = "1"
-          for image in neko-db records-db; do
+          for image in neko-db records-db neko-backup; do
             ref="ghcr.io/open-neko/${image}:$OPENNEKO_VERSION"
             image_contract=$(docker image inspect \
               --format '{{ index .Config.Labels "org.openneko.storage-contract" }}' \
               "$ref")
+            image_owner=$(docker image inspect \
+              --format '{{ index .Config.Labels "org.openneko.storage-owner" }}' \
+              "$ref")
             runtime=$(docker run --rm --entrypoint sh "$ref" -ceu \
-              'printf "%s / %s\n" "$(getconf GNU_LIBC_VERSION)" "$(pg_config --version)"')
-            echo "$image: contract=$image_contract runtime=$runtime"
+              'printf "%s / %s / %s:%s\n" "$(getconf GNU_LIBC_VERSION)" "$(pg_config --version)" "$(id -u postgres)" "$(id -g postgres)"')
+            echo "$image: contract=$image_contract owner=$image_owner runtime=$runtime"
             test "$image_contract" = "$contract"
-            test "$runtime" = "glibc 2.36 / PostgreSQL 16.15 (Debian 16.15-1.pgdg12+2)"
+            test "$image_owner" = "999:999"
+            test "$runtime" = "glibc 2.36 / PostgreSQL 16.15 (Debian 16.15-1.pgdg12+2) / $image_owner"
           done
 
       - name: openneko start (detached) against pre-pulled images

@@ -57,7 +57,8 @@ RUN ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack 
 # does not need pgvector, but sharing this exact base keeps the combined pull
 # deduplicated.
 FROM pgvector/pgvector:0.8.6-pg16-bookworm@sha256:ccc6e83d6e35e931dc7c5def2022729d5a6c370318d099181995567ff1fb4d6b AS postgres-runtime
-LABEL org.openneko.storage-contract="1"
+LABEL org.openneko.storage-contract="1" \
+      org.openneko.storage-owner="999:999"
 USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -66,6 +67,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.36" \
     && test "$(pg_config --version)" = "PostgreSQL 16.15 (Debian 16.15-1.pgdg12+2)" \
+    && test "$(id -u postgres):$(id -g postgres)" = "999:999" \
     && pgbackrest version | grep -Fx 'pgBackRest 2.58.0'
 COPY apps/worker/scripts/postgres-pgbackrest-entrypoint.sh /usr/local/bin/openneko-postgres-entrypoint
 RUN chmod 0755 /usr/local/bin/openneko-postgres-entrypoint
@@ -75,18 +77,21 @@ CMD ["postgres"]
 FROM postgres-runtime AS neko-db
 FROM postgres-runtime AS records-db
 
-FROM alpine:3.22 AS neko-backup
-ARG PGBACKREST_VERSION=2.55.1-r0
-RUN apk add --no-cache \
-      ca-certificates curl openssl postgresql16 python3 su-exec tar \
-      libbz2 libssh2 libxml2 \
-    && apk fetch --no-cache --output /tmp pgbackrest \
-    && test -f "/tmp/pgbackrest-${PGBACKREST_VERSION}.apk" \
-    && tar -xzf "/tmp/pgbackrest-${PGBACKREST_VERSION}.apk" \
-      --exclude='.SIGN.*' --exclude='.PKGINFO' -C / \
-    && rm "/tmp/pgbackrest-${PGBACKREST_VERSION}.apk" \
-    && pgbackrest version \
-    && (id -u postgres >/dev/null 2>&1 || adduser -S -D -H postgres)
+# The backup coordinator mounts PostgreSQL's 0700 data directories and reads
+# 0600 control files as the postgres OS user. Inheriting the exact database
+# runtime makes that numeric identity, PostgreSQL toolchain, libc, and
+# pgBackRest version one enforced storage ABI instead of duplicating them in a
+# distribution whose postgres account has a different UID.
+FROM postgres-runtime AS neko-backup
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      curl \
+      python3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && test "$(id -u postgres):$(id -g postgres)" = "999:999" \
+    && test "$(python3 --version)" = "Python 3.11.2" \
+    && pgbackrest version | grep -Fx 'pgBackRest 2.58.0'
 COPY apps/worker/scripts/openneko-backup.py /usr/local/bin/openneko-backup.py
 COPY apps/worker/scripts/openneko-backup-entrypoint.sh /usr/local/bin/openneko-backup-entrypoint
 RUN chmod 0755 /usr/local/bin/openneko-backup.py /usr/local/bin/openneko-backup-entrypoint

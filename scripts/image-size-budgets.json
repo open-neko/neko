@@ -6,7 +6,7 @@
   "neko-cli": 10,
   "neko-db": 165,
   "records-db": 165,
-  "neko-backup": 45,
+  "neko-backup": 190,
   "agent": 800,
   "plugin-base": 100,
   "uniqueStack": 1650

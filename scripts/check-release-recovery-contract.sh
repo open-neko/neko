@@ -22,6 +22,9 @@ grep -Fq "success() && steps.ctx.outputs.stable == 'true' && steps.ctx.outputs.t
 grep -Fq -- "--prerelease=false --latest" "$smoke_workflow"
 grep -Fq "failure() && steps.ctx.outputs.stable == 'true' && steps.ctx.outputs.tag != ''" "$smoke_workflow"
 grep -Fq -- "--prerelease --latest=false" "$smoke_workflow"
+grep -Fq 'for image in neko-db records-db neko-backup; do' "$smoke_workflow"
+grep -Fq 'org.openneko.storage-owner' "$smoke_workflow"
+grep -Fq 'test "$image_owner" = "999:999"' "$smoke_workflow"
 
 # Release builds must use the immutable versioned GraphJin asset URL. The API
 # asset-ID endpoint is rate limited for unauthenticated Docker build steps and
