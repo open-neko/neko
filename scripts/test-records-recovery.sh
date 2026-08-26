@@ -57,6 +57,18 @@ echo "Starting isolated records recovery stack ($recovery_project)..."
 "${recovery_compose[@]}" up -d --build --wait --wait-timeout 180 \
   neko-backup
 
+# The coordinator reads both read-only PGDATA mounts as postgres. Assert the
+# shared numeric owner directly so a future base-image split fails with the
+# storage-contract violation, before pgBackRest reports an indirect EACCES.
+database_owner="$("${recovery_compose[@]}" exec -T records-db sh -ceu \
+  'printf "%s:%s" "$(id -u postgres)" "$(id -g postgres)"')"
+backup_owner="$("${recovery_compose[@]}" exec -T neko-backup sh -ceu \
+  'printf "%s:%s" "$(id -u postgres)" "$(id -g postgres)"')"
+if [[ "$database_owner" != "999:999" || "$backup_owner" != "$database_owner" ]]; then
+  echo "PostgreSQL storage owner mismatch: database=$database_owner backup=$backup_owner" >&2
+  exit 1
+fi
+
 backup_ready=0
 for _ in $(seq 1 90); do
   recovery_backup_json="$(backup_status)"

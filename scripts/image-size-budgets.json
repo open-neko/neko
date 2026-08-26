@@ -4,10 +4,10 @@
   "neko-graphjin": 60,
   "records-graphjin": 60,
   "neko-cli": 10,
-  "neko-db": 140,
-  "records-db": 140,
-  "neko-backup": 45,
+  "neko-db": 165,
+  "records-db": 165,
+  "neko-backup": 190,
   "agent": 800,
   "plugin-base": 100,
-  "uniqueStack": 1500
+  "uniqueStack": 1650
 }

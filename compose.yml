@@ -146,6 +146,37 @@ services:
       timeout: 5s
       retries: 20
 
+  # One-shot storage ABI gate. It repairs persisted indexes in BOTH managed
+  # databases after a libc/collation-runtime transition and records the
+  # enforced contract independently of schema migrations. Every database
+  # consumer waits for successful completion, so an incompatible image fails
+  # closed before application reads or writes begin.
+  storage-reconcile:
+    build:
+      context: .
+      target: neko-cli
+    restart: "no"
+    command: ["storage", "reconcile"]
+    depends_on:
+      neko-db:
+        condition: service_healthy
+      records-db:
+        condition: service_healthy
+    environment:
+      NEKO_PG_HOST: neko-db
+      NEKO_PG_PORT: "5432"
+      NEKO_PG_USER: neko
+      NEKO_PG_PASSWORD: ${NEKO_PG_PASSWORD:-secret}
+      NEKO_PG_DATABASE: neko
+      RECORDS_PG_HOST: records-db
+      RECORDS_PG_PORT: "5432"
+      RECORDS_PG_USER: ${OPENNEKO_RECORDS_PG_USER:-records}
+      RECORDS_PG_PASSWORD: ${OPENNEKO_RECORDS_PG_PASSWORD:-records-secret}
+      RECORDS_PG_DATABASE: ${OPENNEKO_RECORDS_PG_DATABASE:-records}
+      XDG_CONFIG_HOME: /config
+    volumes:
+      - ${OPENNEKO_CONFIG_VOLUME:-openneko-config}:/config/openneko
+
   # Encrypted whole-deployment backups: paired pgBackRest base backups for
   # metadata + records, continuous WAL from both database containers, and an
   # encrypted snapshot of the config/GraphJin volumes in one global manifest.
@@ -184,6 +215,8 @@ services:
         condition: service_healthy
       records-db:
         condition: service_healthy
+      storage-reconcile:
+        condition: service_completed_successfully
     environment:
       PGBACKREST_REPO1_CIPHER_PASS_FILE: /run/secrets/openneko-backup-key
       NEKO_PG_USER: neko
@@ -288,6 +321,8 @@ services:
         condition: service_completed_successfully
       records-db:
         condition: service_healthy
+      storage-reconcile:
+        condition: service_completed_successfully
     volumes:
       - openneko-records-graphjin:/config:ro
     expose:
@@ -317,6 +352,8 @@ services:
         condition: service_completed_successfully
       records-db:
         condition: service_healthy
+      storage-reconcile:
+        condition: service_completed_successfully
     environment:
       OPENNEKO_RECORDS_GRAPHJIN_CONFIG_DIR: /config/watch
     volumes:
@@ -419,9 +456,9 @@ services:
       - openneko-graphjin-cli:/config
     command: ["serve", "--path", "/config"]
 
-  # One-shot: applies SQL migrations to neko-db and exits. Every long-
-  # running service (web, worker, neko-graphjin) depends on this completing
-  # successfully, so by the time they start the schema is in place.
+  # One-shot: applies SQL migrations to neko-db after both database volumes
+  # satisfy the enforced storage contract. Every long-running service depends
+  # on this completing successfully, so schema and storage are ready together.
   neko-migrate:
     build:
       context: .
@@ -431,6 +468,8 @@ services:
     depends_on:
       neko-db:
         condition: service_healthy
+      storage-reconcile:
+        condition: service_completed_successfully
     # NEKO_PG_PASSWORD here is the bootstrap fallback only — once /setup
     # rotates the password the openneko CLI's defaultConn reads it from
     # /config/openneko/config.json on the shared volume. Without this volume

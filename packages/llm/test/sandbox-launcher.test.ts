@@ -119,9 +119,30 @@ const {
   buildSandboxPolicy,
   buildScopedEgressArgs,
   ensureOpenShellProvider,
+  sandboxLauncherOptionsFromEnv,
   stageSandboxWorkspace,
   verifyOpenShellGateway,
 } = await import("../src/work/sandbox-launcher");
+
+describe("sandboxLauncherOptionsFromEnv", () => {
+  it("ignores a persisted operator binary and exposes only model hosts", () => {
+    vi.stubEnv("OPENNEKO_AGENT_MODEL_HOST", "models.example.com,models.dev");
+    vi.stubEnv(
+      "OPENNEKO_AGENT_MODEL_BINARY",
+      "/usr/local/uv/python/cpython-3.11.16-linux-x86_64-gnu/bin/python3.11",
+    );
+    try {
+      const options = sandboxLauncherOptionsFromEnv();
+      expect(options.modelHosts).toEqual([
+        { host: "models.example.com" },
+        { host: "models.dev" },
+      ]);
+      expect(options).not.toHaveProperty("modelEgress");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
 
 function fakeInput(
   emit: (e: AgentEvent) => Promise<void>,
@@ -406,7 +427,7 @@ describe("makeSandboxRunCore", () => {
     const events: AgentEvent[] = [];
     const runCore = makeSandboxRunCore({
       agentImage: "ghcr.io/open-neko/agent:test",
-      modelEgress: [{ host: "m.example.com", binary: "node" }],
+      modelHosts: [{ host: "m.example.com" }],
       keyAliases: [{ from: "api_key", to: "GEMINI_API_KEY" }],
       onLog: () => {},
     });
@@ -429,6 +450,13 @@ describe("makeSandboxRunCore", () => {
     expect(h.calls[0]?.args).toContain("ghcr.io/open-neko/agent:test");
     expect(h.calls[0]?.args).toContain("--policy");
     expect(h.calls[0]?.args).toContain("--upload");
+    const modelPolicy = Object.values(
+      (jobCapture.policies.at(-1)?.network_policies ?? {}) as Record<
+        string,
+        { binaries: Array<{ path: string }>; endpoints: Array<{ host: string }> }
+      >,
+    ).find((policy) => policy.endpoints.some((endpoint) => endpoint.host === "m.example.com"));
+    expect(modelPolicy?.binaries).toEqual([{ path: "/usr/bin/python3.11" }]);
     expect(h.calls[0]?.args.join(" ")).toContain(
       "node --import tsx/esm /app/src/agent-sandbox/entry.ts --preflight",
     );

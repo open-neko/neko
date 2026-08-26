@@ -43,6 +43,7 @@ const (
 // `restart: "no"` services in assets/compose/{core,demo,openshell}.yml.
 var oneShotJobs = map[string]bool{
 	"neko-migrate":                 true,
+	"storage-reconcile":            true,
 	"adventureworks-init":          true,
 	"graphjin-config-init":         true,
 	"records-graphjin-config-init": true,

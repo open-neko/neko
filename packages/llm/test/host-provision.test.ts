@@ -1,11 +1,8 @@
 import {
   mkdtemp,
-  mkdir,
   readFile,
-  realpath,
   rm,
   stat,
-  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir, platform } from "node:os";
@@ -35,7 +32,6 @@ import {
   hermesHomeForOrg,
   patchGraphjinSourcesJwtSecret,
   provisionHostConfig,
-  resolveHermesModelBinary,
   shouldReconcileDemoSourceAuthMode,
   verifyAgentRuntimeReady,
 } from "../src/host-provision";
@@ -89,30 +85,6 @@ const ORIGINAL_DELEGATION_ENV = Object.fromEntries(
 );
 const ensureOpenShellProviderMock = vi.mocked(ensureOpenShellProvider);
 const verifyOpenShellGatewayMock = vi.mocked(verifyOpenShellGateway);
-
-describe("resolveHermesModelBinary", () => {
-  it("returns the exact interpreter behind Hermes' uv entrypoint", async () => {
-    const root = await mkdtemp(join(tmpdir(), "neko-hermes-python-"));
-    try {
-      const interpreter = join(root, "cpython-3.11.16", "bin", "python3.11");
-      const entrypoint = join(root, "hermes-python");
-      await mkdir(join(root, "cpython-3.11.16", "bin"), { recursive: true });
-      await writeFile(interpreter, "python");
-      await symlink(interpreter, entrypoint);
-
-      expect(resolveHermesModelBinary(entrypoint)).toBe(
-        await realpath(interpreter),
-      );
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("does not reintroduce a guessed Python patch version when absent", () => {
-    const missing = "/missing/hermes-agent/bin/python";
-    expect(resolveHermesModelBinary(missing)).toBe(missing);
-  });
-});
 
 describe("patchGraphjinSourcesJwtSecret", () => {
   it("replaces a source-mode placeholder", () => {

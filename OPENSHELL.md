@@ -81,7 +81,6 @@ Set these on the **worker** (channel runs) and/or the **web** process
 | `OPENNEKO_AGENT_IMAGE` | The agent image (Dockerfile `agent` stage) |
 | `OPENNEKO_AGENT_MODEL_PROVIDER` | Gateway-side provider name (auto-synced; see below) |
 | `OPENNEKO_AGENT_MODEL_HOST` | Comma-separated egress hosts (e.g. `generativelanguage.googleapis.com,models.dev`) |
-| `OPENNEKO_AGENT_MODEL_BINARY` | The backend's connecting binary (egress is per-binary) |
 | `OPENNEKO_AGENT_MODEL_KEY_ENV` | The env var the backend reads (e.g. `GEMINI_API_KEY`) |
 | `OPENSHELL_GATEWAY` / `OPENSHELL_GATEWAY_ENDPOINT` | Gateway selection (mTLS name, or endpoint) |
 
@@ -90,9 +89,11 @@ Set these on the **worker** (channel runs) and/or the **web** process
 run `openshell provider create` by hand. The proxy injects that credential on
 egress; the box only ever sees the placeholder.
 
-**Connecting binary (gotcha).** Egress is matched on the *resolved* executable
-path. Hermes connects through its Python interpreter, not the `hermes` launcher.
-`OPENNEKO_AGENT_MODEL_BINARY` must therefore be that resolved interpreter path.
+**Connecting binary.** Egress is matched on the executable reported by
+`/proc/<pid>/exe`. OpenNeko owns this as part of its vendored agent-image
+contract and does not accept an installation override. Release validation
+requires the configured policy executable to equal Hermes' resolved
+interpreter inside the published image.
 
 ## Plugins
 

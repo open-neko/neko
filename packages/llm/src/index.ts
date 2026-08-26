@@ -37,7 +37,7 @@ export {
 export {
   ensureHostConfigProvisioned,
   provisionHostConfig,
-  resolveHermesModelBinary,
+  VENDORED_HERMES_MODEL_BINARY,
   verifyAgentRuntimeReady,
 } from "./host-provision";
 export {

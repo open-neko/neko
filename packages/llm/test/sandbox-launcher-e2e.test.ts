@@ -14,7 +14,7 @@ import { ensureWorkWorkspace } from "../src/work/workspace";
  * 2026-06-03 (hermes/gemini → "PONG", key never in the box).
  *
  * Run: OPENNEKO_OPENSHELL_E2E=1 OPENNEKO_AGENT_IMAGE=… OPENNEKO_AGENT_MODEL_PROVIDER=… \
- *      OPENNEKO_AGENT_MODEL_HOST=…,… OPENNEKO_AGENT_MODEL_BINARY=… \
+ *      OPENNEKO_AGENT_MODEL_HOST=…,… \
  *      OPENNEKO_AGENT_MODEL_KEY_ENV=… OPENNEKO_AGENT_HERMES_HOME=… \
  *      pnpm --filter @neko/llm exec vitest run test/sandbox-launcher-e2e.test.ts
  */
@@ -41,7 +41,6 @@ d("agent-in-sandbox e2e (opt-in)", () => {
   it(
     "runs a hermes turn in a fresh OpenShell sandbox and returns real text",
     async () => {
-      const binary = process.env.OPENNEKO_AGENT_MODEL_BINARY ?? "";
       const hosts = (process.env.OPENNEKO_AGENT_MODEL_HOST ?? "")
         .split(",")
         .map((h) => h.trim())
@@ -56,7 +55,7 @@ d("agent-in-sandbox e2e (opt-in)", () => {
         gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
         gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
         modelProvider: process.env.OPENNEKO_AGENT_MODEL_PROVIDER,
-        modelEgress: binary ? hosts.map((host) => ({ host, binary })) : [],
+        modelHosts: hosts.map((host) => ({ host })),
         keyAliases: keyEnv ? [{ from: "api_key", to: keyEnv }] : undefined,
         hermesHomeHostPath: process.env.OPENNEKO_AGENT_HERMES_HOME || undefined,
         execTimeoutMs: 240_000,
@@ -92,7 +91,6 @@ d("agent-in-sandbox e2e (opt-in)", () => {
   delegationIt(
     "runs Hermes delegate_task inside the same run sandbox and pulls back child artifacts",
     async () => {
-      const binary = process.env.OPENNEKO_AGENT_MODEL_BINARY ?? "";
       const hosts = (process.env.OPENNEKO_AGENT_MODEL_HOST ?? "")
         .split(",")
         .map((h) => h.trim())
@@ -108,7 +106,7 @@ d("agent-in-sandbox e2e (opt-in)", () => {
         gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
         gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
         modelProvider: process.env.OPENNEKO_AGENT_MODEL_PROVIDER,
-        modelEgress: binary ? hosts.map((host) => ({ host, binary })) : [],
+        modelHosts: hosts.map((host) => ({ host })),
         keyAliases: keyEnv ? [{ from: "api_key", to: keyEnv }] : undefined,
         hermesHomeHostPath: process.env.OPENNEKO_AGENT_HERMES_HOME || undefined,
         execTimeoutMs: 360_000,
