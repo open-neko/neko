@@ -30,10 +30,17 @@ const M_0004 = join(REPO_ROOT, "db", "migrations", "0004_drop_organization_plan.
 const M_0005 = join(REPO_ROOT, "db", "migrations", "0005_metric_refresh_status.sql");
 const M_0006 = join(REPO_ROOT, "db", "migrations", "0006_work_runtime.sql");
 const M_0007 = join(REPO_ROOT, "db", "migrations", "0007_work_memory.sql");
+const M_0009 = join(REPO_ROOT, "db", "migrations", "0009_workflows.sql");
 const M_0019 = join(REPO_ROOT, "db", "migrations", "0019_install_policy_scope.sql");
 const M_0048 = join(REPO_ROOT, "db", "migrations", "0048_graphjin_config_scope.sql");
 const M_0051 = join(REPO_ROOT, "db", "migrations", "0051_app_state.sql");
 const M_0062 = join(REPO_ROOT, "db", "migrations", "0062_hermes_only_agent.sql");
+const M_0063 = join(
+  REPO_ROOT,
+  "db",
+  "migrations",
+  "0063_durable_workflow_scheduler.sql",
+);
 
 function uniqueDbName(): string {
   return `vitest_migrations_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -310,6 +317,55 @@ describeIfDb("schema migrations", () => {
           secrets: { apiKey: "encrypted-primary" },
         },
       ]);
+    });
+  });
+
+  it("0063 creates an idempotent workflow cursor, firing ledger, and heartbeat", async () => {
+    await withTempDb(async (client) => {
+      await applyFile(client, M_0001);
+      await applyFile(client, M_0006);
+      await applyFile(client, M_0009);
+      await applyFile(client, M_0063);
+      await applyFile(client, M_0063);
+
+      const tables = await client.query<{ table_name: string }>(
+        `select table_name from information_schema.tables
+         where table_schema = 'public'
+           and table_name like 'workflow_schedule%'
+         order by table_name`,
+      );
+      expect(tables.rows.map((row) => row.table_name)).toEqual([
+        "workflow_schedule_firing",
+        "workflow_schedule_state",
+        "workflow_scheduler_health",
+      ]);
+
+      await client.query(`
+        insert into organization (id, name) values ('scheduler-org', 'Scheduler');
+        insert into workflow_definition (id, org_id, name, steps, cron)
+        values ('00000000-0000-0000-0000-000000000063', 'scheduler-org',
+                'Daily briefing', '[]'::jsonb, '0 9 * * *');
+        insert into workflow_schedule_firing
+          (org_id, workflow_id, scheduled_for)
+        values
+          ('scheduler-org', '00000000-0000-0000-0000-000000000063',
+           '2030-08-26T09:00:00Z');
+      `);
+      await expect(
+        client.query(`
+          insert into workflow_schedule_firing
+            (org_id, workflow_id, scheduled_for)
+          values
+            ('scheduler-org', '00000000-0000-0000-0000-000000000063',
+             '2030-08-26T09:00:00Z')
+        `),
+      ).rejects.toThrow(/unique|duplicate/i);
+      await expect(
+        client.query(`
+          update workflow_schedule_firing set status = 'lost'
+          where workflow_id = '00000000-0000-0000-0000-000000000063'
+        `),
+      ).rejects.toThrow(/check constraint|status/i);
     });
   });
 

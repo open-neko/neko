@@ -205,6 +205,39 @@ jobs:
               --from "ghcr.io/open-neko/agent:$DEPLOY_IMAGE_TAG" \
               --no-keep --no-tty -- /bin/true
 
+            if [ "$SOURCE_DEPLOY" = true ]; then
+              # A main-only Go deploy deliberately retains the last released
+              # application images, which may predate this endpoint.
+              echo "[deploy] scheduler sentinel deferred to the released-image deploy"
+            else
+              # Process liveness used to pass while pg-boss's schedule polling
+              # had silently stopped. Require a successful durable scheduler DB
+              # transaction after this worker boot before accepting the deploy.
+              scheduler_ok=false
+              for attempt in 1 2 3 4 5 6 7 8 9 10; do
+                if docker exec "$WORKER" node -e '
+                  fetch("http://127.0.0.1:4100/health/scheduler")
+                    .then(async (response) => {
+                      const health = await response.json();
+                      if (!response.ok || health.status !== "ok" || !health.lastSuccessAt) {
+                        throw new Error(JSON.stringify(health));
+                      }
+                      console.log(`[deploy] scheduler healthy at ${health.lastSuccessAt}`);
+                    })
+                    .catch((error) => { console.error(error.message); process.exit(1); });
+                '; then
+                  scheduler_ok=true
+                  break
+                fi
+                echo "[deploy] scheduler not ready (attempt $attempt/10)"
+                sleep 3
+              done
+              if [ "$scheduler_ok" != true ]; then
+                echo "[deploy] durable workflow scheduler failed its progress sentinel" >&2
+                exit 1
+              fi
+            fi
+
             # Sweep again: the release we just replaced is now idle and removable.
             reclaim_disk
           EOF

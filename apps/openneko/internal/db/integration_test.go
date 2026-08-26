@@ -88,7 +88,13 @@ func TestMigratorAppliesAllEmbeddedMigrationsAgainstRealPostgres(t *testing.T) {
 	}
 
 	// Canonical tables installed by the migrations exist.
-	for _, table := range []string{"organization", "schema_migrations"} {
+	for _, table := range []string{
+		"organization",
+		"schema_migrations",
+		"workflow_schedule_state",
+		"workflow_schedule_firing",
+		"workflow_scheduler_health",
+	} {
 		var oid *uint32
 		if err := conn.QueryRow(ctx, "SELECT to_regclass($1)::oid", "public."+table).Scan(&oid); err != nil {
 			t.Fatalf("regclass(%s): %v", table, err)

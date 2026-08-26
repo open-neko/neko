@@ -105,7 +105,6 @@ import { runBootstrapMetricsBuild } from "./jobs/bootstrap-metrics-build.js";
 import { runMetricRefresh } from "./jobs/metric-refresh.js";
 import { metricRefreshIsDue } from "./jobs/metric-schedule.js";
 import { runWorkRun } from "./jobs/work-run.js";
-import { runWorkflowCronSweep } from "./jobs/workflow-cron-sweep.js";
 import { runWorkflowRunFire } from "./jobs/workflow-run-fire.js";
 import { runWorkflowOutputTtlSweep } from "./jobs/workflow-output-ttl-sweep.js";
 import { runActionExecute } from "./jobs/action-execute.js";
@@ -165,6 +164,10 @@ import {
   initializeWorkerTelemetry,
   shutdownWorkerTelemetry,
 } from "./telemetry.js";
+import {
+  getWorkflowSchedulerHealth,
+  startDurableWorkflowScheduler,
+} from "./workflow-scheduler.js";
 import { PackService } from "./packs/service.js";
 import { registerPackActionPreflight } from "./packs/action-preflight.js";
 
@@ -470,6 +473,7 @@ function ssoSetupSurface(): SsoSetupHandlerSurface {
 }
 const server = createServer(
   createAdminHandler({
+    scheduler: { getHealth: getWorkflowSchedulerHealth },
     auth: {
       getAuthProvider: () => pluginRegistry?.getAuthProvider() ?? null,
       authSignInReady: () => pluginRegistry?.authSignInReady() ?? false,
@@ -1052,7 +1056,6 @@ await b.work(QUEUE.WORKFLOW_CRON_SWEEP, async () => {
       `[worker] behavior sweep failed: ${e instanceof Error ? e.message : e}`,
     );
   }
-  await runWorkflowCronSweep();
   // OL4: condition watchers poll on the same tick (each watcher's own
   // cadence gates how often its query actually runs).
   try {
@@ -1326,7 +1329,7 @@ await b.schedule(QUEUE.WORKFLOW_CRON_SWEEP, "* * * * *", {}, {
   retryLimit: 1,
   retryDelay: 15,
 });
-console.log("[worker] scheduled workflow cron sweep every minute");
+console.log("[worker] scheduled behavior + watcher auxiliary sweep every minute");
 
 await b.schedule(QUEUE.RECORDS_SALESFORCE_SYNC_SWEEP, "* * * * *", {}, {
   tz: "UTC",
@@ -1485,6 +1488,12 @@ if (SCHEDULED_REFRESH_HOURS > 0) {
   );
 }
 
+// Cron workflow delivery owns its timer and persisted cursor. It deliberately
+// does not ride on pg-boss's in-process schedule polling: queue timers remain
+// useful for auxiliary maintenance, but cannot be the source of truth for a
+// business schedule that must catch up after downtime.
+const workflowScheduler = await startDurableWorkflowScheduler();
+
 const reconcileTimer = setInterval(() => {
   reconcileStaleProcessingJobs({ minAgeMs: RECONCILE_SWEEP_MIN_AGE_MS })
     .then((s) => {
@@ -1527,6 +1536,7 @@ const channelInbound = startChannelInbound(ADMIN_ORG_ID);
 const shutdown = async (signal: string) => {
   console.log(`[worker] received ${signal}; shutting down`);
   clearInterval(reconcileTimer);
+  workflowScheduler.stop();
   channelInbound.stop();
   unregisterRecordSchemaPreflight();
   unregisterRecordImportPreflight();

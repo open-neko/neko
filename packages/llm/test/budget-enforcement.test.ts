@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { computeDueWorkflows } from "../src/workflows/cron-sweep";
+import { applyWorkflowDailyBudget } from "../src/workflows/durable-scheduler";
 import { handleSubscriptionMatch } from "../src/workflows/match-handler";
 import { startOfTodayUtc } from "../src/workflows/store";
 import type {
@@ -82,37 +82,35 @@ describe("startOfTodayUtc", () => {
   });
 });
 
-describe("cron sweep — daily_run_budget", () => {
-  it("skips workflows that have hit their daily_run_budget", async () => {
-    const due = await computeDueWorkflows({
-      windowStart: new Date("2026-05-13T11:59:30Z"),
-      windowEnd: new Date("2026-05-13T12:00:30Z"),
-      workflows: [fakeWorkflow({ cron: "0 12 * * *", dailyRunBudget: 3 })],
-      countWorkflowRunsSince: async () => 3,
+describe("durable scheduler — daily_run_budget", () => {
+  it("skips occurrences after the daily budget is exhausted", () => {
+    const budgeted = applyWorkflowDailyBudget({
+      occurrences: ["12:00"],
+      dailyRunBudget: 3,
+      alreadyConsumed: 3,
     });
-    expect(due).toHaveLength(0);
+    expect(budgeted).toEqual({ selected: [], skipped: 1 });
   });
 
-  it("fires when under the budget", async () => {
-    const due = await computeDueWorkflows({
-      windowStart: new Date("2026-05-13T11:59:30Z"),
-      windowEnd: new Date("2026-05-13T12:00:30Z"),
-      workflows: [fakeWorkflow({ cron: "0 12 * * *", dailyRunBudget: 3 })],
-      countWorkflowRunsSince: async () => 2,
+  it("selects only the occurrences that fit the remaining budget", () => {
+    const budgeted = applyWorkflowDailyBudget({
+      occurrences: ["09:00", "10:00", "11:00"],
+      dailyRunBudget: 4,
+      alreadyConsumed: 2,
     });
-    expect(due).toHaveLength(1);
+    expect(budgeted).toEqual({
+      selected: ["09:00", "10:00"],
+      skipped: 1,
+    });
   });
 
-  it("treats null daily_run_budget as unlimited", async () => {
-    const due = await computeDueWorkflows({
-      windowStart: new Date("2026-05-13T11:59:30Z"),
-      windowEnd: new Date("2026-05-13T12:00:30Z"),
-      workflows: [fakeWorkflow({ cron: "0 12 * * *", dailyRunBudget: null })],
-      countWorkflowRunsSince: async () => {
-        throw new Error("should not be called when budget is null");
-      },
+  it("treats null daily_run_budget as unlimited", () => {
+    const budgeted = applyWorkflowDailyBudget({
+      occurrences: ["12:00"],
+      dailyRunBudget: null,
+      alreadyConsumed: 10_000,
     });
-    expect(due).toHaveLength(1);
+    expect(budgeted).toEqual({ selected: ["12:00"], skipped: 0 });
   });
 });
 

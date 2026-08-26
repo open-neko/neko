@@ -1492,6 +1492,36 @@ export const workflow_definition = pgTable(
   }),
 );
 
+/**
+ * Durable cursor for cron workflows. The cron expression and definition
+ * timestamp are snapshotted so schedule edits/re-enables reset the cursor to
+ * the first occurrence strictly after the edit instead of backfilling an
+ * occurrence that predates the change.
+ */
+export const workflow_schedule_state = pgTable(
+  "workflow_schedule_state",
+  {
+    workflow_id: uuid("workflow_id")
+      .primaryKey()
+      .references(() => workflow_definition.id, { onDelete: "cascade" }),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    cron: text("cron").notNull(),
+    cron_timezone: text("cron_timezone").notNull(),
+    definition_updated_at: ts("definition_updated_at").notNull(),
+    next_fire_at: ts("next_fire_at").notNull(),
+    catch_up_policy: text("catch_up_policy").notNull().default("coalesce"),
+    last_materialized_at: ts("last_materialized_at"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    due_idx: index("workflow_schedule_state_due_idx").on(t.next_fire_at),
+    org_idx: index("workflow_schedule_state_org_idx").on(t.org_id),
+  }),
+);
+
 export const workflow_run = pgTable(
   "workflow_run",
   {
@@ -1541,6 +1571,75 @@ export const workflow_run = pgTable(
       t.created_at.desc(),
     ),
   }),
+);
+
+/**
+ * Transactional outbox for cron occurrences. A unique
+ * (workflow_id, scheduled_for) key makes materialization idempotent; the
+ * worker leases pending rows and delivers them to pg-boss at least once.
+ */
+export const workflow_schedule_firing = pgTable(
+  "workflow_schedule_firing",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    workflow_id: uuid("workflow_id")
+      .notNull()
+      .references(() => workflow_definition.id, { onDelete: "cascade" }),
+    scheduled_for: ts("scheduled_for").notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    available_at: ts("available_at").notNull().defaultNow(),
+    lease_until: ts("lease_until"),
+    queue_job_id: text("queue_job_id"),
+    workflow_run_id: uuid("workflow_run_id").references(() => workflow_run.id, {
+      onDelete: "set null",
+    }),
+    last_error: text("last_error"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+    dispatched_at: ts("dispatched_at"),
+    completed_at: ts("completed_at"),
+  },
+  (t) => ({
+    workflow_scheduled_unique: uniqueIndex(
+      "workflow_schedule_firing_workflow_scheduled_unique",
+    ).on(t.workflow_id, t.scheduled_for),
+    workflow_run_unique: uniqueIndex(
+      "workflow_schedule_firing_workflow_run_unique",
+    )
+      .on(t.workflow_run_id)
+      .where(sql`${t.workflow_run_id} is not null`),
+    pending_idx: index("workflow_schedule_firing_pending_idx").on(
+      t.status,
+      t.available_at,
+    ),
+    workflow_created_idx: index(
+      "workflow_schedule_firing_workflow_created_idx",
+    ).on(t.workflow_id, t.created_at.desc()),
+  }),
+);
+
+/** Persisted heartbeat lets health checks distinguish process liveness from a
+ * scheduler that has stopped making progress. */
+export const workflow_scheduler_health = pgTable(
+  "workflow_scheduler_health",
+  {
+    id: text("id").primaryKey(),
+    last_started_at: ts("last_started_at"),
+    last_succeeded_at: ts("last_succeeded_at"),
+    last_error_at: ts("last_error_at"),
+    last_error: text("last_error"),
+    last_materialized_count: integer("last_materialized_count")
+      .notNull()
+      .default(0),
+    last_dispatched_count: integer("last_dispatched_count")
+      .notNull()
+      .default(0),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
 );
 
 export const workflow_output = pgTable(

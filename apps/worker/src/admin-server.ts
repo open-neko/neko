@@ -2,7 +2,8 @@
  * Admin HTTP handler for the worker process.
  *
  * Routes:
- *   GET  /health              → 200 ok (liveness)
+ *   GET  /health              → liveness + scheduler readiness
+ *   GET  /health/scheduler    → scheduler progress diagnostics
  *   GET  /health/security     → process-local security subsystem health
  *   POST /admin/reconnect     → 202 + clean exit so the supervisor restarts
  *                               us with fresh DB credentials. Used by the
@@ -223,6 +224,23 @@ export interface PacksHandlerSurface {
   uninstall(packId: string, input: Record<string, unknown>): Promise<unknown>;
 }
 
+export interface SchedulerHealthSurface {
+  getHealth(): {
+    status: "starting" | "ok" | "degraded";
+    running: boolean;
+    stale: boolean;
+    startedAt: string;
+    lastAttemptAt: string | null;
+    lastSuccessAt: string | null;
+    lastErrorAt: string | null;
+    lastError: string | null;
+    consecutiveFailures: number;
+    materialized: number;
+    dispatched: number;
+    recovered: number;
+  };
+}
+
 export interface PluginsHandlerSurface {
   status(): PluginRegistryStatus;
   /**
@@ -282,6 +300,8 @@ export type AdminHandlerOptions = {
    * enough for the response to flush to the caller. Set to 0 in tests.
    */
   exitDelayMs?: number;
+  /** The independent durable scheduler's process-local progress signal. */
+  scheduler?: SchedulerHealthSurface | null;
   /**
    * Auth surface — typically wired to the PluginRegistry. Absent when
    * the plugin subsystem is disabled, in which case /admin/auth/*
@@ -380,6 +400,7 @@ export interface RecordsImportHandlerSurface {
 export function createAdminHandler(opts: AdminHandlerOptions = {}) {
   const exit = opts.exit ?? ((code = 0) => process.exit(code));
   const exitDelayMs = opts.exitDelayMs ?? 100;
+  const scheduler = opts.scheduler ?? null;
   const auth = opts.auth ?? null;
   const plugins = opts.plugins ?? null;
   const connect = opts.connect ?? null;
@@ -394,7 +415,21 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
 
   return function handle(req: IncomingMessage, res: ServerResponse) {
     if (req.method === "GET" && req.url === "/health") {
-      res.writeHead(200).end("ok");
+      const health = scheduler?.getHealth();
+      const ready = health === undefined || health.status === "ok";
+      res.writeHead(ready ? 200 : 503).end(ready ? "ok" : health.status);
+      return;
+    }
+    if (req.method === "GET" && req.url === "/health/scheduler") {
+      if (!scheduler) {
+        json(res, 503, {
+          status: "unavailable",
+          error: "scheduler health is not configured",
+        });
+        return;
+      }
+      const health = scheduler.getHealth();
+      json(res, health.status === "ok" ? 200 : 503, health);
       return;
     }
     if (req.method === "GET" && req.url === "/health/security") {

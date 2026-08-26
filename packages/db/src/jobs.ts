@@ -84,6 +84,9 @@ export type WorkflowRunFirePayload = {
   orgId: string;
   workflowId: string;
   triggerKind: "manual" | "cron" | "subscription" | "watcher";
+  /** Durable cron firing ledger id. Cron deliveries use this as their
+   * consumer-side idempotency boundary before creating a workflow run. */
+  scheduleFiringId?: string;
   triggerPayload?: Record<string, unknown>;
   userMessage?: string;
   threadId?: string;
