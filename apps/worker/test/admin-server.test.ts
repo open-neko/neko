@@ -53,6 +53,80 @@ describe("worker admin HTTP handler", () => {
     }
   });
 
+  it("GET /health includes scheduler readiness", async () => {
+    const getHealth = vi.fn(() => ({
+      status: "ok" as const,
+      running: false,
+      stale: false,
+      startedAt: "2026-08-26T07:00:00.000Z",
+      lastAttemptAt: "2026-08-26T07:00:13.000Z",
+      lastSuccessAt: "2026-08-26T07:00:13.000Z",
+      lastErrorAt: null,
+      lastError: null,
+      consecutiveFailures: 0,
+      materialized: 1,
+      dispatched: 1,
+      recovered: 0,
+    }));
+    const srv = await startServer(
+      createAdminHandler({ scheduler: { getHealth } }),
+    );
+    try {
+      const health = await fetch(`http://127.0.0.1:${srv.port}/health`);
+      expect(health.status).toBe(200);
+      expect(await health.text()).toBe("ok");
+
+      const detail = await fetch(
+        `http://127.0.0.1:${srv.port}/health/scheduler`,
+      );
+      expect(detail.status).toBe(200);
+      expect(await detail.json()).toMatchObject({
+        status: "ok",
+        lastSuccessAt: "2026-08-26T07:00:13.000Z",
+        materialized: 1,
+        dispatched: 1,
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("GET /health fails when the scheduler stops making progress", async () => {
+    const getHealth = vi.fn(() => ({
+      status: "degraded" as const,
+      running: false,
+      stale: true,
+      startedAt: "2026-08-26T07:00:00.000Z",
+      lastAttemptAt: "2026-08-26T07:00:13.000Z",
+      lastSuccessAt: "2026-08-26T07:00:13.000Z",
+      lastErrorAt: null,
+      lastError: null,
+      consecutiveFailures: 0,
+      materialized: 0,
+      dispatched: 0,
+      recovered: 0,
+    }));
+    const srv = await startServer(
+      createAdminHandler({ scheduler: { getHealth } }),
+    );
+    try {
+      const health = await fetch(`http://127.0.0.1:${srv.port}/health`);
+      expect(health.status).toBe(503);
+      expect(await health.text()).toBe("degraded");
+
+      const detail = await fetch(
+        `http://127.0.0.1:${srv.port}/health/scheduler`,
+      );
+      expect(detail.status).toBe(503);
+      expect(await detail.json()).toMatchObject({
+        status: "degraded",
+        stale: true,
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
   it("GET /health/security exposes degraded audit logging health", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     reportAuditLoggingFailure(
