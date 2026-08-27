@@ -154,6 +154,9 @@ export async function buildGraphjinConfigUpdate(
       return value;
     };
     if (kind === "database") {
+      // Customer databases are read-only by contract. GraphJin pins this flag
+      // at startup, so a later config patch cannot lift it.
+      source.read_only = true;
       source.type = String(payload.type ?? "postgres");
       copyString("host");
       if (payload.port) source.port = Number(payload.port);

@@ -40,6 +40,9 @@ describe("GraphJin config change compiler", () => {
     expect(result.secretName).toBe("WAREHOUSE_PASSWORD");
     expect(JSON.stringify(result.update)).toContain("super-secret-value");
     expect(JSON.stringify(result)).not.toContain("secretRef");
+    const [warehouse] = (result.update as { update_sources: Array<Record<string, unknown>> })
+      .update_sources;
+    expect(warehouse?.read_only).toBe(true);
   });
 
   it("builds an API source from OpenAPI-specific fields", async () => {

@@ -80,7 +80,7 @@ describeIfLive("GraphJin MCP live contract", () => {
     expect(result.content.length).toBeGreaterThan(0);
   });
 
-  it("GraphJin itself refuses a mutation while allow_mutations is false", async () => {
+  it("GraphJin refuses a mutation through execute_graphql", async () => {
     const result = await callGraphjinMcpTool(
       {
         baseUrl: MCP_URL,
@@ -89,10 +89,17 @@ describeIfLive("GraphJin MCP live contract", () => {
       },
       {
         name: "execute_graphql",
-        arguments: { query: "mutation { orders(insert: { id: 1 }) { id } }" },
+        arguments: { query: 'mutation { orders(insert: { note: "x" }) { id } }' },
       },
     );
-    expect(result.isError).toBe(true);
-    expect(JSON.stringify(result.content)).toContain("mutations are not allowed");
+    // A read_only database source answers with a GraphQL error payload; a
+    // config with allow_mutations off answers with an MCP tool error.
+    const first = result.content[0];
+    const text =
+      first?.type === "text" ? first.text : JSON.stringify(result.content);
+    expect(text).toMatch(/blocked|not allowed|read-only/i);
+    if (result.isError !== true) {
+      expect((JSON.parse(text) as { data: unknown }).data).toBeNull();
+    }
   });
 });

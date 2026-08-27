@@ -28,13 +28,20 @@ prefixes; descriptions, annotations, and input/output schemas survive intact.
 
 Database sources stay read-only by contract. GraphJin enforces `read_only: true`
 per database source in core and pins that flag at startup, so a later config
-patch cannot lift it. The trusted host adds a second gate in
-`callGraphjinTool`: it forwards a GraphQL mutation through `execute_graphql`
-only when the org's config at `OPENNEKO_GRAPHJIN_CONFIG` proves every database
-source is `read_only: true`. API sources can then take governed writes while a
-missing, unreadable, or mis-edited config fails closed. Define the `member` and
-`service` roles in the GraphJin config before you enable `mcp.allow_mutations`;
-GraphJin gives an undefined role an empty policy with no blocks.
+patch cannot lift it. Every database source OpenNeko registers through chat
+carries that flag. The trusted host adds a second gate in `callGraphjinTool`:
+it forwards a GraphQL mutation through `execute_graphql` only when the org's
+config at `OPENNEKO_GRAPHJIN_CONFIG` proves every database source is
+`read_only: true`. A missing, unreadable, or mis-edited config fails closed.
+
+API sources can take governed writes. The shipped config sets
+`mcp.allow_mutations: true` and `system.capabilities.raw_graphql.mutate: true`
+(in sources mode the capability overwrites the MCP flag at startup) and lists
+the `member` and `service` roles the worker mints. GraphJin generates a
+source's `access.write` block only for listed roles; an unlisted JWT role gets
+no block. A write against an API source still needs, per source, `read_only`
+unset, `capabilities.api.write: true`, `access.write` set to `authenticated` or
+`admin`, and `expose_mutation: true` plus `allowed_roles` on the operation.
 
 ### Lazy catalogs
 
@@ -48,23 +55,30 @@ the next `tools/list` retries it.
 
 `test/integration/graphjin-mcp-live.test.ts` and `agentic-knowledge-live.test.ts`
 skip unless a sources-mode GraphJin answers at `OPENNEKO_TEST_GJ_SOURCES_URL`
-(default `http://127.0.0.1:8090`). To run one:
+(default `http://127.0.0.1:8090`). This rig loads the shipped customer config
+with one `read_only` Postgres source, so the mutation case exercises the real
+database block:
 
 ```sh
 export XDG_CONFIG_HOME=/tmp/neko-live-xdg   # fresh install key for the tests
 SECRET=$(apps/worker/node_modules/.bin/tsx -e 'import("./packages/llm/src/graphjin/token.ts").then(m => process.stdout.write(m.graphjinSigningSecretB64("org-gj4-live")))')
+docker network create neko-live
+docker run -d --name neko-live-pg --network neko-live -e POSTGRES_PASSWORD=pg -e POSTGRES_DB=app postgres:16-alpine
+sleep 5 && docker exec neko-live-pg psql -U postgres -d app -c "create table orders(id serial primary key, note text); insert into orders(note) values ('seed');"
 mkdir -p /tmp/neko-live-gj
 sed -e "s|REPLACE_WITH_PER_ORG_SECRET_B64|$SECRET|" \
     -e "s|REPLACE_WITH_BASE64_32_BYTE_KEY|$(openssl rand -base64 32)|" \
+    -e 's|^sources: \[\]|sources:\n  - name: app\n    kind: database\n    type: postgres\n    host: neko-live-pg\n    port: 5432\n    dbname: app\n    user: postgres\n    password: pg\n    read_only: true\n    access:\n      read: authenticated|' \
     db/graphjin/customer.sources.example.yml > /tmp/neko-live-gj/agentic.yml
-docker run -d --name neko-gj-live -p 127.0.0.1:8090:8080 -e GO_ENV=agentic \
+docker run -d --name neko-gj-live --network neko-live -p 127.0.0.1:8090:8080 -e GO_ENV=agentic \
   -v /tmp/neko-live-gj:/config dosco/graphjin:3.20.47 serve --path /config
 pnpm --filter @neko/llm exec vitest run test/integration/graphjin-mcp-live.test.ts
-docker rm -f neko-gj-live
+docker rm -f neko-gj-live neko-live-pg && docker network rm neko-live
 ```
 
-The shipped config has `sources: []`, so `query_catalog` is absent from that
-rig's tool list; it appears once a source is configured.
+A database source needs `access.read: authenticated` for the worker's roles to
+read it; OpenNeko sets that on every source it registers. `query_catalog` is
+absent from the tool list until a source is configured.
 
 ## A2UI rendering
 

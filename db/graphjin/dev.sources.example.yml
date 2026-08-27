@@ -91,7 +91,10 @@ mcp:
   # Without this, enabling the server agent collapses MCP to only
   # ask_graphjin_agent and breaks existing query/discovery paths.
   include_tools_with_agent: true
-  allow_mutations: false
+  # Mutations pass the MCP layer so API sources can take governed writes.
+  # Every database source stays read_only: true; GraphJin core blocks its
+  # mutations and pins the flag at startup.
+  allow_mutations: true
   allow_raw_queries: true
   workflow_timeout: 300
   allow_dev_tools: false
@@ -131,6 +134,10 @@ tasks:
 roles:
   - name: user
     comment: Authenticated user
+  - name: member
+    comment: OpenNeko organization member (JWT role minted by the worker)
+  - name: service
+    comment: OpenNeko worker service identity (JWT role minted by the worker)
   - name: admin
     comment: Org admin
 
@@ -161,7 +168,7 @@ system:
     config.write: true
     runtime.read: true
     raw_graphql.query: true
-    raw_graphql.mutate: false
+    raw_graphql.mutate: true
     schema.reload: false
     schema.write: false
     dev_tools.read: false
