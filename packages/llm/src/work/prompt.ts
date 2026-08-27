@@ -48,7 +48,7 @@ function buildRecordsAccessSection(
     : "No record context was supplied.";
   return `<records_access>
 This is a generated-app Records turn. Use the records skill and the native
-\`mcp__neko_records__*\` tools for every app catalog, object, field, record,
+\`mcp_neko_records_*\` tools for every app catalog, object, field, record,
 reference, and aggregate read. Do not use the customer-data GraphJin CLI,
 customer data-source tools, raw HTTP, or inferred SQL for this request.
 
@@ -119,9 +119,9 @@ function buildPluginManagementSection(
   if (supportsTool) {
     return `<plugin_management>
 When the operator needs a capability OpenNeko does not have, use
-\`mcp__neko_plugin_manager__list_plugins\` to inspect installed integrations
+\`mcp_neko_plugin_manager_list_plugins\` to inspect installed integrations
 and the official marketplace. If an exact marketplace plugin fits, use
-\`mcp__neko_plugin_manager__request_plugin_install\`. Installation is never
+\`mcp_neko_plugin_manager_request_plugin_install\`. Installation is never
 silent: it creates an approval request the web channel renders inline.
 After a network policy denial, file that request in the same answer when an
 exact plugin fits; the approval card is the operator's yes/no question.
@@ -191,16 +191,16 @@ up last week?"; "change the threshold on the revenue dip workflow to
 15%").
 
 Tools:
-- \`mcp__neko_workflow_builder__list_workflows\` — list all workflows in
+- \`mcp_neko_workflow_builder_list_workflows\` — list all workflows in
   the org with full bodies (steps, cron, data trigger, description). Use
   this BEFORE updating an existing workflow so you have its current shape,
   and when the operator asks "what do we have?" or "find the workflow
   that…".
-- \`mcp__neko_workflow_builder__create_workflow\` — create or update
+- \`mcp_neko_workflow_builder_create_workflow\` — create or update
   (upsert by name). Takes \`name\`, \`description\`, \`goal\`,
   \`systemPromptOverlay\`, ordered \`steps\` (plain-English actions), and
   optional \`triggers\`.
-- \`mcp__neko_workflow_builder__delete_workflow\` — permanently delete a
+- \`mcp_neko_workflow_builder_delete_workflow\` — permanently delete a
   workflow by id (cascades to its triggers, run history, and proposed
   actions — no undo). Use it when the operator asks to remove or stop a
   workflow for good ("delete the low-stock alert", "get rid of that
@@ -314,10 +314,10 @@ sending external email"; "what was that rule we set last week about
 slack alerts?").
 
 Tools:
-- \`mcp__neko_rule_builder__list_rules\` — list all rules with full
+- \`mcp_neko_rule_builder_list_rules\` — list all rules with full
   config. Use BEFORE updating, and when the operator asks what's in
   place.
-- \`mcp__neko_rule_builder__save_rule\` — create or update (upsert
+- \`mcp_neko_rule_builder_save_rule\` — create or update (upsert
   by name). Required: \`name\`, \`applies_to_kinds\` (action kinds like
   \`send_message\`, \`send_webhook\`; use \`[]\` for "any"),
   \`applies_to_scopes\` (usually \`["external"]\`), \`mode\` (one of
@@ -392,17 +392,17 @@ from step 2. Success for an edit is a response containing the proposal result
 from step 4. When a tool returns an error, present the error and name the step
 requiring attention.
 
-- \`mcp__neko_source_config_manager__describe_source_graph\` — read the live
+- \`mcp_neko_source_config_manager_describe_source_graph\` — read the live
   GraphJin source graph and identify the selected data engine.
-- \`mcp__neko_source_config_manager__ask_graphjin_config_agent\` — ask the
+- \`mcp_neko_source_config_manager_ask_graphjin_config_agent\` — ask the
   selected GraphJin to explain its redacted configuration and plan a change.
-- \`mcp__neko_source_config_manager__list_source_secret_names\` — list only
+- \`mcp_neko_source_config_manager_list_source_secret_names\` — list only
   stored connection secret names for use as \`secretRef\` values.
-- \`mcp__neko_source_config_manager__import_openapi_spec\` — import and validate
+- \`mcp_neko_source_config_manager_import_openapi_spec\` — import and validate
   an OpenAPI document from an admin-provided hosted HTTPS URL.
-- \`mcp__neko_source_config_manager__list_openapi_specs\` — list managed
+- \`mcp_neko_source_config_manager_list_openapi_specs\` — list managed
   OpenAPI asset metadata and IDs available to the current organization.
-- \`mcp__neko_source_config_manager__request_source_config_change\` — file an
+- \`mcp_neko_source_config_manager_request_source_config_change\` — file an
   \`source_config_admin\` proposal for admin review.
 
 For a new source, collect the shared name and kind plus its relevant fields:
@@ -436,7 +436,7 @@ function buildSkillsSection(
     ? ""
     : supportsSkillTool
       ? `When the user asks you to create or update a skill, use
-\`mcp__neko_skills__create_skill\`.`
+\`mcp_neko_skills_create_skill\`.`
       : `When the user asks you to create or update a skill, write its
 agentskills.io-style files to
 \`${workspace.skillsRoot}/<skill-name>/SKILL.md\` using your shell tool.`;

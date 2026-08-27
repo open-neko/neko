@@ -7,7 +7,7 @@ description: Model or interpret a generated customer-support app, especially for
 # Support Desk
 
 Apply support-domain knowledge through the generic records engine. Use
-`mcp__neko_records__browse_blueprints` with `blueprint: "support"` to load the
+`mcp_neko_records_browse_blueprints` with `blueprint: "support"` to load the
 canonical starting payload. Before proposing or changing the app, read
 `../app-builder/SKILL.md` completely and follow it to adapt the loaded payload.
 Before reading or writing support rows, read `../records/SKILL.md` completely.

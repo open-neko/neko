@@ -37,6 +37,7 @@ import {
   callGraphjinMcpTool as callRemoteGraphjinMcpTool,
   listGraphjinMcpTools as listRemoteGraphjinMcpTools,
 } from "../graphjin/mcp-client";
+import { assertGraphjinMutationAllowed } from "../graphjin/sources-config";
 import type {
   CallToolResult,
   Tool,
@@ -977,6 +978,12 @@ export class InProcessControlPlane implements AgentControlPlane {
     name: string;
     arguments?: Record<string, unknown>;
   }): Promise<CallToolResult> {
+    if (input.name === "execute_graphql") {
+      await assertGraphjinMutationAllowed(
+        String(input.arguments?.query ?? ""),
+        process.env.OPENNEKO_GRAPHJIN_CONFIG,
+      );
+    }
     const access = await graphjinMcpAccess(input);
     return callRemoteGraphjinMcpTool(
       {

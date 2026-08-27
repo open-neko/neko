@@ -90,7 +90,7 @@ describe("buildWorkPrompt records data surface", () => {
       supportsSourceConfigTool: true,
     });
     expect(prompt).toContain("<records_access>");
-    expect(prompt).toContain("mcp__neko_records__*");
+    expect(prompt).toContain("mcp_neko_records_*");
     expect(prompt).toContain('"appId":"crm"');
     expect(prompt).toContain('"objectApiName":"activity"');
     expect(prompt).toContain("default subject and conversational home");
@@ -223,8 +223,8 @@ describe("tool-result grounding", () => {
 describe("buildWorkPrompt workflow + policy management", () => {
   it("advertises workflow tools when supportsWorkflowTool is true", () => {
     const prompt = build("hermes", { supportsWorkflowTool: true });
-    expect(prompt).toContain("mcp__neko_workflow_builder__list_workflows");
-    expect(prompt).toContain("mcp__neko_workflow_builder__create_workflow");
+    expect(prompt).toContain("mcp_neko_workflow_builder_list_workflows");
+    expect(prompt).toContain("mcp_neko_workflow_builder_create_workflow");
     // Operators are not developers — should warn against showing cron syntax.
     expect(prompt).toMatch(/never show them cron syntax/i);
   });
@@ -232,7 +232,7 @@ describe("buildWorkPrompt workflow + policy management", () => {
   it("falls back to the workflow save fence when MCP tools unavailable", () => {
     const prompt = build("hermes", { supportsWorkflowTool: false });
     expect(prompt).toContain("neko_workflow_save");
-    expect(prompt).not.toContain("mcp__neko_workflow_builder__");
+    expect(prompt).not.toContain("mcp_neko_workflow_builder_");
   });
 
   it("teaches the data-change trigger in both workflow tool modes", () => {
@@ -250,21 +250,21 @@ describe("buildWorkPrompt workflow + policy management", () => {
 
   it("advertises rule tools when supportsPolicyTool is true", () => {
     const prompt = build("hermes", { supportsPolicyTool: true });
-    expect(prompt).toContain("mcp__neko_rule_builder__list_rules");
-    expect(prompt).toContain("mcp__neko_rule_builder__save_rule");
+    expect(prompt).toContain("mcp_neko_rule_builder_list_rules");
+    expect(prompt).toContain("mcp_neko_rule_builder_save_rule");
   });
 
   it("falls back to the rule save fence when MCP tools unavailable", () => {
     const prompt = build("hermes", { supportsPolicyTool: false });
     expect(prompt).toContain("neko_rule_save");
-    expect(prompt).not.toContain("mcp__neko_rule_builder__");
+    expect(prompt).not.toContain("mcp_neko_rule_builder_");
   });
 
   it("advertises GraphJin source-config tools only when enabled", () => {
     const enabled = build("hermes", { supportsSourceConfigTool: true });
     expect(enabled).toContain("graphjin-config");
     expect(enabled).toContain(`${workspace.skillsRoot}/graphjin-config/SKILL.md`);
-    expect(enabled).toContain("mcp__neko_source_config_manager__describe_source_graph");
+    expect(enabled).toContain("mcp_neko_source_config_manager_describe_source_graph");
     expect(enabled).toContain("Call `ask_graphjin_config_agent`");
     expect(enabled).toContain("Success for a view or explanation");
     expect(enabled).toContain("source_config_admin");
@@ -277,7 +277,7 @@ describe("buildWorkPrompt workflow + policy management", () => {
     expect(enabled).not.toContain("outside the sandbox");
 
     const disabled = build("hermes", { supportsSourceConfigTool: false });
-    expect(disabled).not.toContain("mcp__neko_source_config_manager__");
+    expect(disabled).not.toContain("mcp_neko_source_config_manager_");
   });
 
   it("frames /work as the single chat surface for everything", () => {
@@ -292,9 +292,9 @@ describe("buildWorkPrompt capability recovery", () => {
       supportsPluginManagerTool: true,
     });
 
-    expect(prompt).toContain("mcp__neko_plugin_manager__list_plugins");
+    expect(prompt).toContain("mcp_neko_plugin_manager_list_plugins");
     expect(prompt).toContain(
-      "mcp__neko_plugin_manager__request_plugin_install",
+      "mcp_neko_plugin_manager_request_plugin_install",
     );
     expect(prompt).toMatch(/approval request.*inline/i);
     expect(prompt).toMatch(/same answer/i);

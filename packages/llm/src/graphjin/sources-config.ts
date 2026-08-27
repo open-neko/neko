@@ -16,6 +16,74 @@ export const SOURCES_JWT_SECRET_RE =
   /(^auth:\s*\n\s+type:\s*jwt\s*\n\s+jwt:\s*\n(?:\s+#.*\n)*\s+secret:\s*")([^"]*)(")/m;
 export const LEGACY_PACKAGED_DEMO_GRAPHJIN_CONFIG = "/graphjin-config/agentic.yml";
 
+const NON_DATABASE_SOURCE_KINDS = new Set(["api", "file", "graphjin"]);
+const GRAPHQL_MUTATION_RE = /\bmutation\b/i;
+
+/**
+ * Sources-mode GraphJin blocks mutations against a `read_only: true` database
+ * in core and pins that flag at startup, so a later config patch cannot lift
+ * it. Every source of an unknown kind counts as a database.
+ */
+export function assertDatabaseSourcesReadOnly(raw: string): void {
+  const document = parseDocument(raw);
+  if (document.errors.length > 0 || !isMap(document.contents)) {
+    throw new Error("GraphJin config is not valid YAML");
+  }
+  const sources = document.get("sources", true);
+  if (sources == null) return;
+  if (!isSeq(sources)) {
+    throw new Error("GraphJin config sources must be a YAML list");
+  }
+  for (const item of sources.items) {
+    if (!isMap(item)) {
+      throw new Error("GraphJin config source entries must be YAML objects");
+    }
+    const kind = item.get("kind");
+    if (typeof kind === "string" && NON_DATABASE_SOURCE_KINDS.has(kind)) {
+      continue;
+    }
+    if (item.get("read_only") !== true) {
+      const name = String(item.get("name") ?? "<unnamed>");
+      throw new Error(`GraphJin database source "${name}" is not read_only`);
+    }
+  }
+}
+
+/**
+ * The trusted host forwards a GraphQL mutation to GraphJin only when the
+ * org's config proves every database source is read-only. API sources can
+ * then accept governed writes while the customer database never can. A
+ * missing or unreadable config fails closed.
+ */
+export async function assertGraphjinMutationAllowed(
+  query: string,
+  configPath: string | undefined,
+): Promise<void> {
+  if (!GRAPHQL_MUTATION_RE.test(query)) return;
+  const cfgPath = configPath?.trim();
+  if (!cfgPath) {
+    throw new Error(
+      "GraphJin mutation blocked: OPENNEKO_GRAPHJIN_CONFIG is not set, so the host cannot confirm database sources are read-only",
+    );
+  }
+  let raw: string;
+  try {
+    const { readFile } = await import("node:fs/promises");
+    raw = await readFile(cfgPath, "utf8");
+  } catch (e) {
+    throw new Error(
+      `GraphJin mutation blocked: cannot read ${cfgPath}: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  try {
+    assertDatabaseSourcesReadOnly(raw);
+  } catch (e) {
+    throw new Error(
+      `GraphJin mutation blocked: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+}
+
 const AGENTIC_SYSTEM_CAPABILITIES = {
   "catalog.read": true,
   "security.read": true,

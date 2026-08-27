@@ -37,11 +37,11 @@ export const GRAPHJIN_AGGREGATE_RULE = `- Make the database do the math. When th
 export type MemorySaveMode = "tool" | "fence" | "none";
 
 export type MemorySectionOptions = {
-  /** True when the agent has the `mcp__neko_memory__search` MCP tool. */
+  /** True when the agent has the `mcp_neko_memory_search` MCP tool. */
   searchTool: boolean;
   /**
    * How the agent can persist new memories:
-   * - "tool": call `mcp__neko_memory__save`
+   * - "tool": call `mcp_neko_memory_save`
    * - "fence": emit a ```neko_memory fenced block (parsed post-run)
    * - "none": agent does not write memories (operator does it explicitly)
    */
@@ -69,19 +69,19 @@ silently ignore a relevant memory.`;
 
   if (searchTool) {
     usageBlocks.push(`To find related memories beyond the ones loaded above: call
-\`mcp__neko_memory__search\` with a short natural-language query. Do
+\`mcp_neko_memory_search\` with a short natural-language query. Do
 this whenever the user's request mentions a domain, metric, or rule
 that isn't already covered by the preloaded list.`);
     usageBlocks.push(`The document library holds knowledge distilled from uploaded
 business documents (policies, contracts, SOPs). When the operator asks
 about company documents, agreements, or written policy, call
-\`mcp__neko_library__search\` with a short query before answering from
+\`mcp_neko_library_search\` with a short query before answering from
 general knowledge. Each result cites its source upload — mention the
 source when you rely on one.`);
   }
 
   if (saveMode === "tool") {
-    usageBlocks.push(`To save a new memory: call \`mcp__neko_memory__save\` with the
+    usageBlocks.push(`To save a new memory: call \`mcp_neko_memory_save\` with the
 exact rule the operator stated. Use \`global\` scope unless they say
 it's only for this thread.`);
   } else if (saveMode === "fence") {
@@ -253,7 +253,8 @@ native tool names and schemas. The source URL and short-lived
 ${queryIdentity === "actor" ? "actor credential" : "service credential"} never enter your sandbox.
 
 For a goal-driven request, start with \`${catalogTool}\` using the user's natural
-language instruction:
+language instruction. When the tool list has no \`${catalogTool}\`, start with
+\`${helpTool}\` and \`for\` set to \`discovery\` instead:
 
   { "search": "<the user's business question>" }
 
@@ -278,8 +279,10 @@ ${
   readOnly
     ? `This run is read-only. Never submit a mutation, configuration change, or
 other state-changing operation even if the caller-visible server advertises it.`
-    : `Use state-changing tools only when the operator's request and the
-caller-visible GraphJin capability explicitly authorize the operation.`
+    : `Database sources are read-only; the host rejects any mutation against
+them. Use state-changing tools against API sources only when the operator's
+request and the caller-visible GraphJin capability explicitly authorize the
+operation.`
 }
 
 ${

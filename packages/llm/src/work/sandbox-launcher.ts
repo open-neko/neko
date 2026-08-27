@@ -295,7 +295,7 @@ export async function stageSandboxWorkspace(
     copyDirectoryIfPresent(workspace.runRoot, stagedWorkspace.runRoot),
     // Team library OKF bundle (approved concepts only — the materializer
     // never writes personal-layer rows there, so staging it leaks nothing;
-    // personal concepts reach the agent via mcp__neko_library__search,
+    // personal concepts reach the agent via mcp_neko_library_search,
     // scoped server-side to the run's owner).
     copyDirectoryIfPresent(
       path.join(workspace.orgRoot, "library", "okf"),

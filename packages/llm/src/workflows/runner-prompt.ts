@@ -44,7 +44,7 @@ sparingly, for genuinely ambiguous choices or irreversible decisions.
 
 const MCP_OUTPUTS_BLOCK = `<outputs>
 Most workflow value is non-mutating. Emit outputs liberally via
-\`mcp__neko_workflow_output__emit\` — reports, findings, observations,
+\`mcp_neko_workflow_output_emit\` — reports, findings, observations,
 recommendations, briefing card proposals. Tag each with \`scope\` and
 \`mood\` (\`good\`, \`watch\`, or \`act\`) so other workflows and humans
 can find them.
@@ -116,7 +116,7 @@ function buildMcpActionsBlock(
 ): string {
   return `<actions>
 Workflows decide; actions mutate. When a step needs to change real-world
-or internal state, propose it through \`mcp__neko_action__request\` and
+or internal state, propose it through \`mcp_neko_action_request\` and
 let policy decide whether it auto-executes, queues for operator
 approval, or is denied.
 ${installedKindsBlock(pluginActions)}

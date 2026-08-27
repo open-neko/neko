@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   SOURCES_SECRET_PLACEHOLDER,
+  assertDatabaseSourcesReadOnly,
+  assertGraphjinMutationAllowed,
   atomicWriteFile,
   migrateGraphjinSystemSource,
   patchGraphjinSourcesJwtSecret,
@@ -171,5 +173,61 @@ describe("host-provision re-exports", () => {
       shouldReconcileDemoSourceAuthMode,
     );
     expect(hostProvision.SOURCES_SECRET_PLACEHOLDER).toBe(SOURCES_SECRET_PLACEHOLDER);
+  });
+});
+
+describe("GraphJin mutation guard", () => {
+  const readOnlyDb = `sources:
+  - name: erp
+    kind: database
+    read_only: true
+  - name: shop
+    kind: api
+`;
+  const writableDb = `sources:
+  - name: erp
+    kind: database
+  - name: shop
+    kind: api
+`;
+
+  it("accepts a config whose database sources are all read_only", () => {
+    expect(() => assertDatabaseSourcesReadOnly(readOnlyDb)).not.toThrow();
+    expect(() => assertDatabaseSourcesReadOnly("sources: []\n")).not.toThrow();
+  });
+
+  it("rejects a writable database source and an unknown kind", () => {
+    expect(() => assertDatabaseSourcesReadOnly(writableDb)).toThrow(
+      'database source "erp" is not read_only',
+    );
+    expect(() =>
+      assertDatabaseSourcesReadOnly("sources:\n  - name: x\n    kind: mystery\n"),
+    ).toThrow('database source "x" is not read_only');
+  });
+
+  it("lets queries through and blocks mutations without a provable config", async () => {
+    await expect(
+      assertGraphjinMutationAllowed("query { orders { id } }", undefined),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertGraphjinMutationAllowed("mutation { orders(insert: {}) { id } }", undefined),
+    ).rejects.toThrow("OPENNEKO_GRAPHJIN_CONFIG is not set");
+    await expect(
+      assertGraphjinMutationAllowed("mutation { x { id } }", "/nonexistent/agentic.yml"),
+    ).rejects.toThrow("cannot read /nonexistent/agentic.yml");
+  });
+
+  it("forwards a mutation only when every database source is read_only", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "neko-gj-guard-"));
+    const good = join(dir, "good.yml");
+    const bad = join(dir, "bad.yml");
+    await writeFile(good, readOnlyDb);
+    await writeFile(bad, writableDb);
+    await expect(
+      assertGraphjinMutationAllowed("mutation { shop_order(insert: {}) { id } }", good),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertGraphjinMutationAllowed("mutation { shop_order(insert: {}) { id } }", bad),
+    ).rejects.toThrow('GraphJin mutation blocked: GraphJin database source "erp" is not read_only');
   });
 });

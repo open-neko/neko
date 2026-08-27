@@ -55,8 +55,8 @@ describe("buildWorkflowRunnerPrompt", () => {
 
   it("uses MCP tool names when mcpTools=true", () => {
     const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools: true });
-    expect(prompt).toContain("mcp__neko_workflow_output__emit");
-    expect(prompt).toContain("mcp__neko_action__request");
+    expect(prompt).toContain("mcp_neko_workflow_output_emit");
+    expect(prompt).toContain("mcp_neko_action_request");
     expect(prompt).not.toContain("```neko_workflow_output");
     expect(prompt).not.toContain("```neko_action_request");
   });
@@ -131,8 +131,8 @@ describe("buildWorkflowRunnerPrompt", () => {
   it("exposes search + save MCP tools in the long_term_memory block when mcpTools=true", () => {
     const prompt = buildWorkflowRunnerPrompt({ ...base, mcpTools: true });
     expect(prompt).toContain("<long_term_memory>");
-    expect(prompt).toContain("mcp__neko_memory__search");
-    expect(prompt).toContain("mcp__neko_memory__save");
+    expect(prompt).toContain("mcp_neko_memory_search");
+    expect(prompt).toContain("mcp_neko_memory_save");
   });
 
   it("uses native dynamic delegation guidance for Hermes workflow runs", () => {

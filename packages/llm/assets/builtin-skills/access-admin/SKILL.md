@@ -11,10 +11,10 @@ tables, role permissions, identity memberships, or GraphJin policy directly.
 
 ## Resolve exact subjects and resources
 
-1. Call `mcp__neko_user_manager__list_users` to resolve the exact `app_user.id`
+1. Call `mcp_neko_user_manager_list_users` to resolve the exact `app_user.id`
    or stable `sso_group.id`. Names and emails are display data. If multiple
    matches remain, ask the administrator to choose.
-2. Call `mcp__neko_records__browse_catalog` to resolve the exact app, object,
+2. Call `mcp_neko_records_browse_catalog` to resolve the exact app, object,
    and field API names. Its output reflects the acting administrator's data
    access; an administrator without app-data access may need the target API
    names supplied from the access-management surface.

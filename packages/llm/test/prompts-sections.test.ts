@@ -57,8 +57,8 @@ describe("buildMemorySection", () => {
       saveMode: "tool",
       memoryContext: "loaded memories here",
     });
-    expect(section).toContain("mcp__neko_memory__save");
-    expect(section).toContain("mcp__neko_memory__search");
+    expect(section).toContain("mcp_neko_memory_save");
+    expect(section).toContain("mcp_neko_memory_search");
     expect(section).not.toContain("```neko_memory");
   });
 
@@ -70,7 +70,7 @@ describe("buildMemorySection", () => {
     });
     expect(section).toContain("```neko_memory");
     expect(section).toContain('"save"');
-    expect(section).not.toContain("mcp__neko_memory__save");
+    expect(section).not.toContain("mcp_neko_memory_save");
   });
 
   it("emits search-only instruction when saveMode='none' but searchTool=true", () => {
@@ -79,8 +79,8 @@ describe("buildMemorySection", () => {
       saveMode: "none",
       memoryContext: "loaded memories here",
     });
-    expect(section).toContain("mcp__neko_memory__search");
-    expect(section).not.toContain("mcp__neko_memory__save");
+    expect(section).toContain("mcp_neko_memory_search");
+    expect(section).not.toContain("mcp_neko_memory_save");
     expect(section).not.toContain("```neko_memory");
   });
 
@@ -90,8 +90,8 @@ describe("buildMemorySection", () => {
       saveMode: "none",
       memoryContext: "loaded memories here",
     });
-    expect(section).not.toContain("mcp__neko_memory__search");
-    expect(section).not.toContain("mcp__neko_memory__save");
+    expect(section).not.toContain("mcp_neko_memory_search");
+    expect(section).not.toContain("mcp_neko_memory_save");
     expect(section).not.toContain("```neko_memory");
   });
 

@@ -260,3 +260,43 @@ describe("mcp-bridge buildBridgeServer", () => {
     }
   });
 });
+
+describe("mcp-bridge lazy tool catalogs", () => {
+  it("keeps every other tool when the GraphJin catalog is unavailable, then recovers", async () => {
+    const listGraphjinTools = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("no enabled GraphJin MCP endpoint configured"))
+      .mockResolvedValue([
+        {
+          name: "query_catalog",
+          description: "Catalog",
+          inputSchema: { type: "object" as const, properties: {} },
+        },
+      ]);
+    const controlPlane = new BrokerControlPlane("http://127.0.0.1:9", "tok");
+    (controlPlane as unknown as { listGraphjinTools: unknown }).listGraphjinTools =
+      listGraphjinTools;
+    const multiplexed = await buildMultiplexedBridgeServer(
+      ["neko_memory", "neko_graphjin", "neko_ui"],
+      { ...ctx(), controlPlane },
+    );
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await multiplexed.instance.connect(serverTransport);
+    const client = new Client({ name: "lazy-catalog-test", version: "1.0.0" });
+    await client.connect(clientTransport);
+    try {
+      const first = (await client.listTools()).tools.map((tool) => tool.name);
+      expect(first).toContain("memory_search");
+      expect(first).toContain("ui_render_cards");
+      expect(first.some((name) => name.startsWith("graphjin_"))).toBe(false);
+
+      const second = (await client.listTools()).tools.map((tool) => tool.name);
+      expect(second).toContain("graphjin_query_catalog");
+      expect(second).toContain("memory_search");
+      expect(listGraphjinTools).toHaveBeenCalledTimes(2);
+    } finally {
+      await client.close();
+      await multiplexed.instance.close();
+    }
+  });
+});

@@ -6,8 +6,8 @@ export const WORKFLOW_BUILDER_ALLOWED_TOOLS = [
   "WebFetch",
   "WebSearch",
   "AskUserQuestion",
-  "mcp__neko_workflow_builder__create_workflow",
-  "mcp__neko_workflow_builder__list_workflows",
+  "mcp_neko_workflow_builder_create_workflow",
+  "mcp_neko_workflow_builder_list_workflows",
 ] as const;
 
 export const WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS = [
@@ -23,9 +23,9 @@ export const WORKFLOW_RUNNER_DEFAULT_ALLOWED_TOOLS = [
   "Agent",
   "Skill",
   "mcp_neko_ui_render_cards",
-  "mcp__neko_memory__search",
-  "mcp__neko_memory__save",
-  "mcp__neko_library__search",
-  "mcp__neko_workflow_output__emit",
-  "mcp__neko_action__request",
+  "mcp_neko_memory_search",
+  "mcp_neko_memory_save",
+  "mcp_neko_library_search",
+  "mcp_neko_workflow_output_emit",
+  "mcp_neko_action_request",
 ] as const;

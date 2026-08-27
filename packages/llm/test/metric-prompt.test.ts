@@ -199,11 +199,11 @@ describe("buildMetricPrompt", () => {
       supportsMemorySearch: false,
       ...directDataAccess,
     });
-    expect(withSearch).not.toContain("mcp__neko_memory__save");
-    expect(withoutSearch).not.toContain("mcp__neko_memory__save");
+    expect(withSearch).not.toContain("mcp_neko_memory_save");
+    expect(withoutSearch).not.toContain("mcp_neko_memory_save");
   });
 
-  it("exposes mcp__neko_memory__search when supportsMemorySearch is true", () => {
+  it("exposes mcp_neko_memory_search when supportsMemorySearch is true", () => {
     const prompt = buildMetricPrompt({
       input: fakeInput,
       knowledge: fakeKnowledge,
@@ -212,7 +212,7 @@ describe("buildMetricPrompt", () => {
       supportsMemorySearch: true,
       ...directDataAccess,
     });
-    expect(prompt).toContain("mcp__neko_memory__search");
+    expect(prompt).toContain("mcp_neko_memory_search");
   });
 
   it("omits the search instruction when supportsMemorySearch is false", () => {
@@ -224,7 +224,7 @@ describe("buildMetricPrompt", () => {
       supportsMemorySearch: false,
       ...directDataAccess,
     });
-    expect(prompt).not.toContain("mcp__neko_memory__search");
+    expect(prompt).not.toContain("mcp_neko_memory_search");
   });
 
   it("includes the anti-fanout + date-filter rules (regression: must keep them across refactors)", () => {

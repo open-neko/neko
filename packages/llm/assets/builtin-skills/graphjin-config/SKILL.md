@@ -10,29 +10,29 @@ Use the source-config manager tools for GraphJin configuration requests.
 
 ## Workflow
 
-1. Call `mcp__neko_source_config_manager__describe_source_graph` to identify
+1. Call `mcp_neko_source_config_manager_describe_source_graph` to identify
    the selected GraphJin data engine and its current sources.
-2. Call `mcp__neko_source_config_manager__ask_graphjin_config_agent` with the
+2. Call `mcp_neko_source_config_manager_ask_graphjin_config_agent` with the
    user's configuration question or requested change.
 3. For a view or explanation, answer with the redacted configuration-agent
    result and the relevant source-graph details.
 4. For a database source registration, call
-   `mcp__neko_source_config_manager__list_source_secret_names` and use a stored
+   `mcp_neko_source_config_manager_list_source_secret_names` and use a stored
    name as `secretRef`. When the required name is absent, direct the admin to
    Admin > Settings > GraphJin Config to add it.
 5. For an API source, use the managed OpenAPI asset from the submitted card.
    When the admin provides a hosted HTTPS URL in chat, call
-   `mcp__neko_source_config_manager__import_openapi_spec`. When they uploaded a
+   `mcp_neko_source_config_manager_import_openapi_spec`. When they uploaded a
    file, read the asset ID from the submitted values. When the submitted card
    provides metadata only, call
-   `mcp__neko_source_config_manager__list_openapi_specs` to resolve its managed
+   `mcp_neko_source_config_manager_list_openapi_specs` to resolve its managed
    asset ID.
 6. For a local file source, use the `localFiles` manifest from the submitted
    card. For S3 or GCS, collect the bucket and applicable prefix, region,
    endpoint, public base URL, and presign TTL; GraphJin uses the deployment
    runtime identity for object-store credentials.
 7. For a supported edit, call
-   `mcp__neko_source_config_manager__request_source_config_change` with the
+   `mcp_neko_source_config_manager_request_source_config_change` with the
    confirmed fields.
 8. Summarize the proposed change and its approval status.
 

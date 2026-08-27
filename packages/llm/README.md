@@ -24,6 +24,48 @@ trusted host, and treats GraphJin's caller-aware tool list and capability gates
 as authoritative. The physical `neko` multiplexer changes only tool-name
 prefixes; descriptions, annotations, and input/output schemas survive intact.
 
+### Write policy
+
+Database sources stay read-only by contract. GraphJin enforces `read_only: true`
+per database source in core and pins that flag at startup, so a later config
+patch cannot lift it. The trusted host adds a second gate in
+`callGraphjinTool`: it forwards a GraphQL mutation through `execute_graphql`
+only when the org's config at `OPENNEKO_GRAPHJIN_CONFIG` proves every database
+source is `read_only: true`. API sources can then take governed writes while a
+missing, unreadable, or mis-edited config fails closed. Define the `member` and
+`service` roles in the GraphJin config before you enable `mcp.allow_mutations`;
+GraphJin gives an undefined role an empty policy with no blocks.
+
+### Lazy catalogs
+
+The sandbox bridge connects every logical server in memory at startup and
+resolves tool catalogs on Hermes' first `tools/list`. A logical server whose
+catalog fails (for example `neko_graphjin` for an org with no data source) logs
+the failure and drops out of that listing; the other servers keep working, and
+the next `tools/list` retries it.
+
+### Live rig for the integration tests
+
+`test/integration/graphjin-mcp-live.test.ts` and `agentic-knowledge-live.test.ts`
+skip unless a sources-mode GraphJin answers at `OPENNEKO_TEST_GJ_SOURCES_URL`
+(default `http://127.0.0.1:8090`). To run one:
+
+```sh
+export XDG_CONFIG_HOME=/tmp/neko-live-xdg   # fresh install key for the tests
+SECRET=$(apps/worker/node_modules/.bin/tsx -e 'import("./packages/llm/src/graphjin/token.ts").then(m => process.stdout.write(m.graphjinSigningSecretB64("org-gj4-live")))')
+mkdir -p /tmp/neko-live-gj
+sed -e "s|REPLACE_WITH_PER_ORG_SECRET_B64|$SECRET|" \
+    -e "s|REPLACE_WITH_BASE64_32_BYTE_KEY|$(openssl rand -base64 32)|" \
+    db/graphjin/customer.sources.example.yml > /tmp/neko-live-gj/agentic.yml
+docker run -d --name neko-gj-live -p 127.0.0.1:8090:8080 -e GO_ENV=agentic \
+  -v /tmp/neko-live-gj:/config dosco/graphjin:3.20.47 serve --path /config
+pnpm --filter @neko/llm exec vitest run test/integration/graphjin-mcp-live.test.ts
+docker rm -f neko-gj-live
+```
+
+The shipped config has `sources: []`, so `query_catalog` is absent from that
+rig's tool list; it appears once a source is configured.
+
 ## A2UI rendering
 
 A web turn mounts one logical server, `neko_ui`, with one tool,

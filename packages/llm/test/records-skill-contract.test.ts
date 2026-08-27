@@ -17,7 +17,7 @@ async function skill(name: string): Promise<string> {
 describe("records agent skill contracts", () => {
   it("grounds app creation in a loaded blueprint but keeps it adaptable", async () => {
     const body = await skill("app-builder");
-    expect(body).toContain("mcp__neko_records__browse_blueprints");
+    expect(body).toContain("mcp_neko_records_browse_blueprints");
     expect(body).toContain("Never invent a blueprint payload");
     expect(body).toContain("blueprints are starting priors");
     expect(body).toContain("one card");
@@ -56,7 +56,7 @@ describe("records agent skill contracts", () => {
 
   it("ships governed, exact-ID app access administration", async () => {
     const body = await skill("access-admin");
-    expect(body).toContain("mcp__neko_user_manager__list_users");
+    expect(body).toContain("mcp_neko_user_manager_list_users");
     expect(body).toContain("stable `sso_group.id`");
     for (const kind of [
       "app_access_grant",
