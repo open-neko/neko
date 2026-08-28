@@ -8,6 +8,14 @@ export {
   type RunWorkflowAgentBackendInput,
 } from "./workflows/agent-core";
 export {
+  ASK_USER_SERVER_NAME,
+  ASK_USER_TOOL_NAME,
+  ASK_USER_TOOL_TITLE,
+  buildAskUserQuestionServer,
+  clarificationSurface,
+  type AskUserQuestionArgs,
+} from "./work/interaction-server";
+export {
   buildAuditViewerServer,
   buildChannelManagerServer,
   buildDataSourceManagerServer,

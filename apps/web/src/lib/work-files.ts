@@ -1,7 +1,7 @@
 import "server-only";
 
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { ensureOrgWorkspace } from "@neko/llm/work";
 
 export const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
@@ -139,6 +139,54 @@ export async function readWorkFile(orgId: string, relativePath: string): Promise
     data: buffer,
     mimeType: MIME_BY_EXT[ext] ?? "application/octet-stream",
     filename: basename(absolute),
+  };
+}
+
+function isWithin(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/** Read a regular file physically contained by one run's artifact root. */
+export async function readRunArtifact(
+  orgId: string,
+  runId: string,
+  artifactPath: string,
+): Promise<{ data: Buffer; mimeType: string; filename: string }> {
+  if (basename(runId) !== runId || !runId) {
+    throw new Error("Invalid work run id.");
+  }
+  const normalized = artifactPath.replace(/\\/g, "/");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    normalized.split("/").some((part) => !part || part === "." || part === "..")
+  ) {
+    throw new Error("Invalid artifact path.");
+  }
+  const roots = await ensureOrgWorkspace(orgId);
+  const declaredRoot = resolve(roots.runsRoot, runId, "artifacts");
+  const declaredFile = resolve(declaredRoot, normalized);
+  if (!isWithin(declaredRoot, declaredFile)) {
+    throw new Error("Artifact path escapes the run.");
+  }
+  const [physicalRoot, physicalFile] = await Promise.all([
+    realpath(declaredRoot),
+    realpath(declaredFile),
+  ]);
+  if (!isWithin(physicalRoot, physicalFile)) {
+    throw new Error("Artifact resolves outside the run.");
+  }
+  const [buffer, meta] = await Promise.all([
+    readFile(physicalFile),
+    stat(physicalFile),
+  ]);
+  if (!meta.isFile()) throw new Error("Artifact is not a regular file.");
+  const ext = extname(physicalFile).toLowerCase();
+  return {
+    data: buffer,
+    mimeType: MIME_BY_EXT[ext] ?? "application/octet-stream",
+    filename: basename(physicalFile),
   };
 }
 

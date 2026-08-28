@@ -12,6 +12,7 @@ import {
 import { BrokerControlPlane } from "../../src/agent-sandbox/broker-client.js";
 
 const SERVERS = [
+  "neko_interaction",
   "neko_ui",
   "neko_graphjin",
   "neko_graphjin_agent",

@@ -34,6 +34,7 @@ function build(
     supportsWorkflowTool?: boolean;
     supportsPolicyTool?: boolean;
     supportsSourceConfigTool?: boolean;
+    supportsClarificationTool?: boolean;
     supportsPluginManagerTool?: boolean;
     pluginCatalog?: PluginCatalog;
     installedSkills?: Array<{ name: string; description: string }>;
@@ -59,6 +60,7 @@ function build(
     supportsWorkflowTool: overrides.supportsWorkflowTool ?? false,
     supportsPolicyTool: overrides.supportsPolicyTool ?? false,
     supportsSourceConfigTool: overrides.supportsSourceConfigTool ?? false,
+    supportsClarificationTool: overrides.supportsClarificationTool ?? false,
     supportsPluginManagerTool: overrides.supportsPluginManagerTool ?? false,
     pluginCatalog: overrides.pluginCatalog,
     installedSkills: overrides.installedSkills,
@@ -126,6 +128,26 @@ describe("buildWorkPrompt attachments guidance", () => {
     // explicitly say to read them.
     expect(prompt).not.toMatch(/Uploaded files are auxiliary/);
     expect(prompt).toMatch(/read the file/i);
+  });
+});
+
+describe("buildWorkPrompt clarification contract", () => {
+  it("tells an interactive agent to clarify material uncertainty and stop", () => {
+    const prompt = build("hermes", { supportsClarificationTool: true });
+    expect(prompt).toContain("<clarification>");
+    expect(prompt).toContain("mcp_neko_interaction_ask_user_question");
+    expect(prompt).toContain("FINAL action of the turn");
+    expect(prompt).toContain("material to correctness, scope, cost");
+    expect(prompt).toMatch(/state\s+the limitation and continue/);
+    expect(prompt).toContain("never permits invented sources");
+    expect(prompt).toContain("clarification-tool call is the end");
+  });
+
+  it("publishes only run artifacts as downloads", () => {
+    const prompt = build("hermes", { supportsClarificationTool: true });
+    expect(prompt).toContain("published as downloadable artifacts");
+    expect(prompt).toContain("download boundary rejects every file");
+    expect(prompt).toContain("uploads, skills, memory, knowledge");
   });
 });
 

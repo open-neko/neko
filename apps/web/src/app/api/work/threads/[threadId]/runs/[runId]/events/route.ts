@@ -142,7 +142,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
             current &&
             (current.status === "completed" ||
               current.status === "failed" ||
-              current.status === "cancelled")
+              current.status === "cancelled" ||
+              current.status === "needs_input")
           ) {
             const tail = await getWorkRunEventsAfter(orgId, runId, lastSentId);
             for (const { id, event } of tail) {

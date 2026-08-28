@@ -136,7 +136,10 @@ export async function runWorkRun(
   await observeSafely(runTelemetry.observer, {
     kind: "run.end",
     operationId,
-    status: result.status === "completed" ? "ok" : "error",
+    status:
+      result.status === "completed" || result.status === "needs_input"
+        ? "ok"
+        : "error",
     ...(result.error ? { errorType: "work_run_error" } : {}),
     attributes: { "openneko.outcome": result.status },
     measurements: {
@@ -155,7 +158,11 @@ export async function runWorkRun(
 
   // Channel-initiated runs have no other return path — send the reply back to
   // the sender. Web runs (no channelPlugin) stream over SSE instead.
-  if (channelPlugin && recipient && result.status === "completed") {
+  if (
+    channelPlugin &&
+    recipient &&
+    (result.status === "completed" || result.status === "needs_input")
+  ) {
     await deliverChatReply(orgId, channelPlugin, recipient, runId, result.finalText, surfaces, vitals);
   }
 }

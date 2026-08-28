@@ -112,11 +112,19 @@ describe("toInteractionEvents", () => {
     const [choice, free] = toInteractionEvents([withOptions, freeform]);
     expect(choice).toMatchObject({
       kind: "ask",
+      id: "ie-1",
+      decisionRef: "ie-1",
       ask: "choice",
       prompt: "Which region?",
       options: [{ id: "opt-0", label: "NA" }, { id: "opt-1", label: "EU" }],
     });
-    expect(free).toMatchObject({ kind: "ask", ask: "freeform", prompt: "What's the budget?" });
+    expect(free).toMatchObject({
+      kind: "ask",
+      id: "ie-2",
+      decisionRef: "ie-2",
+      ask: "freeform",
+      prompt: "What's the budget?",
+    });
   });
 
   it("maps error to an act-mood inform and drops done", () => {

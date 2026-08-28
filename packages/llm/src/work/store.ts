@@ -339,7 +339,7 @@ export async function markWorkRunRunning(runId: string) {
 
 export async function finishWorkRun(
   runId: string,
-  status: "completed" | "failed" | "cancelled",
+  status: "completed" | "failed" | "cancelled" | "needs_input",
   error: string | null,
 ) {
   const rows = await db()

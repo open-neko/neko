@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import {
   ALLOWED_UPLOAD_EXTENSIONS,
   MAX_UPLOAD_SIZE,
   joinMessageWithAttachments,
+  readRunArtifact,
   readWorkFile,
   safeFileName,
   saveWorkUpload,
@@ -144,5 +145,33 @@ describe("saveWorkUpload + readWorkFile round-trip", () => {
     expect(saved.name).not.toContain("..");
 
     await expect(readWorkFile("org-test", "secrets/foo.txt")).rejects.toThrow();
+  }, 30_000);
+});
+
+describe("readRunArtifact", () => {
+  it("reads a contained artifact and rejects traversal or symlink escapes", async () => {
+    const home = await mkdtemp(join(tmpdir(), "neko-work-artifact-"));
+    cleanupPaths.push(home);
+    process.env.HOME = home;
+    const upload = await saveWorkUpload(
+      "org-test",
+      "thread-1",
+      new File(["private"], "private.txt", { type: "text/plain" }),
+    );
+    const orgRoot = upload.absolutePath.split(`${join("uploads", "thread-1")}`)[0]!;
+    const runId = "11111111-1111-4111-8111-111111111111";
+    const artifactRoot = join(orgRoot, "runs", runId, "artifacts");
+    await mkdir(artifactRoot, { recursive: true });
+    await writeFile(join(artifactRoot, "report.csv"), "a,b\n1,2\n");
+    await symlink(upload.absolutePath, join(artifactRoot, "private-link.txt"));
+
+    const artifact = await readRunArtifact("org-test", runId, "report.csv");
+    expect(artifact.data.toString()).toContain("a,b");
+    await expect(
+      readRunArtifact("org-test", runId, "../private.txt"),
+    ).rejects.toThrow(/Invalid artifact path/);
+    await expect(
+      readRunArtifact("org-test", runId, "private-link.txt"),
+    ).rejects.toThrow(/outside the run/);
   }, 30_000);
 });

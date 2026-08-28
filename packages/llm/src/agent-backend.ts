@@ -36,6 +36,18 @@ export type AgentArtifact = {
   mimeType?: string;
 };
 
+export type AgentInputQuestion = {
+  /** Stable within one needs_input event; used to bind submitted answers. */
+  id: string;
+  /** Short UI label such as "Destination" or "Size mix". */
+  header?: string;
+  question: string;
+  options?: Array<{
+    label: string;
+    description?: string;
+  }>;
+};
+
 export type OutputMood = "good" | "watch" | "act";
 
 export type AgentVital = {
@@ -130,7 +142,18 @@ export type AgentEvent =
       /** Operator-supplied reason when the user rejected the request. */
       rejection_reason?: string;
     }
-  | { type: "needs_input"; question: string; options?: string[] }
+  | {
+      type: "needs_input";
+      /** Modality-free summary retained for older and thin channels. */
+      question: string;
+      options?: string[];
+      /** Structured questions used by rich channels. */
+      questions?: AgentInputQuestion[];
+      /** Why the run cannot safely continue without these answers. */
+      reason?: string;
+      /** Present when the tool also emitted a deterministic A2UI form. */
+      surfaceId?: string;
+    }
   // Suggested follow-up questions — channel-agnostic content emitted once at
   // the end of a /work run via a `neko_followups` fence. Any channel (the Ask
   // rail, Telegram, Slack) can surface these as "ask next" prompts.

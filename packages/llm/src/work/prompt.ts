@@ -21,6 +21,7 @@ import {
   A2UI_RENDER_ACP_TITLE,
   A2UI_RENDER_TOOL_NAME,
 } from "./a2ui-contract";
+import { ASK_USER_TOOL_TITLE } from "./interaction-server";
 
 // Re-export so external callers (and tests) that import GRAPHJIN_DATE_RULE
 // from "@neko/llm/work" don't break.
@@ -110,6 +111,39 @@ prose-only answer may skip the tool. Check the render tool result: if it rejects
 the surface, correct the envelope and retry. Never say a surface was rendered
 unless the tool accepted it.
 </rendering>`;
+}
+
+function buildClarificationSection(supportsClarificationTool: boolean): string {
+  if (!supportsClarificationTool) {
+    return `<clarification>
+When you are unsure about something material to correctness, scope, cost,
+timing, authorization, or an irreversible decision, ask the operator a focused
+clarifying question instead of guessing. First use available read tools when
+they can resolve the uncertainty. If the uncertainty is minor and a useful,
+safe answer remains possible, state the limitation and continue.
+</clarification>`;
+  }
+  return `<clarification>
+This is an interactive Work-chat turn. When you are unsure about something
+material to correctness, scope, cost, timing, authorization, or an irreversible
+decision, clarify with the operator instead of guessing.
+
+- First use available read tools when they can resolve the uncertainty.
+- If material uncertainty remains, call \`${ASK_USER_TOOL_TITLE}\` with one to
+  three focused questions. Explain briefly why the answers are needed.
+- The clarification tool is the FINAL action of the turn. After calling it,
+  stop: do not call another tool, render an answer, provide totals or a
+  recommendation, or emit value, vitals, or follow-up blocks.
+- If uncertainty is minor and a useful, safe answer remains possible, state
+  the limitation and continue instead of interrupting the operator.
+- An explicit request for an estimate permits clearly labelled scenario
+  assumptions; it never permits invented sources or assumptions presented as
+  observed facts. Ask for approval of any assumption that could materially
+  change a decision-ready commercial total, commitment, or delivery date.
+- If the missing fact must come from an external authority, ask the operator
+  for that source or permission to proceed with a labelled scenario. A user
+  answer does not turn an unsupported external claim into an observed fact.
+</clarification>`;
 }
 
 function buildPluginManagementSection(
@@ -479,7 +513,11 @@ Your cwd is ${workspace.orgRoot}. Shared directories:
 - Artifacts for this run: ${workspace.artifactRoot}
 
 Read and write within those directories when needed. Save generated
-reports or files under the run artifact directory.
+reports or files under the run artifact directory. Regular files saved there
+are published as downloadable artifacts after a successful turn. Do not offer
+downloads from uploads, skills, memory, knowledge, or any other workspace path;
+the download boundary rejects every file that was not emitted as a run
+artifact.
 
 <attachments>
 When the user attaches files, their message will end with lines like:
@@ -543,10 +581,12 @@ ${GRAPHJIN_DATE_RULE}
   one, and label every estimated figure as estimated.
 </conduct>`;
 
-// Closing contract shared by both backends: two JSON blocks the runtime parses
-// from the final output (hours-saved value + suggested follow-ups).
+// Closing contract shared by both backends: three JSON blocks parsed by the
+// runtime (hours-saved value, vitals, and suggested follow-ups).
 const CLOSING_SECTION = `<closing>
-Always end your turn with these three JSON blocks, in this order. The
+Except when you call the clarification tool, always end your turn with these
+three JSON blocks, in this order. A clarification-tool call is the end of that
+turn and emits none of these blocks. Otherwise, the
 \`neko_value\` block is MANDATORY on every answer — emit it even when the
 turn ran long; never drop it.
 
@@ -562,7 +602,9 @@ turn ran long; never drop it.
 
    Anchors: a single metric lookup 15-30 · a multi-table breakdown or
    drill-down 45-120 · a multi-step diagnostic like "why did revenue drop"
-   120-300. Use 0 for a clarifying question or a check that surfaced nothing.
+   120-300. Use 0 for a check that surfaced nothing. If the clarification tool
+   is unavailable and you must ask in prose, use 0; a clarification-tool turn
+   emits no value block at all.
    An action you propose (an email, a purchase order) carries its own
    \`minutes_saved\`.
 
@@ -703,6 +745,7 @@ export function buildWorkPrompt(args: {
   supportsWorkflowTool: boolean;
   supportsPolicyTool: boolean;
   supportsSourceConfigTool: boolean;
+  supportsClarificationTool?: boolean;
   supportsPluginManagerTool?: boolean;
   pluginCatalog?: PluginCatalog;
   // True when prior turns must be inlined into the system prompt because the
@@ -732,6 +775,7 @@ export function buildWorkPrompt(args: {
     supportsWorkflowTool,
     supportsPolicyTool,
     supportsSourceConfigTool,
+    supportsClarificationTool = false,
     supportsPluginManagerTool = false,
     pluginCatalog,
     inlineTranscript,
@@ -756,6 +800,7 @@ everything, from "what was last week's revenue?" to "set up a workflow
 that flags churn risk every Monday."
 </role>`,
     operatorProfile ?? "",
+    buildClarificationSection(supportsClarificationTool),
     dataSurface === "customer" && wantsCards
       ? buildRenderingSection(supportsCardTool)
       : "",
