@@ -78,8 +78,21 @@ const mapOne = (event: AgentEvent, gen: IdGen): InteractionEvent[] => {
         : [];
     case "action_request_result":
       return [{ kind: "resolve", id: event.action_request_id, ref: event.action_request_id, status: event.status, summary: resultSummary(event) }];
-    case "needs_input":
-      return [{ kind: "ask", id: gen(), ask: event.options?.length ? "choice" : "freeform", prompt: event.question, decisionRef: gen(), ...(event.options?.length ? { options: event.options.map((label, i) => ({ id: `opt-${i}`, label })) } : {}) }];
+    case "needs_input": {
+      const id = gen();
+      const first = event.questions?.[0];
+      const optionLabels = first?.options?.map((option) => option.label) ?? event.options;
+      return [{
+        kind: "ask",
+        id,
+        ask: optionLabels?.length ? "choice" : "freeform",
+        prompt: first?.question ?? event.question,
+        decisionRef: id,
+        ...(optionLabels?.length
+          ? { options: optionLabels.map((label, i) => ({ id: `opt-${i}`, label })) }
+          : {}),
+      }];
+    }
     case "capability_denied":
       return [{
         kind: "inform",

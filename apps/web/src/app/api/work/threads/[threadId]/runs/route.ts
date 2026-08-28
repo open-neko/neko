@@ -168,7 +168,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       await observeSafely(runTelemetry.observer, {
         kind: "run.end",
         operationId: telemetryOperationId,
-        status: result.status === "completed" ? "ok" : "error",
+        status:
+          result.status === "completed" || result.status === "needs_input"
+            ? "ok"
+            : "error",
         ...(result.error ? { errorType: "work_run_error" } : {}),
         attributes: { "openneko.outcome": result.status },
         measurements: {
@@ -197,7 +200,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
         const terminal =
           current?.status === "completed" ||
           current?.status === "failed" ||
-          current?.status === "cancelled";
+          current?.status === "cancelled" ||
+          current?.status === "needs_input";
         if (terminal) return;
 
         const errMsg = err instanceof Error ? err.message : String(err);

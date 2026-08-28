@@ -1,9 +1,18 @@
 export * from "./workspace";
+export * from "./artifacts";
 export * from "./sandbox-net";
 export * from "./behavior-monitor";
 export * from "./deployment-profile";
 export * from "./data-surface";
 export { buildWorkPrompt } from "./prompt";
+export {
+  ASK_USER_SERVER_NAME,
+  ASK_USER_TOOL_NAME,
+  ASK_USER_TOOL_TITLE,
+  buildAskUserQuestionServer,
+  clarificationSurface,
+  type AskUserQuestionArgs,
+} from "./interaction-server";
 export {
   buildAuditViewerServer,
   buildChannelManagerServer,

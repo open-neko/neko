@@ -32,6 +32,7 @@ import {
   pool,
   work_run,
   work_run_event,
+  work_message,
   work_thread,
   workflow_definition,
 } from "@neko/db";
@@ -212,6 +213,84 @@ describeIfDb("runChatTurn", () => {
       .limit(1);
     expect(final[0]?.status).toBe("completed");
     expect(final[0]?.error).toBeNull();
+  });
+
+  it("AskUserQuestion pauses Work chat, persists the question, and suppresses trailing answer content", async () => {
+    const thread = await insertWorkThread(orgId);
+    const run = await insertWorkRun({ orgId, threadId: thread.id });
+
+    mockBackendRun.mockImplementation(async (opts: {
+      onEvent: (event: AgentEvent) => Promise<void>;
+    }) => {
+      await opts.onEvent({
+        type: "needs_input",
+        question: "Where should the order be delivered?",
+        reason: "Destination changes freight and delivery timing.",
+        questions: [
+          {
+            id: "q1",
+            header: "Destination",
+            question: "Where should the order be delivered?",
+          },
+        ],
+      });
+      // A backend that ignores the tool's stop instruction must not be able to
+      // append a decision-ready answer behind the clarification.
+      await opts.onEvent({
+        type: "message",
+        role: "assistant",
+        content: "Invented delivered total: $3.2M",
+      });
+      return {
+        finalText: "Invented delivered total: $3.2M",
+        status: "completed",
+        backendState: {},
+      };
+    });
+
+    const emit = buildEmit({ orgId, threadId: thread.id, runId: run.id });
+    const result = await runChatTurn(
+      {
+        orgId,
+        threadId: thread.id,
+        runId: run.id,
+        message: "Quote 500 bikes delivered",
+        emit,
+      },
+      makeDeps(),
+    );
+
+    expect(result).toMatchObject({
+      status: "needs_input",
+      finalText: expect.stringContaining("Where should the order be delivered?"),
+    });
+    expect(result.finalText).not.toContain("$3.2M");
+    const [storedRun] = await db()
+      .select({ status: work_run.status, error: work_run.error })
+      .from(work_run)
+      .where(eq(work_run.id, run.id));
+    expect(storedRun).toEqual({ status: "needs_input", error: null });
+    const messages = await db()
+      .select({ role: work_message.role, content: work_message.content })
+      .from(work_message)
+      .where(eq(work_message.run_id, run.id));
+    expect(messages).toEqual([
+      {
+        role: "assistant",
+        content: expect.stringContaining("Destination changes freight"),
+      },
+    ]);
+    const events = await db()
+      .select({ kind: work_run_event.kind, payload: work_run_event.payload })
+      .from(work_run_event)
+      .where(eq(work_run_event.run_id, run.id))
+      .orderBy(asc(work_run_event.id));
+    expect(events.map((event) => event.kind)).toEqual([
+      "status",
+      "status",
+      "needs_input",
+      "done",
+    ]);
   });
 
   it("emits content-free model, tool, latency, and normalized usage observations", async () => {

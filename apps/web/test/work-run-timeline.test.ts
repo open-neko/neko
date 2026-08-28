@@ -96,4 +96,54 @@ describe("work run action timeline", () => {
       },
     });
   });
+
+  it("keeps a modality-free clarification fallback only when no A2UI form was emitted", () => {
+    const withoutSurface = buildRunTimeline(
+      [
+        {
+          type: "needs_input",
+          question: "Which destination?",
+          options: ["Mumbai", "London"],
+        },
+        { type: "done", result: { status: "needs_input" } },
+      ],
+      "run-1",
+    );
+    expect(withoutSurface.items).toEqual([
+      {
+        kind: "needs_input",
+        request: {
+          type: "needs_input",
+          question: "Which destination?",
+          options: ["Mumbai", "London"],
+        },
+      },
+    ]);
+
+    const withSurface = buildRunTimeline(
+      [
+        {
+          type: "surface",
+          messages: [
+            {
+              version: "v1.0",
+              createSurface: {
+                surfaceId: "clarification-run-1",
+                catalogId: "urn:openneko:catalog:work:v2",
+                components: [{ id: "root", component: "Answer", children: [] }],
+              },
+            },
+          ],
+        },
+        {
+          type: "needs_input",
+          question: "Which destination?",
+          surfaceId: "clarification-run-1",
+        },
+      ],
+      "run-1",
+    );
+    expect(withSurface.items.filter((item) => item.kind === "needs_input")).toEqual([]);
+    expect(withSurface.items.filter((item) => item.kind === "surface")).toHaveLength(1);
+  });
 });

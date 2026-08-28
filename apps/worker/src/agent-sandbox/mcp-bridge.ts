@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { AgentEvent } from "@neko/llm";
 import {
+  buildAskUserQuestionServer,
   buildAuditViewerServer,
   buildChannelManagerServer,
   buildDataSourceManagerServer,
@@ -64,6 +65,7 @@ export type BridgeServerContext = {
   workflowRunId?: string;
   triggeredByObservationId?: string | null;
   recordScope?: { appId: string; objectApiName: string };
+  wantsCards?: boolean;
 };
 
 export function buildBridgeServer(
@@ -78,6 +80,12 @@ export function buildBridgeServer(
       : () => {};
   const common = { orgId, runId, emit, controlPlane };
   switch (name) {
+    case "neko_interaction":
+      return buildAskUserQuestionServer({
+        runId,
+        wantsCards: ctx.wantsCards ?? false,
+        emit,
+      });
     case "neko_ui":
       return buildRenderCardsServer(emit);
     case "neko_graphjin":
@@ -353,6 +361,7 @@ async function main(): Promise<void> {
           objectApiName: string;
         })
       : undefined,
+    wantsCards: process.env.OPENNEKO_MCP_WANTS_CARDS === "1",
   });
   await server.instance.connect(new StdioServerTransport());
 }

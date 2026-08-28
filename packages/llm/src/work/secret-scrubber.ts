@@ -147,6 +147,11 @@ export function scrubAgentEvent<T>(scrubber: Scrubber, event: T): T {
         options: Array.isArray(e.options)
           ? e.options.map((o) => (typeof o === "string" ? scrubber(o) : o))
           : e.options,
+        questions: Array.isArray(e.questions)
+          ? scrubJson(scrubber, e.questions)
+          : e.questions,
+        reason:
+          typeof e.reason === "string" ? scrubber(e.reason) : e.reason,
       } as T;
     case "output_emit":
       // Just identifiers + kind names, no user-supplied content.

@@ -197,6 +197,19 @@ export type WorkEvent =
       error?: string;
       rejection_reason?: string;
     }
+  | {
+      type: "needs_input";
+      question: string;
+      options?: string[];
+      questions?: Array<{
+        id: string;
+        header?: string;
+        question: string;
+        options?: Array<{ label: string; description?: string }>;
+      }>;
+      reason?: string;
+      surfaceId?: string;
+    }
   | { type: "followups"; items: string[] }
   | { type: "vitals"; items: AnswerVital[] }
   | { type: "done"; result?: unknown };
@@ -1768,6 +1781,10 @@ type TimelineItem =
       kind: "capability";
       denial: Extract<WorkEvent, { type: "capability_denied" }>;
     }
+  | {
+      kind: "needs_input";
+      request: Extract<WorkEvent, { type: "needs_input" }>;
+    }
   | { kind: "error"; message: string };
 
 type RunArtifact = Extract<WorkEvent, { type: "artifact" }>["artifact"];
@@ -2235,6 +2252,16 @@ export function buildRunTimeline(events: WorkEvent[], runId: string): {
         artifacts.push(event.artifact);
         break;
       }
+      case "needs_input": {
+        // The AskUserQuestion tool normally emits a deterministic A2UI form
+        // immediately before this event. Thin/historical channels have no
+        // surface, so retain a modality-free fallback in the timeline.
+        if (!event.surfaceId) {
+          flushTextSegment();
+          items.push({ kind: "needs_input", request: event });
+        }
+        break;
+      }
       case "vitals": {
         vitals = event.items;
         break;
@@ -2497,6 +2524,15 @@ function RunTimeline({
             />
           );
         }
+        if (item.kind === "needs_input") {
+          return (
+            <NeedsInputNotice
+              key={`needs-input-${index}`}
+              request={item.request}
+              onRespond={(text) => insertComposerRef.current?.(text)}
+            />
+          );
+        }
         return (
           <div key={`error-${index}`} className="border border-warn/40 bg-warn-soft text-warn-ink rounded-2xl px-3 py-2.5 text-ui-body-sm">
             {item.message}
@@ -2525,6 +2561,67 @@ function RunTimeline({
         />
       ) : null}
     </div>
+  );
+}
+
+function NeedsInputNotice({
+  request,
+  onRespond,
+}: {
+  request: Extract<WorkEvent, { type: "needs_input" }>;
+  onRespond: (text: string) => void;
+}) {
+  const questions: NonNullable<typeof request.questions> = request.questions?.length
+    ? request.questions
+    : [{
+        id: "q1",
+        header: undefined,
+        question: request.question,
+        options: request.options?.map((label) => ({ label })),
+      }];
+  return (
+    <section className="work-surface-frame" aria-label="Clarification needed">
+      <div className="work-surface">
+        <div className="work-surface-eyebrow">
+          <span className="work-surface-eyebrow-rule" aria-hidden="true" />
+          Clarification
+        </div>
+        <div className="work-surface-title">A detail before I continue</div>
+        {request.reason ? <div className="work-surface-sub">{request.reason}</div> : null}
+        <div className="work-a2ui-layout is-column">
+          {questions.map((question) => (
+            <div key={question.id} className="work-a2ui-field">
+              <span className="work-a2ui-label">
+                {question.header ? `${question.header}: ` : ""}{question.question}
+              </span>
+              {question.options?.length ? (
+                <div className="work-a2ui-chips">
+                  {question.options.map((option) => (
+                    <button
+                      key={option.label}
+                      type="button"
+                      className="work-choice-btn"
+                      onClick={() => onRespond(`${question.question}\n\n${option.label}`)}
+                    >
+                      <span>{option.label}</span>
+                      <span aria-hidden="true">→</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="work-a2ui-button"
+                  onClick={() => onRespond(`${question.question}\n\n`)}
+                >
+                  Answer in composer
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -2628,6 +2725,7 @@ function AnswerRunFooter({
               key={artifact.path}
               href={artifactHref(artifact.path)}
               title={artifact.path}
+              download={artifact.label}
             >
               <span>Artifact</span>
               <strong>{artifact.label}</strong>

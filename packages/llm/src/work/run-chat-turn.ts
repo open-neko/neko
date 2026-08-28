@@ -40,6 +40,7 @@ import {
 } from "./personas";
 import { buildWorkPrompt } from "./prompt";
 import { compactIfNeeded, type ThreadCompaction } from "./compact-transcript";
+import { discoverRunArtifacts } from "./artifacts";
 import {
   finishWorkRun,
   getWorkThreadBundle,
@@ -117,10 +118,35 @@ export type RunChatTurnDeps = {
 };
 
 export type RunChatTurnResult = {
-  status: "completed" | "failed" | "cancelled";
+  status: "completed" | "failed" | "cancelled" | "needs_input";
   finalText: string;
   error?: string;
 };
+
+function needsInputText(
+  event: Extract<AgentEvent, { type: "needs_input" }>,
+): string {
+  const questions = event.questions?.length
+    ? event.questions
+    : [
+        {
+          id: "q1",
+          question: event.question,
+          options: event.options?.map((label) => ({ label })),
+        },
+      ];
+  const lines = [
+    ...(event.reason ? [event.reason, ""] : []),
+    ...questions.flatMap((question, index) => [
+      `${questions.length > 1 ? `${index + 1}. ` : ""}${question.question}`,
+      ...(question.options?.length
+        ? question.options.map((option) => `- ${option.label}`)
+        : []),
+      ...(index < questions.length - 1 ? [""] : []),
+    ]),
+  ];
+  return lines.join("\n").trim();
+}
 
 function backendLabel(id: string): string {
   void id;
@@ -237,6 +263,11 @@ export async function runChatTurn(
     : await readKnowledgePack(knowledgePackPaths(workspace.knowledgeRoot));
 
   let assistantText = "";
+  let needsInputEvent: Extract<
+    AgentEvent,
+    { type: "needs_input" }
+  > | null = null;
+  let needsInputFinished = false;
   const operationId = `work:${runId}`;
   const stageOperationId = `${operationId}:agent`;
   const modelOperationId = `${operationId}:model:1`;
@@ -257,8 +288,23 @@ export async function runChatTurn(
   const toolRecorder = createToolOutputRecorder();
   const emittedCapabilityDenials = new Set<string>();
   const wrappedEmit = async (event: AgentEvent): Promise<void> => {
+    if (
+      needsInputEvent &&
+      (event.type === "message" ||
+        event.type === "surface" ||
+        event.type === "vitals" ||
+        event.type === "followups" ||
+        event.type === "needs_input")
+    ) {
+      // The clarification is now the canonical output. A model that ignores
+      // the tool's stop instruction cannot append an answer behind the form.
+      return;
+    }
     if (event.type === "message" && event.role === "assistant") {
       assistantText += event.content;
+    }
+    if (event.type === "needs_input" && !needsInputEvent) {
+      needsInputEvent = event;
     }
     toolRecorder.observe(event);
     if (
@@ -390,6 +436,27 @@ export async function runChatTurn(
     }
   };
 
+  const finishNeedsInput = async (): Promise<RunChatTurnResult> => {
+    if (!needsInputEvent) {
+      throw new Error(
+        "Cannot finish needs_input without a clarification event",
+      );
+    }
+    const finalText = needsInputText(needsInputEvent);
+    if (!needsInputFinished) {
+      needsInputFinished = true;
+      await saveAssistantWorkMessage({
+        orgId,
+        threadId,
+        runId,
+        content: finalText,
+      });
+      await finishWorkRun(runId, "needs_input", null);
+      await emit({ type: "done", result: { status: "needs_input" } });
+    }
+    return { status: "needs_input", finalText };
+  };
+
   // K1 actor drives the brokered GraphJin identity, persona (CV3), and
   // memory layer (CV2). GraphJin credentials never enter the agent sandbox.
   const actor = await getWorkRunActor(runId);
@@ -411,9 +478,10 @@ export async function runChatTurn(
     // vocabulary in their prompt. See docs/PER_CHANNEL_RENDERING.md.
     const RENDERING_CHANNELS = new Set(["web", "telegram"]);
     const customerSurface = dataSurface === "customer";
-    const wantsCards =
-      customerSurface && RENDERING_CHANNELS.has(opts.channel ?? "web");
+    const channelWantsCards = RENDERING_CHANNELS.has(opts.channel ?? "web");
+    const wantsCards = customerSurface && channelWantsCards;
     const supportsCardTool = customerSurface && backend.capabilities.mcpTools;
+    const supportsClarificationTool = backend.capabilities.mcpTools;
     const supportsSkillTool = customerSurface && backend.capabilities.mcpTools;
     const supportsMemoryTool = customerSurface && backend.capabilities.mcpTools;
     const supportsWorkflowTool = customerSurface && backend.capabilities.mcpTools;
@@ -523,6 +591,7 @@ export async function runChatTurn(
       supportsWorkflowTool,
       supportsPolicyTool,
       supportsSourceConfigTool,
+      supportsClarificationTool,
       supportsPluginManagerTool,
       pluginCatalog,
       inlineTranscript,
@@ -564,7 +633,10 @@ export async function runChatTurn(
       sourceConfigEnabled: supportsSourceConfigTool,
       dataSurface,
       controlPlane: opts.controlPlane ?? inProcessControlPlane,
-      wantsCards,
+      // The clarification server can render its deterministic form in any web
+      // Work chat, including records-scoped app chat. Generated answer-card
+      // vocabulary remains gated separately in the prompt above.
+      wantsCards: channelWantsCards,
       emit: wrappedEmit,
       signal,
     });
@@ -620,6 +692,24 @@ export async function runChatTurn(
           ? { ...protectedBase, compaction: newCompaction }
           : protectedBase,
       );
+    }
+
+    // Asking is a terminal outcome for this run. The next operator message is
+    // a new run in the same thread, with the persisted question + submitted
+    // answer in its transcript. Do not parse or emit answer fences after the
+    // model has handed control back to the operator.
+    if (needsInputEvent) {
+      return await finishNeedsInput();
+    }
+
+    // OpenShell has pulled the run artifact directory back to the host before
+    // runCore resolves. Publish every regular, non-symlink file from that
+    // directory as an explicit event; the web download route authorizes only
+    // these emitted paths.
+    if (result.status === "completed") {
+      for (const artifact of await discoverRunArtifacts(workspace)) {
+        await wrappedEmit({ type: "artifact", artifact });
+      }
     }
 
     await finishWorkRun(runId, result.status, result.error ?? null);
@@ -853,6 +943,54 @@ export async function runChatTurn(
       error: result.error,
     };
   } catch (error) {
+    if (needsInputEvent) {
+      for (const [toolId, tool] of toolStarts) {
+        await observe({
+          kind: "tool.end",
+          operationId: `${operationId}:tool:${toolId}`,
+          parentOperationId: modelOperationId,
+          status: "ok",
+          attributes: { "gen_ai.tool.name": tool.name },
+          measurements: {
+            durationMs: Date.now() - tool.startedAt,
+            coverage: "unavailable",
+          },
+        });
+      }
+      toolStarts.clear();
+      if (modelOpen) {
+        await observe({
+          kind: "model.response",
+          operationId: modelOperationId,
+          parentOperationId: stageOperationId,
+          status: "ok",
+          attributes: { "openneko.outcome": "needs_input" },
+          measurements: outerUsage?.usage ?? {
+            coverage: "unavailable",
+            missingReasons: ["turn paused for operator input"],
+          },
+        });
+        modelOpen = false;
+      }
+      if (stageOpen) {
+        await observe({
+          kind: "stage.end",
+          operationId: stageOperationId,
+          parentOperationId: operationId,
+          status: "ok",
+          attributes: {
+            "openneko.stage": "agent",
+            "openneko.outcome": "needs_input",
+          },
+          measurements: {
+            durationMs: Date.now() - agentStartedAt,
+            coverage: "unavailable",
+          },
+        });
+        stageOpen = false;
+      }
+      return await finishNeedsInput();
+    }
     const aborted =
       signal?.aborted ||
       (error instanceof Error &&

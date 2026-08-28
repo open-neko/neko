@@ -7,6 +7,7 @@ import type {
 import { buildWorkflowBuilderServer } from "../workflows/builder-server";
 import { buildRuleBuilderServer } from "../workflows/rule-builder-server";
 import type { AgentControlPlane } from "./control-plane";
+import { buildAskUserQuestionServer } from "./interaction-server";
 import {
   parseAppWorkContext,
   parseRecordWorkContext,
@@ -113,6 +114,11 @@ export async function runAgentBackend(
   const mcpServers = mcp
     ? recordsOnly
       ? {
+          neko_interaction: buildAskUserQuestionServer({
+            runId,
+            wantsCards,
+            emit,
+          }),
           neko_records: buildRecordsReadServer({
             orgId,
             runId,
@@ -121,6 +127,13 @@ export async function runAgentBackend(
           }),
         }
       : {
+        // Work chat is interactive. Material ambiguity pauses the turn and
+        // returns control to the operator through a deterministic form.
+        neko_interaction: buildAskUserQuestionServer({
+          runId,
+          wantsCards,
+          emit,
+        }),
         // GraphJin's complete caller-visible MCP surface is brokered through
         // the trusted host. No binary, source URL, or credential enters the box.
         neko_graphjin: buildGraphjinMcpServer({
@@ -205,6 +218,7 @@ export async function runAgentBackend(
           OPENNEKO_MCP_THREAD_ID: threadId,
           OPENNEKO_MCP_RUN_ID: runId,
           OPENNEKO_MCP_SKILLS_ROOT: workspace.skillsRoot,
+          OPENNEKO_MCP_WANTS_CARDS: wantsCards ? "1" : "0",
           OPENNEKO_MCP_PLUGIN_ACTIONS: JSON.stringify(
             recordsOnly ? [] : (pluginActions ?? []),
           ),

@@ -1,16 +1,10 @@
 import { NextResponse } from "next/server";
-import { extname } from "node:path";
 import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
-import {
-  FORCE_DOWNLOAD_EXTENSIONS,
-  libraryOwnerSegment,
-  readWorkFile,
-} from "@/lib/work-files";
-import {
-  getAuthorizedWorkRun,
-  getAuthorizedWorkThread,
-} from "@/lib/work-thread-auth";
+import { readRunArtifact } from "@/lib/work-files";
+import { getWorkRunEvents } from "@/lib/work-store";
+import { getAuthorizedWorkRun } from "@/lib/work-thread-auth";
+import { isEmittedRunArtifact } from "@/lib/work-artifacts";
 
 type RouteContext = {
   params: Promise<{ path: string[] }>;
@@ -24,45 +18,35 @@ export async function GET(_: Request, context: RouteContext) {
     const relativePath = (path ?? []).join("/");
     const orgId = await getOrgId();
     const actor = await getCurrentActor();
-    if (path?.[0] === "uploads") {
-      const threadId = path[1] ?? "";
-      if (!threadId || !(await getAuthorizedWorkThread(orgId, threadId, actor))) {
-        return NextResponse.json({ error: "not found" }, { status: 404 });
-      }
+    // This endpoint is a download boundary, not a workspace file browser.
+    // Only an artifact event from an authorized run can grant access.
+    const runId = path?.[0] === "runs" ? path[1] ?? "" : "";
+    if (
+      !runId ||
+      path?.[2] !== "artifacts" ||
+      path.length < 4 ||
+      !(await getAuthorizedWorkRun(orgId, runId, actor))
+    ) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
     }
-    if (path?.[0] === "runs") {
-      const runId = path[1] ?? "";
-      if (!runId || !(await getAuthorizedWorkRun(orgId, runId, actor))) {
-        return NextResponse.json({ error: "not found" }, { status: 404 });
-      }
+    const events = await getWorkRunEvents(orgId, runId);
+    if (!isEmittedRunArtifact(events, runId, relativePath)) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
     }
-    if (path?.[0] === "library") {
-      // library/uploads/<owner>/... — the owner or an admin only.
-      const owner = path[2] ?? "";
-      if (
-        path[1] !== "uploads" ||
-        (owner !== libraryOwnerSegment(actor.userId) && actor.role !== "admin")
-      ) {
-        return NextResponse.json({ error: "not found" }, { status: 404 });
-      }
-    }
-    const file = await readWorkFile(orgId, relativePath);
+    const file = await readRunArtifact(orgId, runId, path.slice(3).join("/"));
     const body = new Uint8Array(file.data);
-    const disposition = FORCE_DOWNLOAD_EXTENSIONS.has(extname(file.filename).toLowerCase())
-      ? "attachment"
-      : "inline";
     const safeName = file.filename.replace(/"/g, "");
     return new NextResponse(body, {
       status: 200,
       headers: {
         "content-type": file.mimeType,
-        "content-disposition": `${disposition}; filename="${safeName}"`,
+        "content-disposition": `attachment; filename="${safeName}"`,
+        "x-content-type-options": "nosniff",
       },
     });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 404 },
-    );
+  } catch {
+    // Do not turn path-validation or filesystem errors into a workspace
+    // oracle. Every denied/missing download has the same response.
+    return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 }

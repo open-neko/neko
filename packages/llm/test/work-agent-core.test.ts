@@ -54,6 +54,7 @@ describe("runAgentBackend", () => {
 
     expect(captured?.mcpServers).toEqual(
       expect.objectContaining({
+        neko_interaction: expect.anything(),
         neko_graphjin: expect.anything(),
         neko_records: expect.anything(),
       }),
@@ -62,6 +63,7 @@ describe("runAgentBackend", () => {
       OPENNEKO_MCP_MODE: "work",
       OPENNEKO_MCP_ORG_ID: "org-1",
       OPENNEKO_MCP_RUN_ID: "run-1",
+      OPENNEKO_MCP_WANTS_CARDS: "1",
     });
   });
 
@@ -104,7 +106,10 @@ describe("runAgentBackend", () => {
       emit: async () => {},
     });
 
-    expect(Object.keys(captured?.mcpServers ?? {})).toEqual(["neko_records"]);
+    expect(Object.keys(captured?.mcpServers ?? {})).toEqual([
+      "neko_interaction",
+      "neko_records",
+    ]);
     expect(captured?.mcpBridgeEnv?.OPENNEKO_MCP_RECORD_SCOPE).toBe(
       JSON.stringify({ appId: "crm", objectApiName: "activity" }),
     );
@@ -150,7 +155,10 @@ describe("runAgentBackend", () => {
       emit: async () => {},
     });
 
-    expect(Object.keys(captured?.mcpServers ?? {})).toEqual(["neko_records"]);
+    expect(Object.keys(captured?.mcpServers ?? {})).toEqual([
+      "neko_interaction",
+      "neko_records",
+    ]);
     expect(captured?.mcpBridgeEnv?.OPENNEKO_MCP_RECORD_SCOPE).toBeUndefined();
   });
 });
