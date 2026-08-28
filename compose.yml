@@ -385,10 +385,12 @@ services:
           KEY=$$(head -c 32 /dev/urandom | base64 | tr -d '\n')
           sed -i "s|REPLACE_WITH_BASE64_32_BYTE_KEY|$$KEY|" /config/agentic.yml
         fi
+        cp /seed/graphjin-supervisor.sh /config/.openneko-graphjin-supervisor.sh
         chmod -R a+rwX /config
     volumes:
       - openneko-graphjin-cli:/config
       - ./db/graphjin/customer.sources.example.yml:/seed/customer.sources.yml:ro
+      - ./scripts/graphjin-supervisor.sh:/seed/graphjin-supervisor.sh:ro
     restart: "no"
 
   # One-shot: resolves (or creates, under an advisory lock) the single org
@@ -436,6 +438,7 @@ services:
 
   graphjin:
     image: ${OPENNEKO_GRAPHJIN_IMAGE:-dosco/graphjin:3.20.47}
+    entrypoint: ["/bin/sh", "/config/.openneko-graphjin-supervisor.sh"]
     restart: unless-stopped
     depends_on:
       graphjin-config-init:

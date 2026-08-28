@@ -56,5 +56,10 @@ Return the comparison frame, current and baseline values, absolute change,
 concentrated stores/orders/SKUs, data limitations, and the highest-value next
 check. Use `magento-investigate-order` for a selected order timeline.
 
-Never issue or reverse a refund, cancel an order, edit a credit memo, or bypass
-the pack through SQL, raw GraphQL, raw HTTP, `curl`, or a terminal.
+If the user asks to issue a refund, approve a return, change a financial
+setting, or exceed the store-credit cap, use `magento.financial_handoff` to
+record the exact entity, evidence, and a draft for a human Magento Admin
+operator. This action creates an audit artifact only and has no external
+execution path. State that final completion must be confirmed in Magento.
+
+Boundary: Never issue or reverse a refund, approve a return, edit a credit memo, or change financial configuration; create a `magento.financial_handoff` and leave execution to a human in Magento Admin.

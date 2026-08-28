@@ -4,10 +4,10 @@ The Magento pack connects OpenNeko to Magento Open Source or Adobe Commerce
 2.4.x. Analytics use a dedicated SELECT-only MariaDB/MySQL account. Governed
 writes use a Magento Integration token through GraphJin's curated REST adapter.
 
-The complete pack is installed every time. With the current GraphJin release,
-analytics and all six operator skills are ready while the governed-write
-capability remains installed but blocked. A missing Integration token has the
-same effect; it does not produce a partial installation.
+The complete pack is installed every time. GraphJin 3.20.47 provides isolated
+executor roles for curated Magento REST operations. A missing or insufficient
+Integration token leaves the affected domains view-only without producing a
+partial installation.
 
 Adobe Marketplace/Composer keys are not pack inputs. They are needed only when
 Composer downloads Magento itself from Adobe's repository.
@@ -42,9 +42,11 @@ required by every operator.
   table grants for production. Existing table-specific grants must include the
   customer, customer-address, order-address, status-history, and order-payment
   tables listed in `graphjin/sources.yaml` before upgrading to pack 0.2.1.
-- Optionally, a least-privilege Magento Integration token for the governed
-  action. This does not make writes executable until OpenNeko is upgraded to a
-  tagged GraphJin release that supports curated OpenAPI mutations.
+- Optionally, a least-privilege Magento Integration token for governed catalog,
+  inventory, order, promotion, content, or customer changes. Customer changes
+  are disabled separately by default.
+- Magento async/bulk consumers running successfully for bulk catalog and
+  inventory operations.
 
 If Magento and OpenNeko share a Docker/OrbStack network, use MariaDB's service
 name as `--database-host`. If they are separate stacks, publish MariaDB on a
@@ -98,19 +100,22 @@ Installation adds focused skills for recurring Magento work:
 - investigating one order and optionally proposing a private internal note;
 - triaging aged or partially shipped fulfillment work;
 - investigating refund-value and cancellation spikes;
-- checking low stock, MSI sources, and reservation discrepancies; and
-- diagnosing cron, indexer, data-freshness, and pack-health problems.
+- checking low stock, MSI sources, and reservation discrepancies;
+- diagnosing cron, indexer, data-freshness, and pack-health problems;
+- managing products, categories, assignments, and prices through change-sets;
+  and
+- designing and running capped, approval-required promotions.
 
 Ask OpenNeko for the task in ordinary language. The matching skill is selected
-automatically; operators do not need to remember its installed ID. All six
+automatically; operators do not need to remember its installed ID. All eight
 skills install even when governed Magento writes are unavailable. The order
 investigation still works read-only when its optional private-note action is
 blocked.
 
 ## Optional Magento Integration token
 
-Create a Magento Integration with only the ACL required by the installed
-operation, then store and apply its token:
+Create a Magento Integration with only the ACL required by the domains you
+enable, then store and apply its token:
 
 ```sh
 openneko secrets set pack.magento MAGENTO_INTEGRATION_TOKEN
@@ -118,17 +123,38 @@ openneko pack configure magento \
   --integration-token-ref MAGENTO_INTEGRATION_TOKEN
 ```
 
-The action continues to fail closed while GraphJin reports the operator
-capability as unsupported. OpenNeko never asks for a Magento admin password.
+The health check probes each enabled domain independently. A domain with a
+missing ACL remains view-only while other domains can be ready. OpenNeko never
+asks for a Magento admin password.
+
+Use this resource matrix when creating the Integration. Magento installations
+can label the same resources slightly differently; grant the smallest matching
+subtree and confirm it with **Check health** before enabling a domain.
+
+| Domain | Magento Integration resources | Notes |
+| --- | --- | --- |
+| Catalog | Catalog > Inventory > Products; Catalog > Categories | Includes product/category reads and the enabled product/category operations. |
+| Inventory | Inventory > Sources; Inventory > Source Items | Bulk changes additionally require working async consumers. |
+| Orders | Sales > Orders; Sales > Shipments; Sales > Invoices | Refund and return-approval resources are intentionally not used. |
+| Promotions | Marketing > Cart Price Rules; Marketing > Coupon Generation | Every promotion remains Class 1 and exposure-capped. |
+| Content | Content > Pages; Content > Blocks | Versioned before images and inverse drafts are retained. |
+| Customers | Customers > All Customers | Disabled by default and data-minimized in receipts. |
+
+Do not grant Stores configuration, tax configuration, payment configuration,
+admin users, integrations, ACL administration, returns approval, or online
+refund resources. Online refunds, return approvals, store credit above its cap,
+and financial configuration have no execution route; OpenNeko creates an
+evidence-backed Magento Admin handoff instead.
 
 ## Operate and troubleshoot
 
 For day-to-day administration, open **Admin → Settings → Solution packs →
-Magento**. The page shows plain-language health checks and provides buttons to
-recheck the connection, change credentials, update the pack, or remove it
-safely. An analytics-only installation is shown as healthy; governed write
-actions are listed separately as optional until their runtime and token are
-ready.
+Magento**. The page shows per-domain access, Class 1/2 controls, caps, automatic
+rules, recent change-sets/handoffs, and plain-language health checks. It also
+provides buttons to recheck the connection, change credentials, update the
+pack, or remove it safely. An analytics-only installation remains healthy;
+governed domains are listed separately as view-only until their token and ACL
+are ready.
 
 Use one overview command for day-to-day administration:
 

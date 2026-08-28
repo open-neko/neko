@@ -12,12 +12,17 @@ import {
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import {
   action_policy,
+  action_changeset,
   and,
   data_source,
   db,
   desc,
   eq,
   metric,
+  magento_attribute_classification,
+  magento_auto_rule,
+  magento_financial_handoff,
+  magento_store_control,
   pack_action_definition,
   pack_artifact,
   pack_install,
@@ -31,10 +36,14 @@ import { ensureOrgWorkspace } from "@neko/llm/work";
 import { graphjinQuery, mintGraphjinToken } from "@neko/llm/graphjin";
 import {
   canonicalHash,
+  DEFAULT_MAGENTO_ATTRIBUTE_CLASSIFICATIONS,
+  DEFAULT_MAGENTO_CAPS,
+  DEFAULT_MAGENTO_DOMAIN_CONTROLS,
   loadSolutionPack,
   planPack,
   type PackArtifact,
   type PackPlan,
+  type MagentoDomain,
   type SolutionPackBundle,
 } from "@neko/packs";
 import {
@@ -101,6 +110,10 @@ function operatorReadinessDetail(
       return "View only because the saved API token does not have the required Magento permissions. Store insights and automations are unaffected.";
     case "graphjin_version_unsupported":
       return "View only in this version. Store insights and automations are fully available.";
+    case "ready":
+      return "Approved Magento changes are available. Each domain remains governed by its configured class and caps.";
+    case "domain_disabled":
+      return "This change domain is disabled by the administrator.";
     default:
       return "View-only access could not be checked because the reporting connection is unavailable.";
   }
@@ -594,6 +607,60 @@ function graphjinRelationships(bundle: SolutionPackBundle, available: string[]):
     }));
 }
 
+function magentoCapsFromInputs(inputs: Record<string, unknown>) {
+  return {
+    ...DEFAULT_MAGENTO_CAPS,
+    maxRowsPerChangeset: Number(inputs["magento.max_rows_per_changeset"]),
+    maxPriceDeltaPercent: Number(inputs["magento.max_price_delta_percent"]),
+    maxDiscountPercent: Number(inputs["magento.max_discount_percent"]),
+    maxCouponCount: Number(inputs["magento.max_coupon_count"]),
+    maxProjectedExposure: Number(inputs["magento.max_projected_exposure"]),
+    maxDailyAutoActions: Number(inputs["magento.max_daily_auto_actions"]),
+    skuCooldownSeconds: Number(inputs["magento.sku_cooldown_seconds"]),
+  };
+}
+
+function magentoV2OperationExposure(
+  bundle: SolutionPackBundle,
+): Record<string, unknown> {
+  const operations: Record<string, unknown> = {};
+  for (const artifact of bundle.artifacts.filter((value) => value.kind === "action")) {
+    const content = artifactRecord(artifact);
+    const adapter = content.adapter;
+    if (!adapter || typeof adapter !== "object" || Array.isArray(adapter)) continue;
+    const definition = adapter as Record<string, unknown>;
+    if (
+      definition.kind !== "magento_changeset" &&
+      definition.kind !== "magento_governed_operation"
+    ) continue;
+    const declared = definition.operations;
+    if (!declared || typeof declared !== "object" || Array.isArray(declared)) continue;
+    for (const operation of Object.values(declared as Record<string, unknown>)) {
+      if (!operation || typeof operation !== "object" || Array.isArray(operation)) continue;
+      const value = operation as Record<string, unknown>;
+      const operationId = String(value.operationId ?? "");
+      const mutationRoot = String(value.mutationRoot ?? "");
+      const exposeAs = mutationRoot.replace(/^magento_operator_v2_/, "");
+      if (!operationId || !mutationRoot || exposeAs === mutationRoot) {
+        throw new Error(`Magento operation ${operationId || "<unknown>"} has an invalid V2 mutation root`);
+      }
+      const next = {
+        expose_mutation: true,
+        allowed_roles: Number(value.defaultClass) === 2
+          ? ["magento_ops_executor", "magento_sensitive_executor"]
+          : ["magento_sensitive_executor"],
+        expose_as: exposeAs,
+      };
+      const current = operations[operationId];
+      if (current && canonicalHash(current) !== canonicalHash(next)) {
+        throw new Error(`Magento operation ${operationId} has conflicting V2 exposure`);
+      }
+      operations[operationId] = next;
+    }
+  }
+  return operations;
+}
+
 function graphjinUpdate(
   inputs: Record<string, unknown>,
   secrets: Record<string, string>,
@@ -601,7 +668,27 @@ function graphjinUpdate(
   bundle: SolutionPackBundle,
   retiredSourceNames: string[] = [],
 ): Record<string, unknown> {
+  const integrationToken = secrets["magento.integration_token"];
+  const writeEnabled = Boolean(integrationToken);
+  const auth = integrationToken
+    ? {
+        auth: {
+          scheme: "bearer",
+          token: integrationToken,
+        },
+      }
+    : {};
   return {
+    roles: [
+      {
+        name: "magento_ops_executor",
+        comment: "Short-lived Magento Class 2 executor",
+      },
+      {
+        name: "magento_sensitive_executor",
+        comment: "Short-lived Magento Class 1 executor minted only after approval",
+      },
+    ],
     update_sources: [
       {
         name: "magento_analytics",
@@ -632,29 +719,34 @@ function graphjinUpdate(
         name: "magento_operator",
         kind: "api",
         default: false,
-        specs_dir: "specs",
+        specs_dir: "/config/specs",
         specs: {
           "magento-operator-v1": {
             base_url: String(inputs["magento.base_url"]),
-            ...(secrets["magento.integration_token"]
-              ? {
-                  auth: {
-                    scheme: "bearer",
-                    token: secrets["magento.integration_token"],
-                  },
-                }
-              : {}),
+            ...auth,
+            operations: {
+              magentoAddInternalOrderComment: {
+                expose_mutation: false,
+                allowed_roles: [],
+              },
+            },
+          },
+          "magento-operator-v2": {
+            base_url: String(inputs["magento.base_url"]),
+            ...auth,
+            operations: magentoV2OperationExposure(bundle),
           },
         },
-        read_only: true,
+        read_only: !writeEnabled,
         capabilities: {
           "api.read": true,
-          "api.write": false,
+          "api.write": writeEnabled,
+          "api.delete": writeEnabled,
         },
         access: {
           read: "authenticated",
-          write: "blocked",
-          delete: "blocked",
+          write: writeEnabled ? "authenticated" : "blocked",
+          delete: writeEnabled ? "authenticated" : "blocked",
         },
       },
     ],
@@ -854,11 +946,12 @@ export class PackService {
       .where(eq(pack_artifact.pack_install_id, installation.id));
     const readiness: PackStatus["readiness"] = {};
     for (const artifact of artifacts) {
-      const capability = artifact.reason?.startsWith("operator:") ? "operator" : "analytics";
+      const operatorMatch = /^operator:([^:]+):(.*)$/.exec(artifact.reason ?? "");
+      const capability = operatorMatch?.[1] ?? (artifact.reason?.startsWith("operator:") ? "operator" : "analytics");
       if (!readiness[capability] || artifact.readiness === "blocked") {
         readiness[capability] = {
           status: artifact.readiness,
-          reason: artifact.reason?.replace(/^operator:/, "") ?? null,
+          reason: operatorMatch?.[2] ?? artifact.reason?.replace(/^operator:/, "") ?? null,
         };
       }
     }
@@ -908,6 +1001,7 @@ export class PackService {
         baseUrl: String(inputs["magento.base_url"]),
         storeCode: String(inputs["magento.store_code"] ?? "all"),
         integrationToken: resolvedSecrets.values["magento.integration_token"] ?? null,
+        customersEnabled: Boolean(inputs["magento.customers_enabled"]),
       });
       checks.push({
         id: "analytics",
@@ -977,19 +1071,317 @@ export class PackService {
       }
     }
 
-    checks.push({
-      id: "operator",
-      status: "optional",
-      detail: operatorReadinessDetail(preflight?.operatorReadiness ?? null),
-    });
+    if (preflight) {
+      for (const domain of ["catalog", "inventory", "orders", "promotions", "content", "customers"] as const) {
+        const reason = preflight.operatorDomains[domain];
+        checks.push({
+          id: `operator-${domain}`,
+          status: reason === "ready" ? "ready" : reason === "domain_disabled" ? "optional" : "blocked",
+          detail: `${domain}: ${operatorReadinessDetail(reason)}`,
+        });
+      }
+      checks.push({
+        id: "bulk-consumers",
+        status: preflight.bulkConsumerReadiness === "ready" ? "ready" : "blocked",
+        detail: preflight.bulkConsumerReadiness === "ready"
+          ? "Magento async bulk consumers completed recently."
+          : "Magento async bulk consumers are not reporting recent successful work.",
+      });
+    } else {
+      checks.push({
+        id: "operator",
+        status: "optional",
+        detail: operatorReadinessDetail(null),
+      });
+    }
     const requiredBlocked = checks.some(
-      (check) => check.id !== "operator" && check.status === "blocked",
+      (check) => !check.id.startsWith("operator") && check.id !== "bulk-consumers" && check.status === "blocked",
+    );
+    const operatorBlocked = checks.some(
+      (check) => (check.id.startsWith("operator-") || check.id === "bulk-consumers") && check.status === "blocked",
     );
     return {
       packId,
-      status: requiredBlocked ? "blocked" : "ready",
+      status: requiredBlocked ? "blocked" : operatorBlocked ? "degraded" : "ready",
       checks,
     };
+  }
+
+  async magentoStoreManagement(): Promise<Record<string, unknown>> {
+    const controls = await db()
+      .select()
+      .from(magento_store_control)
+      .where(eq(magento_store_control.org_id, this.orgId))
+      .orderBy(magento_store_control.domain);
+    const rules = await db()
+      .select()
+      .from(magento_auto_rule)
+      .where(eq(magento_auto_rule.org_id, this.orgId))
+      .orderBy(desc(magento_auto_rule.updated_at));
+    const changesets = await db()
+      .select({
+        id: action_changeset.id,
+        domain: action_changeset.domain,
+        operationId: action_changeset.operation_id,
+        riskClass: action_changeset.risk_class,
+        status: action_changeset.status,
+        summary: action_changeset.summary,
+        bulkUuid: action_changeset.bulk_uuid,
+        projectedExposure: action_changeset.projected_exposure,
+        inverseOfId: action_changeset.inverse_of_id,
+        createdAt: action_changeset.created_at,
+        reconciledAt: action_changeset.reconciled_at,
+      })
+      .from(action_changeset)
+      .where(eq(action_changeset.org_id, this.orgId))
+      .orderBy(desc(action_changeset.created_at))
+      .limit(20);
+    const handoffs = await db()
+      .select({
+        id: magento_financial_handoff.id,
+        kind: magento_financial_handoff.kind,
+        entityRef: magento_financial_handoff.entity_ref,
+        status: magento_financial_handoff.status,
+        createdAt: magento_financial_handoff.created_at,
+        completedAt: magento_financial_handoff.completed_at,
+      })
+      .from(magento_financial_handoff)
+      .where(eq(magento_financial_handoff.org_id, this.orgId))
+      .orderBy(desc(magento_financial_handoff.created_at))
+      .limit(20);
+    const actionDefinitions = await db()
+      .select({
+        definition: pack_action_definition.definition,
+        readiness: pack_action_definition.readiness,
+        reason: pack_action_definition.readiness_reason,
+      })
+      .from(pack_action_definition)
+      .where(
+        and(
+          eq(pack_action_definition.org_id, this.orgId),
+          eq(pack_action_definition.enabled, true),
+        ),
+      );
+    const readinessByDomain = new Map<string, { readiness: string; reason: string | null }>();
+    for (const action of actionDefinitions) {
+      const adapter = action.definition.adapter;
+      if (!adapter || typeof adapter !== "object" || Array.isArray(adapter)) continue;
+      if ((adapter as Record<string, unknown>).kind === "magento_financial_handoff") continue;
+      const domain = String(action.definition.domain ?? "");
+      const current = readinessByDomain.get(domain);
+      if (!current || action.readiness === "blocked") {
+        readinessByDomain.set(domain, { readiness: action.readiness, reason: action.reason });
+      }
+    }
+    const operations = actionDefinitions.flatMap(({ definition }) => {
+      const domain = String(definition.domain ?? "");
+      const adapter = definition.adapter;
+      if (!adapter || typeof adapter !== "object" || Array.isArray(adapter)) return [];
+      const declared = (adapter as Record<string, unknown>).operations;
+      if (!declared || typeof declared !== "object" || Array.isArray(declared)) return [];
+      return Object.entries(declared as Record<string, unknown>).flatMap(([name, value]) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+        const operation = value as Record<string, unknown>;
+        return [{
+          name,
+          domain,
+          operationId: String(operation.operationId ?? ""),
+          riskClass: Number(operation.defaultClass),
+          reversible: Boolean(operation.reversible),
+          resultMode: String(operation.resultMode ?? "sync"),
+        }];
+      });
+    });
+    return {
+      controls: controls.map((control) => {
+        const domainReadiness = readinessByDomain.get(control.domain);
+        return {
+          domain: control.domain,
+          riskClass: control.risk_class,
+          enabled: control.enabled,
+          autoExecute: control.auto_execute,
+          caps: control.caps,
+          scope: control.scope,
+          readiness: domainReadiness?.readiness ?? "blocked",
+          readinessReason: domainReadiness ? domainReadiness.reason : "operator_unavailable",
+          updatedAt: control.updated_at,
+        };
+      }),
+      rules: rules.map((rule) => ({
+        id: rule.id,
+        name: rule.name,
+        instruction: rule.instruction,
+        domain: rule.domain,
+        actionKind: rule.action_kind,
+        compiledPolicy: rule.compiled_policy,
+        dailyCap: rule.daily_cap,
+        cooldownSeconds: rule.cooldown_seconds,
+        enabled: rule.enabled,
+        suspendedReason: rule.suspended_reason,
+        lastFiredAt: rule.last_fired_at,
+      })),
+      changesets,
+      handoffs,
+      operations,
+      classZero: {
+        executePath: false,
+        handoffKinds: [
+          "online_refund",
+          "return_approval",
+          "financial_configuration",
+          "store_credit_over_cap",
+        ],
+      },
+    };
+  }
+
+  async updateMagentoStoreManagement(
+    input: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const action = String(input.action ?? "");
+    const actorUserId = typeof input.actorUserId === "string" ? input.actorUserId : null;
+    if (action === "update_domain") {
+      const domain = String(input.domain ?? "");
+      if (!["catalog", "inventory", "orders", "promotions", "content", "customers"].includes(domain)) {
+        throw new Error("unknown Magento change domain");
+      }
+      const [current] = await db()
+        .select()
+        .from(magento_store_control)
+        .where(
+          and(
+            eq(magento_store_control.org_id, this.orgId),
+            eq(magento_store_control.domain, domain),
+          ),
+        )
+        .limit(1);
+      if (!current) throw new Error(`Magento ${domain} control is not installed`);
+      const set: Record<string, unknown> = {
+        updated_by_user_id: actorUserId,
+        updated_at: new Date(),
+      };
+      if (typeof input.enabled === "boolean") set.enabled = input.enabled;
+      if (typeof input.autoExecute === "boolean") {
+        if (input.autoExecute && current.risk_class !== 2) {
+          throw new Error("Only a Class 2 Magento domain can allow automatic execution");
+        }
+        set.auto_execute = input.autoExecute;
+      }
+      if (input.caps !== undefined) {
+        if (!input.caps || typeof input.caps !== "object" || Array.isArray(input.caps)) {
+          throw new Error("Magento caps must be an object");
+        }
+        const allowed = new Set([
+          "maxRowsPerChangeset",
+          "maxPriceDeltaPercent",
+          "maxDiscountPercent",
+          "maxCouponCount",
+          "maxProjectedExposure",
+          "maxDailyAutoActions",
+          "maxStoreCredit",
+          "minPromotionDays",
+          "skuCooldownSeconds",
+        ]);
+        const caps = { ...(current.caps as Record<string, unknown>) };
+        for (const [key, value] of Object.entries(input.caps as Record<string, unknown>)) {
+          if (!allowed.has(key)) throw new Error(`unknown Magento cap ${key}`);
+          const number = Number(value);
+          if (!Number.isFinite(number) || number < 0) throw new Error(`Magento cap ${key} must be non-negative`);
+          caps[key] = number;
+        }
+        set.caps = caps;
+      }
+      await db().update(magento_store_control).set(set).where(
+        and(
+          eq(magento_store_control.org_id, this.orgId),
+          eq(magento_store_control.domain, domain),
+        ),
+      );
+    } else if (action === "create_rule") {
+      const name = typeof input.name === "string" ? input.name.trim() : "";
+      const instruction = typeof input.instruction === "string" ? input.instruction.trim() : "";
+      const domain = String(input.domain ?? "");
+      const actionKind = typeof input.actionKind === "string" ? input.actionKind.trim() : "";
+      const dailyCap = Number(input.dailyCap);
+      const cooldownSeconds = Number(input.cooldownSeconds ?? 0);
+      if (!name || name.length > 120 || !instruction || instruction.length > 1000) {
+        throw new Error("Magento automatic rule needs a concise name and instruction");
+      }
+      if (!Number.isInteger(dailyCap) || dailyCap < 1 || !Number.isInteger(cooldownSeconds) || cooldownSeconds < 0) {
+        throw new Error("Magento automatic rule caps are invalid");
+      }
+      const [control] = await db().select().from(magento_store_control).where(and(
+        eq(magento_store_control.org_id, this.orgId),
+        eq(magento_store_control.domain, domain),
+      )).limit(1);
+      if (!control || !control.enabled || !control.auto_execute || control.risk_class !== 2) {
+        throw new Error(`Magento ${domain} automatic execution is not enabled`);
+      }
+      const [definition] = await db().select({ definition: pack_action_definition.definition })
+        .from(pack_action_definition)
+        .where(and(
+          eq(pack_action_definition.org_id, this.orgId),
+          eq(pack_action_definition.kind, actionKind),
+          eq(pack_action_definition.enabled, true),
+        )).limit(1);
+      if (!definition || String(definition.definition.domain ?? "") !== domain) {
+        throw new Error("Magento automatic rule action does not belong to this domain");
+      }
+      const controlDailyCap = Number((control.caps as Record<string, unknown>).maxDailyAutoActions ?? 0);
+      if (controlDailyCap > 0 && dailyCap > controlDailyCap) {
+        throw new Error(`Rule daily cap exceeds the domain ceiling of ${controlDailyCap}`);
+      }
+      await db().insert(magento_auto_rule).values({
+        org_id: this.orgId,
+        name,
+        instruction,
+        domain,
+        action_kind: actionKind,
+        compiled_policy: {
+          version: 1,
+          source: "admin_plain_language",
+          condition: "watcher_finding",
+          dailyCap,
+          cooldownSeconds,
+        },
+        daily_cap: dailyCap,
+        cooldown_seconds: cooldownSeconds,
+        enabled: Boolean(input.enabled),
+        created_by_user_id: actorUserId,
+      }).onConflictDoUpdate({
+        target: [magento_auto_rule.org_id, magento_auto_rule.name],
+        set: {
+          instruction,
+          domain,
+          action_kind: actionKind,
+          compiled_policy: {
+            version: 1,
+            source: "admin_plain_language",
+            condition: "watcher_finding",
+            dailyCap,
+            cooldownSeconds,
+          },
+          daily_cap: dailyCap,
+          cooldown_seconds: cooldownSeconds,
+          enabled: Boolean(input.enabled),
+          suspended_reason: null,
+          updated_at: new Date(),
+        },
+      });
+    } else if (action === "set_rule_status") {
+      const ruleId = typeof input.ruleId === "string" ? input.ruleId : "";
+      if (!ruleId || typeof input.enabled !== "boolean") {
+        throw new Error("Magento rule status needs ruleId and enabled");
+      }
+      await db().update(magento_auto_rule).set({
+        enabled: input.enabled,
+        suspended_reason: input.enabled ? null : "suspended_by_admin",
+        updated_at: new Date(),
+      }).where(and(eq(magento_auto_rule.id, ruleId), eq(magento_auto_rule.org_id, this.orgId)));
+    } else {
+      throw new Error("unknown Magento store-management action");
+    }
+    return this.magentoStoreManagement();
   }
 
   async install(packId: string, request: PackInstallRequest = {}): Promise<PackStatus> {
@@ -1127,6 +1519,7 @@ export class PackService {
           })),
         },
         ownedSourceNames: new Set(sourceNames),
+        restartAfterPersist: true,
       });
       graphjinRestore = revoked.restore;
 
@@ -1366,6 +1759,7 @@ export class PackService {
         baseUrl: String(inputs["magento.base_url"]),
         storeCode: String(inputs["magento.store_code"] ?? "all"),
         integrationToken: resolvedSecrets.values["magento.integration_token"] ?? null,
+        customersEnabled: Boolean(inputs["magento.customers_enabled"]),
       });
       inputs["database.type"] = preflight.databaseType;
       inputs["magento.table_prefix"] = preflight.tablePrefix;
@@ -1546,6 +1940,7 @@ export class PackService {
         configFile,
         update: graphjinUpdate(inputs, resolvedSecrets.values, preflight, bundle, retiredSourceNames),
         ownedSourceNames,
+        restartAfterPersist: true,
       });
       graphjinRestore = applied.restore;
       await runMagentoAnalyticsSmoke(graphjinEndpoint(source.graphqlUrl), this.orgId);
@@ -1674,6 +2069,58 @@ export class PackService {
           }).where(eq(pack_artifact.id, artifact.id));
         }
 
+        const caps = magentoCapsFromInputs(inputs);
+        for (const control of DEFAULT_MAGENTO_DOMAIN_CONTROLS) {
+          const enabled = control.domain === "customers"
+            ? Boolean(inputs["magento.customers_enabled"])
+            : control.enabled;
+          await tx.insert(magento_store_control).values({
+            org_id: this.orgId,
+            domain: control.domain,
+            risk_class: control.riskClass,
+            enabled,
+            auto_execute: false,
+            caps,
+            scope: { stores: preflight.scopes },
+          }).onConflictDoUpdate({
+            target: [magento_store_control.org_id, magento_store_control.domain],
+            set: {
+              enabled,
+              caps,
+              scope: { stores: preflight.scopes },
+              updated_at: new Date(),
+            },
+          });
+        }
+        for (const classification of DEFAULT_MAGENTO_ATTRIBUTE_CLASSIFICATIONS) {
+          await tx.insert(magento_attribute_classification).values({
+            org_id: this.orgId,
+            domain: classification.domain,
+            entity_type: classification.entityType,
+            attribute: classification.attribute,
+            risk_class: classification.riskClass,
+            category: classification.category,
+            rationale: classification.rationale,
+            reviewed: true,
+            pack_default: true,
+          }).onConflictDoUpdate({
+            target: [
+              magento_attribute_classification.org_id,
+              magento_attribute_classification.domain,
+              magento_attribute_classification.entity_type,
+              magento_attribute_classification.attribute,
+            ],
+            set: {
+              risk_class: classification.riskClass,
+              category: classification.category,
+              rationale: classification.rationale,
+              reviewed: true,
+              pack_default: true,
+              updated_at: new Date(),
+            },
+          });
+        }
+
         const workflows = new Map<string, string>();
         for (const artifact of bundle.artifacts.filter((value) => value.kind === "workflow")) {
           const value = artifactRecord(artifact);
@@ -1797,10 +2244,16 @@ export class PackService {
             description: String(value.description),
             applies_to_kinds: value.appliesToKinds as string[],
             applies_to_scopes: value.appliesToScopes as string[],
-            mode: value.mode === "ask" ? "approval_required" : String(value.mode),
+            mode: value.mode === "ask"
+              ? "approval_required"
+              : value.mode === "auto"
+                ? "auto_approve"
+                : value.mode === "draft"
+                  ? "draft_only"
+                  : String(value.mode),
             allowed_targets: value.allowedTargets as Record<string, unknown>,
             limits: value.limits as Record<string, unknown>,
-            approver_role: String(value.approverRole),
+            approver_role: value.approverRole ? String(value.approverRole) : null,
             priority: Number(value.priority),
             enabled: Boolean(value.enabled),
             updated_at: new Date(),
@@ -1815,15 +2268,21 @@ export class PackService {
 
         for (const artifact of bundle.artifacts.filter((value) => value.kind === "action")) {
           const value = artifactRecord(artifact);
-          const reason = preflight.operatorReadiness;
+          const readinessValue = value.readiness as Record<string, unknown> | undefined;
+          const domain = String(readinessValue?.domain ?? "") as MagentoDomain;
+          const adapter = value.adapter as Record<string, unknown> | undefined;
+          const reason = adapter?.kind === "magento_financial_handoff"
+            ? "ready"
+            : preflight.operatorDomains[domain] ?? preflight.operatorReadiness;
+          const actionReady = reason === "ready";
           await tx.insert(pack_action_definition).values({
             org_id: this.orgId,
             kind: String(value.kind),
             description: String(value.description),
             definition: value,
             definition_hash: artifact.hash,
-            readiness: "blocked",
-            readiness_reason: reason,
+            readiness: actionReady ? "ready" : "blocked",
+            readiness_reason: actionReady ? null : reason,
             enabled: true,
           }).onConflictDoUpdate({
             target: [pack_action_definition.org_id, pack_action_definition.kind],
@@ -1831,8 +2290,8 @@ export class PackService {
               description: String(value.description),
               definition: value,
               definition_hash: artifact.hash,
-              readiness: "blocked",
-              readiness_reason: reason,
+              readiness: actionReady ? "ready" : "blocked",
+              readiness_reason: actionReady ? null : reason,
               enabled: true,
               updated_at: new Date(),
             },
@@ -1855,8 +2314,20 @@ export class PackService {
             artifact.kind === "spec" ||
             artifact.kind === "action" ||
             (artifact.kind === "saved_query" && basename(artifact.path).startsWith("action_"));
-          const readiness = operatorArtifact ? "blocked" : "ready";
-          const reason = operatorArtifact ? `operator:${preflight.operatorReadiness}` : null;
+          const value = artifact.kind === "action" ? artifactRecord(artifact) : null;
+          const actionDomain = String(
+            (value?.readiness as Record<string, unknown> | undefined)?.domain ?? "",
+          ) as MagentoDomain;
+          const actionAdapter = value?.adapter as Record<string, unknown> | undefined;
+          const operatorReason = actionAdapter?.kind === "magento_financial_handoff"
+            ? "ready"
+            : actionDomain
+              ? preflight.operatorDomains[actionDomain]
+              : preflight.operatorReadiness;
+          const readiness = operatorArtifact && operatorReason !== "ready" ? "blocked" : "ready";
+          const reason = operatorArtifact
+            ? `operator:${actionDomain || "operator"}:${operatorReason}`
+            : null;
           const target = files.targets.get(`${artifact.kind}:${artifact.key}`) ??
             skills.targets.get(`${artifact.kind}:${artifact.key}`) ?? artifact.targetRef;
           const materializedHash = materializedHashes.get(`${artifact.kind}:${artifact.key}`);

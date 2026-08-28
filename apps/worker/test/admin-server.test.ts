@@ -186,7 +186,7 @@ describe("worker admin HTTP handler", () => {
   });
 
   it("POST /admin/action-requests/create delegates to worker preflight", async () => {
-    const create = vi.fn(async () => ({ id: "action-prepared" }));
+    const create = vi.fn(async () => ({ id: "action-prepared", status: "approved" }));
     const srv = await startServer(
       createAdminHandler({ actionRequests: { create } }),
     );
@@ -207,7 +207,7 @@ describe("worker admin HTTP handler", () => {
         },
       );
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ id: "action-prepared" });
+      expect(await res.json()).toEqual({ id: "action-prepared", status: "approved" });
       expect(create).toHaveBeenCalledWith(input);
     } finally {
       await srv.close();
@@ -270,6 +270,8 @@ describe("worker solution-pack admin routes", () => {
         status: "removed",
         input,
       })),
+      magentoStoreManagement: vi.fn(async () => ({ controls: [{ domain: "catalog" }] })),
+      updateMagentoStoreManagement: vi.fn(async (input: Record<string, unknown>) => ({ input })),
     };
     const srv = await startServer(createAdminHandler({ packs: surface }));
     try {
@@ -317,6 +319,24 @@ describe("worker solution-pack admin routes", () => {
         expect(response.status).toBe(200);
         expect(surface[action]).toHaveBeenCalledWith("magento", input);
       }
+
+      const management = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/packs/magento/store-management`,
+      );
+      expect(management.status).toBe(200);
+      expect(await management.json()).toEqual({ controls: [{ domain: "catalog" }] });
+
+      const managementInput = { action: "update_domain", domain: "catalog", enabled: true };
+      const updateManagement = await fetch(
+        `http://127.0.0.1:${srv.port}/admin/packs/magento/store-management`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(managementInput),
+        },
+      );
+      expect(updateManagement.status).toBe(200);
+      expect(surface.updateMagentoStoreManagement).toHaveBeenCalledWith(managementInput);
     } finally {
       await srv.close();
     }
@@ -345,6 +365,8 @@ describe("worker solution-pack admin routes", () => {
         configure: async () => ({}),
         upgrade: async () => ({}),
         uninstall: async () => ({}),
+        magentoStoreManagement: async () => ({}),
+        updateMagentoStoreManagement: async () => ({}),
       },
     }));
     try {

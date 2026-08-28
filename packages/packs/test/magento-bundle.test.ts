@@ -24,9 +24,9 @@ describe("Magento solution pack", () => {
     expect(count("metric")).toBe(13);
     expect(count("workflow")).toBe(6);
     expect(count("watcher")).toBe(6);
-    expect(count("action")).toBe(1);
-    expect(count("policy")).toBe(1);
-    expect(count("skill")).toBe(6);
+    expect(count("action")).toBe(8);
+    expect(count("policy")).toBe(2);
+    expect(count("skill")).toBe(8);
     expect(
       bundle.artifacts
         .filter((artifact) => artifact.kind === "skill")
@@ -37,7 +37,9 @@ describe("Magento solution pack", () => {
       "magento-diagnose-platform-health",
       "magento-investigate-order",
       "magento-investigate-refunds",
+      "magento-manage-catalog",
       "magento-review-performance",
+      "magento-run-promotions",
       "magento-triage-fulfillment",
     ]);
     expect(bundle.artifacts.some((artifact) => artifact.targetRef === "magento-ops")).toBe(false);
@@ -50,8 +52,9 @@ describe("Magento solution pack", () => {
     const bundle = await loadSolutionPack(magentoRoot);
     const plan = planPack(bundle, []);
     expect(plan.entries.every((entry) => entry.action === "create")).toBe(true);
-    expect(plan.entries.some((entry) => entry.key === "action.add_internal_order_comment")).toBe(true);
-    expect(plan.entries.some((entry) => entry.key === "policy.internal_order_comment")).toBe(true);
+    expect(plan.entries.some((entry) => entry.key === "action.manage_catalog")).toBe(true);
+    expect(plan.entries.some((entry) => entry.key === "action.financial_handoff")).toBe(true);
+    expect(plan.entries.some((entry) => entry.key === "policy.governed_store_changes")).toBe(true);
     expect(plan.entries.some((entry) => entry.key === "source.magento_operator")).toBe(true);
   });
 
@@ -62,14 +65,66 @@ describe("Magento solution pack", () => {
     expect(second.bundleHash).toBe(first.bundleHash);
   });
 
-  it("keeps the operator source blocked until readiness enables it", async () => {
+  it("declares the operator source with isolated executor roles", async () => {
     const bundle = await loadSolutionPack(magentoRoot);
     const operator = bundle.artifacts.find((artifact) => artifact.key === "source.magento_operator");
     expect(operator?.content).toMatchObject({
-      read_only: true,
-      capabilities: { "api.write": false, "api.delete": false },
-      access: { write: "blocked", delete: "blocked" },
+      read_only: false,
+      capabilities: { "api.write": true, "api.delete": true },
+      access: { write: "authenticated", delete: "authenticated" },
+      readiness: {
+        write_roles: ["magento_ops_executor", "magento_sensitive_executor"],
+      },
     });
+  });
+
+  it("keeps Class 0 and Magento administration endpoints out of the V2 spec", async () => {
+    const spec = await readFile(
+      join(magentoRoot, "graphjin/specs/magento-operator-v2.yaml"),
+      "utf8",
+    );
+    const document = parseYaml(spec) as {
+      paths: Record<string, Record<string, {
+        operationId?: string;
+        responses?: Record<string, unknown>;
+      }>>;
+    };
+    const pathNames = Object.keys(document.paths).join("\n");
+    const operationIds = Object.values(document.paths)
+      .flatMap((path) => Object.values(path).map((operation) => operation.operationId ?? ""))
+      .join("\n");
+    expect(pathNames).not.toMatch(/refund|creditmemo|returns|\/integration|\/admin/i);
+    expect(operationIds).toContain("magentoBulkUpdateProducts");
+    expect(operationIds).toContain("magentoUpdateCustomer");
+    expect(
+      document.paths["/rest/{storeCode}/async/bulk/V1/products/bySku"]?.put?.responses,
+    ).toHaveProperty("202");
+  });
+
+  it("keeps every governed action bound to a checked-in V2 operation and GraphJin root", async () => {
+    const bundle = await loadSolutionPack(magentoRoot);
+    const document = parseYaml(await readFile(
+      join(magentoRoot, "graphjin/specs/magento-operator-v2.yaml"),
+      "utf8",
+    )) as { paths: Record<string, Record<string, { operationId?: string }>> };
+    const operationIds = new Set(
+      Object.values(document.paths)
+        .flatMap((path) => Object.values(path).map((operation) => operation.operationId))
+        .filter((value): value is string => Boolean(value)),
+    );
+    for (const artifact of bundle.artifacts.filter((value) => value.kind === "action")) {
+      const adapter = (artifact.content as { adapter?: { operations?: Record<string, {
+        operationId: string;
+        mutationRoot: string;
+      }> } }).adapter;
+      for (const operation of Object.values(adapter?.operations ?? {})) {
+        expect(operationIds, `${artifact.path}:${operation.operationId}`).toContain(operation.operationId);
+        const snake = operation.operationId
+          .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+          .toLowerCase();
+        expect(operation.mutationRoot).toBe(`magento_operator_v2_${snake}`);
+      }
+    }
   });
 
   it("exposes operational customer data while retaining secret-only denials", async () => {
@@ -250,7 +305,7 @@ describe("drift-aware planning", () => {
     });
     expect(
       plan.entries.filter((entry) => entry.kind === "skill" && entry.action === "create"),
-    ).toHaveLength(6);
+    ).toHaveLength(8);
   });
 
   it("does not repeatedly retire an artifact already removed by an earlier upgrade", async () => {

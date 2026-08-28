@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFile, rename, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { parse, parseDocument } from "yaml";
 import {
   acquireGraphjinConfigLock,
@@ -69,7 +70,7 @@ async function persistPackSections(
   configFile: string,
   update: Record<string, unknown>,
 ): Promise<void> {
-  if (!update.tables && !update.relationships) return;
+  if (!update.roles && !update.tables && !update.relationships) return;
   const raw = await readFile(configFile, "utf8");
   const document = parseDocument(raw);
   if (document.errors.length > 0 || !document.contents) {
@@ -81,11 +82,64 @@ async function persistPackSections(
     // alias on a later config-file reload. Keep it ephemeral.
     document.set("tables", durablePackTables(update.tables));
   }
+  if (update.roles) document.set("roles", update.roles);
   if (update.relationships) document.set("relationships", update.relationships);
   const mode = (await stat(configFile)).mode & 0o777;
   const temporary = `${configFile}.${randomUUID()}.pack-sections`;
   await writeFile(temporary, document.toString(), { mode });
   await rename(temporary, configFile);
+}
+
+async function requestGraphjinRestart(configFile: string, endpoint: string): Promise<void> {
+  const directory = dirname(configFile);
+  const requestFile = join(directory, ".openneko-graphjin-restart");
+  const acknowledgementFile = join(directory, ".openneko-graphjin-restart-ack");
+  const token = randomUUID();
+  const temporary = `${requestFile}.${token}.tmp`;
+  await writeFile(temporary, token, { mode: 0o666 });
+  await rename(temporary, requestFile);
+
+  const deadline = Date.now() + 45_000;
+  while (Date.now() < deadline) {
+    const acknowledged = await readFile(acknowledgementFile, "utf8").catch(() => "");
+    if (acknowledged.trim() === token) {
+      try {
+        await fetch(endpoint, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ query: "query OpenNekoRestartReady { __typename }" }),
+          signal: AbortSignal.timeout(2_000),
+        });
+        return;
+      } catch {
+        // The supervisor acknowledged the replacement child; wait until its
+        // listener is reachable before returning control to pack canaries.
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    "graphjin_restart_required: the persisted pack config was not acknowledged by the GraphJin supervisor",
+  );
+}
+
+async function assertGraphjinSupervisor(configFile: string): Promise<void> {
+  const directory = dirname(configFile);
+  const pingFile = join(directory, ".openneko-graphjin-supervisor-ping");
+  const acknowledgementFile = join(directory, ".openneko-graphjin-supervisor-ping-ack");
+  const token = randomUUID();
+  const temporary = `${pingFile}.${token}.tmp`;
+  await writeFile(temporary, token, { mode: 0o666 });
+  await rename(temporary, pingFile);
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const acknowledged = await readFile(acknowledgementFile, "utf8").catch(() => "");
+    if (acknowledged.trim() === token) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(
+    "graphjin_restart_required: this deployment has not adopted the GraphJin supervisor",
+  );
 }
 
 /**
@@ -101,12 +155,17 @@ export async function applyPackGraphjinConfig(input: {
   update: Record<string, unknown>;
   ownedSourceNames?: Set<string>;
   sectionMode?: "merge" | "replace";
+  restartAfterPersist?: boolean;
 }): Promise<AppliedGraphjinConfig> {
   const release = await acquireGraphjinConfigLock({ configFile: input.configFile });
   try {
     const previous = await readFile(input.configFile);
     const previousMode = (await stat(input.configFile)).mode & 0o777;
+    if (input.restartAfterPersist) {
+      await assertGraphjinSupervisor(input.configFile);
+    }
     const durableConfig = parse(previous.toString("utf8")) as {
+      roles?: unknown;
       tables?: unknown;
       relationships?: unknown;
     };
@@ -120,6 +179,7 @@ export async function applyPackGraphjinConfig(input: {
     };
     const requestedTables = configArray(input.update.tables);
     const requestedRelationships = configArray(input.update.relationships);
+    const requestedRoles = configArray(input.update.roles);
     const requestedSources = configArray(input.update.update_sources);
     let appliedUpdate: Record<string, unknown> | null = null;
     let catalogRevision: string | null = null;
@@ -160,6 +220,15 @@ export async function applyPackGraphjinConfig(input: {
       }
       const update = {
         ...input.update,
+        ...(requestedRoles.length > 0
+          ? {
+              roles: mergeByKey(
+                configArray(durableConfig.roles),
+                requestedRoles,
+                (value) => String(value.name ?? ""),
+              ),
+            }
+          : {}),
         ...(input.sectionMode === "replace" && Object.hasOwn(input.update, "tables")
           ? { tables: requestedTables }
           : requestedTables.length > 0
@@ -274,12 +343,18 @@ export async function applyPackGraphjinConfig(input: {
       update: appliedUpdate,
     });
     await persistPackSections(input.configFile, appliedUpdate);
+    if (input.restartAfterPersist) {
+      await requestGraphjinRestart(input.configFile, input.endpoint);
+    }
     return {
       catalogRevision,
       restore: async () => {
         const temporary = `${input.configFile}.${randomUUID()}.pack-rollback`;
         await writeFile(temporary, previous, { mode: previousMode });
         await rename(temporary, input.configFile);
+        if (input.restartAfterPersist) {
+          await requestGraphjinRestart(input.configFile, input.endpoint);
+        }
       },
     };
   } finally {

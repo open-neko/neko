@@ -170,6 +170,7 @@ import {
 } from "./workflow-scheduler.js";
 import { PackService } from "./packs/service.js";
 import { registerPackActionPreflight } from "./packs/action-preflight.js";
+import { registerMagentoV2Runtime } from "./packs/magento-v2-runtime.js";
 
 const PORT: number = 4100;
 const MAX_JOB_RETRIES: number = 2;
@@ -539,7 +540,7 @@ const server = createServer(
         const request = await createActionRequest(
           input as Parameters<typeof createActionRequest>[0],
         );
-        return { id: request.id };
+        return { id: request.id, status: request.status };
       },
     },
     events: {
@@ -581,6 +582,8 @@ const server = createServer(
       configure: (packId, input) => packService.configure(packId, input),
       upgrade: (packId, input) => packService.upgrade(packId, input),
       uninstall: (packId, input) => packService.uninstall(packId, input),
+      magentoStoreManagement: () => packService.magentoStoreManagement(),
+      updateMagentoStoreManagement: (input) => packService.updateMagentoStoreManagement(input),
     },
     connect: {
       getConnectProviders: () => pluginRegistry?.getConnectProviders() ?? [],
@@ -746,6 +749,7 @@ const unregisterRecordArtifactImportPreflight = registerRecordArtifactImportActi
     }),
 });
 const unregisterPackActionPreflight = registerPackActionPreflight();
+const unregisterMagentoV2Runtime = registerMagentoV2Runtime();
 // Only now may the web process create action requests through this worker:
 // every worker-owned preflight hook is registered and will finish before the
 // request id is returned for an approval card.

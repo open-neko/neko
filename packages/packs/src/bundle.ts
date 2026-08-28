@@ -233,9 +233,9 @@ function validateArtifactReferences(artifacts: PackArtifact[]): void {
       requireQuery(artifact, watcher.query);
     } else if (artifact.kind === "action") {
       const adapter = recordArtifact(artifact).adapter as Record<string, unknown>;
-      requireSource(artifact, adapter.source);
+      if (adapter.source !== undefined) requireSource(artifact, adapter.source);
       for (const field of ["preconditionQuery", "mutationQuery", "reconciliationQuery"] as const) {
-        requireQuery(artifact, adapter[field]);
+        if (adapter[field] !== undefined) requireQuery(artifact, adapter[field]);
       }
     }
   }

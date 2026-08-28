@@ -55,7 +55,7 @@ function controlPlane(
       >;
     },
     async createActionRequest() {
-      return { id: "action-1" };
+      return { id: "action-1", status: "approved" };
     },
     async enqueueActionExecute() {},
     async waitForActionExecution() {

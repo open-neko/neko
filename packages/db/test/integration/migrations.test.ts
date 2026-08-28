@@ -31,6 +31,7 @@ const M_0005 = join(REPO_ROOT, "db", "migrations", "0005_metric_refresh_status.s
 const M_0006 = join(REPO_ROOT, "db", "migrations", "0006_work_runtime.sql");
 const M_0007 = join(REPO_ROOT, "db", "migrations", "0007_work_memory.sql");
 const M_0009 = join(REPO_ROOT, "db", "migrations", "0009_workflows.sql");
+const M_0011 = join(REPO_ROOT, "db", "migrations", "0011_action_stack.sql");
 const M_0019 = join(REPO_ROOT, "db", "migrations", "0019_install_policy_scope.sql");
 const M_0048 = join(REPO_ROOT, "db", "migrations", "0048_graphjin_config_scope.sql");
 const M_0051 = join(REPO_ROOT, "db", "migrations", "0051_app_state.sql");
@@ -40,6 +41,12 @@ const M_0063 = join(
   "db",
   "migrations",
   "0063_durable_workflow_scheduler.sql",
+);
+const M_0064 = join(
+  REPO_ROOT,
+  "db",
+  "migrations",
+  "0064_magento_store_management_v2.sql",
 );
 
 function uniqueDbName(): string {
@@ -366,6 +373,90 @@ describeIfDb("schema migrations", () => {
           where workflow_id = '00000000-0000-0000-0000-000000000063'
         `),
       ).rejects.toThrow(/check constraint|status/i);
+    });
+  });
+
+  it("0064 creates governed Magento change-sets and keeps Class 0 out of execution", async () => {
+    await withTempDb(async (client) => {
+      await applyFile(client, M_0001);
+      await applyFile(client, M_0006);
+      await applyFile(client, M_0009);
+      await applyFile(client, M_0011);
+      await applyFile(client, M_0064);
+      await applyFile(client, M_0064);
+
+      const tables = await client.query<{ table_name: string }>(`
+        select table_name from information_schema.tables
+         where table_schema = 'public'
+           and table_name in (
+             'action_changeset', 'action_changeset_row',
+             'magento_store_control', 'magento_attribute_classification',
+             'magento_auto_rule', 'magento_financial_handoff'
+           )
+         order by table_name
+      `);
+      expect(tables.rows.map((row) => row.table_name)).toEqual([
+        "action_changeset",
+        "action_changeset_row",
+        "magento_attribute_classification",
+        "magento_auto_rule",
+        "magento_financial_handoff",
+        "magento_store_control",
+      ]);
+
+      await client.query(`
+        insert into organization (id, name) values ('magento-v2-org', 'Magento V2');
+        insert into action_request (id, org_id, scope, kind, status)
+        values (
+          '00000000-0000-0000-0000-000000000064',
+          'magento-v2-org', 'external', 'magento.manage_catalog', 'approved'
+        );
+        insert into action_changeset
+          (id, org_id, action_request_id, domain, operation_id, risk_class,
+           status, summary, idempotency_key)
+        values (
+          '10000000-0000-0000-0000-000000000064',
+          'magento-v2-org', '00000000-0000-0000-0000-000000000064',
+          'catalog', 'product_update', 2, 'approved', 'Rename product', 'fixture-0064'
+        );
+        insert into action_changeset_row
+          (changeset_id, row_index, entity_ref, operation_id, before_image,
+           after_image, expected_current)
+        values (
+          '10000000-0000-0000-0000-000000000064', 0, 'SKU-1', 'product_update',
+          '{"name":"Before"}', '{"product":{"name":"After"}}', '{"name":"Before"}'
+        );
+        insert into action_execution
+          (org_id, action_request_id, executor, status, changeset_id)
+        values (
+          'magento-v2-org', '00000000-0000-0000-0000-000000000064',
+          'magento_ops_executor', 'succeeded',
+          '10000000-0000-0000-0000-000000000064'
+        );
+        insert into magento_financial_handoff
+          (org_id, kind, entity_ref, status, draft, evidence)
+        values (
+          'magento-v2-org', 'online_refund', 'order:100000001',
+          'ready_for_human', '{"amount":10}', '{"creditMemo":"draft"}'
+        );
+      `);
+
+      await expect(client.query(`
+        insert into action_changeset
+          (org_id, domain, operation_id, risk_class, summary, idempotency_key)
+        values ('magento-v2-org', 'orders', 'online_refund', 0, 'Forbidden', 'class-zero')
+      `)).rejects.toThrow(/risk_class|check constraint/i);
+      await expect(client.query(`
+        insert into action_changeset
+          (org_id, domain, operation_id, risk_class, summary, idempotency_key)
+        values ('magento-v2-org', 'catalog', 'product_update', 2, 'Duplicate', 'fixture-0064')
+      `)).rejects.toThrow(/unique|duplicate/i);
+
+      const linked = await client.query<{ count: string }>(`
+        select count(*)::text as count from action_execution
+         where changeset_id = '10000000-0000-0000-0000-000000000064'
+      `);
+      expect(linked.rows[0]?.count).toBe("1");
     });
   });
 

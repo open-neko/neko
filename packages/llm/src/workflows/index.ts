@@ -207,6 +207,7 @@ export {
 } from "./cycle-detection";
 export {
   approveActionRequest,
+  autoApprovePreparedActionRequest,
   createActionPolicy,
   createActionRequest,
   finishActionExecution,

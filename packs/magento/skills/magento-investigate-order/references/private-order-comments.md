@@ -1,11 +1,13 @@
 # Governed private order comments
 
-The pack supports only `magento.add_internal_order_comment`. Use it only after
-the user explicitly asks to record a note and an OpenNeko administrator
-approves the proposed action.
+The pack supports private notes through the `add_internal_comment` operation
+of `magento.manage_orders`. Use it only after the user explicitly asks to
+record a note and the governed change-set is approved or matches a stored,
+capped Class 2 rule.
 
-Supply the resolved numeric Magento order `entity_id` and a concise factual
-comment. The adapter fixes these values and they must not be overridden:
+Supply the resolved numeric Magento order `entity_id` as `path.id`, a concise
+factual comment in `body.statusHistory`, a named store scope, and a stable
+idempotency key. These values must not be overridden:
 
 ```json
 {

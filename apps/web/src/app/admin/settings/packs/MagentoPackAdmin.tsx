@@ -23,6 +23,50 @@ type DoctorResult = {
   checks: Array<{ id: string; status: string; detail: string }>;
 };
 
+type StoreControl = {
+  domain: string;
+  riskClass: number;
+  enabled: boolean;
+  autoExecute: boolean;
+  readiness: string;
+  readinessReason: string | null;
+  caps: Record<string, number>;
+};
+
+type StoreManagement = {
+  controls: StoreControl[];
+  rules: Array<{
+    id: string;
+    name: string;
+    instruction: string;
+    domain: string;
+    actionKind: string;
+    dailyCap: number;
+    cooldownSeconds: number;
+    enabled: boolean;
+    suspendedReason: string | null;
+  }>;
+  changesets: Array<{
+    id: string;
+    domain: string;
+    operationId: string;
+    riskClass: number;
+    status: string;
+    summary: string;
+    bulkUuid: string | null;
+    inverseOfId: string | null;
+    createdAt: string;
+  }>;
+  handoffs: Array<{
+    id: string;
+    kind: string;
+    entityRef: string;
+    status: string;
+    createdAt: string;
+  }>;
+  classZero: { executePath: false; handoffKinds: string[] };
+};
+
 type FormState = {
   baseUrl: string;
   databaseHost: string;
@@ -56,6 +100,27 @@ const REPORTING_LOGIN_REQUEST = `Please create a dedicated read-only MariaDB/MyS
 Grant only SELECT and SHOW VIEW on the Magento database. Do not grant INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, ALL PRIVILEGES, or GRANT OPTION.
 
 Please send me the database hostname, port, database name, username, and password, and allow connections from the server running OpenNeko.`;
+
+const CAP_LABELS: Record<string, string> = {
+  maxRowsPerChangeset: "Rows per change-set",
+  maxPriceDeltaPercent: "Price delta (%)",
+  maxDiscountPercent: "Discount (%)",
+  maxCouponCount: "Coupons",
+  maxProjectedExposure: "Projected exposure",
+  maxDailyAutoActions: "Automatic actions/day",
+  skuCooldownSeconds: "Entity cooldown (seconds)",
+};
+
+function visibleCaps(control: StoreControl): Array<[string, number]> {
+  const keys = ["maxRowsPerChangeset", "maxDailyAutoActions", "skuCooldownSeconds"];
+  if (control.domain === "catalog") keys.push("maxPriceDeltaPercent");
+  if (control.domain === "promotions") {
+    keys.push("maxDiscountPercent", "maxCouponCount", "maxProjectedExposure");
+  }
+  return keys.flatMap((key) =>
+    typeof control.caps[key] === "number" ? [[key, control.caps[key]] as [string, number]] : [],
+  );
+}
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, cache: "no-store" });
@@ -94,12 +159,20 @@ function checkTone(status: string): string {
 export default function MagentoPackAdmin() {
   const [status, setStatus] = useState<PackStatus | null>(null);
   const [doctor, setDoctor] = useState<DoctorResult | null>(null);
+  const [management, setManagement] = useState<StoreManagement | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [advanced, setAdvanced] = useState(false);
   const [rotateCredentials, setRotateCredentials] = useState(false);
   const [clearIntegrationToken, setClearIntegrationToken] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
+  const [rule, setRule] = useState({
+    name: "",
+    instruction: "",
+    domain: "catalog",
+    dailyCap: "5",
+    cooldownSeconds: "3600",
+  });
 
   const refresh = useCallback(async (runDoctor = false) => {
     setLoading(true);
@@ -109,10 +182,16 @@ export default function MagentoPackAdmin() {
         throw error;
       });
       setStatus(nextStatus);
-      if (nextStatus && nextStatus.status !== "removed" && runDoctor) {
-        setDoctor(await api<DoctorResult>("/api/admin/packs/magento/doctor"));
+      if (nextStatus && nextStatus.status !== "removed") {
+        const [nextManagement, nextDoctor] = await Promise.all([
+          api<StoreManagement>("/api/admin/packs/magento/store-management"),
+          runDoctor ? api<DoctorResult>("/api/admin/packs/magento/doctor") : Promise.resolve(null),
+        ]);
+        setManagement(nextManagement);
+        if (nextDoctor) setDoctor(nextDoctor);
       } else if (!nextStatus || nextStatus.status === "removed") {
         setDoctor(null);
+        setManagement(null);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -238,6 +317,56 @@ export default function MagentoPackAdmin() {
     }
   }
 
+  async function updateStoreManagement(
+    key: string,
+    input: Record<string, unknown>,
+    success: string,
+  ) {
+    setBusy(key);
+    try {
+      const next = await api<StoreManagement>("/api/admin/packs/magento/store-management", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      setManagement(next);
+      toast.success(success);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function createRule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const eligibleDomains = management?.controls.filter(
+      (control) => control.enabled && control.autoExecute && control.riskClass === 2,
+    ) ?? [];
+    const domain = eligibleDomains.some((control) => control.domain === rule.domain)
+      ? rule.domain
+      : eligibleDomains[0]?.domain;
+    if (!domain) {
+      toast.error("Enable capped Class 2 rules on a domain first.");
+      return;
+    }
+    await updateStoreManagement(
+      "create-rule",
+      {
+        action: "create_rule",
+        name: rule.name,
+        instruction: rule.instruction,
+        domain,
+        actionKind: `magento.manage_${domain}`,
+        dailyCap: Number(rule.dailyCap),
+        cooldownSeconds: Number(rule.cooldownSeconds),
+        enabled: true,
+      },
+      "Automatic rule saved with its own cap and cooldown.",
+    );
+    setRule((current) => ({ ...current, name: "", instruction: "" }));
+  }
+
   const installed = status && status.status !== "removed";
 
   return (
@@ -294,6 +423,184 @@ export default function MagentoPackAdmin() {
               ))}
             </div>
           </section>
+
+          {management ? (
+            <section className="settings-card">
+              <div className="settings-card-head">
+                <div>
+                  <h2 className="settings-card-title">Store change access</h2>
+                  <p className="settings-card-copy">Choose which domains can prepare changes. Sensitive fields still escalate to Class 1 approval, and every write is reconciled against Magento.</p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {management.controls.map((control) => (
+                  <div key={control.domain} className="rounded-xl border border-border px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <strong className="text-sm capitalize text-text">{control.domain}</strong>
+                        <p className="mt-1 text-ui-body-sm text-text3">Default Class {control.riskClass}{control.riskClass === 2 ? " · unknown or sensitive fields require approval" : " · human approval required"}</p>
+                        <p className={`mt-2 text-xs font-semibold ${control.readiness === "ready" && control.enabled ? "text-success-ink" : "text-text3"}`}>
+                          {control.readiness !== "ready" || !control.enabled
+                            ? "View only"
+                            : control.autoExecute
+                              ? "Auto within rules"
+                              : "Approved changes"}
+                          {control.readinessReason && control.readiness !== "ready"
+                            ? ` · ${control.readinessReason.replaceAll("_", " ")}`
+                            : ""}
+                        </p>
+                      </div>
+                      <label className="flex items-center gap-2 text-xs font-semibold text-text2">
+                        <input
+                          type="checkbox"
+                          checked={control.enabled}
+                          disabled={busy !== null}
+                          onChange={(event) => void updateStoreManagement(
+                            `domain-${control.domain}`,
+                            { action: "update_domain", domain: control.domain, enabled: event.target.checked },
+                            `${control.domain} change access updated.`,
+                          )}
+                        />
+                        Enabled
+                      </label>
+                    </div>
+                    <label className="mt-4 flex items-center gap-2 text-ui-body-sm text-text2">
+                      <input
+                        type="checkbox"
+                        checked={control.autoExecute}
+                        disabled={busy !== null || !control.enabled || control.riskClass !== 2}
+                        onChange={(event) => void updateStoreManagement(
+                          `auto-${control.domain}`,
+                          { action: "update_domain", domain: control.domain, autoExecute: event.target.checked },
+                          `${control.domain} automatic execution updated.`,
+                        )}
+                      />
+                      Allow capped Class 2 rules
+                    </label>
+                    <p className="mt-2 text-xs leading-[1.45] text-text3">Up to {control.caps.maxRowsPerChangeset ?? 0} rows per change-set; {control.caps.maxDailyAutoActions ?? 0} automatic actions per day.</p>
+                    <details className="mt-3 border-t border-border pt-3">
+                      <summary className="cursor-pointer text-xs font-semibold text-text2">Edit caps</summary>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {visibleCaps(control).map(([key, value]) => (
+                          <label key={`${control.domain}-${key}`} className="flex flex-col gap-1 text-xs text-text3">
+                            {CAP_LABELS[key] ?? key}
+                            <input
+                              key={`${control.domain}-${key}-${value}`}
+                              type="number"
+                              min="0"
+                              defaultValue={value}
+                              disabled={busy !== null}
+                              className="rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-text outline-none focus:border-accent"
+                              onBlur={(event) => {
+                                const next = Number(event.target.value);
+                                if (Number.isFinite(next) && next >= 0 && next !== value) {
+                                  void updateStoreManagement(
+                                    `cap-${control.domain}-${key}`,
+                                    { action: "update_domain", domain: control.domain, caps: { [key]: next } },
+                                    `${control.domain} cap updated.`,
+                                  );
+                                }
+                              }}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3">
+                <strong className="text-sm text-text">Class 0 boundary</strong>
+                <p className="mt-1 text-ui-body-sm leading-[1.5] text-text2">OpenNeko cannot issue online refunds, approve returns, change financial configuration, or perform money-out operations. It prepares evidence and a Magento Admin handoff only.</p>
+              </div>
+
+              <div className="mt-6 border-t border-border pt-5">
+                <h3 className="text-sm font-semibold text-text">Capped automatic rules</h3>
+                <p className="mt-1 text-ui-body-sm text-text3">Rules only run for an enabled Class 2 domain and stop at their daily cap or per-entity cooldown.</p>
+                {management.controls.some((control) => control.enabled && control.autoExecute && control.riskClass === 2) ? (
+                  <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={createRule}>
+                    <label className={FIELD}>
+                      <span className={LABEL}>Rule name</span>
+                      <input required maxLength={120} className={INPUT} value={rule.name} onChange={(event) => setRule((current) => ({ ...current, name: event.target.value }))} />
+                    </label>
+                    <label className={FIELD}>
+                      <span className={LABEL}>Domain</span>
+                      <select className={INPUT} value={rule.domain} onChange={(event) => setRule((current) => ({ ...current, domain: event.target.value }))}>
+                        {management.controls.filter((control) => control.enabled && control.autoExecute && control.riskClass === 2).map((control) => <option key={control.domain} value={control.domain}>{control.domain}</option>)}
+                      </select>
+                    </label>
+                    <label className={`${FIELD} sm:col-span-2`}>
+                      <span className={LABEL}>Plain-language instruction</span>
+                      <textarea required maxLength={1000} rows={3} className={INPUT} value={rule.instruction} onChange={(event) => setRule((current) => ({ ...current, instruction: event.target.value }))} />
+                    </label>
+                    <label className={FIELD}>
+                      <span className={LABEL}>Daily cap</span>
+                      <input required type="number" min="1" className={INPUT} value={rule.dailyCap} onChange={(event) => setRule((current) => ({ ...current, dailyCap: event.target.value }))} />
+                    </label>
+                    <label className={FIELD}>
+                      <span className={LABEL}>Entity cooldown (seconds)</span>
+                      <input required type="number" min="0" className={INPUT} value={rule.cooldownSeconds} onChange={(event) => setRule((current) => ({ ...current, cooldownSeconds: event.target.value }))} />
+                    </label>
+                    <div className="sm:col-span-2"><Button type="submit" disabled={busy !== null}>{busy === "create-rule" ? "Saving…" : "Save automatic rule"}</Button></div>
+                  </form>
+                ) : (
+                  <p className="mt-3 rounded-lg bg-bg2 px-3 py-3 text-ui-body-sm text-text3">Enable “Allow capped Class 2 rules” on a Class 2 domain before creating a rule.</p>
+                )}
+                {management.rules.length > 0 ? (
+                  <ul className="mt-4 flex flex-col gap-2">
+                    {management.rules.map((item) => (
+                      <li key={item.id} className="flex items-start justify-between gap-3 rounded-xl border border-border px-4 py-3">
+                        <div>
+                          <strong className="text-sm text-text">{item.name}</strong>
+                          <p className="mt-1 text-ui-body-sm text-text3">{item.instruction}</p>
+                          <p className="mt-1 text-xs capitalize text-text3">{item.domain} · {item.dailyCap}/day · {item.cooldownSeconds}s cooldown{item.suspendedReason ? ` · ${item.suspendedReason.replaceAll("_", " ")}` : ""}</p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          disabled={busy !== null}
+                          onClick={() => void updateStoreManagement(
+                            `rule-${item.id}`,
+                            { action: "set_rule_status", ruleId: item.id, enabled: !item.enabled },
+                            item.enabled ? "Automatic rule suspended." : "Automatic rule enabled.",
+                          )}
+                        >{item.enabled ? "Suspend" : "Enable"}</Button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+
+              <div className="mt-6 border-t border-border pt-5">
+                <h3 className="text-sm font-semibold text-text">Recent change-sets and handoffs</h3>
+                {management.changesets.length === 0 && management.handoffs.length === 0 ? (
+                  <p className="mt-2 text-ui-body-sm text-text3">No Magento changes have been exercised yet.</p>
+                ) : (
+                  <ul className="mt-3 flex flex-col gap-2">
+                    {management.changesets.slice(0, 8).map((changeset) => (
+                      <li key={changeset.id} className="rounded-xl border border-border px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <strong className="text-sm text-text">{changeset.summary}</strong>
+                            <p className="mt-1 text-xs capitalize text-text3">{changeset.domain} · {changeset.operationId.replaceAll("_", " ")} · Class {changeset.riskClass}{changeset.inverseOfId ? " · inverse" : ""}</p>
+                          </div>
+                          <span className="text-xs font-semibold uppercase tracking-wide text-text2">{changeset.status.replaceAll("_", " ")}</span>
+                        </div>
+                      </li>
+                    ))}
+                    {management.handoffs.slice(0, 4).map((handoff) => (
+                      <li key={handoff.id} className="rounded-xl border border-border px-4 py-3">
+                        <strong className="text-sm text-text">Magento Admin handoff · {handoff.kind.replaceAll("_", " ")}</strong>
+                        <p className="mt-1 text-xs text-text3">{handoff.entityRef} · {handoff.status.replaceAll("_", " ")}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+          ) : null}
 
           {doctor ? (
             <section className="settings-card">

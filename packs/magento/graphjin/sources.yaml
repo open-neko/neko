@@ -73,27 +73,27 @@ sources:
         - cc_debug_response_serialized
         - echeck_routing_number
 
-  # This source is installed unconditionally but cannot execute writes until
-  # pack readiness validates the released GraphJin capability, token, and ACL.
+  # This source is installed unconditionally; runtime configuration blocks it
+  # unless pack readiness validates the Integration token and domain ACL.
   - key: source.magento_operator
     name: magento_operator
     kind: api
     default: false
     base_url: "{{magento.base_url}}"
-    openapi: graphjin/specs/magento-operator-v1.yaml
+    openapi: graphjin/specs/magento-operator-v2.yaml
     auth:
       type: bearer
       token: "{{secret.magento.integration_token}}"
-    read_only: true
+    read_only: false
     capabilities:
       api.read: true
-      api.write: false
-      api.delete: false
+      api.write: true
+      api.delete: true
     access:
       read: authenticated
-      write: blocked
-      delete: blocked
+      write: authenticated
+      delete: authenticated
     readiness:
       capability: operator
       enable_when: [graphjin-mutations, magento-api-token, magento-api-acl]
-      write_role: magento_action_executor
+      write_roles: [magento_ops_executor, magento_sensitive_executor]

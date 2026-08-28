@@ -98,11 +98,11 @@ export async function handleWorkflowActionViaControlPlane(
     kind: args.kind,
     scope: args.scope,
     risk_level: args.risk_level,
-    decision: status === "approved" ? "auto_approved" : "pending_approval",
+    decision: request.status === "approved" ? "auto_approved" : "pending_approval",
     ...(args.summary ? { summary: args.summary } : {}),
   });
 
-  if (status === "approved") {
+  if (request.status === "approved") {
     await ctx.controlPlane.enqueueActionExecute({
       orgId: ctx.orgId,
       actionRequestId: request.id,

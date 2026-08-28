@@ -569,6 +569,47 @@ export async function approveActionRequest(args: {
 }
 
 /**
+ * Promote a request only after a trusted preflight has classified and capped it.
+ * This is deliberately separate from human approval: no approver identity is
+ * fabricated, and adapters can still require one for sensitive/Class 1 work.
+ */
+export async function autoApprovePreparedActionRequest(args: {
+  id: string;
+  orgId: string;
+  reason: string;
+}): Promise<ActionRequestRecord> {
+  const existing = await getActionRequest(args.orgId, args.id);
+  if (!existing) throw new Error(`action_request ${args.id} not found`);
+  assertTransition(existing.status, "approved", ["draft", "pending_approval"]);
+  const [row] = await db()
+    .update(action_request)
+    .set({
+      status: "approved",
+      approved_by_user_id: null,
+      approved_at: new Date(),
+      updated_at: new Date(),
+    })
+    .where(
+      and(
+        eq(action_request.org_id, args.orgId),
+        eq(action_request.id, args.id),
+      ),
+    )
+    .returning();
+  if (!row) throw new Error(`action_request ${args.id} not found`);
+  const record = toRequestRecord(row);
+  const { recordAuditEvent } = await import("./audit-chain");
+  await recordAuditEvent({
+    orgId: args.orgId,
+    entityKind: "action_request",
+    entityId: record.id,
+    event: "auto_approved:prepared",
+    payload: { kind: record.kind, reason: args.reason },
+  });
+  return record;
+}
+
+/**
  * K2: enforce the matched policy's approver_role for a decision. Admin
  * always may; member may unless the policy demands a different role;
  * service principals never decide.
@@ -656,6 +697,7 @@ export type ActionExecutionRecord = {
   id: string;
   orgId: string;
   actionRequestId: string;
+  changesetId: string | null;
   executor: string;
   commandOrOperation: string | null;
   payload: Record<string, unknown> | null;
@@ -675,6 +717,7 @@ function toExecutionRecord(
     id: row.id,
     orgId: row.org_id,
     actionRequestId: row.action_request_id,
+    changesetId: row.changeset_id,
     executor: row.executor,
     commandOrOperation: row.command_or_operation,
     payload: (row.payload as Record<string, unknown> | null) ?? null,
@@ -692,6 +735,7 @@ export async function recordActionExecution(args: {
   orgId: string;
   actionRequestId: string;
   executor: string;
+  changesetId?: string | null;
   commandOrOperation?: string | null;
   payload?: Record<string, unknown> | null;
 }): Promise<ActionExecutionRecord> {
@@ -700,6 +744,7 @@ export async function recordActionExecution(args: {
     .values({
       org_id: args.orgId,
       action_request_id: args.actionRequestId,
+      changeset_id: args.changesetId ?? null,
       executor: args.executor,
       command_or_operation: args.commandOrOperation ?? null,
       payload: args.payload ?? null,
@@ -715,6 +760,8 @@ export async function finishActionExecution(args: {
   status: "succeeded" | "failed";
   result?: Record<string, unknown> | null;
   externalRef?: string | null;
+  changesetId?: string | null;
+  commandOrOperation?: string | null;
   error?: string | null;
 }): Promise<ActionExecutionRecord> {
   const [row] = await db()
@@ -723,6 +770,10 @@ export async function finishActionExecution(args: {
       status: args.status,
       result: args.result ?? null,
       external_ref: args.externalRef ?? null,
+      ...(args.changesetId !== undefined ? { changeset_id: args.changesetId } : {}),
+      ...(args.commandOrOperation !== undefined
+        ? { command_or_operation: args.commandOrOperation }
+        : {}),
       error: args.error ?? null,
       finished_at: new Date(),
     })

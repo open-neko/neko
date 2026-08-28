@@ -1,8 +1,0 @@
-query MagentoOrderCommentPrecondition($orderId: BigInt!) {
-  sales_order(where: {entity_id: {eq: $orderId}}, limit: 1) {
-    entity_id
-    increment_id
-    state
-    status
-  }
-}

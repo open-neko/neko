@@ -89,7 +89,7 @@ export async function createActionRequestViaWorker(
   baseUrl: string,
   input: CreateActionRequestInput,
   fetchImpl: typeof fetch = fetch,
-): Promise<{ id: string }> {
+): Promise<{ id: string; status: string }> {
   const url = `${baseUrl.replace(/\/$/, "")}/admin/action-requests/create`;
   const response = await fetchImpl(url, {
     method: "POST",
@@ -98,7 +98,7 @@ export async function createActionRequestViaWorker(
     signal: AbortSignal.timeout(65_000),
   });
   const body = (await response.json().catch(() => null)) as
-    | { id?: unknown; error?: unknown }
+    | { id?: unknown; status?: unknown; error?: unknown }
     | null;
   if (!response.ok) {
     const message =
@@ -107,10 +107,15 @@ export async function createActionRequestViaWorker(
         : `worker action preflight failed with status ${response.status}`;
     throw new Error(message);
   }
-  if (!body || typeof body.id !== "string" || !body.id) {
+  if (
+    !body ||
+    typeof body.id !== "string" ||
+    !body.id ||
+    typeof body.status !== "string"
+  ) {
     throw new Error("worker action preflight returned an invalid response");
   }
-  return { id: body.id };
+  return { id: body.id, status: body.status };
 }
 
 export function assertReadOnlyGraphql(query: string): void {
@@ -467,7 +472,7 @@ export interface AgentControlPlane {
   evaluateActionPolicy(
     input: { orgId: string } & PolicyRequestSubject,
   ): Promise<PolicyDecision>;
-  createActionRequest(input: CreateActionRequestInput): Promise<{ id: string }>;
+  createActionRequest(input: CreateActionRequestInput): Promise<{ id: string; status: string }>;
   enqueueActionExecute(input: {
     orgId: string;
     actionRequestId: string;
@@ -810,7 +815,7 @@ export class InProcessControlPlane implements AgentControlPlane {
 
   async createActionRequest(
     input: CreateActionRequestInput,
-  ): Promise<{ id: string }> {
+  ): Promise<{ id: string; status: string }> {
     if (input.kind === "source_config_admin") {
       const gate = await requireSourceConfigAccess({
         orgId: input.orgId,
@@ -826,7 +831,7 @@ export class InProcessControlPlane implements AgentControlPlane {
       return createActionRequestViaWorker(workerAdminUrl, input);
     }
     const request = await createActionRequest(input);
-    return { id: request.id };
+    return { id: request.id, status: request.status };
   }
 
   async enqueueActionExecute(input: {

@@ -15,6 +15,7 @@ export type ActionExecutionOutcome = {
   externalRef?: string | null;
   result?: Record<string, unknown> | null;
   commandOrOperation?: string | null;
+  changesetId?: string | null;
 };
 
 export type ActionAdapter = (
@@ -134,6 +135,8 @@ export async function executeApprovedActionRequest(
       status: "succeeded",
       result: outcome.result ?? null,
       externalRef: outcome.externalRef ?? null,
+      changesetId: outcome.changesetId ?? null,
+      commandOrOperation: outcome.commandOrOperation ?? null,
     });
     await markActionRequestExecuted(request.id);
     return { ok: true, outcome };

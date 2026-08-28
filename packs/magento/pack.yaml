@@ -3,7 +3,7 @@ kind: SolutionPack
 metadata:
   id: magento
   name: Magento
-  version: 0.2.1
+  version: 0.3.0
   publisher: openneko
   category: commerce
 
@@ -11,10 +11,7 @@ compatibility:
   openneko: ">=2.27.0 <3.0.0"
   graphjin:
     analytics: ">=3.18.42 <4.0.0"
-    # Replaced with an exact released floor as part of the GraphJin handoff.
-    # Keeping this explicit prevents an unreleased write capability from being
-    # treated as production-ready while allowing the full pack to install.
-    operator: "UNRELEASED_OPENAPI_MUTATION_VERSION"
+    operator: ">=3.20.47 <4.0.0"
   applications:
     - id: magento
       editions: [open-source, adobe-commerce]
@@ -58,6 +55,30 @@ inputs:
     type: enum
     values: [mariadb, mysql]
     discover: true
+  - key: magento.max_rows_per_changeset
+    type: integer
+    default: 500
+  - key: magento.max_price_delta_percent
+    type: integer
+    default: 10
+  - key: magento.max_discount_percent
+    type: integer
+    default: 30
+  - key: magento.max_coupon_count
+    type: integer
+    default: 500
+  - key: magento.max_projected_exposure
+    type: integer
+    default: 5000
+  - key: magento.max_daily_auto_actions
+    type: integer
+    default: 25
+  - key: magento.sku_cooldown_seconds
+    type: integer
+    default: 3600
+  - key: magento.customers_enabled
+    type: boolean
+    default: false
 
 secrets:
   - key: database.analytics_username
@@ -72,7 +93,9 @@ artifacts:
   graphjin:
     sources: graphjin/sources.yaml
     relationships: graphjin/relationships.yaml
-    specs: [graphjin/specs/magento-operator-v1.yaml]
+    specs:
+      - graphjin/specs/magento-operator-v1.yaml
+      - graphjin/specs/magento-operator-v2.yaml
     savedQueries: graphjin/saved-queries
   metrics: metrics
   workflows: workflows
@@ -86,10 +109,17 @@ artifacts:
     - skills/magento-investigate-refunds
     - skills/magento-check-inventory
     - skills/magento-diagnose-platform-health
+    - skills/magento-manage-catalog
+    - skills/magento-run-promotions
 
 health:
-  requiredPreflight: [mariadb-connect, mariadb-read-only, magento-version]
+  requiredPreflight: [mariadb-connect, mariadb-read-only, magento-version, magento-scopes]
   readiness:
-    operator: [graphjin-mutations, magento-api-token, magento-api-acl]
-  postInstall: [graphjin-reload, analytics-smoke]
-  postWriteCanary: [internal-comment-reconciled]
+    catalog: [graphjin-mutations, magento-api-token, magento-catalog-acl]
+    inventory: [graphjin-mutations, magento-api-token, magento-inventory-acl, magento-bulk-consumers]
+    orders: [graphjin-mutations, magento-api-token, magento-orders-acl]
+    promotions: [graphjin-mutations, magento-api-token, magento-promotions-acl]
+    content: [graphjin-mutations, magento-api-token, magento-content-acl]
+    customers: [graphjin-mutations, magento-api-token, magento-customers-acl, magento-customers-enabled]
+  postInstall: [graphjin-restart-if-required, analytics-smoke, operator-catalog-smoke]
+  postWriteCanary: [domain-reconciled, indexer-state-recorded]

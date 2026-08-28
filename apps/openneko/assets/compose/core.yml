@@ -315,6 +315,7 @@ services:
           KEY=$$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64"))')
           sed -i "s|REPLACE_WITH_BASE64_32_BYTE_KEY|$$KEY|" /config/agentic.yml
         fi
+        cp /app/scripts/graphjin-supervisor.sh /config/.openneko-graphjin-supervisor.sh
         chmod -R a+rwX /config
     volumes:
       - openneko-graphjin-cli:/config
@@ -368,7 +369,7 @@ services:
     # pinned GraphJin binary, so a full install does not pull a second 120 MiB
     # runtime. Overriding the records entrypoint selects vanilla GraphJin.
     image: ${OPENNEKO_GRAPHJIN_IMAGE:-ghcr.io/open-neko/records-graphjin:${OPENNEKO_VERSION:-latest}}
-    entrypoint: ["graphjin"]
+    entrypoint: ["/bin/sh", "/config/.openneko-graphjin-supervisor.sh"]
     restart: unless-stopped
     depends_on:
       graphjin-config-init:
