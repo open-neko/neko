@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.32.0](https://github.com/open-neko/openneko/compare/v2.31.0...v2.32.0) (2026-08-28)
+
+
+### Features
+
+* **work:** add clarification flow and secure artifact downloads ([24a59b9](https://github.com/open-neko/openneko/commit/24a59b95131392bd54544f08f0bcc2e1358dad77))
+
 ## [2.31.0](https://github.com/open-neko/openneko/compare/v2.30.8...v2.31.0) (2026-08-28)
 
 
