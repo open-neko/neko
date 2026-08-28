@@ -54,8 +54,9 @@ Per-source write enablement goes through `request_source_config_change`
 proposals that an admin approves, then GraphJin's two-phase `gj_config`
 preview and apply, then the durable file. `enable_api_writes { source, spec,
 operation, allowedRoles, write?, exposeAs? }` carries every setting in one
-update: `capabilities.api.write` and the operation's `expose_mutation` plus
-`allowed_roles` in `update_sources`, and `access.write` in `source_patches`.
+update: `read_only: false`, `capabilities.api.write`, and the operation's
+`expose_mutation` plus `allowed_roles` in `update_sources`, and `access.write`
+in `source_patches`.
 Verified live on 3.20.47: one preview, one apply, then
 `mutation { shop_create_order(call: { body: { note: "x" } }) { ok status_code } }`
 reached the upstream API for `admin` and was refused at `allowed_roles` for

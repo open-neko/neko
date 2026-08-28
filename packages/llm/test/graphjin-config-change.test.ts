@@ -382,6 +382,7 @@ describe("enable_api_writes", () => {
       update_sources: [
         {
           name: "shop-api",
+          read_only: false,
           capabilities: { "api.write": true },
           specs: {
             shop: {

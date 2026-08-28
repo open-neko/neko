@@ -268,9 +268,12 @@ export async function buildGraphjinConfigUpdate(
     if (payload.apiDelete === true) capabilities["api.delete"] = true;
     // One update carries every write setting, so a single approval and a
     // single GraphJin apply open the operation.
+    // Packs ship API sources with read_only: true; GraphJin's source gate
+    // checks that flag before capabilities, access, and allowed_roles.
     update.update_sources = [
       {
         name: source,
+        read_only: false,
         capabilities,
         specs: { [spec]: { operations: { [operation]: operationPatch } } },
       },
