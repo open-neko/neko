@@ -43,6 +43,36 @@ no block. A write against an API source still needs, per source, `read_only`
 unset, `capabilities.api.write: true`, `access.write` set to `authenticated` or
 `admin`, and `expose_mutation: true` plus `allowed_roles` on the operation.
 
+### Governed API writes through the config workflow
+
+Nobody edits the GraphJin file by hand. The `graphjin-secret-init` one-shot
+and the worker's boot pass run `reconcileGraphjinWritePolicy`, which brings an
+existing sources-mode config up to the shipped policy (`mcp.allow_mutations`,
+`raw_graphql.mutate`, the `member` and `service` roles) before GraphJin starts.
+
+Per-source write enablement goes through `request_source_config_change`
+proposals that an admin approves, then GraphJin's two-phase `gj_config`
+preview and apply, then the durable file. `enable_api_writes { source, spec,
+operation, allowedRoles, write?, exposeAs? }` carries every setting in one
+update: `capabilities.api.write` and the operation's `expose_mutation` plus
+`allowed_roles` in `update_sources`, and `access.write` in `source_patches`.
+Verified live on 3.20.47: one preview, one apply, then
+`mutation { shop_create_order(call: { body: { note: "x" } }) { ok status_code } }`
+reached the upstream API for `admin` and was refused at `allowed_roles` for
+`member`. `set_source_capabilities` and `expose_api_operation` adjust one
+setting on a source that already has writes enabled.
+
+`assertDatabaseSourcesStayReadOnly` runs at preview and again at approved
+execution and rejects any write setting on a database source, or on a source
+whose kind GraphJin does not report. Admin > Settings > GraphJin Config has an
+"Enable API writes" launcher.
+
+Known GraphJin 3.20.47 limit: while an `api` source is configured, the first
+`gj_config` update after engine start completes, and the next one blocks
+inside the config pipeline until GraphJin restarts (repro in the PR). One
+combined proposal per API source stays inside that limit; a further change
+needs a GraphJin restart first.
+
 ### Lazy catalogs
 
 The sandbox bridge connects every logical server in memory at startup and

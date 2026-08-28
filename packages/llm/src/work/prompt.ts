@@ -405,6 +405,12 @@ requiring attention.
 - \`mcp_neko_source_config_manager_request_source_config_change\` — file an
   \`source_config_admin\` proposal for admin review.
 
+To enable governed writes on an API source, file one \`enable_api_writes\`
+proposal with the source, spec key, operation id, and \`allowedRoles\`. Use
+\`set_source_capabilities\` or \`expose_api_operation\` only to adjust one
+setting later. Database sources stay read-only; the host rejects a write path
+on one.
+
 For a new source, collect the shared name and kind plus its relevant fields:
 Database uses type, host, port, database name, user, stored \`secretRef\`, and
 access; API uses its imported OpenAPI asset ID; Files uses backend and either a

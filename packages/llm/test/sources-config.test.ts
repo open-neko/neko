@@ -10,6 +10,7 @@ import {
   atomicWriteFile,
   migrateGraphjinSystemSource,
   patchGraphjinSourcesJwtSecret,
+  reconcileGraphjinWritePolicy,
   shouldReconcileDemoSourceAuthMode,
 } from "../src/graphjin/sources-config";
 import * as hostProvision from "../src/host-provision";
@@ -229,5 +230,46 @@ describe("GraphJin mutation guard", () => {
     await expect(
       assertGraphjinMutationAllowed("mutation { shop_order(insert: {}) { id } }", bad),
     ).rejects.toThrow('GraphJin mutation blocked: GraphJin database source "erp" is not read_only');
+  });
+});
+
+describe("reconcileGraphjinWritePolicy", () => {
+  const base = `mode: agentic
+mcp:
+  allow_mutations: false
+  allow_raw_queries: true
+roles:
+  - name: user
+    comment: Authenticated user
+  - name: admin
+    comment: Org admin
+system:
+  capabilities:
+    raw_graphql.query: true
+    raw_graphql.mutate: false
+sources: []
+`;
+
+  it("turns mutations on and lists the worker roles once", () => {
+    const first = reconcileGraphjinWritePolicy(base);
+    expect(first.changed).toBe(true);
+    expect(first.content).toContain("allow_mutations: true");
+    expect(first.content).toContain("raw_graphql.mutate: true");
+    expect(first.content).toContain("name: member");
+    expect(first.content).toContain("name: service");
+    expect(first.content).toContain("allow_raw_queries: true");
+    const second = reconcileGraphjinWritePolicy(first.content);
+    expect(second.changed).toBe(false);
+    expect(second.content).toBe(first.content);
+  });
+
+  it("adds missing mcp/system/roles blocks and leaves legacy configs alone", () => {
+    const sparse = reconcileGraphjinWritePolicy("mode: agentic\nsources: []\n");
+    expect(sparse.changed).toBe(true);
+    expect(sparse.content).toContain("allow_mutations: true");
+    expect(sparse.content).toContain("raw_graphql.mutate: true");
+    expect(sparse.content).toContain("name: service");
+    const legacy = reconcileGraphjinWritePolicy("database:\n  type: postgres\n");
+    expect(legacy.changed).toBe(false);
   });
 });

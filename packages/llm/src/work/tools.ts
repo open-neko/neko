@@ -664,6 +664,9 @@ export function buildSourceConfigManagerServer(opts: {
       "Create a source_config_admin proposal for admin review:",
       "- add_role { name, match }: a GraphJin role selected by a JWT match expression.",
       "- set_source_access { source, read, write, delete }: access mode per source (one of public|authenticated|account|owner|admin|blocked; write/delete also accept blocked).",
+      "- enable_api_writes { source, spec, operation, allowedRoles, write?, exposeAs?, apiDelete? }: one proposal that turns on api.write, sets access.write (authenticated by default, or admin), and exposes one OpenAPI POST/PUT/PATCH/DELETE operation as a GraphQL mutation for the listed roles. Prefer this for governed writes.",
+      "- set_source_capabilities { source, apiWrite?, apiDelete? } and expose_api_operation { source, spec, operation, exposeMutation, allowedRoles, exposeAs? }: adjust one write setting on an API source that already has writes enabled.",
+      "Database sources stay read-only; a proposal that opens a write path on one is rejected.",
       "- register_source database { name, kind, type?, host?, port?, dbname?, user?, secretRef? }.",
       "- register_source api { name, kind, specAssetId } using an OpenAPI document already imported by URL or upload.",
       "- register_source file local { name, kind, backend, localFiles } using OpenNeko-managed isolated storage.",
@@ -672,7 +675,14 @@ export function buildSourceConfigManagerServer(opts: {
       "After the tool returns, summarize the proposed change and its approval status.",
     ].join("\n"),
     {
-      action: z.enum(["add_role", "set_source_access", "register_source"]),
+      action: z.enum([
+        "add_role",
+        "set_source_access",
+        "set_source_capabilities",
+        "expose_api_operation",
+        "enable_api_writes",
+        "register_source",
+      ]),
       // add_role
       name: z.string().trim().min(1).max(64).optional(),
       match: z.string().trim().min(1).max(500).optional(),
@@ -683,6 +693,23 @@ export function buildSourceConfigManagerServer(opts: {
         .optional(),
       write: z.enum(["authenticated", "account", "owner", "admin", "blocked"]).optional(),
       delete: z.enum(["authenticated", "account", "owner", "admin", "blocked"]).optional(),
+      // set_source_capabilities
+      apiWrite: z.boolean().optional(),
+      apiDelete: z.boolean().optional(),
+      // expose_api_operation
+      spec: z.string().trim().min(1).max(128).optional(),
+      operation: z.string().trim().min(1).max(200).optional(),
+      exposeMutation: z.boolean().optional(),
+      allowedRoles: z
+        .array(z.enum(["admin", "member", "service", "user"]))
+        .max(4)
+        .optional(),
+      exposeAs: z
+        .string()
+        .trim()
+        .regex(/^[_A-Za-z][_0-9A-Za-z]*$/, "a GraphQL field name")
+        .max(120)
+        .optional(),
       // register_source
       kind: z
         .preprocess(
@@ -747,7 +774,11 @@ export function buildSourceConfigManagerServer(opts: {
           ? `role:${args.name ?? ""}`
           : action === "set_source_access"
             ? `access:${args.source ?? ""}`
-            : `source:${args.name ?? ""}`;
+            : action === "set_source_capabilities"
+              ? `capabilities:${args.source ?? ""}`
+              : action === "expose_api_operation" || action === "enable_api_writes"
+                ? `operation:${args.source ?? ""}/${args.spec ?? ""}#${args.operation ?? ""}`
+                : `source:${args.name ?? ""}`;
       const changePayload = {
         action,
         ...rest,

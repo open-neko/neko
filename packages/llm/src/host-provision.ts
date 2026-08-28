@@ -117,6 +117,7 @@ import {
   migrateGraphjinSystemSource,
   patchGraphjinSourcesJwtSecret,
   shouldReconcileDemoSourceAuthMode,
+  reconcileGraphjinWritePolicy,
 } from "./graphjin/sources-config";
 
 /**
@@ -148,13 +149,14 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
         migrated.content,
         graphjinSigningSecretB64(orgId),
       );
+      const policy = reconcileGraphjinWritePolicy(patched.content);
       reconcileDemoAuthMode = shouldReconcileDemoSourceAuthMode(
         cfgPath,
-        patched.content,
+        policy.content,
         process.env.OPENNEKO_STACK_MODE,
       );
-      if (migrated.changed || patched.changed) {
-        await atomicWriteFile(cfgPath, patched.content);
+      if (migrated.changed || patched.changed || policy.changed) {
+        await atomicWriteFile(cfgPath, policy.content);
         wroteConfig = true;
         console.log(
           `[host-provision] reconciled GraphJin agentic config in ${cfgPath}`,

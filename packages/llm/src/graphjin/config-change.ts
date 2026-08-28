@@ -88,6 +88,62 @@ export function graphjinInputWithJsonVariables(value: unknown): {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+const WRITABLE_SOURCE_KINDS = new Set(["api", "file"]);
+
+/**
+ * Customer databases are never written. Reject any proposal that would open a
+ * write path on a database source (or on a source of unknown kind), whether
+ * through `read_only`, `access`, `capabilities`, or OpenAPI operation
+ * exposure. Runs at preview and again at approved execution.
+ */
+export function assertDatabaseSourcesStayReadOnly(
+  update: Record<string, unknown>,
+  currentSources: unknown,
+): void {
+  const existing = new Map<string, Record<string, unknown>>();
+  if (Array.isArray(currentSources)) {
+    for (const source of currentSources) {
+      if (isRecord(source) && typeof source.name === "string") {
+        existing.set(source.name.trim().toLowerCase(), source);
+      }
+    }
+  }
+  const entries = [
+    ...(Array.isArray(update.update_sources) ? update.update_sources : []),
+    ...(Array.isArray(update.source_patches) ? update.source_patches : []),
+  ];
+  for (const entry of entries) {
+    if (!isRecord(entry)) continue;
+    const name = String(entry.name ?? "").trim();
+    const current = existing.get(name.toLowerCase());
+    const kind = String(entry.kind ?? current?.kind ?? "database");
+    if (WRITABLE_SOURCE_KINDS.has(kind)) continue;
+
+    const violations: string[] = [];
+    if (entry.read_only === false) violations.push("read_only: false");
+    const access = isRecord(entry.access) ? entry.access : {};
+    for (const mode of ["write", "delete"] as const) {
+      if (access[mode] !== undefined && access[mode] !== "blocked") {
+        violations.push(`access.${mode}: ${String(access[mode])}`);
+      }
+    }
+    const capabilities = isRecord(entry.capabilities) ? entry.capabilities : {};
+    for (const key of ["api.write", "api.delete"]) {
+      if (capabilities[key] === true) violations.push(`capabilities.${key}: true`);
+    }
+    if (entry.specs !== undefined) violations.push("specs (API operations)");
+    if (violations.length > 0) {
+      throw new Error(
+        `database source "${name}" stays read-only; rejected ${violations.join(", ")}`,
+      );
+    }
+  }
+}
+
 /**
  * Convert OpenNeko's narrow, typed source-config proposal into GraphJin's
  * additive patch shape. The optional resolver is trusted host code; a secret
@@ -128,6 +184,98 @@ export async function buildGraphjinConfigUpdate(
       throw new Error("set_source_access needs at least one access field");
     }
     update.source_patches = [{ name: source, access }];
+    return { update, secretName };
+  }
+
+  if (action === "set_source_capabilities") {
+    const source = String(payload.source ?? "").trim();
+    if (!source) throw new Error("set_source_capabilities needs source");
+    const capabilities: Record<string, boolean> = {};
+    if (typeof payload.apiWrite === "boolean") {
+      capabilities["api.write"] = payload.apiWrite;
+    }
+    if (typeof payload.apiDelete === "boolean") {
+      capabilities["api.delete"] = payload.apiDelete;
+    }
+    if (Object.keys(capabilities).length === 0) {
+      throw new Error("set_source_capabilities needs apiWrite or apiDelete");
+    }
+    update.update_sources = [{ name: source, capabilities }];
+    return { update, secretName };
+  }
+
+  if (action === "expose_api_operation") {
+    const source = String(payload.source ?? "").trim();
+    const spec = String(payload.spec ?? "").trim();
+    const operation = String(payload.operation ?? "").trim();
+    if (!source || !spec || !operation) {
+      throw new Error("expose_api_operation needs source, spec, and operation");
+    }
+    const exposeMutation = payload.exposeMutation === true;
+    const allowedRoles = Array.isArray(payload.allowedRoles)
+      ? payload.allowedRoles
+          .map((role) => String(role).trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+    if (exposeMutation && allowedRoles.length === 0) {
+      throw new Error(
+        "expose_api_operation needs allowedRoles when exposeMutation is true",
+      );
+    }
+    const operationPatch: Record<string, unknown> = {
+      expose_mutation: exposeMutation,
+      allowed_roles: allowedRoles,
+    };
+    if (typeof payload.exposeAs === "string" && payload.exposeAs.trim()) {
+      operationPatch.expose_as = payload.exposeAs.trim();
+    }
+    update.update_sources = [
+      {
+        name: source,
+        specs: { [spec]: { operations: { [operation]: operationPatch } } },
+      },
+    ];
+    return { update, secretName };
+  }
+
+  if (action === "enable_api_writes") {
+    const source = String(payload.source ?? "").trim();
+    const spec = String(payload.spec ?? "").trim();
+    const operation = String(payload.operation ?? "").trim();
+    if (!source || !spec || !operation) {
+      throw new Error("enable_api_writes needs source, spec, and operation");
+    }
+    const allowedRoles = Array.isArray(payload.allowedRoles)
+      ? payload.allowedRoles
+          .map((role) => String(role).trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+    if (allowedRoles.length === 0) {
+      throw new Error("enable_api_writes needs allowedRoles");
+    }
+    const write = String(payload.write ?? "authenticated");
+    if (write !== "authenticated" && write !== "admin") {
+      throw new Error("enable_api_writes write must be authenticated or admin");
+    }
+    const operationPatch: Record<string, unknown> = {
+      expose_mutation: true,
+      allowed_roles: allowedRoles,
+    };
+    if (typeof payload.exposeAs === "string" && payload.exposeAs.trim()) {
+      operationPatch.expose_as = payload.exposeAs.trim();
+    }
+    const capabilities: Record<string, boolean> = { "api.write": true };
+    if (payload.apiDelete === true) capabilities["api.delete"] = true;
+    // One update carries every write setting, so a single approval and a
+    // single GraphJin apply open the operation.
+    update.update_sources = [
+      {
+        name: source,
+        capabilities,
+        specs: { [spec]: { operations: { [operation]: operationPatch } } },
+      },
+    ];
+    update.source_patches = [{ name: source, access: { write } }];
     return { update, secretName };
   }
 

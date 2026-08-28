@@ -4,6 +4,7 @@ import {
   graphjinConfigPatchHash,
   graphjinInputWithJsonVariables,
   graphjinInputValue,
+  assertDatabaseSourcesStayReadOnly,
 } from "../src/graphjin/config-change";
 
 describe("GraphJin config change compiler", () => {
@@ -266,5 +267,158 @@ describe("GraphJin config change compiler", () => {
     ).toBe(
       graphjinConfigPatchHash({ name: "support", action: "add_role" }),
     );
+  });
+});
+
+describe("assertDatabaseSourcesStayReadOnly", () => {
+  const current = [
+    { name: "erp", kind: "database", read_only: true },
+    { name: "shop", kind: "api" },
+  ];
+
+  it("lets API sources open writes and databases stay untouched", () => {
+    expect(() =>
+      assertDatabaseSourcesStayReadOnly(
+        { source_patches: [{ name: "shop", access: { write: "authenticated" } }] },
+        current,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertDatabaseSourcesStayReadOnly(
+        { source_patches: [{ name: "erp", access: { read: "authenticated", write: "blocked" } }] },
+        current,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertDatabaseSourcesStayReadOnly(
+        { update_sources: [{ name: "new", kind: "database", read_only: true, access: { write: "blocked" } }] },
+        current,
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects every write path on a database or unknown source", () => {
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ source_patches: [{ name: "erp", access: { write: "authenticated" } }] }, "access.write: authenticated"],
+      [{ source_patches: [{ name: "erp", access: { delete: "admin" } }] }, "access.delete: admin"],
+      [{ source_patches: [{ name: "erp", read_only: false }] }, "read_only: false"],
+      [{ source_patches: [{ name: "erp", capabilities: { "api.write": true } }] }, "capabilities.api.write: true"],
+      [{ source_patches: [{ name: "erp", specs: {} }] }, "specs"],
+      [{ update_sources: [{ name: "fresh", kind: "database", read_only: false }] }, "read_only: false"],
+      [{ source_patches: [{ name: "ghost", access: { write: "authenticated" } }] }, 'source "ghost"'],
+    ];
+    for (const [update, fragment] of cases) {
+      expect(() => assertDatabaseSourcesStayReadOnly(update, current)).toThrow(fragment);
+    }
+  });
+});
+
+describe("API write proposals", () => {
+  it("set_source_capabilities patches the source through update_sources", async () => {
+    const result = await buildGraphjinConfigUpdate({
+      action: "set_source_capabilities",
+      source: "shop-api",
+      apiWrite: true,
+    });
+    expect(result.update).toEqual({
+      update_sources: [{ name: "shop-api", capabilities: { "api.write": true } }],
+    });
+    await expect(
+      buildGraphjinConfigUpdate({ action: "set_source_capabilities", source: "shop-api" }),
+    ).rejects.toThrow("needs apiWrite or apiDelete");
+  });
+
+  it("expose_api_operation writes the operation patch and demands roles", async () => {
+    const result = await buildGraphjinConfigUpdate({
+      action: "expose_api_operation",
+      source: "shop-api",
+      spec: "shop",
+      operation: "createOrder",
+      exposeMutation: true,
+      allowedRoles: ["admin", "Member"],
+      exposeAs: "shop_create_order",
+    });
+    expect(result.update).toEqual({
+      update_sources: [
+        {
+          name: "shop-api",
+          specs: {
+            shop: {
+              operations: {
+                createOrder: {
+                  expose_mutation: true,
+                  allowed_roles: ["admin", "member"],
+                  expose_as: "shop_create_order",
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+    await expect(
+      buildGraphjinConfigUpdate({
+        action: "expose_api_operation",
+        source: "shop-api",
+        spec: "shop",
+        operation: "createOrder",
+        exposeMutation: true,
+      }),
+    ).rejects.toThrow("needs allowedRoles");
+  });
+});
+
+describe("enable_api_writes", () => {
+  it("carries capability, exposure, and access in one update", async () => {
+    const result = await buildGraphjinConfigUpdate({
+      action: "enable_api_writes",
+      source: "shop-api",
+      spec: "shop",
+      operation: "createOrder",
+      allowedRoles: ["admin"],
+      exposeAs: "shop_create_order",
+    });
+    expect(result.update).toEqual({
+      update_sources: [
+        {
+          name: "shop-api",
+          capabilities: { "api.write": true },
+          specs: {
+            shop: {
+              operations: {
+                createOrder: {
+                  expose_mutation: true,
+                  allowed_roles: ["admin"],
+                  expose_as: "shop_create_order",
+                },
+              },
+            },
+          },
+        },
+      ],
+      source_patches: [{ name: "shop-api", access: { write: "authenticated" } }],
+    });
+    await expect(
+      buildGraphjinConfigUpdate({
+        action: "enable_api_writes",
+        source: "shop-api",
+        spec: "shop",
+        operation: "createOrder",
+        allowedRoles: ["admin"],
+        write: "public",
+      }),
+    ).rejects.toThrow("write must be authenticated or admin");
+  });
+
+  it("is refused on a database source by the invariant", () => {
+    expect(() =>
+      assertDatabaseSourcesStayReadOnly(
+        {
+          update_sources: [{ name: "erp", capabilities: { "api.write": true } }],
+          source_patches: [{ name: "erp", access: { write: "authenticated" } }],
+        },
+        [{ name: "erp", kind: "database" }],
+      ),
+    ).toThrow('database source "erp" stays read-only');
   });
 });

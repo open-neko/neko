@@ -1,6 +1,6 @@
 import { rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { isMap, isSeq, parseDocument } from "yaml";
+import { isMap, isSeq, parseDocument, YAMLSeq } from "yaml";
 
 /**
  * Pure helpers for the GraphJin sources-mode (agentic) config file.
@@ -82,6 +82,66 @@ export async function assertGraphjinMutationAllowed(
       `GraphJin mutation blocked: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
+}
+
+/** JWT roles the worker mints. GraphJin generates access blocks only for listed roles. */
+export const OPENNEKO_JWT_ROLES = [
+  {
+    name: "member",
+    comment: "OpenNeko organization member (JWT role minted by the worker)",
+  },
+  {
+    name: "service",
+    comment: "OpenNeko worker service identity (JWT role minted by the worker)",
+  },
+] as const;
+
+/**
+ * Bring an existing sources-mode config up to the shipped write policy:
+ * mutations pass the MCP layer, and the worker's JWT roles exist so every
+ * source's access.write block applies to them. Database sources stay
+ * read-only through their own `read_only` flag and the host guard. Legacy
+ * configs without a `sources` list are left alone.
+ */
+export function reconcileGraphjinWritePolicy(
+  raw: string,
+): { content: string; changed: boolean } {
+  const document = parseDocument(raw);
+  if (document.errors.length > 0) {
+    throw new Error(`GraphJin config is not valid YAML: ${document.errors[0].message}`);
+  }
+  if (!isMap(document.contents)) {
+    throw new Error("GraphJin config root must be a YAML object");
+  }
+  if (!document.has("sources")) return { content: raw, changed: false };
+
+  let changed = false;
+  const ensure = (path: string[], value: unknown) => {
+    if (document.getIn(path) === value) return;
+    document.setIn(path, value);
+    changed = true;
+  };
+  ensure(["mcp", "allow_mutations"], true);
+  ensure(["system", "capabilities", "raw_graphql.mutate"], true);
+
+  let roles = document.get("roles", true);
+  if (roles == null) {
+    roles = new YAMLSeq();
+    document.set("roles", roles);
+    changed = true;
+  }
+  if (!isSeq(roles)) throw new Error("GraphJin config roles must be a YAML list");
+  const listed = new Set(
+    roles.items.flatMap((item) =>
+      isMap(item) ? [String(item.get("name") ?? "").trim().toLowerCase()] : [],
+    ),
+  );
+  for (const role of OPENNEKO_JWT_ROLES) {
+    if (listed.has(role.name)) continue;
+    roles.add(document.createNode({ name: role.name, comment: role.comment }));
+    changed = true;
+  }
+  return { content: changed ? document.toString() : raw, changed };
 }
 
 const AGENTIC_SYSTEM_CAPABILITIES = {

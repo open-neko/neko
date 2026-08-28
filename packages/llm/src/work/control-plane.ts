@@ -1780,6 +1780,7 @@ export class InProcessControlPlane implements AgentControlPlane {
         );
       }
       const {
+        assertDatabaseSourcesStayReadOnly,
         buildGraphjinConfigUpdate,
         graphjinConfigPatchHash,
         graphjinInputWithJsonVariables,
@@ -1867,6 +1868,7 @@ export class InProcessControlPlane implements AgentControlPlane {
           currentSources = [];
         }
       }
+      assertDatabaseSourcesStayReadOnly(update, currentSources);
       if (
         input.payload.action === "register_source" &&
         Array.isArray(currentSources) &&
