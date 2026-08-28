@@ -16,8 +16,8 @@ Resolve the website/store scope, base currency, customer groups, active dates,
 discount type/value, coupon count, usage limits, conditions, and expected order
 volume. Calculate and state projected exposure before proposing the action.
 
-Use only `magento.manage_promotions`. Promotion operations are Class 1: a human
-administrator must approve them. Reject a free-cart outcome, discount above the
+Use only `magento.manage_promotions`. A human administrator must approve every
+promotion operation. Reject a free-cart outcome, discount above the
 stored ceiling, duration below the minimum, coupon count above its cap, or
 projected exposure above its cap. Do not weaken the rule to make it pass.
 
@@ -26,4 +26,4 @@ image. After execution, read the rule back and report only `applied` when the
 requested fields reconcile. Coupon generation is not safely reversible; make
 that explicit before approval and never retry an ambiguous result.
 
-Boundary: Never create a free-cart or uncapped promotion, never bypass `magento.manage_promotions` with SQL, raw GraphQL, raw REST, `curl`, or a terminal, and never auto-execute a Class 1 promotion.
+Boundary: Never create a free-cart or uncapped promotion, never bypass `magento.manage_promotions` with SQL, raw GraphQL, raw REST, `curl`, or a terminal, and never execute a promotion automatically.

@@ -1,6 +1,6 @@
 ---
 name: magento-manage-catalog
-description: Prepare and execute governed Magento product, category, assignment, and price changes with classification, caps, before images, reconciliation, and safe inverse drafts. Use when a user asks to create, edit, bulk update, move, assign, price, or delete catalog entities.
+description: Prepare and execute governed Magento product, category, assignment, and price changes with clear approval requirements, limits, before images, reconciliation, and safe inverse drafts. Use when a user asks to create, edit, bulk update, move, assign, price, or delete catalog entities.
 license: Apache-2.0
 metadata:
   hermes:
@@ -17,11 +17,11 @@ current entity before proposing a change. Use only an operation installed in
 `magento.manage_catalog`. Include a stable idempotency key, one `entity_ref`
 per row, path parameters, and the Magento request body.
 
-Show the before image, requested diff, inferred class, caps, row count, and
-whether the operation is reversible. Unknown attributes and price, tax,
+Show the before image, requested diff, approval requirement, limits, row count,
+and whether the operation is reversible. Unknown attributes and price, tax,
 visibility, status, website assignment, or destructive changes escalate to
-Class 1 human approval. A named Class 2 automatic rule may proceed only inside
-its stored daily cap and entity cooldown.
+human administrator approval. A named automatic rule may proceed only for an
+eligible change inside its stored daily limit and entity cooldown.
 
 For more than one product, prefer `product_bulk_update`. Treat Magento's bulk
 UUID as submission evidence, not completion. Wait for terminal operation

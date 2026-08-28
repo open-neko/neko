@@ -25,7 +25,7 @@ type DoctorResult = {
 
 type StoreControl = {
   domain: string;
-  riskClass: number;
+  automationEligible: boolean;
   enabled: boolean;
   autoExecute: boolean;
   readiness: string;
@@ -50,7 +50,7 @@ type StoreManagement = {
     id: string;
     domain: string;
     operationId: string;
-    riskClass: number;
+    executionMode: string;
     status: string;
     summary: string;
     bulkUuid: string | null;
@@ -64,7 +64,7 @@ type StoreManagement = {
     status: string;
     createdAt: string;
   }>;
-  classZero: { executePath: false; handoffKinds: string[] };
+  handoffOnly: { executePath: false; handoffKinds: string[] };
 };
 
 type FormState = {
@@ -154,6 +154,13 @@ function checkTone(status: string): string {
   if (status === "ready") return "text-success-ink";
   if (status === "optional") return "text-text3";
   return "text-danger";
+}
+
+function executionModeLabel(mode: string): string {
+  if (mode === "approval_required") return "Administrator approval required";
+  if (mode === "controlled_automation_eligible") return "Can run automatically within limits";
+  if (mode === "handoff_only") return "Complete in Magento Admin";
+  return mode.replaceAll("_", " ");
 }
 
 export default function MagentoPackAdmin() {
@@ -341,13 +348,13 @@ export default function MagentoPackAdmin() {
   async function createRule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const eligibleDomains = management?.controls.filter(
-      (control) => control.enabled && control.autoExecute && control.riskClass === 2,
+      (control) => control.enabled && control.autoExecute && control.automationEligible,
     ) ?? [];
     const domain = eligibleDomains.some((control) => control.domain === rule.domain)
       ? rule.domain
       : eligibleDomains[0]?.domain;
     if (!domain) {
-      toast.error("Enable capped Class 2 rules on a domain first.");
+      toast.error("Turn on automatic actions for an eligible domain first.");
       return;
     }
     await updateStoreManagement(
@@ -429,7 +436,7 @@ export default function MagentoPackAdmin() {
               <div className="settings-card-head">
                 <div>
                   <h2 className="settings-card-title">Store change access</h2>
-                  <p className="settings-card-copy">Choose which domains can prepare changes. Sensitive fields still escalate to Class 1 approval, and every write is reconciled against Magento.</p>
+                  <p className="settings-card-copy">Choose which areas can prepare changes. Sensitive changes always require administrator approval, and every write is reconciled against Magento.</p>
                 </div>
               </div>
 
@@ -439,7 +446,11 @@ export default function MagentoPackAdmin() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <strong className="text-sm capitalize text-text">{control.domain}</strong>
-                        <p className="mt-1 text-ui-body-sm text-text3">Default Class {control.riskClass}{control.riskClass === 2 ? " · unknown or sensitive fields require approval" : " · human approval required"}</p>
+                        <p className="mt-1 text-ui-body-sm text-text3">
+                          {control.automationEligible
+                            ? "Eligible actions can run automatically within limits; sensitive changes still require approval."
+                            : "Every change requires administrator approval."}
+                        </p>
                         <p className={`mt-2 text-xs font-semibold ${control.readiness === "ready" && control.enabled ? "text-success-ink" : "text-text3"}`}>
                           {control.readiness !== "ready" || !control.enabled
                             ? "View only"
@@ -469,14 +480,14 @@ export default function MagentoPackAdmin() {
                       <input
                         type="checkbox"
                         checked={control.autoExecute}
-                        disabled={busy !== null || !control.enabled || control.riskClass !== 2}
+                        disabled={busy !== null || !control.enabled || !control.automationEligible}
                         onChange={(event) => void updateStoreManagement(
                           `auto-${control.domain}`,
                           { action: "update_domain", domain: control.domain, autoExecute: event.target.checked },
                           `${control.domain} automatic execution updated.`,
                         )}
                       />
-                      Allow capped Class 2 rules
+                      Allow automatic actions within limits
                     </label>
                     <p className="mt-2 text-xs leading-[1.45] text-text3">Up to {control.caps.maxRowsPerChangeset ?? 0} rows per change-set; {control.caps.maxDailyAutoActions ?? 0} automatic actions per day.</p>
                     <details className="mt-3 border-t border-border pt-3">
@@ -512,14 +523,14 @@ export default function MagentoPackAdmin() {
               </div>
 
               <div className="mt-4 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3">
-                <strong className="text-sm text-text">Class 0 boundary</strong>
+                <strong className="text-sm text-text">Actions OpenNeko will not perform</strong>
                 <p className="mt-1 text-ui-body-sm leading-[1.5] text-text2">OpenNeko cannot issue online refunds, approve returns, change financial configuration, or perform money-out operations. It prepares evidence and a Magento Admin handoff only.</p>
               </div>
 
               <div className="mt-6 border-t border-border pt-5">
-                <h3 className="text-sm font-semibold text-text">Capped automatic rules</h3>
-                <p className="mt-1 text-ui-body-sm text-text3">Rules only run for an enabled Class 2 domain and stop at their daily cap or per-entity cooldown.</p>
-                {management.controls.some((control) => control.enabled && control.autoExecute && control.riskClass === 2) ? (
+                <h3 className="text-sm font-semibold text-text">Automatic rules</h3>
+                <p className="mt-1 text-ui-body-sm text-text3">Rules run only where automatic actions are enabled and stop at their daily limit or per-entity cooldown.</p>
+                {management.controls.some((control) => control.enabled && control.autoExecute && control.automationEligible) ? (
                   <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={createRule}>
                     <label className={FIELD}>
                       <span className={LABEL}>Rule name</span>
@@ -528,7 +539,7 @@ export default function MagentoPackAdmin() {
                     <label className={FIELD}>
                       <span className={LABEL}>Domain</span>
                       <select className={INPUT} value={rule.domain} onChange={(event) => setRule((current) => ({ ...current, domain: event.target.value }))}>
-                        {management.controls.filter((control) => control.enabled && control.autoExecute && control.riskClass === 2).map((control) => <option key={control.domain} value={control.domain}>{control.domain}</option>)}
+                        {management.controls.filter((control) => control.enabled && control.autoExecute && control.automationEligible).map((control) => <option key={control.domain} value={control.domain}>{control.domain}</option>)}
                       </select>
                     </label>
                     <label className={`${FIELD} sm:col-span-2`}>
@@ -546,7 +557,7 @@ export default function MagentoPackAdmin() {
                     <div className="sm:col-span-2"><Button type="submit" disabled={busy !== null}>{busy === "create-rule" ? "Saving…" : "Save automatic rule"}</Button></div>
                   </form>
                 ) : (
-                  <p className="mt-3 rounded-lg bg-bg2 px-3 py-3 text-ui-body-sm text-text3">Enable “Allow capped Class 2 rules” on a Class 2 domain before creating a rule.</p>
+                  <p className="mt-3 rounded-lg bg-bg2 px-3 py-3 text-ui-body-sm text-text3">Turn on “Allow automatic actions within limits” for an eligible area before creating a rule.</p>
                 )}
                 {management.rules.length > 0 ? (
                   <ul className="mt-4 flex flex-col gap-2">
@@ -584,7 +595,7 @@ export default function MagentoPackAdmin() {
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <strong className="text-sm text-text">{changeset.summary}</strong>
-                            <p className="mt-1 text-xs capitalize text-text3">{changeset.domain} · {changeset.operationId.replaceAll("_", " ")} · Class {changeset.riskClass}{changeset.inverseOfId ? " · inverse" : ""}</p>
+                            <p className="mt-1 text-xs capitalize text-text3">{changeset.domain} · {changeset.operationId.replaceAll("_", " ")} · {executionModeLabel(changeset.executionMode)}{changeset.inverseOfId ? " · inverse" : ""}</p>
                           </div>
                           <span className="text-xs font-semibold uppercase tracking-wide text-text2">{changeset.status.replaceAll("_", " ")}</span>
                         </div>

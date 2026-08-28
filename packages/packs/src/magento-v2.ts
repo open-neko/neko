@@ -9,6 +9,10 @@ export const MAGENTO_DOMAINS = [
 
 export type MagentoDomain = (typeof MAGENTO_DOMAINS)[number];
 export type MagentoRiskClass = 0 | 1 | 2;
+export type MagentoExecutionMode =
+  | "handoff_only"
+  | "approval_required"
+  | "controlled_automation_eligible";
 export type MagentoAttributeCategory =
   | "financial"
   | "pii"
@@ -65,6 +69,12 @@ export const DEFAULT_MAGENTO_DOMAIN_CONTROLS: MagentoDomainControl[] = [
   { domain: "customers", riskClass: 1, enabled: false, autoExecute: false, caps: DEFAULT_MAGENTO_CAPS },
 ];
 
+export function magentoExecutionMode(riskClass: MagentoRiskClass): MagentoExecutionMode {
+  if (riskClass === 0) return "handoff_only";
+  if (riskClass === 1) return "approval_required";
+  return "controlled_automation_eligible";
+}
+
 const classification = (
   domain: MagentoDomain,
   entityType: string,
@@ -83,9 +93,9 @@ const classification = (
 
 /**
  * Reviewed writable attributes shipped by the Magento pack. A leaf that is
- * not represented here deliberately falls back to Class 1 in
+ * not represented here deliberately requires administrator approval in
  * classifyMagentoChange, so Magento upgrades cannot silently widen the
- * auto-executable surface.
+ * automatic-execution surface.
  */
 export const DEFAULT_MAGENTO_ATTRIBUTE_CLASSIFICATIONS: MagentoAttributeClassification[] = [
   ...[
@@ -110,7 +120,7 @@ export const DEFAULT_MAGENTO_ATTRIBUTE_CLASSIFICATIONS: MagentoAttributeClassifi
     classification("catalog", "product", attribute, 2, attribute.includes("description") || attribute.startsWith("meta_") ? "content" : "operational", "Reversible catalog metadata"),
   ),
   ...["price", "special_price", "tier_price", "value"].map((attribute) =>
-    classification("catalog", "product", attribute, 2, "financial", "Price changes are Class 2 only within the configured delta cap"),
+    classification("catalog", "product", attribute, 2, "financial", "Price changes can run automatically only within the configured delta limit"),
   ),
   classification("catalog", "product", "cost", 1, "financial", "Changes margin-sensitive cost data"),
   ...[
@@ -154,15 +164,15 @@ export const DEFAULT_MAGENTO_ATTRIBUTE_CLASSIFICATIONS: MagentoAttributeClassifi
   ),
 ];
 
-const CLASS_ZERO_OPERATION_PATTERNS = [
+const HANDOFF_ONLY_OPERATION_PATTERNS = [
   /refund/i,
   /return.*approve|approve.*return|rma.*approve/i,
   /payment.*config|tax.*config|currency.*rate/i,
   /integration|admin.*user|authorization.*role/i,
 ];
 
-export function isMagentoClassZeroOperation(operationId: string): boolean {
-  return CLASS_ZERO_OPERATION_PATTERNS.some((pattern) => pattern.test(operationId));
+export function isMagentoHandoffOnlyOperation(operationId: string): boolean {
+  return HANDOFF_ONLY_OPERATION_PATTERNS.some((pattern) => pattern.test(operationId));
 }
 
 const STRUCTURAL_KEYS = new Set([
@@ -230,11 +240,11 @@ export function classifyMagentoChange(input: {
   body: unknown;
   classifications?: readonly MagentoAttributeClassification[];
 }): MagentoClassificationResult {
-  if (isMagentoClassZeroOperation(input.operationId)) {
+  if (isMagentoHandoffOnlyOperation(input.operationId)) {
     return {
       riskClass: 0,
       attributes: [],
-      reasons: ["Class 0 operations have no OpenNeko execute path"],
+      reasons: ["This operation must be completed by a human in Magento Admin"],
     };
   }
   const entries = input.classifications ?? DEFAULT_MAGENTO_ATTRIBUTE_CLASSIFICATIONS;
@@ -269,7 +279,7 @@ export function classifyMagentoChange(input: {
   );
   const reasons = attributes
     .filter((attribute) => !attribute.reviewed)
-    .map((attribute) => `Unreviewed attribute ${attribute.attribute} defaults to Class 1`);
+    .map((attribute) => `Unreviewed attribute ${attribute.attribute} requires administrator approval`);
   return { riskClass, attributes, reasons };
 }
 
@@ -358,7 +368,7 @@ export function evaluateMagentoCaps(input: {
       if (delta > caps.maxPriceDeltaPercent) {
         riskClass = Math.min(riskClass, 1) as MagentoRiskClass;
         escalations.push(
-          `Price delta ${delta.toFixed(2)}% exceeds the ${caps.maxPriceDeltaPercent}% Class 2 cap`,
+          `Price delta ${delta.toFixed(2)}% exceeds the ${caps.maxPriceDeltaPercent}% automatic-execution limit and requires administrator approval`,
         );
       }
     }
@@ -404,7 +414,7 @@ export function evaluateMagentoCaps(input: {
   }
 
   if (input.autoExecution) {
-    if (riskClass !== 2) violations.push("Only Class 2 changes can execute automatically");
+    if (riskClass !== 2) violations.push("This change requires administrator approval and cannot execute automatically");
     if ((input.autoActionsToday ?? 0) >= caps.maxDailyAutoActions) {
       violations.push(`Daily automatic-action cap of ${caps.maxDailyAutoActions} is exhausted`);
     }

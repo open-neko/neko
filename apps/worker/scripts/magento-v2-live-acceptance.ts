@@ -375,9 +375,9 @@ async function main() {
         idempotency_key: `${marker}-class-zero`,
         rows: [{ entity_ref: "order:acceptance", body: { amount: 1 } }],
       },
-      summary: "Acceptance Class 0 capability absence",
-    }), /not allowed|class 0/i);
-    report.classZeroExecutePath = false;
+      summary: "Acceptance prohibited-operation capability absence",
+    }), /not allowed|not executable|cannot be performed|magento admin/i);
+    report.handoffOnlyExecutePath = false;
 
     const handoff = await executePrepared({
       prepared: await prepare(actionInput({
@@ -392,7 +392,7 @@ async function main() {
           draft: { amount: 1, currency: "USD", testOnly: true },
           evidence: { reason: "local acceptance; no Magento execution" },
         },
-        summary: "Acceptance Class 0 Magento Admin handoff",
+        summary: "Acceptance Magento Admin handoff",
       })),
       orgId: org.id,
       adminUserId,

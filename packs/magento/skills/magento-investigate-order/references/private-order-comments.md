@@ -3,7 +3,7 @@
 The pack supports private notes through the `add_internal_comment` operation
 of `magento.manage_orders`. Use it only after the user explicitly asks to
 record a note and the governed change-set is approved or matches a stored,
-capped Class 2 rule.
+capped automatic rule.
 
 Supply the resolved numeric Magento order `entity_id` as `path.id`, a concise
 factual comment in `body.statusHistory`, a named store scope, and a stable

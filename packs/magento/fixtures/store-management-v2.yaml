@@ -27,7 +27,7 @@ scenarios:
     operation: cms_block_update
     discover: one-active-cms-block
     change: append-and-remove-a-test-marker
-    expect: [class_2, applied, inverse_applied]
+    expect: [controlled_automation_eligible, applied, inverse_applied]
   - id: promotion-cap-rejection
     action: magento.manage_promotions
     operation: sales_rule_create

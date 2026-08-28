@@ -63,7 +63,7 @@ and `magento-check-inventory` for a suspected stock constraint.
 For an explicitly requested operational change, draft `magento.manage_orders`
 with the resolved numeric order ID, named store scope, stable idempotency key,
 and the smallest supported operation. Shipping, invoicing, cancellation, and
-order edits are Class 1 and require a human administrator. Hold, unhold, and a
+order edits require a human administrator. Hold, unhold, and a
 private internal comment remain reconciled change-sets. Never retry an
 ambiguous result.
 

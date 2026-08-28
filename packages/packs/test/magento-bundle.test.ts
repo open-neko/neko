@@ -58,6 +58,16 @@ describe("Magento solution pack", () => {
     expect(plan.entries.some((entry) => entry.key === "source.magento_operator")).toBe(true);
   });
 
+  it("keeps internal numeric risk labels out of operator-facing artifacts", async () => {
+    const bundle = await loadSolutionPack(magentoRoot);
+    const operatorFacing = bundle.artifacts.filter((artifact) =>
+      ["action", "policy", "skill", "workflow", "watcher"].includes(artifact.kind),
+    );
+    for (const artifact of operatorFacing) {
+      expect(JSON.stringify(artifact.content), artifact.path).not.toMatch(/\bclass\s*[012]\b/i);
+    }
+  });
+
   it("produces the same manifest and bundle hashes on repeated loads", async () => {
     const first = await loadSolutionPack(magentoRoot);
     const second = await loadSolutionPack(magentoRoot);
@@ -78,7 +88,7 @@ describe("Magento solution pack", () => {
     });
   });
 
-  it("keeps Class 0 and Magento administration endpoints out of the V2 spec", async () => {
+  it("keeps handoff-only and Magento administration endpoints out of the V2 spec", async () => {
     const spec = await readFile(
       join(magentoRoot, "graphjin/specs/magento-operator-v2.yaml"),
       "utf8",

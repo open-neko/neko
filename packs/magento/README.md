@@ -136,7 +136,7 @@ subtree and confirm it with **Check health** before enabling a domain.
 | Catalog | Catalog > Inventory > Products; Catalog > Categories | Includes product/category reads and the enabled product/category operations. |
 | Inventory | Inventory > Sources; Inventory > Source Items | Bulk changes additionally require working async consumers. |
 | Orders | Sales > Orders; Sales > Shipments; Sales > Invoices | Refund and return-approval resources are intentionally not used. |
-| Promotions | Marketing > Cart Price Rules; Marketing > Coupon Generation | Every promotion remains Class 1 and exposure-capped. |
+| Promotions | Marketing > Cart Price Rules; Marketing > Coupon Generation | Every promotion requires administrator approval and remains exposure-capped. |
 | Content | Content > Pages; Content > Blocks | Versioned before images and inverse drafts are retained. |
 | Customers | Customers > All Customers | Disabled by default and data-minimized in receipts. |
 
@@ -149,8 +149,8 @@ evidence-backed Magento Admin handoff instead.
 ## Operate and troubleshoot
 
 For day-to-day administration, open **Admin → Settings → Solution packs →
-Magento**. The page shows per-domain access, Class 1/2 controls, caps, automatic
-rules, recent change-sets/handoffs, and plain-language health checks. It also
+Magento**. The page shows per-domain access, approval requirements, automation
+limits, recent change-sets/handoffs, and plain-language health checks. It also
 provides buttons to recheck the connection, change credentials, update the
 pack, or remove it safely. An analytics-only installation remains healthy;
 governed domains are listed separately as view-only until their token and ACL

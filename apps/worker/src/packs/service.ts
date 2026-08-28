@@ -40,10 +40,12 @@ import {
   DEFAULT_MAGENTO_CAPS,
   DEFAULT_MAGENTO_DOMAIN_CONTROLS,
   loadSolutionPack,
+  magentoExecutionMode,
   planPack,
   type PackArtifact,
   type PackPlan,
   type MagentoDomain,
+  type MagentoRiskClass,
   type SolutionPackBundle,
 } from "@neko/packs";
 import {
@@ -111,7 +113,7 @@ function operatorReadinessDetail(
     case "graphjin_version_unsupported":
       return "View only in this version. Store insights and automations are fully available.";
     case "ready":
-      return "Approved Magento changes are available. Each domain remains governed by its configured class and caps.";
+      return "Approved Magento changes are available. Each area follows its configured approval and automation limits.";
     case "domain_disabled":
       return "This change domain is disabled by the administrator.";
     default:
@@ -682,11 +684,11 @@ function graphjinUpdate(
     roles: [
       {
         name: "magento_ops_executor",
-        comment: "Short-lived Magento Class 2 executor",
+        comment: "Short-lived Magento executor for approved automations",
       },
       {
         name: "magento_sensitive_executor",
-        comment: "Short-lived Magento Class 1 executor minted only after approval",
+        comment: "Short-lived Magento executor minted after administrator approval",
       },
     ],
     update_sources: [
@@ -1186,7 +1188,9 @@ export class PackService {
           name,
           domain,
           operationId: String(operation.operationId ?? ""),
-          riskClass: Number(operation.defaultClass),
+          executionMode: magentoExecutionMode(
+            Number(operation.defaultClass) as MagentoRiskClass,
+          ),
           reversible: Boolean(operation.reversible),
           resultMode: String(operation.resultMode ?? "sync"),
         }];
@@ -1197,7 +1201,7 @@ export class PackService {
         const domainReadiness = readinessByDomain.get(control.domain);
         return {
           domain: control.domain,
-          riskClass: control.risk_class,
+          automationEligible: control.risk_class === 2,
           enabled: control.enabled,
           autoExecute: control.auto_execute,
           caps: control.caps,
@@ -1220,10 +1224,13 @@ export class PackService {
         suspendedReason: rule.suspended_reason,
         lastFiredAt: rule.last_fired_at,
       })),
-      changesets,
+      changesets: changesets.map(({ riskClass, ...changeset }) => ({
+        ...changeset,
+        executionMode: magentoExecutionMode(riskClass as MagentoRiskClass),
+      })),
       handoffs,
       operations,
-      classZero: {
+      handoffOnly: {
         executePath: false,
         handoffKinds: [
           "online_refund",
@@ -1263,7 +1270,7 @@ export class PackService {
       if (typeof input.enabled === "boolean") set.enabled = input.enabled;
       if (typeof input.autoExecute === "boolean") {
         if (input.autoExecute && current.risk_class !== 2) {
-          throw new Error("Only a Class 2 Magento domain can allow automatic execution");
+          throw new Error("Automatic execution is not available for this Magento domain");
         }
         set.auto_execute = input.autoExecute;
       }

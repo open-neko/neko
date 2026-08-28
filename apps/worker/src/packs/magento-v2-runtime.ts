@@ -29,6 +29,7 @@ import {
   classifyMagentoChange,
   DEFAULT_MAGENTO_ATTRIBUTE_CLASSIFICATIONS,
   evaluateMagentoCaps,
+  magentoExecutionMode,
   type MagentoAttributeClassification,
   type MagentoDomain,
   type MagentoRiskClass,
@@ -556,7 +557,9 @@ async function prepareChangeset(request: ActionRequestRecord, definition: Magent
       classifications,
     });
     if (classification.riskClass === 0) {
-      throw new Error(`Magento ${operation.operationId} is Class 0 and has no execute path`);
+      throw new Error(
+        `Magento ${operation.operationId} cannot be performed by OpenNeko; complete it in Magento Admin`,
+      );
     }
     preparedRows.push({ input: row, beforeImage, classification });
   }
@@ -585,7 +588,7 @@ async function prepareChangeset(request: ActionRequestRecord, definition: Magent
   });
   if (!caps.allowed) throw new Error(`Magento caps rejected the change: ${caps.violations.join("; ")}`);
   if (request.status === "approved" && caps.riskClass === 1 && !request.approvedByUserId) {
-    throw new Error("Class 1 Magento changes require a human administrator approval");
+    throw new Error("This Magento change requires approval from a human administrator");
   }
 
   const [existing] = await db()
@@ -652,7 +655,7 @@ async function prepareChangeset(request: ActionRequestRecord, definition: Magent
       actionRequestId: request.id,
       domain: definition.domain,
       operation: payload.operation,
-      riskClass: caps.riskClass,
+      executionMode: magentoExecutionMode(caps.riskClass),
       rows: preparedRows.length,
       violations: caps.violations,
       escalations: caps.escalations,
@@ -665,7 +668,7 @@ async function prepareChangeset(request: ActionRequestRecord, definition: Magent
       ...request.payload,
       changeset_id: changeset.id,
       preview: {
-        risk_class: caps.riskClass,
+        execution_mode: magentoExecutionMode(caps.riskClass),
         row_count: preparedRows.length,
         projected_exposure: caps.projectedExposure,
         escalations: caps.escalations,
@@ -685,7 +688,10 @@ async function prepareChangeset(request: ActionRequestRecord, definition: Magent
                 entity_ref: row.input.entity_ref,
                 before,
                 after,
-                classification: row.classification.attributes,
+                approval_requirements: row.classification.attributes.map(({ riskClass, ...attribute }) => ({
+                  ...attribute,
+                  execution_mode: magentoExecutionMode(riskClass),
+                })),
               };
         }),
       },
@@ -698,7 +704,7 @@ async function prepareChangeset(request: ActionRequestRecord, definition: Magent
     return autoApprovePreparedActionRequest({
       id: prepared.id,
       orgId: prepared.orgId,
-      reason: `Magento Class 2 rule ${payload.auto_rule_id} passed the stored caps`,
+      reason: `Magento automatic rule ${payload.auto_rule_id} passed its stored limits`,
     });
   }
   return prepared;
@@ -855,7 +861,10 @@ async function prepareUndo(request: ActionRequestRecord) {
       changeset_id: created.id,
       inverse_of: original.id,
       operation: operationName,
-      preview: { risk_class: original.risk_class, row_count: inverseRows.length },
+      preview: {
+        execution_mode: magentoExecutionMode(original.risk_class as MagentoRiskClass),
+        row_count: inverseRows.length,
+      },
     },
   });
 }
@@ -1009,7 +1018,7 @@ async function executeChangeset(request: ActionRequestRecord) {
     throw new Error("Magento change-set does not belong to this approved request");
   }
   if (changeset.risk_class === 1 && !request.approvedByUserId) {
-    throw new Error("Class 1 Magento changes require a human administrator approval");
+    throw new Error("This Magento change requires approval from a human administrator");
   }
   if (!["approved", "pending_approval"].includes(changeset.status)) {
     throw new Error(`Magento change-set status=${changeset.status}; expected approved`);

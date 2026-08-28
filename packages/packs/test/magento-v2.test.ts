@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   classifyMagentoChange,
   evaluateMagentoCaps,
-  isMagentoClassZeroOperation,
+  isMagentoHandoffOnlyOperation,
+  magentoExecutionMode,
 } from "../src/magento-v2.js";
 
 describe("Magento V2 classifier", () => {
-  it("defaults an unreviewed writable attribute to Class 1", () => {
+  it("requires approval for an unreviewed writable attribute", () => {
     const result = classifyMagentoChange({
       domain: "catalog",
       entityType: "product",
@@ -16,11 +17,11 @@ describe("Magento V2 classifier", () => {
     });
     expect(result.riskClass).toBe(1);
     expect(result.reasons).toContain(
-      "Unreviewed attribute future_magento_attribute defaults to Class 1",
+      "Unreviewed attribute future_magento_attribute requires administrator approval",
     );
   });
 
-  it("keeps reviewed reversible content in Class 2", () => {
+  it("keeps reviewed reversible content eligible to run automatically within limits", () => {
     const result = classifyMagentoChange({
       domain: "content",
       entityType: "cms",
@@ -32,10 +33,10 @@ describe("Magento V2 classifier", () => {
     expect(result.attributes.every((attribute) => attribute.reviewed)).toBe(true);
   });
 
-  it("recognizes Class 0 operation names before attribute routing", () => {
-    expect(isMagentoClassZeroOperation("magentoOnlineRefund")).toBe(true);
-    expect(isMagentoClassZeroOperation("magentoApproveReturn")).toBe(true);
-    expect(isMagentoClassZeroOperation("magentoUpdateTaxConfig")).toBe(true);
+  it("recognizes handoff-only operation names before attribute routing", () => {
+    expect(isMagentoHandoffOnlyOperation("magentoOnlineRefund")).toBe(true);
+    expect(isMagentoHandoffOnlyOperation("magentoApproveReturn")).toBe(true);
+    expect(isMagentoHandoffOnlyOperation("magentoUpdateTaxConfig")).toBe(true);
     expect(classifyMagentoChange({
       domain: "orders",
       entityType: "order",
@@ -44,10 +45,16 @@ describe("Magento V2 classifier", () => {
       body: {},
     }).riskClass).toBe(0);
   });
+
+  it("maps internal risk values to operator-facing execution modes", () => {
+    expect(magentoExecutionMode(0)).toBe("handoff_only");
+    expect(magentoExecutionMode(1)).toBe("approval_required");
+    expect(magentoExecutionMode(2)).toBe("controlled_automation_eligible");
+  });
 });
 
 describe("Magento V2 caps", () => {
-  it("escalates a price move beyond the Class 2 delta cap", () => {
+  it("requires approval for a price move beyond the automatic-execution limit", () => {
     const result = evaluateMagentoCaps({
       domain: "catalog",
       riskClass: 2,

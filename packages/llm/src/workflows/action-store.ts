@@ -571,7 +571,7 @@ export async function approveActionRequest(args: {
 /**
  * Promote a request only after a trusted preflight has classified and capped it.
  * This is deliberately separate from human approval: no approver identity is
- * fabricated, and adapters can still require one for sensitive/Class 1 work.
+ * fabricated, and adapters can still require one for sensitive work.
  */
 export async function autoApprovePreparedActionRequest(args: {
   id: string;

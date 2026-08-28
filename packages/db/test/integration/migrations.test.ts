@@ -376,7 +376,7 @@ describeIfDb("schema migrations", () => {
     });
   });
 
-  it("0064 creates governed Magento change-sets and keeps Class 0 out of execution", async () => {
+  it("0064 creates governed Magento change-sets and keeps handoff-only work out of execution", async () => {
     await withTempDb(async (client) => {
       await applyFile(client, M_0001);
       await applyFile(client, M_0006);

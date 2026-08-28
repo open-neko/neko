@@ -1,7 +1,7 @@
 key: policy.governed_store_changes
 targetRef: magento.policy.governed_store_changes
 name: Magento governed store changes
-description: Magento writes require an administrator approval; Class 2 rules may create separately capped auto-approved requests.
+description: Magento writes require administrator approval; eligible automatic rules may create separately limited auto-approved requests.
 appliesToKinds:
   - magento.manage_catalog
   - magento.manage_inventory
@@ -19,7 +19,7 @@ allowedTargets:
   source: magento_operator
   spec: magento-operator-v2
 limits:
-  class0ExecutePath: false
+  handoffOnlyExecutePath: false
   retry: never
   requireNamedScope: true
   requireBeforeImage: true
