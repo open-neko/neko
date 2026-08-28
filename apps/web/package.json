@@ -1,6 +1,6 @@
 {
   "name": "@neko/web",
-  "version": "2.30.8",
+  "version": "2.31.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
