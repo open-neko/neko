@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.31.0](https://github.com/open-neko/openneko/compare/v2.30.8...v2.31.0) (2026-08-28)
+
+
+### Features
+
+* **graphjin:** governed API writes through the config workflow ([b8e0b8c](https://github.com/open-neko/openneko/commit/b8e0b8c43aeb180e51ef9bb341466cc82c8ce058))
+* **graphjin:** ship governed API writes with read-only customer databases ([0e26c24](https://github.com/open-neko/openneko/commit/0e26c2446b39713ced5c721b813b22fad4607953))
+
+
+### Bug Fixes
+
+* **agent-sandbox:** keep the bridge up without GraphJin, guard mutations, finish tool names ([2069e3e](https://github.com/open-neko/openneko/commit/2069e3e71184199bfc53f85b57d75756987c4ae5))
+* **graphjin:** enable_api_writes clears read_only on the API source ([63e7469](https://github.com/open-neko/openneko/commit/63e7469cf775befa6969ce4619b059abde15e51f))
+* unify GraphJin MCP and A2UI contracts ([072d427](https://github.com/open-neko/openneko/commit/072d427a31e0f1152c532dd4e735381ac6d575b9))
+
 ## [2.30.8](https://github.com/open-neko/openneko/compare/v2.30.7...v2.30.8) (2026-08-26)
 
 
