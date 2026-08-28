@@ -7,11 +7,20 @@ import {
 } from "../prompts/sections";
 import type { InstalledSkill } from "./workspace";
 import type { PluginCatalog } from "./control-plane";
+import {
+  GRAPHJIN_EXECUTE_GRAPHQL_TOOL_TITLE,
+  GRAPHJIN_QUERY_CATALOG_TOOL_TITLE,
+  GRAPHJIN_VALIDATE_WHERE_TOOL_TITLE,
+} from "../graphjin/mcp-names";
 import type {
   AppWorkContext,
   RecordWorkContext,
   WorkDataSurface,
 } from "./data-surface";
+import {
+  A2UI_RENDER_ACP_TITLE,
+  A2UI_RENDER_TOOL_NAME,
+} from "./a2ui-contract";
 
 // Re-export so external callers (and tests) that import GRAPHJIN_DATE_RULE
 // from "@neko/llm/work" don't break.
@@ -39,7 +48,7 @@ function buildRecordsAccessSection(
     : "No record context was supplied.";
   return `<records_access>
 This is a generated-app Records turn. Use the records skill and the native
-\`mcp__neko_records__*\` tools for every app catalog, object, field, record,
+\`mcp_neko_records_*\` tools for every app catalog, object, field, record,
 reference, and aggregate read. Do not use the customer-data GraphJin CLI,
 customer data-source tools, raw HTTP, or inferred SQL for this request.
 
@@ -78,13 +87,15 @@ heuristic as urgency, priority, or overdue status.
 }
 
 // Web-only (callers gate this behind wantsCards). Hermes renders through a
-// `render_cards` tool mounted via the neko_ui MCP server and a per-turn stdio
-// render server. The component catalog + message schema live on
+// `render_cards` tool mounted via the single brokered neko_ui MCP server. The
+// component catalog + generated message schema live on
 // the TOOL's description (ST1: the channel supplies its own rendering
 // vocabulary; the base prompt stays channel-neutral). See
 // docs/PER_CHANNEL_RENDERING.md.
 function buildRenderingSection(supportsCardTool: boolean): string {
-  const tool = supportsCardTool ? "mcp__neko_ui__render_cards" : "render_cards";
+  const tool = supportsCardTool
+    ? A2UI_RENDER_ACP_TITLE
+    : A2UI_RENDER_TOOL_NAME;
   return `<rendering>
 Call \`${tool}\` for every web answer that contains two or more figures, a
 comparison, a table, findings, a decision, a form, or an error-recovery path.
@@ -108,9 +119,9 @@ function buildPluginManagementSection(
   if (supportsTool) {
     return `<plugin_management>
 When the operator needs a capability OpenNeko does not have, use
-\`mcp__neko_plugin_manager__list_plugins\` to inspect installed integrations
+\`mcp_neko_plugin_manager_list_plugins\` to inspect installed integrations
 and the official marketplace. If an exact marketplace plugin fits, use
-\`mcp__neko_plugin_manager__request_plugin_install\`. Installation is never
+\`mcp_neko_plugin_manager_request_plugin_install\`. Installation is never
 silent: it creates an approval request the web channel renders inline.
 After a network policy denial, file that request in the same answer when an
 exact plugin fits; the approval card is the operator's yes/no question.
@@ -180,16 +191,16 @@ up last week?"; "change the threshold on the revenue dip workflow to
 15%").
 
 Tools:
-- \`mcp__neko_workflow_builder__list_workflows\` — list all workflows in
+- \`mcp_neko_workflow_builder_list_workflows\` — list all workflows in
   the org with full bodies (steps, cron, data trigger, description). Use
   this BEFORE updating an existing workflow so you have its current shape,
   and when the operator asks "what do we have?" or "find the workflow
   that…".
-- \`mcp__neko_workflow_builder__create_workflow\` — create or update
+- \`mcp_neko_workflow_builder_create_workflow\` — create or update
   (upsert by name). Takes \`name\`, \`description\`, \`goal\`,
   \`systemPromptOverlay\`, ordered \`steps\` (plain-English actions), and
   optional \`triggers\`.
-- \`mcp__neko_workflow_builder__delete_workflow\` — permanently delete a
+- \`mcp_neko_workflow_builder_delete_workflow\` — permanently delete a
   workflow by id (cascades to its triggers, run history, and proposed
   actions — no undo). Use it when the operator asks to remove or stop a
   workflow for good ("delete the low-stock alert", "get rid of that
@@ -212,10 +223,12 @@ A workflow can run on a schedule, when the data changes, or both:
   The workflow's \`steps\` are the response (e.g. "DM Amit on Slack with
   the low-stock details"); \`triggers.when\` is the condition.
 
-  Before setting \`triggers.when\`, introspect the data source with
-  \`mcp__neko_graphjin__execute_graphql\`. Query \`gj_catalog\` for table
-  cards, columns, and relationship edges, then confirm the table, columns,
-  and primary key. Do not use shell commands or GraphJin dev tools.
+  Before setting \`triggers.when\`, call
+  \`${GRAPHJIN_QUERY_CATALOG_TOOL_TITLE}\` with the operator's natural-language
+  condition. Inspect the returned table card, columns, and relationship edges,
+  then confirm the table, columns, and primary key. Validate the finished
+  filter with \`${GRAPHJIN_VALIDATE_WHERE_TOOL_TITLE}\`. Do not use shell
+  commands or GraphJin dev tools.
 
   \`triggers.when\` shape:
   \`\`\`json
@@ -278,11 +291,13 @@ both:
   \`triggers.when\` is the condition. Omit \`triggers\` entirely for a
   manual workflow.
 
-Before writing \`triggers.when\`, introspect the data source with
-\`mcp__neko_graphjin__execute_graphql\`. Query \`gj_catalog\`, then confirm
-the table, columns, and \`primary_key\`. \`primary_key\` is
-required and drives idempotency. If the workflow's steps write back to
-the watched table, add \`triggers.when.idempotency_key_template\` (e.g.
+Before writing \`triggers.when\`, call
+\`${GRAPHJIN_QUERY_CATALOG_TOOL_TITLE}\` with the operator's natural-language
+condition, inspect the returned table card, columns, and relationships, then
+confirm the table, columns, and \`primary_key\`. Validate the finished filter
+with \`${GRAPHJIN_VALIDATE_WHERE_TOOL_TITLE}\`. \`primary_key\` is required
+and drives idempotency. If the workflow's steps write back to the watched
+table, add \`triggers.when.idempotency_key_template\` (e.g.
 \`"reorder-{primary_key}"\`).
 
 Rules: emit the fence at most once per turn; body must be valid JSON;
@@ -299,10 +314,10 @@ sending external email"; "what was that rule we set last week about
 slack alerts?").
 
 Tools:
-- \`mcp__neko_rule_builder__list_rules\` — list all rules with full
+- \`mcp_neko_rule_builder_list_rules\` — list all rules with full
   config. Use BEFORE updating, and when the operator asks what's in
   place.
-- \`mcp__neko_rule_builder__save_rule\` — create or update (upsert
+- \`mcp_neko_rule_builder_save_rule\` — create or update (upsert
   by name). Required: \`name\`, \`applies_to_kinds\` (action kinds like
   \`send_message\`, \`send_webhook\`; use \`[]\` for "any"),
   \`applies_to_scopes\` (usually \`["external"]\`), \`mode\` (one of
@@ -365,7 +380,7 @@ runtime, or reload impact, complete these steps in order:
    status.
 
 When an edit needs operator input, call \`list_source_secret_names\` as needed,
-then use \`render_cards\` to present a bound A2UI v1.0 form with the relevant
+then use \`${A2UI_RENDER_ACP_TITLE}\` to present a bound A2UI v1.0 form with the relevant
 fields and one proposal action. In the next turn, validate the submitted values
 and call \`request_source_config_change\`. The source form offers Database, API,
 and Files. Use Conditional groups so the selected kind shows its own fields.
@@ -377,18 +392,24 @@ from step 2. Success for an edit is a response containing the proposal result
 from step 4. When a tool returns an error, present the error and name the step
 requiring attention.
 
-- \`mcp__neko_source_config_manager__describe_source_graph\` — read the live
+- \`mcp_neko_source_config_manager_describe_source_graph\` — read the live
   GraphJin source graph and identify the selected data engine.
-- \`mcp__neko_source_config_manager__ask_graphjin_config_agent\` — ask the
+- \`mcp_neko_source_config_manager_ask_graphjin_config_agent\` — ask the
   selected GraphJin to explain its redacted configuration and plan a change.
-- \`mcp__neko_source_config_manager__list_source_secret_names\` — list only
+- \`mcp_neko_source_config_manager_list_source_secret_names\` — list only
   stored connection secret names for use as \`secretRef\` values.
-- \`mcp__neko_source_config_manager__import_openapi_spec\` — import and validate
+- \`mcp_neko_source_config_manager_import_openapi_spec\` — import and validate
   an OpenAPI document from an admin-provided hosted HTTPS URL.
-- \`mcp__neko_source_config_manager__list_openapi_specs\` — list managed
+- \`mcp_neko_source_config_manager_list_openapi_specs\` — list managed
   OpenAPI asset metadata and IDs available to the current organization.
-- \`mcp__neko_source_config_manager__request_source_config_change\` — file an
+- \`mcp_neko_source_config_manager_request_source_config_change\` — file an
   \`source_config_admin\` proposal for admin review.
+
+To enable governed writes on an API source, file one \`enable_api_writes\`
+proposal with the source, spec key, operation id, and \`allowedRoles\`. Use
+\`set_source_capabilities\` or \`expose_api_operation\` only to adjust one
+setting later. Database sources stay read-only; the host rejects a write path
+on one.
 
 For a new source, collect the shared name and kind plus its relevant fields:
 Database uses type, host, port, database name, user, stored \`secretRef\`, and
@@ -421,7 +442,7 @@ function buildSkillsSection(
     ? ""
     : supportsSkillTool
       ? `When the user asks you to create or update a skill, use
-\`mcp__neko_skills__create_skill\`.`
+\`mcp_neko_skills_create_skill\`.`
       : `When the user asks you to create or update a skill, write its
 agentskills.io-style files to
 \`${workspace.skillsRoot}/<skill-name>/SKILL.md\` using your shell tool.`;
@@ -766,7 +787,7 @@ that flags churn risk every Monday."
       ? buildRecordsAccessSection(appContext, recordContext)
       : buildDataAccessSection({
           shellTool,
-          queryTool: "mcp__neko_graphjin__execute_graphql",
+          queryTool: GRAPHJIN_EXECUTE_GRAPHQL_TOOL_TITLE,
           queryIdentity: "actor",
           workspace,
           knowledge,

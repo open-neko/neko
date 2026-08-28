@@ -37,11 +37,11 @@ export const GRAPHJIN_AGGREGATE_RULE = `- Make the database do the math. When th
 export type MemorySaveMode = "tool" | "fence" | "none";
 
 export type MemorySectionOptions = {
-  /** True when the agent has the `mcp__neko_memory__search` MCP tool. */
+  /** True when the agent has the `mcp_neko_memory_search` MCP tool. */
   searchTool: boolean;
   /**
    * How the agent can persist new memories:
-   * - "tool": call `mcp__neko_memory__save`
+   * - "tool": call `mcp_neko_memory_save`
    * - "fence": emit a ```neko_memory fenced block (parsed post-run)
    * - "none": agent does not write memories (operator does it explicitly)
    */
@@ -69,19 +69,19 @@ silently ignore a relevant memory.`;
 
   if (searchTool) {
     usageBlocks.push(`To find related memories beyond the ones loaded above: call
-\`mcp__neko_memory__search\` with a short natural-language query. Do
+\`mcp_neko_memory_search\` with a short natural-language query. Do
 this whenever the user's request mentions a domain, metric, or rule
 that isn't already covered by the preloaded list.`);
     usageBlocks.push(`The document library holds knowledge distilled from uploaded
 business documents (policies, contracts, SOPs). When the operator asks
 about company documents, agreements, or written policy, call
-\`mcp__neko_library__search\` with a short query before answering from
+\`mcp_neko_library_search\` with a short query before answering from
 general knowledge. Each result cites its source upload — mention the
 source when you rely on one.`);
   }
 
   if (saveMode === "tool") {
-    usageBlocks.push(`To save a new memory: call \`mcp__neko_memory__save\` with the
+    usageBlocks.push(`To save a new memory: call \`mcp_neko_memory_save\` with the
 exact rule the operator stated. Use \`global\` scope unless they say
 it's only for this thread.`);
   } else if (saveMode === "fence") {
@@ -110,10 +110,12 @@ ${application}${usage}
 
 export type DataAccessOptions = {
   shellTool: string;
-  /** Query-only broker tool used by isolated, non-interactive jobs. */
+  /** Native execute_graphql tool on the brokered GraphJin MCP surface. */
   queryTool?: string;
   /** Identity the trusted broker uses when it executes the query. */
   queryIdentity?: "actor" | "service";
+  /** Restrict this agent's use of otherwise caller-visible execution tools. */
+  readOnly?: boolean;
   /** Read-only GraphJin server-agent tool used by delegated jobs. */
   agentTool?: string;
   workspace: AgentWorkspace;
@@ -187,8 +189,14 @@ ${GRAPHJIN_AGGREGATE_RULE}
 }
 
 function buildBrokeredDataAccessSection(opts: DataAccessOptions): string {
-  const { queryTool, knowledge, queryIdentity = "service" } = opts;
+  const { queryTool, knowledge, queryIdentity = "service", readOnly = false } = opts;
   if (!queryTool) throw new Error("brokered data access requires queryTool");
+  const graphjinTool = (name: string) =>
+    queryTool.replace(/execute_graphql$/, name);
+  const catalogTool = graphjinTool("query_catalog");
+  const helpTool = graphjinTool("graphql_help");
+  const validateTool = graphjinTool("validate_where_clause");
+  const savedQueryTool = graphjinTool("execute_saved_query");
   const agentic = knowledge.mode === "agentic";
   const knowledgeBlock = agentic
     ? `================================================================================
@@ -239,22 +247,48 @@ GraphJin DSL reference:
 ${knowledge.syntax}`;
 
   return `<data_access>
-The configured GraphJin database is the authoritative source for this metric.
-Execute every database read by calling \`${queryTool}\` with:
+The configured GraphJin server is the authoritative source for operational data.
+Its complete caller-visible MCP tool catalog is brokered into this run with the
+native tool names and schemas. The source URL and short-lived
+${queryIdentity === "actor" ? "actor credential" : "service credential"} never enter your sandbox.
 
-  { "query": "<your read-only GraphQL query>" }
+For a goal-driven request, start with \`${catalogTool}\` using the user's natural
+language instruction. When the tool list has no \`${catalogTool}\`, start with
+\`${helpTool}\` and \`for\` set to \`discovery\` instead:
 
-This tool is implemented by the trusted OpenNeko host. The source URL and
-short-lived ${queryIdentity === "actor" ? "actor credential" : "service credential"} never enter your sandbox. The host rejects
-mutations and subscriptions before GraphJin sees them. No shell, raw HTTP,
-configuration, or write path is available for database access.
+  { "search": "<the user's business question>" }
+
+Inspect the best returned row with \`{ "id": "<returned id>" }\`. For complete
+table columns, query kind \`column\` filtered by the returned table_name; for
+joins, search kind \`relationship\`. Use \`${helpTool}\` with \`for\` set to
+\`discovery\`, \`schema\`, \`query\`, or \`mutations\` only when intent-first
+catalog search does not provide enough guidance. Never guess a table, field,
+relationship, or GraphJin operator.
+
+Validate non-trivial filters with \`${validateTool}\`. Prefer an approved saved
+query through \`${savedQueryTool}\` when the catalog supplies one. Otherwise,
+execute GraphQL by calling \`${queryTool}\` with:
+
+  { "query": "<your GraphQL operation>" }
+
+GraphJin itself applies the caller's role, source capabilities, and tool gates.
+Treat a refusal or unavailable tool as authoritative; do not bypass it with the
+shell, raw HTTP, a CLI, or a hand-written MCP request.
+
+${
+  readOnly
+    ? `This run is read-only. Never submit a mutation, configuration change, or
+other state-changing operation even if the caller-visible server advertises it.`
+    : `Database sources are read-only; the host rejects any mutation against
+them. Use state-changing tools against API sources only when the operator's
+request and the caller-visible GraphJin capability explicitly authorize the
+operation.`
+}
 
 ${
   agentic
-    ? `Discover schema detail on demand with gj_catalog queries through the same
-tool. Pull a table card and relevant column rows before writing a non-trivial
-query. Use details_json, examples_json, and edges_json for columns, templates,
-and joins. Do not call GraphJin dev tools; only execute GraphQL queries.`
+    ? `Use query_catalog detail rows as the primary discovery contract. Read
+details_json, examples_json, and edges_json before drafting a non-trivial query.`
     : `The complete prefetched schema and DSL context is inlined below. Use it
 instead of attempting separate discovery or configuration commands.`
 }

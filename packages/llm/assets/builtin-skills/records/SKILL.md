@@ -13,13 +13,13 @@ change succeeded before its action reports successful execution.
 
 ## Discover the app
 
-1. Call `mcp__neko_records__browse_catalog` before the first query or action.
+1. Call `mcp_neko_records_browse_catalog` before the first query or action.
    Use its exact app, object, and field API names. Catalog results already
    reflect the current actor's readable objects and CRUD grants.
 2. If the requested app or object is absent, say it is unavailable to this
    actor. Do not infer a hidden schema or substitute a similarly named app.
-3. Use `mcp__neko_records__find_records` for lists, searches, filters, and ID
-   resolution. Use `mcp__neko_records__get_record` only with an exact ID that
+3. Use `mcp_neko_records_find_records` for lists, searches, filters, and ID
+   resolution. Use `mcp_neko_records_get_record` only with an exact ID that
    was just resolved or supplied by a trusted record-page context.
 
 The native records tools query the dedicated records GraphJin under the human

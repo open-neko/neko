@@ -8,6 +8,7 @@ import {
   atomicWriteFile,
   migrateGraphjinSystemSource,
   patchGraphjinSourcesJwtSecret,
+  reconcileGraphjinWritePolicy,
 } from "./sources-config.ts";
 
 // One-shot entrypoint for the graphjin-secret-init compose service.
@@ -120,8 +121,14 @@ const secret = graphjinSigningSecretB64(orgId);
 const raw = await readFile(CONFIG_PATH, "utf8");
 const migrated = migrateGraphjinSystemSource(raw);
 const patched = patchGraphjinSourcesJwtSecret(migrated.content, secret);
-if (migrated.changed || patched.changed) {
-  await atomicWriteFile(CONFIG_PATH, patched.content);
+const policy = reconcileGraphjinWritePolicy(patched.content);
+if (migrated.changed || patched.changed || policy.changed) {
+  await atomicWriteFile(CONFIG_PATH, policy.content);
+}
+if (policy.changed) {
+  console.log(
+    `[graphjin-secret-init] reconciled GraphJin write policy (mutations on, worker roles listed) in ${CONFIG_PATH}`,
+  );
 }
 if (migrated.changed) {
   console.log(

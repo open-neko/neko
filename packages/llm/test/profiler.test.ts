@@ -145,7 +145,7 @@ describe("buildProfilerPrompt knowledge inlining", () => {
       orgName: "Acme",
       companyNote: "",
       shellTool: "terminal",
-      queryTool: "mcp__neko_graphjin__execute_graphql",
+      queryTool: "mcp_neko_graphjin_execute_graphql",
       knowledge: {
         mode: "agentic",
         tables: bigTables,
@@ -158,7 +158,8 @@ describe("buildProfilerPrompt knowledge inlining", () => {
     expect(prompt).not.toContain(bigInsights);
     expect(prompt).toContain("join: public.hub_0.col_0 -> public.other_0.id");
     expect(prompt).toContain("- help:topic0");
-    expect(prompt).toContain("Only use `mcp__neko_graphjin__execute_graphql`");
+    expect(prompt).toContain("`mcp_neko_graphjin_query_catalog`");
+    expect(prompt).toContain("`mcp_neko_graphjin_execute_saved_query`");
     expect(prompt).not.toContain("graphjin cli");
     expect(prompt).not.toContain("graphjin cli health");
     expect(prompt).not.toContain("graphjin cli find_path");
@@ -173,7 +174,7 @@ describe("buildProfilerPrompt knowledge inlining", () => {
       orgName: "Acme",
       companyNote: "",
       shellTool: "terminal",
-      queryTool: "mcp__neko_graphjin__execute_graphql",
+      queryTool: "mcp_neko_graphjin_execute_graphql",
       knowledge: {
         mode: "legacy",
         tables: bigTables,
@@ -190,7 +191,7 @@ describe("buildProfilerPrompt knowledge inlining", () => {
       orgName: "Acme",
       companyNote: "",
       shellTool: "terminal",
-      queryTool: "mcp__neko_graphjin__execute_graphql",
+      queryTool: "mcp_neko_graphjin_execute_graphql",
       knowledge: {
         mode: "agentic",
         tables: bigTables,
@@ -199,9 +200,10 @@ describe("buildProfilerPrompt knowledge inlining", () => {
         syntax: "{}",
       },
     });
-    expect(prompt).toContain("`mcp__neko_graphjin__execute_graphql`");
+    expect(prompt).toContain("`mcp_neko_graphjin_execute_graphql`");
+    expect(prompt).toContain("`mcp_neko_graphjin_query_catalog`");
     expect(prompt).toContain("Treat the requested output sections as an evidence checklist");
-    expect(prompt).toContain("trusted host broker");
+    expect(prompt).toContain("trusted host supplies their exact schemas");
     expect(prompt).not.toContain("graphjin cli setup");
     expect(prompt).not.toContain("graphjin cli execute_graphql");
   });

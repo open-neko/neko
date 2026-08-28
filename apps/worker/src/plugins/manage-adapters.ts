@@ -12,6 +12,7 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { registerActionAdapter } from "@neko/llm/workflows";
 import {
+  assertDatabaseSourcesStayReadOnly,
   buildGraphjinConfigUpdate,
   acquireGraphjinConfigLock,
   acquireManagedFileSourceLock,
@@ -489,7 +490,11 @@ export function registerSourceConfigAdminAdapter(): void {
       selectedKind === "file" &&
       selectedBackend === "local";
     const needsDurableSourceConfig =
-      action === "register_source" || action === "set_source_access";
+      action === "register_source" ||
+      action === "set_source_access" ||
+      action === "set_source_capabilities" ||
+      action === "expose_api_operation" ||
+      action === "enable_api_writes";
     const sourceName = typeof payload.name === "string" ? payload.name.trim() : "";
     let specAsset: typeof openapi_spec_asset.$inferSelect | null = null;
     let managedRuntimeDir: string | undefined;
@@ -741,6 +746,7 @@ export function registerSourceConfigAdminAdapter(): void {
           currentSources = [];
         }
       }
+      assertDatabaseSourcesStayReadOnly(update, currentSources);
       if (
         action === "register_source" &&
         Array.isArray(currentSources) &&

@@ -102,7 +102,7 @@ describe("buildDataAccessSection layering", () => {
 
   const base = {
     shellTool: "bash",
-    queryTool: "mcp__neko_graphjin__execute_graphql",
+    queryTool: "mcp_neko_graphjin_execute_graphql",
     queryIdentity: "service" as const,
     workspace,
     knowledge: {
@@ -113,14 +113,15 @@ describe("buildDataAccessSection layering", () => {
     },
   };
 
-  it("agentic mode teaches on-demand gj_catalog discovery", () => {
+  it("agentic mode teaches native catalog-first discovery", () => {
     const section = buildDataAccessSection({
       ...base,
       knowledge: { ...base.knowledge, mode: "agentic" },
       inlineKnowledge: "syntax",
     });
     expect(section).toContain("gj_catalog");
-    expect(section).toContain("Discover schema detail on demand");
+    expect(section).toContain("mcp_neko_graphjin_query_catalog");
+    expect(section).toContain("query_catalog detail rows");
     expect(section).toContain('gj_catalog(id: "help:<topic>")');
     expect(section).not.toContain("complete prefetched schema");
   });

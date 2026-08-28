@@ -18,7 +18,7 @@ import {
   buildAuditViewerServer,
   buildChannelManagerServer,
   buildDataSourceManagerServer,
-  buildGraphjinReadServer,
+  buildGraphjinMcpServer,
   buildSourceConfigManagerServer,
   buildUserManagerServer,
   buildLibraryServer,
@@ -47,7 +47,7 @@ export interface RunAgentBackendInput {
   /** In-process on the host; broker-backed inside the agent sandbox. */
   controlPlane: AgentControlPlane;
   /** Whether this channel renders a2ui cards (web). Default true. Gates the
-   *  neko_ui render server. See docs/PER_CHANNEL_RENDERING.md. */
+   * brokered neko_ui render server. */
   wantsCards?: boolean;
   emit: (event: AgentEvent) => Promise<void>;
   signal?: AbortSignal;
@@ -121,9 +121,9 @@ export async function runAgentBackend(
           }),
         }
       : {
-        // Customer reads are GraphQL tool calls brokered through the trusted
-        // host. No GraphJin binary, source URL, or credential enters the box.
-        neko_graphjin: buildGraphjinReadServer({
+        // GraphJin's complete caller-visible MCP surface is brokered through
+        // the trusted host. No binary, source URL, or credential enters the box.
+        neko_graphjin: buildGraphjinMcpServer({
           orgId,
           runId,
           controlPlane,

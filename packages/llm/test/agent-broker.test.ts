@@ -24,6 +24,8 @@ function stubControlPlane(): AgentControlPlane {
     searchWorkMemoryByContext:
       unused as AgentControlPlane["searchWorkMemoryByContext"],
     queryGraphjinRead: unused as AgentControlPlane["queryGraphjinRead"],
+    listGraphjinTools: unused as AgentControlPlane["listGraphjinTools"],
+    callGraphjinTool: unused as AgentControlPlane["callGraphjinTool"],
     askGraphjinDataAgent:
       unused as AgentControlPlane["askGraphjinDataAgent"],
     listRecordCatalog: unused as AgentControlPlane["listRecordCatalog"],

@@ -57,8 +57,8 @@ describe("buildMemorySection", () => {
       saveMode: "tool",
       memoryContext: "loaded memories here",
     });
-    expect(section).toContain("mcp__neko_memory__save");
-    expect(section).toContain("mcp__neko_memory__search");
+    expect(section).toContain("mcp_neko_memory_save");
+    expect(section).toContain("mcp_neko_memory_search");
     expect(section).not.toContain("```neko_memory");
   });
 
@@ -70,7 +70,7 @@ describe("buildMemorySection", () => {
     });
     expect(section).toContain("```neko_memory");
     expect(section).toContain('"save"');
-    expect(section).not.toContain("mcp__neko_memory__save");
+    expect(section).not.toContain("mcp_neko_memory_save");
   });
 
   it("emits search-only instruction when saveMode='none' but searchTool=true", () => {
@@ -79,8 +79,8 @@ describe("buildMemorySection", () => {
       saveMode: "none",
       memoryContext: "loaded memories here",
     });
-    expect(section).toContain("mcp__neko_memory__search");
-    expect(section).not.toContain("mcp__neko_memory__save");
+    expect(section).toContain("mcp_neko_memory_search");
+    expect(section).not.toContain("mcp_neko_memory_save");
     expect(section).not.toContain("```neko_memory");
   });
 
@@ -90,8 +90,8 @@ describe("buildMemorySection", () => {
       saveMode: "none",
       memoryContext: "loaded memories here",
     });
-    expect(section).not.toContain("mcp__neko_memory__search");
-    expect(section).not.toContain("mcp__neko_memory__save");
+    expect(section).not.toContain("mcp_neko_memory_search");
+    expect(section).not.toContain("mcp_neko_memory_save");
     expect(section).not.toContain("```neko_memory");
   });
 
@@ -114,7 +114,7 @@ describe("buildDataAccessSection", () => {
   const native = (overrides: Partial<Parameters<typeof buildDataAccessSection>[0]> = {}) =>
     buildDataAccessSection({
       shellTool: "terminal",
-      queryTool: "mcp__neko_graphjin__execute_graphql",
+      queryTool: "mcp_neko_graphjin_execute_graphql",
       queryIdentity: "actor",
       workspace: fakeWorkspace,
       knowledge: fakeKnowledge,
@@ -133,10 +133,15 @@ describe("buildDataAccessSection", () => {
     ).toThrow(/native broker tool/);
   });
 
-  it("uses only the native GraphQL query tool", () => {
+  it("uses the complete native GraphJin MCP surface without shell access", () => {
     const section = native();
-    expect(section).toContain("mcp__neko_graphjin__execute_graphql");
-    expect(section).toContain("short-lived actor credential");
+    expect(section).toContain("mcp_neko_graphjin_execute_graphql");
+    expect(section).toContain("mcp_neko_graphjin_query_catalog");
+    expect(section).toContain("mcp_neko_graphjin_graphql_help");
+    expect(section).toContain("with `for` set to");
+    expect(section).toContain("mcp_neko_graphjin_validate_where_clause");
+    expect(section).toContain("mcp_neko_graphjin_execute_saved_query");
+    expect(section).toMatch(/short-lived\s+actor credential/);
     expect(section).not.toContain("graphjin cli");
     expect(section).not.toContain("`terminal`");
   });
@@ -162,7 +167,8 @@ describe("buildDataAccessSection", () => {
       knowledge: { ...fakeKnowledge, mode: "agentic" },
     });
     expect(section).toContain("gj_catalog");
-    expect(section).toContain("only execute GraphQL queries");
+    expect(section).toContain("query_catalog detail rows");
+    expect(section).toContain("native tool names and schemas");
     expect(section).not.toContain("graphjin cli");
   });
 });

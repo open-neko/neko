@@ -13,11 +13,12 @@ import {
   buildChannelManagerServer,
   buildDataSourceManagerServer,
   buildGraphjinAgentServer,
-  buildGraphjinReadServer,
+  buildGraphjinMcpServer,
   buildLibraryServer,
   buildPluginActionServer,
   buildPluginManagerServer,
   buildRecordsReadServer,
+  buildRenderCardsServer,
   buildSkillBuilderServer,
   buildSourceConfigManagerServer,
   buildUserManagerServer,
@@ -77,8 +78,10 @@ export function buildBridgeServer(
       : () => {};
   const common = { orgId, runId, emit, controlPlane };
   switch (name) {
+    case "neko_ui":
+      return buildRenderCardsServer(emit);
     case "neko_graphjin":
-      return buildGraphjinReadServer({
+      return buildGraphjinMcpServer({
         orgId,
         ...(ctx.runKind === "agent-job" ? {} : { runId }),
         controlPlane,
@@ -193,42 +196,74 @@ export async function buildMultiplexedBridgeServer(
 ): Promise<{ instance: Server }> {
   if (names.length === 0) throw new Error("mcp-bridge: no servers to multiplex");
 
-  const publicTools: Array<Record<string, unknown> & { name: string }> = [];
-  const routes = new Map<
-    string,
-    { client: Client; originalToolName: string }
-  >();
-
+  // Logical servers connect in memory at startup. Their tool catalogs resolve
+  // on Hermes' first tools/list, so a logical server whose catalog comes from
+  // a remote service (neko_graphjin relays GraphJin's live tools/list) cannot
+  // take the other servers down with it.
+  const logicalClients: Array<{ name: string; client: Client }> = [];
   for (const name of names) {
     const logical = buildBridgeServer(name, ctx);
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await logical.instance.connect(serverTransport);
-
     const client = new Client({
       name: `openneko-mcp-multiplexer-${name}`,
       version: "1.0.0",
     });
     await client.connect(clientTransport);
-    const listed = await client.listTools();
-    for (const tool of listed.tools) {
-      const publicName = multiplexedToolName(name, tool.name);
-      if (routes.has(publicName)) {
-        throw new Error(`mcp-bridge: duplicate multiplexed tool ${publicName}`);
-      }
-      routes.set(publicName, { client, originalToolName: tool.name });
-      publicTools.push({ ...tool, name: publicName });
-    }
+    logicalClients.push({ name, client });
   }
+
+  const routes = new Map<
+    string,
+    { client: Client; originalToolName: string }
+  >();
+  const listPublicTools = async (): Promise<
+    Array<Record<string, unknown> & { name: string }>
+  > => {
+    const publicTools: Array<Record<string, unknown> & { name: string }> = [];
+    const nextRoutes = new Map<
+      string,
+      { client: Client; originalToolName: string }
+    >();
+    for (const { name, client } of logicalClients) {
+      let listed: Awaited<ReturnType<Client["listTools"]>>;
+      try {
+        listed = await client.listTools();
+      } catch (err) {
+        console.error(
+          `[mcp-bridge] ${name} tools/list failed; its tools are unavailable until the next tools/list: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        continue;
+      }
+      for (const tool of listed.tools) {
+        const publicName = multiplexedToolName(name, tool.name);
+        if (nextRoutes.has(publicName)) {
+          throw new Error(`mcp-bridge: duplicate multiplexed tool ${publicName}`);
+        }
+        nextRoutes.set(publicName, { client, originalToolName: tool.name });
+        publicTools.push({ ...tool, name: publicName });
+      }
+    }
+    routes.clear();
+    for (const [publicName, route] of nextRoutes) routes.set(publicName, route);
+    return publicTools;
+  };
 
   const instance = new Server(
     { name: "openneko-mcp-multiplexer", version: "1.0.0" },
     { capabilities: { tools: {} } },
   );
   instance.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: publicTools,
+    tools: await listPublicTools(),
   }));
   instance.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const route = routes.get(request.params.name);
+    let route = routes.get(request.params.name);
+    if (!route) {
+      await listPublicTools();
+      route = routes.get(request.params.name);
+    }
     if (!route) throw new Error(`mcp-bridge: unknown tool ${request.params.name}`);
     return route.client.callTool({
       name: route.originalToolName,
@@ -326,11 +361,28 @@ const invokedDirectly =
   process.argv[1]?.endsWith("mcp-bridge.ts") ||
   process.argv[1]?.endsWith("mcp-bridge.js");
 if (invokedDirectly) {
-  main().catch((err: unknown) => {
-    console.error(
-      "[mcp-bridge] fatal:",
-      err instanceof Error ? err.message : String(err),
-    );
+  main().catch(async (err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[mcp-bridge] fatal:", message);
+    // Hermes stores MCP child stderr inside the ephemeral sandbox. Persist a
+    // sanitized startup failure through the normal run event sink as well, so
+    // a lost tool surface is diagnosable after teardown instead of silently
+    // degrading the agent to filesystem/terminal tools.
+    const brokerUrl = process.env.OPENNEKO_BROKER_URL;
+    const brokerToken = process.env.OPENNEKO_BROKER_TOKEN;
+    if (brokerUrl && brokerToken) {
+      try {
+        await postAgentEvents(brokerUrl, brokerToken, [
+          {
+            type: "error",
+            message: `Agent tool bridge failed to start: ${message}`,
+          },
+        ]);
+      } catch {
+        // The original stderr message remains the last-resort diagnostic when
+        // the broker itself is unreachable.
+      }
+    }
     process.exit(1);
   });
 }

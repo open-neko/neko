@@ -12,6 +12,7 @@ import {
 import { BrokerControlPlane } from "../../src/agent-sandbox/broker-client.js";
 
 const SERVERS = [
+  "neko_ui",
   "neko_graphjin",
   "neko_graphjin_agent",
   "neko_skills",
@@ -52,25 +53,72 @@ function ctx() {
 }
 
 async function callGraphjinTool(runKind: "work" | "agent-job") {
-  const queryGraphjinRead = vi.fn(async () => ({ data: { ok: true } }));
+  const listGraphjinTools = vi.fn(async () => [
+    {
+      name: "query_catalog",
+      description: "Search the GraphJin catalog",
+      inputSchema: {
+        type: "object" as const,
+        properties: { search: { type: "string" } },
+      },
+    },
+    {
+      name: "validate_where_clause",
+      description: "Validate a GraphJin filter",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          table: { type: "string" },
+          where: { type: "object", additionalProperties: true },
+        },
+        required: ["table", "where"],
+      },
+    },
+    {
+      // A future/admin tool proves OpenNeko does not maintain an allow-list.
+      name: "future_graphjin_tool",
+      description: "A caller-visible future tool",
+      inputSchema: { type: "object" as const, properties: {} },
+    },
+  ]);
+  const callGraphjinTool = vi.fn(async () => ({
+    content: [{ type: "text" as const, text: '{"cards":[]}' }],
+  }));
   const logical = buildBridgeServer("neko_graphjin", {
     ...ctx(),
     runKind,
-    controlPlane: { queryGraphjinRead } as unknown as BrokerControlPlane,
+    controlPlane: {
+      listGraphjinTools,
+      callGraphjinTool,
+    } as unknown as BrokerControlPlane,
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await logical.instance.connect(serverTransport);
   const client = new Client({ name: "graphjin-identity-test", version: "1.0.0" });
   await client.connect(clientTransport);
   try {
+    const listed = await client.listTools();
+    expect(listed.tools.map((tool) => tool.name)).toEqual([
+      "query_catalog",
+      "validate_where_clause",
+      "future_graphjin_tool",
+    ]);
+    expect(listed.tools[1]?.inputSchema).toEqual({
+      type: "object",
+      properties: {
+        table: { type: "string" },
+        where: { type: "object", additionalProperties: true },
+      },
+      required: ["table", "where"],
+    });
     await client.callTool({
-      name: "execute_graphql",
-      arguments: { query: "query { sales_order { entity_id } }" },
+      name: "query_catalog",
+      arguments: { search: "recent orders" },
     });
   } finally {
     await client.close();
   }
-  return queryGraphjinRead;
+  return { listGraphjinTools, callGraphjinTool };
 }
 
 describe("mcp-bridge buildBridgeServer", () => {
@@ -87,20 +135,90 @@ describe("mcp-bridge buildBridgeServer", () => {
   });
 
   it("binds work GraphJin reads to the actor run", async () => {
-    const query = await callGraphjinTool("work");
-    expect(query).toHaveBeenCalledWith({
+    const graphjin = await callGraphjinTool("work");
+    expect(graphjin.listGraphjinTools).toHaveBeenCalledWith({
       orgId: "org-1",
       runId: "22222222-2222-4222-8222-222222222222",
-      query: "query { sales_order { entity_id } }",
+    });
+    expect(graphjin.callGraphjinTool).toHaveBeenCalledWith({
+      orgId: "org-1",
+      runId: "22222222-2222-4222-8222-222222222222",
+      name: "query_catalog",
+      arguments: { search: "recent orders" },
     });
   });
 
   it("omits a run binding for service-identity agent jobs", async () => {
-    const query = await callGraphjinTool("agent-job");
-    expect(query).toHaveBeenCalledWith({
+    const graphjin = await callGraphjinTool("agent-job");
+    expect(graphjin.listGraphjinTools).toHaveBeenCalledWith({
       orgId: "org-1",
-      query: "query { sales_order { entity_id } }",
     });
+    expect(graphjin.callGraphjinTool).toHaveBeenCalledWith({
+      orgId: "org-1",
+      name: "query_catalog",
+      arguments: { search: "recent orders" },
+    });
+  });
+
+  it("preserves every native GraphJin tool and schema through the multiplexer", async () => {
+    const listGraphjinTools = vi.fn(async () => [
+      {
+        name: "query_catalog",
+        description: "Catalog",
+        inputSchema: {
+          type: "object" as const,
+          properties: { ids: { type: "array", items: { type: "string" } } },
+          required: ["ids"],
+        },
+      },
+      {
+        name: "future_graphjin_tool",
+        description: "Future",
+        inputSchema: { type: "object" as const, properties: {} },
+      },
+    ]);
+    const callGraphjinTool = vi.fn(async () => ({
+      content: [{ type: "text" as const, text: "ok" }],
+    }));
+    const multiplexed = await buildMultiplexedBridgeServer(
+      ["neko_graphjin"],
+      {
+        ...ctx(),
+        controlPlane: {
+          listGraphjinTools,
+          callGraphjinTool,
+        } as unknown as BrokerControlPlane,
+      },
+    );
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await multiplexed.instance.connect(serverTransport);
+    const client = new Client({ name: "graphjin-multiplexer-test", version: "1.0.0" });
+    await client.connect(clientTransport);
+    try {
+      const listed = await client.listTools();
+      expect(listed.tools.map((tool) => tool.name)).toEqual([
+        "graphjin_query_catalog",
+        "graphjin_future_graphjin_tool",
+      ]);
+      expect(listed.tools[0]?.inputSchema).toEqual({
+        type: "object",
+        properties: { ids: { type: "array", items: { type: "string" } } },
+        required: ["ids"],
+      });
+      await client.callTool({
+        name: "graphjin_query_catalog",
+        arguments: { ids: ["table:app.public.orders"] },
+      });
+      expect(callGraphjinTool).toHaveBeenCalledWith({
+        orgId: "org-1",
+        runId: "22222222-2222-4222-8222-222222222222",
+        name: "query_catalog",
+        arguments: { ids: ["table:app.public.orders"] },
+      });
+    } finally {
+      await client.close();
+      await multiplexed.instance.close();
+    }
   });
 
   it("multiplexes logical servers while preserving Hermes-facing tool names", async () => {
@@ -139,6 +257,46 @@ describe("mcp-bridge buildBridgeServer", () => {
       await client.close();
       await multiplexed.instance.close();
       await rm(skillsRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("mcp-bridge lazy tool catalogs", () => {
+  it("keeps every other tool when the GraphJin catalog is unavailable, then recovers", async () => {
+    const listGraphjinTools = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("no enabled GraphJin MCP endpoint configured"))
+      .mockResolvedValue([
+        {
+          name: "query_catalog",
+          description: "Catalog",
+          inputSchema: { type: "object" as const, properties: {} },
+        },
+      ]);
+    const controlPlane = new BrokerControlPlane("http://127.0.0.1:9", "tok");
+    (controlPlane as unknown as { listGraphjinTools: unknown }).listGraphjinTools =
+      listGraphjinTools;
+    const multiplexed = await buildMultiplexedBridgeServer(
+      ["neko_memory", "neko_graphjin", "neko_ui"],
+      { ...ctx(), controlPlane },
+    );
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await multiplexed.instance.connect(serverTransport);
+    const client = new Client({ name: "lazy-catalog-test", version: "1.0.0" });
+    await client.connect(clientTransport);
+    try {
+      const first = (await client.listTools()).tools.map((tool) => tool.name);
+      expect(first).toContain("memory_search");
+      expect(first).toContain("ui_render_cards");
+      expect(first.some((name) => name.startsWith("graphjin_"))).toBe(false);
+
+      const second = (await client.listTools()).tools.map((tool) => tool.name);
+      expect(second).toContain("graphjin_query_catalog");
+      expect(second).toContain("memory_search");
+      expect(listGraphjinTools).toHaveBeenCalledTimes(2);
+    } finally {
+      await client.close();
+      await multiplexed.instance.close();
     }
   });
 });

@@ -51,6 +51,19 @@ function makeFakeControlPlane() {
       calls.push({ method: "graphjin-read", input: input as Record<string, unknown> });
       return { data: {} };
     },
+    async listGraphjinTools(input) {
+      calls.push({ method: "graphjin-tools-list", input: input as Record<string, unknown> });
+      return [
+        {
+          name: "query_catalog",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ];
+    },
+    async callGraphjinTool(input) {
+      calls.push({ method: "graphjin-tool-call", input: input as Record<string, unknown> });
+      return { content: [{ type: "text", text: '{"cards":[]}' }] };
+    },
     async askGraphjinDataAgent(input) {
       calls.push({ method: "graphjin-agent", input: input as Record<string, unknown> });
       return {
@@ -367,12 +380,26 @@ describe("agent broker", () => {
       runId: "SPOOF",
       query: "query { sales_order { entity_id } }",
     });
+    await work.listGraphjinTools({ orgId: "SPOOF", runId: "SPOOF" });
+    await work.callGraphjinTool({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      name: "query_catalog",
+      arguments: { search: "orders" },
+    });
 
     const job = new BrokerControlPlane(baseUrl, "job");
     await job.queryGraphjinRead({
       orgId: "SPOOF",
       runId: "SPOOF",
       query: "query { sales_order { entity_id } }",
+    });
+    await job.listGraphjinTools({ orgId: "SPOOF", runId: "SPOOF" });
+    await job.callGraphjinTool({
+      orgId: "SPOOF",
+      runId: "SPOOF",
+      name: "query_catalog",
+      arguments: { search: "orders" },
     });
 
     const reads = fake.calls.filter((call) => call.method === "graphjin-read");
@@ -384,6 +411,21 @@ describe("agent broker", () => {
     expect(reads[1]?.input).toEqual({
       orgId: "o1",
       query: "query { sales_order { entity_id } }",
+    });
+    const lists = fake.calls.filter((call) => call.method === "graphjin-tools-list");
+    expect(lists[0]?.input).toEqual({ orgId: "o1", runId: "r1" });
+    expect(lists[1]?.input).toEqual({ orgId: "o1" });
+    const calls = fake.calls.filter((call) => call.method === "graphjin-tool-call");
+    expect(calls[0]?.input).toEqual({
+      orgId: "o1",
+      runId: "r1",
+      name: "query_catalog",
+      arguments: { search: "orders" },
+    });
+    expect(calls[1]?.input).toEqual({
+      orgId: "o1",
+      name: "query_catalog",
+      arguments: { search: "orders" },
     });
   });
 

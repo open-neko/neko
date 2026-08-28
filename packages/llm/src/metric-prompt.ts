@@ -151,7 +151,7 @@ type MetricPromptBaseArgs = {
   workspace: AgentWorkspace;
   shellTool: string;
   memoryContext?: string;
-  /** True when the backend supports `mcp__neko_memory__search`. */
+  /** True when the backend supports `mcp_neko_memory_search`. */
   supportsMemorySearch?: boolean;
 };
 
@@ -193,6 +193,7 @@ snapshot. No prose around the JSON.
       agentTool: dataAgentTool,
       workspace,
       knowledge,
+      readOnly: true,
       // One-shot agent can't iterate — inline the full pack.
       inlineKnowledge: "all",
     }),

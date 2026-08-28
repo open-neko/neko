@@ -17,3 +17,5 @@ export * from "./openapi-assets";
 export * from "./persist-source-config";
 export * from "./file-source";
 export * from "./file-source-assets";
+export * from "./mcp-client";
+export * from "./mcp-names";

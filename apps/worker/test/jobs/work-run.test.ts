@@ -225,7 +225,7 @@ describeIfDb("runChatTurn", () => {
       await opts.onEvent({
         type: "tool_start",
         id: "tool-1",
-        name: "mcp__neko_graphjin_agent__ask",
+        name: "mcp_neko_graphjin_agent_ask",
         input: { privateQuery: "must not escape" },
       });
       await opts.onEvent({

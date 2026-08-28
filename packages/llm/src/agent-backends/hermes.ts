@@ -1,7 +1,7 @@
 // Always session/new per turn — Hermes session/load replays history that the prompt already carries (see packages/llm/src/work/prompt.ts), double-counting context.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,65 +16,20 @@ import {
 import { registerAgentCanceller } from "../agent-shutdown";
 import { hermesHomeForOrg } from "../hermes-home";
 import {
-  RENDER_CARDS_DESCRIPTION,
-  RENDER_CARDS_INPUT_SCHEMA,
-} from "../work/render-catalog";
+  A2UI_RENDER_ACP_TITLE,
+  A2UI_RENDER_SERVER_NAME,
+  A2UI_RENDER_TOOL_NAME,
+  validateRenderCardsInput,
+} from "../work/a2ui-contract";
 import {
   AcpProtocolError,
   createAcpClient,
   type AcpClient,
   type AcpNotification,
 } from "./hermes-acp-client";
-import { coerceGeneratedSurfaceMessages, extractSurfaceMessages } from "./surface";
+import { extractSurfaceMessages } from "./surface";
 
 export { extractSurfaceMessages } from "./surface";
-
-// ── Per-channel rendering (web): hand hermes a tiny stdio MCP server that
-// advertises `render_cards`, so the model can render a2ui cards instead of a
-// fence. The server is a sink (returns ok); the HOST emits the surface from the
-// tool_call notification's rawInput. See docs/PER_CHANNEL_RENDERING.md.
-const RENDER_MCP_SERVER_NAME = "neko_render";
-// hermes surfaces MCP tool calls as `mcp_<server>_<tool>` (verified via spike).
-const RENDER_TOOL_TITLE = `mcp_${RENDER_MCP_SERVER_NAME}_render_cards`;
-const RENDER_MCP_STUB_SOURCE = `let b="";
-const rec=v=>!!v&&typeof v==="object"&&!Array.isArray(v);
-const str=(v,k)=>typeof v[k]==="string"&&v[k].length>0;
-const cmp=v=>rec(v)&&str(v,"id")&&str(v,"component");
-const msg=v=>{
-if(!rec(v)||v.version!=="v1.0")return false;
-if(rec(v.createSurface))return str(v.createSurface,"surfaceId")&&str(v.createSurface,"catalogId")&&
-(!Array.isArray(v.createSurface.components)||v.createSurface.components.every(cmp));
-if(rec(v.updateComponents))return str(v.updateComponents,"surfaceId")&&
-Array.isArray(v.updateComponents.components)&&v.updateComponents.components.every(cmp);
-if(rec(v.updateDataModel))return str(v.updateDataModel,"surfaceId");
-if(rec(v.deleteSurface))return str(v.deleteSurface,"surfaceId");
-return false};
-process.stdin.on("data",c=>{b+=c;let i;while((i=b.indexOf("\\n"))>=0){
-const l=b.slice(0,i).trim();b=b.slice(i+1);if(!l)continue;
-let r;try{r=JSON.parse(l)}catch{continue}const{id,method}=r;
-if(typeof id==="undefined")continue;
-const w=o=>process.stdout.write(JSON.stringify({jsonrpc:"2.0",id,result:o})+"\\n");
-if(method==="initialize")w({protocolVersion:"2024-11-05",capabilities:{tools:{}},serverInfo:{name:"neko_render",version:"1"}});
-else if(method==="tools/list")w({tools:[${JSON.stringify({
-  name: "render_cards",
-  description: RENDER_CARDS_DESCRIPTION,
-  inputSchema: RENDER_CARDS_INPUT_SCHEMA,
-})}]});
-else if(method==="tools/call"){const ms=r?.params?.arguments?.messages;
-const accepted=Array.isArray(ms)?ms.filter(msg).length:0;
-if(accepted===0)w({content:[{type:"text",text:'{"ok":false,"error":"No valid A2UI v1.0 surface messages were accepted. Correct the envelope and call render_cards again."}'}],isError:true});
-else w({content:[{type:"text",text:JSON.stringify({ok:true,accepted})}]})}
-else w({})}});
-`;
-let renderStubPath: string | null = null;
-export function ensureRenderStub(): string {
-  if (!renderStubPath) {
-    const p = join(tmpdir(), "neko-render-mcp-server.mjs");
-    writeFileSync(p, RENDER_MCP_STUB_SOURCE);
-    renderStubPath = p;
-  }
-  return renderStubPath;
-}
 
 /** Last error-ish lines of hermes' own agent.log — the file dies with the
  *  sandbox, so a mid-turn death must read it NOW or never. */
@@ -504,9 +459,12 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
         .filter(([, v]) => v),
     ].map(([name, value]) => ({ name, value }));
     const safeBridgeNames = mcpServerNames
-      // neko_ui has its own stub; names are our map keys — the regex guards
-      // the shell interpolation below.
-      .filter((n) => n !== "neko_ui" && /^neko_[a-z0-9_]+$/.test(n));
+      // names are our map keys — the regex guards the shell interpolation.
+      .filter(
+        (name) =>
+          /^neko_[a-z0-9_]+$/.test(name) &&
+          (name !== A2UI_RENDER_SERVER_NAME || wantsCards),
+      );
     const bridgeServers =
       bridgePath && mcpBridgeEnv
         ? safeBridgeNames.length > 0
@@ -528,12 +486,7 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
             }]
           : []
         : [];
-    const mcpServers = [
-      ...(wantsCards
-        ? [{ name: RENDER_MCP_SERVER_NAME, command: process.execPath, args: [ensureRenderStub()], env: [] }]
-        : []),
-      ...bridgeServers,
-    ];
+    const mcpServers = bridgeServers;
     const fresh = await client.request<{ sessionId: string }>("session/new", {
       cwd,
       mcpServers,
@@ -544,6 +497,7 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
     let emittedOutsideLen = 0;
     let surfaceEmittedDuringStream = false;
     let toolActivityObserved = false;
+    const pendingValidRenderToolCalls = new Map<string, unknown>();
     let eventQueue = Promise.resolve();
     let eventError: Error | undefined;
     const emitQueued = (event: AgentEvent): void => {
@@ -571,15 +525,6 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
               emittedOutsideLen = outside.length;
               emitQueued({ type: "message", role: "assistant", content: delta });
             }
-            // Streaming surface emit: the fence regex requires a closing ```,
-            // so a partial fence returns no messages and we wait for the next chunk.
-            if (!surfaceEmittedDuringStream) {
-              const parsed = extractSurfaceMessages(accumulatedText);
-              if (parsed.messages.length > 0) {
-                surfaceEmittedDuringStream = true;
-                emitQueued({ type: "surface", messages: parsed.messages });
-              }
-            }
           }
           return;
         }
@@ -590,16 +535,25 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
         case "tool_call": {
           toolActivityObserved = true;
           if (!onEvent) return;
-          // A render_cards call IS the answer surface, not a tool step: pull the
-          // a2ui messages from the call input and emit them, skipping the pill.
-          if (update.title === RENDER_TOOL_TITLE) {
-            const messages = coerceGeneratedSurfaceMessages(
-              (update.rawInput as { messages?: unknown } | undefined)?.messages,
-            );
-            if (messages.length > 0) {
-              surfaceEmittedDuringStream = true;
-              emitQueued({ type: "surface", messages });
+          // The brokered neko_ui server is the sole surface emitter. Suppress
+          // a successful render's tool pill, but preserve the exact rejected
+          // input as tool_start telemetry so envelope failures are diagnosable.
+          if (update.title === A2UI_RENDER_ACP_TITLE) {
+            const validation = validateRenderCardsInput(update.rawInput);
+            if (validation.success) {
+              pendingValidRenderToolCalls.set(update.toolCallId, update.rawInput);
+              return;
             }
+            emitQueued({
+              type: "tool_start",
+              id: update.toolCallId,
+              name: A2UI_RENDER_TOOL_NAME,
+              input: {
+                title: update.title,
+                rawInput: update.rawInput,
+                validationIssues: validation.issues,
+              },
+            });
             return;
           }
           emitQueued({
@@ -618,6 +572,24 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
           toolActivityObserved = true;
           if (!onEvent) return;
           const id = update.toolCallId;
+          if (pendingValidRenderToolCalls.has(id)) {
+            if (update.status === "completed") {
+              pendingValidRenderToolCalls.delete(id);
+              surfaceEmittedDuringStream = true;
+              return;
+            }
+            if (update.status !== "failed") return;
+            const rawInput = pendingValidRenderToolCalls.get(id);
+            pendingValidRenderToolCalls.delete(id);
+            // The input passed structural validation, but the sole render server
+            // rejected execution. Surface that failure with the original input.
+            emitQueued({
+              type: "tool_start",
+              id,
+              name: A2UI_RENDER_TOOL_NAME,
+              input: { title: A2UI_RENDER_ACP_TITLE, rawInput },
+            });
+          }
           const status = update.status;
           if (status === "completed" || status === "failed") {
             emitQueued({
@@ -701,11 +673,6 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
       const parsed = extractSurfaceMessages(accumulatedText);
       const markdownText = extractMarkdownText(parsed.messages);
       finalText = (markdownText || parsed.text).trim();
-      if (parsed.messages.length > 0 && !surfaceEmittedDuringStream) {
-        emitQueued({ type: "surface", messages: parsed.messages });
-        await eventQueue;
-        if (eventError) throw eventError;
-      }
     }
 
     // rawText keeps every fence (a2ui + builder); finalText above dropped the

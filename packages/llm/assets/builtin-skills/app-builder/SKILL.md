@@ -70,7 +70,7 @@ so prefer durable values such as `closed_won` over display prose.
 
 ## Adapt a blueprint
 
-Call `mcp__neko_records__browse_blueprints` without an id to discover the
+Call `mcp_neko_records_browse_blueprints` without an id to discover the
 shipped priors, then call it with the selected blueprint id to load the exact
 `app_create` payload. Never invent a blueprint payload from its name.
 

@@ -1,4 +1,8 @@
-import { createMcpServer, defineMcpTool } from "../mcp-server";
+import {
+  createDynamicMcpServer,
+  createMcpServer,
+  defineMcpTool,
+} from "../mcp-server";
 import { z } from "zod";
 import { writeWorkSkillFiles } from "./skill-files";
 import { RENDER_CARDS_DESCRIPTION } from "./render-catalog";
@@ -6,6 +10,13 @@ import type { AgentEvent, AgentSurfaceMessage } from "../agent-backend";
 import { WORK_MEMORY_KINDS, type WorkMemoryContext } from "./memory-types";
 import type { RiskLevel } from "../workflows";
 import type { AgentControlPlane } from "./control-plane";
+import {
+  A2UI_RENDER_SERVER_NAME,
+  A2UI_RENDER_TOOL_NAME,
+  RENDER_CARDS_INPUT_SHAPE,
+  type RenderCardsArgs,
+} from "./a2ui-contract";
+import { OPENNEKO_GRAPHJIN_MCP_SERVER_NAME } from "../graphjin/mcp-names";
 
 function requireControlPlane(
   controlPlane: AgentControlPlane | undefined,
@@ -16,100 +27,25 @@ function requireControlPlane(
   return controlPlane;
 }
 
-const a2uiComponentSchema = z
-  .object({ id: z.string().min(1), component: z.string().min(1) })
-  .passthrough();
-const createSurfaceSchema = z.object({
-  version: z.literal("v1.0"),
-  createSurface: z
-    .object({
-      surfaceId: z.string().min(1),
-      catalogId: z.literal("urn:openneko:catalog:work:v2"),
-      surfaceProperties: z.record(z.string(), z.unknown()).optional(),
-      sendDataModel: z.boolean().optional(),
-      components: z.array(a2uiComponentSchema).min(1).optional(),
-      dataModel: z.record(z.string(), z.unknown()).optional(),
-    })
-    .strict(),
-});
-const updateComponentsSchema = z.object({
-  version: z.literal("v1.0"),
-  updateComponents: z
-    .object({
-      surfaceId: z.string().min(1),
-      components: z.array(a2uiComponentSchema).min(1),
-    })
-    .strict(),
-});
-const updateDataModelSchema = z.object({
-  version: z.literal("v1.0"),
-  updateDataModel: z
-    .object({
-      surfaceId: z.string().min(1),
-      path: z.string().optional(),
-      value: z.unknown().optional(),
-    })
-    .strict(),
-});
-const deleteSurfaceSchema = z.object({
-  version: z.literal("v1.0"),
-  deleteSurface: z.object({ surfaceId: z.string().min(1) }).strict(),
-});
-const a2uiMessageSchema = z.union([
-  createSurfaceSchema,
-  updateComponentsSchema,
-  updateDataModelSchema,
-  deleteSurfaceSchema,
-]);
-
-function isValidA2UIMessage(m: unknown): m is AgentSurfaceMessage {
-  if (!m || typeof m !== "object") return false;
-  const o = m as Record<string, unknown>;
-  if (o.version !== "v1.0") return false;
-  return (
-    "createSurface" in o ||
-    "updateComponents" in o ||
-    "updateDataModel" in o ||
-    "deleteSurface" in o
-  );
-}
-
 export function buildRenderCardsServer(
   emit: (event: AgentEvent) => Promise<void> | void,
 ) {
   const renderCards = defineMcpTool(
-    "render_cards",
+    A2UI_RENDER_TOOL_NAME,
     RENDER_CARDS_DESCRIPTION,
-    {
-      messages: z.array(a2uiMessageSchema).min(1),
-    },
-    async (args) => {
-      const valid = (args.messages as unknown[]).filter(isValidA2UIMessage);
-      const rejected = args.messages.length - valid.length;
-      if (valid.length === 0) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify({
-                ok: false,
-                error:
-                  "No surface messages were accepted. Send A2UI v1.0 createSurface/updateComponents/updateDataModel/deleteSurface envelopes.",
-                rejected,
-              }),
-            },
-          ],
-        };
-      }
-      await emit({ type: "surface", messages: valid });
+    RENDER_CARDS_INPUT_SHAPE,
+    async (args: RenderCardsArgs) => {
+      await emit({
+        type: "surface",
+        messages: args.messages as AgentSurfaceMessage[],
+      });
       return {
         content: [
           {
             type: "text" as const,
             text: JSON.stringify({
               ok: true,
-              accepted: valid.length,
-              rejected,
+              accepted: args.messages.length,
             }),
           },
         ],
@@ -118,7 +54,7 @@ export function buildRenderCardsServer(
   );
 
   return createMcpServer({
-    name: "neko_ui",
+    name: A2UI_RENDER_SERVER_NAME,
     version: "1.0.0",
     tools: [renderCards],
   });
@@ -728,6 +664,9 @@ export function buildSourceConfigManagerServer(opts: {
       "Create a source_config_admin proposal for admin review:",
       "- add_role { name, match }: a GraphJin role selected by a JWT match expression.",
       "- set_source_access { source, read, write, delete }: access mode per source (one of public|authenticated|account|owner|admin|blocked; write/delete also accept blocked).",
+      "- enable_api_writes { source, spec, operation, allowedRoles, write?, exposeAs?, apiDelete? }: one proposal that turns on api.write, sets access.write (authenticated by default, or admin), and exposes one OpenAPI POST/PUT/PATCH/DELETE operation as a GraphQL mutation for the listed roles. Prefer this for governed writes.",
+      "- set_source_capabilities { source, apiWrite?, apiDelete? } and expose_api_operation { source, spec, operation, exposeMutation, allowedRoles, exposeAs? }: adjust one write setting on an API source that already has writes enabled.",
+      "Database sources stay read-only; a proposal that opens a write path on one is rejected.",
       "- register_source database { name, kind, type?, host?, port?, dbname?, user?, secretRef? }.",
       "- register_source api { name, kind, specAssetId } using an OpenAPI document already imported by URL or upload.",
       "- register_source file local { name, kind, backend, localFiles } using OpenNeko-managed isolated storage.",
@@ -736,7 +675,14 @@ export function buildSourceConfigManagerServer(opts: {
       "After the tool returns, summarize the proposed change and its approval status.",
     ].join("\n"),
     {
-      action: z.enum(["add_role", "set_source_access", "register_source"]),
+      action: z.enum([
+        "add_role",
+        "set_source_access",
+        "set_source_capabilities",
+        "expose_api_operation",
+        "enable_api_writes",
+        "register_source",
+      ]),
       // add_role
       name: z.string().trim().min(1).max(64).optional(),
       match: z.string().trim().min(1).max(500).optional(),
@@ -747,6 +693,23 @@ export function buildSourceConfigManagerServer(opts: {
         .optional(),
       write: z.enum(["authenticated", "account", "owner", "admin", "blocked"]).optional(),
       delete: z.enum(["authenticated", "account", "owner", "admin", "blocked"]).optional(),
+      // set_source_capabilities
+      apiWrite: z.boolean().optional(),
+      apiDelete: z.boolean().optional(),
+      // expose_api_operation
+      spec: z.string().trim().min(1).max(128).optional(),
+      operation: z.string().trim().min(1).max(200).optional(),
+      exposeMutation: z.boolean().optional(),
+      allowedRoles: z
+        .array(z.enum(["admin", "member", "service", "user"]))
+        .max(4)
+        .optional(),
+      exposeAs: z
+        .string()
+        .trim()
+        .regex(/^[_A-Za-z][_0-9A-Za-z]*$/, "a GraphQL field name")
+        .max(120)
+        .optional(),
       // register_source
       kind: z
         .preprocess(
@@ -811,7 +774,11 @@ export function buildSourceConfigManagerServer(opts: {
           ? `role:${args.name ?? ""}`
           : action === "set_source_access"
             ? `access:${args.source ?? ""}`
-            : `source:${args.name ?? ""}`;
+            : action === "set_source_capabilities"
+              ? `capabilities:${args.source ?? ""}`
+              : action === "expose_api_operation" || action === "enable_api_writes"
+                ? `operation:${args.source ?? ""}/${args.spec ?? ""}#${args.operation ?? ""}`
+                : `source:${args.name ?? ""}`;
       const changePayload = {
         action,
         ...rest,
@@ -969,53 +936,36 @@ export function buildSkillBuilderServer(skillsRoot: string) {
 }
 
 /**
- * Query-only GraphJin surface for sandboxed agents. The broker owns the source
- * URL and mints a short-lived token for the bound run actor on each call;
- * neither enters the sandbox.
+ * Complete caller-visible GraphJin MCP surface for sandboxed agents. The
+ * trusted broker forwards tools/list and tools/call with a short-lived token
+ * for the bound run actor, preserving every native tool schema without
+ * exposing the source URL or credential to the sandbox.
  */
-export function buildGraphjinReadServer(opts: {
+export function buildGraphjinMcpServer(opts: {
   orgId: string;
   runId?: string;
   controlPlane?: AgentControlPlane;
 }) {
   const controlPlane = requireControlPlane(opts.controlPlane);
-  const executeGraphql = defineMcpTool(
-    "execute_graphql",
-    [
-      "Execute one read-only GraphQL query against the configured customer",
-      "GraphJin source. Query and shorthand `{ ... }` operations are allowed;",
-      "mutations and subscriptions are rejected by the trusted host broker.",
-    ].join(" "),
-    {
-      query: z.string().trim().min(1).max(100_000),
-      variables: z.record(z.string(), z.unknown()).optional(),
-      operationName: z.string().trim().min(1).max(200).optional(),
-    },
-    async (args) => {
-      const result = await controlPlane.queryGraphjinRead({
-        orgId: opts.orgId,
-        ...(opts.runId ? { runId: opts.runId } : {}),
-        query: args.query,
-        ...(args.variables ? { variables: args.variables } : {}),
-        ...(args.operationName ? { operationName: args.operationName } : {}),
-      });
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(result),
-          },
-        ],
-      };
-    },
-  );
-
-  return createMcpServer({
-    name: "neko_graphjin",
+  const identity = {
+    orgId: opts.orgId,
+    ...(opts.runId ? { runId: opts.runId } : {}),
+  };
+  return createDynamicMcpServer({
+    name: OPENNEKO_GRAPHJIN_MCP_SERVER_NAME,
     version: "1.0.0",
-    tools: [executeGraphql],
+    listTools: () => controlPlane.listGraphjinTools(identity),
+    callTool: (input) =>
+      controlPlane.callGraphjinTool({
+        ...identity,
+        name: input.name,
+        ...(input.arguments ? { arguments: input.arguments } : {}),
+      }),
   });
 }
+
+/** @deprecated Use buildGraphjinMcpServer; retained for runtime API compatibility. */
+export const buildGraphjinReadServer = buildGraphjinMcpServer;
 
 /**
  * Read-only delegation surface for GraphJin's built-in server agent. The

@@ -240,7 +240,7 @@ describe("HermesBackend ACP behavior", () => {
     expect(toolEnd?.result).toBe("file contents");
   });
 
-  it("emits surface event AND strips fence from finalText when onEvent is provided", async () => {
+  it("does not accept a legacy fence as a second live render path", async () => {
     const sessionId = "sess-surface";
     const fenced = "Here is the surface:\n```neko_a2ui\n[{\"version\":\"v0.9\",\"createSurface\":{\"surfaceId\":\"s1\",\"catalogId\":\"urn:app:catalog:briefing:v1\"}}]\n```\nDone.";
     controller.setScript({
@@ -261,7 +261,7 @@ describe("HermesBackend ACP behavior", () => {
         events.push(e);
       },
     });
-    expect(events.find((e) => e.type === "surface")).toBeDefined();
+    expect(events.find((e) => e.type === "surface")).toBeUndefined();
     expect(result.finalText).not.toContain("```neko_a2ui");
     expect(result.finalText).toContain("Done.");
   });
@@ -360,7 +360,9 @@ describe("HermesBackend ACP behavior", () => {
     expect(events.find((e) => e.type === "error")).toBeDefined();
   });
 
-  it("web turn: offers the render MCP server and turns a render_cards call into a surface", async () => {
+  it("web turn: mounts the one brokered render server and suppresses an accepted render pill", async () => {
+    const previousBridge = process.env.OPENNEKO_MCP_BRIDGE;
+    process.env.OPENNEKO_MCP_BRIDGE = "/app/mcp-bridge.js";
     const cap = captureRequests();
     const sessionId = "sess-render";
     const a2ui = [
@@ -386,34 +388,108 @@ describe("HermesBackend ACP behavior", () => {
                 sessionUpdate: "tool_call",
                 toolCallId: "tc-render",
                 kind: "other",
-                title: "mcp_neko_render_render_cards",
+                title: "mcp_neko_ui_render_cards",
                 rawInput: { messages: a2ui },
               },
             },
           });
+          ctx.emitNotification(
+            toolCallUpdateNotification(sessionId, "tc-render", {
+              status: "completed",
+              content: '{"ok":true,"accepted":1}',
+            }),
+          );
           return { stopReason: "end_turn" };
         },
       },
     });
-    const events: Array<{ type: string; messages?: unknown[] }> = [];
-    const backend = new HermesBackend();
-    await backend.run({
+    try {
+      const events: Array<{ type: string; messages?: unknown[] }> = [];
+      const backend = new HermesBackend();
+      await backend.run({
+        prompt: "p",
+        workspace: FAKE_WORKSPACE,
+        wantsCards: true,
+        mcpServers: { neko_ui: {} as never },
+        mcpBridgeEnv: { OPENNEKO_MCP_ORG_ID: "org-1" },
+        onEvent: (e) => { events.push(e as { type: string; messages?: unknown[] }); },
+      });
+
+      const sn = cap.seen.find((s) => s.method === "session/new");
+      expect(JSON.stringify(sn?.params)).toContain(
+        "/app/mcp-bridge.js neko_ui",
+      );
+      // The neko_ui server emits the surface through the broker event sink;
+      // Hermes only classifies its ACP notification and hides the tool pill.
+      expect(events.some((e) => e.type === "tool_start")).toBe(false);
+      expect(events.some((e) => e.type === "surface")).toBe(false);
+    } finally {
+      if (previousBridge === undefined) delete process.env.OPENNEKO_MCP_BRIDGE;
+      else process.env.OPENNEKO_MCP_BRIDGE = previousBridge;
+    }
+  });
+
+  it("preserves a rejected render input in tool_start telemetry", async () => {
+    const sessionId = "sess-render-rejected";
+    const rejectedInput = {
+      messages: [{ version: "v1.0", createSurface: { surfaceId: "broken" } }],
+    };
+    controller.setScript({
+      responders: {
+        "session/new": () => ({ sessionId }),
+        "session/prompt": (_p, ctx) => {
+          ctx.emitNotification({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId,
+              update: {
+                sessionUpdate: "tool_call",
+                toolCallId: "tc-render-rejected",
+                kind: "other",
+                title: "mcp_neko_ui_render_cards",
+                rawInput: rejectedInput,
+              },
+            },
+          });
+          ctx.emitNotification(
+            toolCallUpdateNotification(sessionId, "tc-render-rejected", {
+              status: "failed",
+              content: "Invalid tool arguments",
+            }),
+          );
+          ctx.emitNotification(chunkNotification(sessionId, "I could not render that surface."));
+          return { stopReason: "end_turn" };
+        },
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    await new HermesBackend().run({
       prompt: "p",
       workspace: FAKE_WORKSPACE,
       wantsCards: true,
-      onEvent: (e) => { events.push(e as { type: string; messages?: unknown[] }); },
+      onEvent: (event) => events.push(event as unknown as Record<string, unknown>),
     });
 
-    // The render server is handed to hermes via session/new.mcpServers.
-    const sn = cap.seen.find((s) => s.method === "session/new");
-    expect(JSON.stringify(sn?.params)).toContain("neko_render");
-
-    // The render_cards call became the answer surface — not a tool pill.
-    const surfaces = events.filter((e) => e.type === "surface");
-    expect(surfaces).toHaveLength(1);
-    expect(surfaces[0].messages).toHaveLength(1);
-    expect(surfaces[0].messages[0].version).toBe("v1.0");
-    expect(events.some((e) => e.type === "tool_start")).toBe(false);
+    const start = events.find((event) => event.type === "tool_start");
+    expect(start).toMatchObject({
+      id: "tc-render-rejected",
+      name: "render_cards",
+      input: {
+        title: "mcp_neko_ui_render_cards",
+        rawInput: rejectedInput,
+      },
+    });
+    expect(
+      (start?.input as { validationIssues?: unknown[] }).validationIssues,
+    ).not.toHaveLength(0);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_end",
+        id: "tc-render-rejected",
+        error: "Invalid tool arguments",
+      }),
+    );
   });
 
   it("non-web turn: does not offer the render MCP server", async () => {
@@ -457,6 +533,7 @@ describe("HermesBackend ACP behavior", () => {
           neko_records: {} as never,
           neko_ui: {} as never,
         },
+        wantsCards: true,
         mcpBridgeEnv: { OPENNEKO_MCP_ORG_ID: "org-1" },
       });
       const sn = cap.seen.find((s) => s.method === "session/new");
@@ -466,9 +543,8 @@ describe("HermesBackend ACP behavior", () => {
       expect(mounted).toHaveLength(1);
       expect(mounted?.[0]?.name).toBe("neko");
       expect(mounted?.[0]?.args.join(" ")).toContain(
-        "/app/mcp-bridge.js neko_memory,neko_records",
+        "/app/mcp-bridge.js neko_memory,neko_records,neko_ui",
       );
-      expect(mounted?.[0]?.args.join(" ")).not.toContain("neko_ui");
     } finally {
       if (previousBridge === undefined) delete process.env.OPENNEKO_MCP_BRIDGE;
       else process.env.OPENNEKO_MCP_BRIDGE = previousBridge;

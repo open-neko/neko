@@ -33,6 +33,15 @@ import type {
   GraphjinAgentResponse,
   GraphjinAgentStatus,
 } from "../graphjin/agent";
+import {
+  callGraphjinMcpTool as callRemoteGraphjinMcpTool,
+  listGraphjinMcpTools as listRemoteGraphjinMcpTools,
+} from "../graphjin/mcp-client";
+import { assertGraphjinMutationAllowed } from "../graphjin/sources-config";
+import type {
+  CallToolResult,
+  Tool,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { OpenApiSpecAssetView } from "../graphjin/openapi-assets";
 import type {
   JsonObject,
@@ -129,6 +138,62 @@ export function graphjinReadPrincipal(actor: {
     return { userId: null, role: "service" };
   }
   throw new Error("GraphJin read actor has an invalid role");
+}
+
+async function graphjinMcpAccess(input: {
+  orgId: string;
+  runId?: string | null;
+}): Promise<{ mcpUrl: string; headers: Record<string, string> }> {
+  const { and, data_source, db, desc, eq } = await import("@neko/db");
+  const [source] = await db()
+    .select({
+      mcpUrl: data_source.mcp_url,
+      graphqlUrl: data_source.graphql_url,
+      kind: data_source.kind,
+      authMode: data_source.auth_mode,
+    })
+    .from(data_source)
+    .where(
+      and(
+        eq(data_source.org_id, input.orgId),
+        eq(data_source.enabled, true),
+      ),
+    )
+    .orderBy(desc(data_source.is_default), data_source.created_at)
+    .limit(1);
+  if (!source?.mcpUrl) {
+    throw new Error("no enabled GraphJin MCP endpoint configured");
+  }
+  if (source.kind !== "graphjin") {
+    throw new Error("the default enabled data source is not a GraphJin server");
+  }
+  if (
+    isInternalGraphjinURL(source.graphqlUrl) ||
+    isInternalGraphjinURL(source.mcpUrl)
+  ) {
+    throw new Error("refusing to expose the OpenNeko internal GraphJin MCP");
+  }
+
+  const headers: Record<string, string> = {};
+  if (source.authMode === "jwt") {
+    let principal: ReturnType<typeof graphjinReadPrincipal> = {
+      userId: null,
+      role: "service",
+    };
+    if (input.runId) {
+      const { getWorkRunActor } = await import("./personas");
+      principal = graphjinReadPrincipal(
+        await getWorkRunActor(input.runId, input.orgId),
+      );
+    }
+    const { mintGraphjinToken } = await import("../graphjin/token");
+    headers.authorization = `Bearer ${mintGraphjinToken({
+      orgId: input.orgId,
+      userId: principal.userId,
+      role: principal.role,
+    })}`;
+  }
+  return { mcpUrl: source.mcpUrl, headers };
 }
 
 async function requireSourceConfigAccess(input: {
@@ -433,6 +498,18 @@ export interface AgentControlPlane {
     data: unknown;
     errors?: Array<{ message: string; path?: (string | number)[] }>;
   }>;
+  /** Complete caller-visible tool catalog from the configured GraphJin MCP. */
+  listGraphjinTools(input: {
+    orgId: string;
+    runId?: string | null;
+  }): Promise<Tool[]>;
+  /** Invoke one caller-visible GraphJin MCP tool with its native arguments. */
+  callGraphjinTool(input: {
+    orgId: string;
+    runId?: string | null;
+    name: string;
+    arguments?: Record<string, unknown>;
+  }): Promise<CallToolResult>;
   /**
    * Delegate one bounded read-only data question to a customer GraphJin
    * server agent. Source selection and credentials remain on the host.
@@ -881,6 +958,43 @@ export class InProcessControlPlane implements AgentControlPlane {
       headers,
       signal: AbortSignal.timeout(60_000),
     });
+  }
+
+  async listGraphjinTools(input: {
+    orgId: string;
+    runId?: string | null;
+  }): Promise<Tool[]> {
+    const access = await graphjinMcpAccess(input);
+    return listRemoteGraphjinMcpTools({
+      baseUrl: access.mcpUrl,
+      headers: access.headers,
+      signal: AbortSignal.timeout(60_000),
+    });
+  }
+
+  async callGraphjinTool(input: {
+    orgId: string;
+    runId?: string | null;
+    name: string;
+    arguments?: Record<string, unknown>;
+  }): Promise<CallToolResult> {
+    if (input.name === "execute_graphql") {
+      await assertGraphjinMutationAllowed(
+        String(input.arguments?.query ?? ""),
+        process.env.OPENNEKO_GRAPHJIN_CONFIG,
+      );
+    }
+    const access = await graphjinMcpAccess(input);
+    return callRemoteGraphjinMcpTool(
+      {
+        baseUrl: access.mcpUrl,
+        headers: access.headers,
+        // Native tools include ask_graphjin_agent and governed operations that
+        // legitimately outlive a normal query. Match the existing agent path.
+        signal: AbortSignal.timeout(180_000),
+      },
+      { name: input.name, arguments: input.arguments },
+    );
   }
 
   async askGraphjinDataAgent(input: {
@@ -1666,6 +1780,7 @@ export class InProcessControlPlane implements AgentControlPlane {
         );
       }
       const {
+        assertDatabaseSourcesStayReadOnly,
         buildGraphjinConfigUpdate,
         graphjinConfigPatchHash,
         graphjinInputWithJsonVariables,
@@ -1753,6 +1868,7 @@ export class InProcessControlPlane implements AgentControlPlane {
           currentSources = [];
         }
       }
+      assertDatabaseSourcesStayReadOnly(update, currentSources);
       if (
         input.payload.action === "register_source" &&
         Array.isArray(currentSources) &&

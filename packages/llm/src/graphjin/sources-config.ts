@@ -1,6 +1,6 @@
 import { rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { isMap, isSeq, parseDocument } from "yaml";
+import { isMap, isSeq, parseDocument, YAMLSeq } from "yaml";
 
 /**
  * Pure helpers for the GraphJin sources-mode (agentic) config file.
@@ -15,6 +15,134 @@ export const SOURCES_SECRET_PLACEHOLDER = "REPLACE_WITH_PER_ORG_SECRET_B64";
 export const SOURCES_JWT_SECRET_RE =
   /(^auth:\s*\n\s+type:\s*jwt\s*\n\s+jwt:\s*\n(?:\s+#.*\n)*\s+secret:\s*")([^"]*)(")/m;
 export const LEGACY_PACKAGED_DEMO_GRAPHJIN_CONFIG = "/graphjin-config/agentic.yml";
+
+const NON_DATABASE_SOURCE_KINDS = new Set(["api", "file", "graphjin"]);
+const GRAPHQL_MUTATION_RE = /\bmutation\b/i;
+
+/**
+ * Sources-mode GraphJin blocks mutations against a `read_only: true` database
+ * in core and pins that flag at startup, so a later config patch cannot lift
+ * it. Every source of an unknown kind counts as a database.
+ */
+export function assertDatabaseSourcesReadOnly(raw: string): void {
+  const document = parseDocument(raw);
+  if (document.errors.length > 0 || !isMap(document.contents)) {
+    throw new Error("GraphJin config is not valid YAML");
+  }
+  const sources = document.get("sources", true);
+  if (sources == null) return;
+  if (!isSeq(sources)) {
+    throw new Error("GraphJin config sources must be a YAML list");
+  }
+  for (const item of sources.items) {
+    if (!isMap(item)) {
+      throw new Error("GraphJin config source entries must be YAML objects");
+    }
+    const kind = item.get("kind");
+    if (typeof kind === "string" && NON_DATABASE_SOURCE_KINDS.has(kind)) {
+      continue;
+    }
+    if (item.get("read_only") !== true) {
+      const name = String(item.get("name") ?? "<unnamed>");
+      throw new Error(`GraphJin database source "${name}" is not read_only`);
+    }
+  }
+}
+
+/**
+ * The trusted host forwards a GraphQL mutation to GraphJin only when the
+ * org's config proves every database source is read-only. API sources can
+ * then accept governed writes while the customer database never can. A
+ * missing or unreadable config fails closed.
+ */
+export async function assertGraphjinMutationAllowed(
+  query: string,
+  configPath: string | undefined,
+): Promise<void> {
+  if (!GRAPHQL_MUTATION_RE.test(query)) return;
+  const cfgPath = configPath?.trim();
+  if (!cfgPath) {
+    throw new Error(
+      "GraphJin mutation blocked: OPENNEKO_GRAPHJIN_CONFIG is not set, so the host cannot confirm database sources are read-only",
+    );
+  }
+  let raw: string;
+  try {
+    const { readFile } = await import("node:fs/promises");
+    raw = await readFile(cfgPath, "utf8");
+  } catch (e) {
+    throw new Error(
+      `GraphJin mutation blocked: cannot read ${cfgPath}: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  try {
+    assertDatabaseSourcesReadOnly(raw);
+  } catch (e) {
+    throw new Error(
+      `GraphJin mutation blocked: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+}
+
+/** JWT roles the worker mints. GraphJin generates access blocks only for listed roles. */
+export const OPENNEKO_JWT_ROLES = [
+  {
+    name: "member",
+    comment: "OpenNeko organization member (JWT role minted by the worker)",
+  },
+  {
+    name: "service",
+    comment: "OpenNeko worker service identity (JWT role minted by the worker)",
+  },
+] as const;
+
+/**
+ * Bring an existing sources-mode config up to the shipped write policy:
+ * mutations pass the MCP layer, and the worker's JWT roles exist so every
+ * source's access.write block applies to them. Database sources stay
+ * read-only through their own `read_only` flag and the host guard. Legacy
+ * configs without a `sources` list are left alone.
+ */
+export function reconcileGraphjinWritePolicy(
+  raw: string,
+): { content: string; changed: boolean } {
+  const document = parseDocument(raw);
+  if (document.errors.length > 0) {
+    throw new Error(`GraphJin config is not valid YAML: ${document.errors[0].message}`);
+  }
+  if (!isMap(document.contents)) {
+    throw new Error("GraphJin config root must be a YAML object");
+  }
+  if (!document.has("sources")) return { content: raw, changed: false };
+
+  let changed = false;
+  const ensure = (path: string[], value: unknown) => {
+    if (document.getIn(path) === value) return;
+    document.setIn(path, value);
+    changed = true;
+  };
+  ensure(["mcp", "allow_mutations"], true);
+  ensure(["system", "capabilities", "raw_graphql.mutate"], true);
+
+  let roles = document.get("roles", true);
+  if (roles == null) {
+    roles = new YAMLSeq();
+    document.set("roles", roles);
+    changed = true;
+  }
+  if (!isSeq(roles)) throw new Error("GraphJin config roles must be a YAML list");
+  const listed = new Set(
+    roles.items.flatMap((item) =>
+      isMap(item) ? [String(item.get("name") ?? "").trim().toLowerCase()] : [],
+    ),
+  );
+  for (const role of OPENNEKO_JWT_ROLES) {
+    if (listed.has(role.name)) continue;
+    roles.add(document.createNode({ name: role.name, comment: role.comment }));
+    changed = true;
+  }
+  return { content: changed ? document.toString() : raw, changed };
+}
 
 const AGENTIC_SYSTEM_CAPABILITIES = {
   "catalog.read": true,

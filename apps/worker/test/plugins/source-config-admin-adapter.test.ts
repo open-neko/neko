@@ -102,7 +102,17 @@ function installFetchMock(tableName = "api:pets:listPets") {
         },
       };
     } else {
-      payload = { data: { gj_config: { catalog_revision: "rev1" } } };
+      payload = {
+        data: {
+          gj_config: {
+            catalog_revision: "rev1",
+            sources: [
+              { name: "adventureworks", kind: "database", read_only: true },
+              { name: "shop-api", kind: "api" },
+            ],
+          },
+        },
+      };
     }
     return { ok: true, json: async () => payload, text: async () => "" } as Response;
   });
@@ -294,6 +304,45 @@ describeIfDb("source_config_admin adapter (OL5)", () => {
     const durableConfig = await readFile(configFile, "utf8");
     expect(durableConfig).toContain("name: adventureworks");
     expect(durableConfig).toContain("read: authenticated");
+  });
+
+  it("refuses to open a write path on a database source at approved execution", async () => {
+    await setEndpoint(CUSTOMER);
+    const { calls } = installFetchMock();
+    const { result } = await runAction({
+      action: "set_source_access",
+      source: "adventureworks",
+      write: "authenticated",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('database source "adventureworks" stays read-only');
+    // The revision read happened; no preview or apply reached GraphJin.
+    expect(calls.filter((c) => c.body.query.includes("mode:"))).toHaveLength(0);
+  });
+
+  it("expose_api_operation patches an API source through update_sources and persists it", async () => {
+    await setEndpoint(CUSTOMER);
+    await writeFile(
+      configFile,
+      "mode: agentic\nsources:\n  - name: shop-api\n    kind: api\n    specs_dir: /config/specs/shop\n",
+    );
+    const { calls } = installFetchMock();
+    const { result } = await runAction({
+      action: "expose_api_operation",
+      source: "shop-api",
+      spec: "shop",
+      operation: "createOrder",
+      exposeMutation: true,
+      allowedRoles: ["admin"],
+    });
+    expect(result.ok, result.error).toBe(true);
+    const preview = calls[1].body.query;
+    expect(preview).toContain("update_sources");
+    expect(preview).toContain("expose_mutation: true");
+    const durableConfig = await readFile(configFile, "utf8");
+    expect(durableConfig).toContain("createOrder:");
+    expect(durableConfig).toContain("expose_mutation: true");
+    expect(durableConfig).toContain("- admin");
   });
 
   it("register_source uses update_sources (upsert), never sources: (replace)", async () => {

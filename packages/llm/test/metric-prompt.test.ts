@@ -33,7 +33,7 @@ const fakeInput = {
 };
 
 const directDataAccess = {
-  queryTool: "mcp__neko_graphjin__execute_graphql",
+  queryTool: "mcp_neko_graphjin_execute_graphql",
 } as const;
 
 describe("buildMetricPrompt", () => {
@@ -91,7 +91,7 @@ describe("buildMetricPrompt", () => {
       shellTool: "terminal",
       ...directDataAccess,
     });
-    expect(prompt).toContain("`mcp__neko_graphjin__execute_graphql`");
+    expect(prompt).toContain("`mcp_neko_graphjin_execute_graphql`");
     expect(prompt).toContain("service credential never enter your sandbox");
     expect(prompt).not.toContain("graphjin cli execute_graphql");
   });
@@ -102,11 +102,11 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
-      dataAgentTool: "mcp__neko_graphjin_agent__ask",
+      dataAgentTool: "mcp_neko_graphjin_agent_ask",
     });
-    expect(prompt).toContain("`mcp__neko_graphjin_agent__ask`");
+    expect(prompt).toContain("`mcp_neko_graphjin_agent_ask`");
     expect(prompt).toContain("globally read-only");
-    expect(prompt).not.toContain("mcp__neko_graphjin__execute_graphql");
+    expect(prompt).not.toContain("mcp_neko_graphjin_execute_graphql");
     expect(prompt).not.toContain("graphjin cli execute_graphql");
   });
 
@@ -116,8 +116,8 @@ describe("buildMetricPrompt", () => {
       knowledge: fakeKnowledge,
       workspace: fakeWorkspace,
       shellTool: "terminal",
-      queryTool: "mcp__neko_graphjin__execute_graphql",
-      dataAgentTool: "mcp__neko_graphjin_agent__ask",
+      queryTool: "mcp_neko_graphjin_execute_graphql",
+      dataAgentTool: "mcp_neko_graphjin_agent_ask",
     } as unknown as Parameters<typeof buildMetricPrompt>[0];
     expect(() =>
       buildMetricPrompt(ambiguous),
@@ -199,11 +199,11 @@ describe("buildMetricPrompt", () => {
       supportsMemorySearch: false,
       ...directDataAccess,
     });
-    expect(withSearch).not.toContain("mcp__neko_memory__save");
-    expect(withoutSearch).not.toContain("mcp__neko_memory__save");
+    expect(withSearch).not.toContain("mcp_neko_memory_save");
+    expect(withoutSearch).not.toContain("mcp_neko_memory_save");
   });
 
-  it("exposes mcp__neko_memory__search when supportsMemorySearch is true", () => {
+  it("exposes mcp_neko_memory_search when supportsMemorySearch is true", () => {
     const prompt = buildMetricPrompt({
       input: fakeInput,
       knowledge: fakeKnowledge,
@@ -212,7 +212,7 @@ describe("buildMetricPrompt", () => {
       supportsMemorySearch: true,
       ...directDataAccess,
     });
-    expect(prompt).toContain("mcp__neko_memory__search");
+    expect(prompt).toContain("mcp_neko_memory_search");
   });
 
   it("omits the search instruction when supportsMemorySearch is false", () => {
@@ -224,7 +224,7 @@ describe("buildMetricPrompt", () => {
       supportsMemorySearch: false,
       ...directDataAccess,
     });
-    expect(prompt).not.toContain("mcp__neko_memory__search");
+    expect(prompt).not.toContain("mcp_neko_memory_search");
   });
 
   it("includes the anti-fanout + date-filter rules (regression: must keep them across refactors)", () => {

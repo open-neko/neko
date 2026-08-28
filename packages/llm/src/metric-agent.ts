@@ -28,6 +28,7 @@ import {
   ensureWorkWorkspace,
 } from "./work/workspace";
 import { normalizeGraphjinAgentUsage } from "./usage-normalization";
+import { GRAPHJIN_EXECUTE_GRAPHQL_TOOL_TITLE } from "./graphjin/mcp-names";
 
 // Keep in sync with ROLE_FOCUS (bootstrap-metrics-writer.ts) and the
 // onboarding ALL_SEATS list — every seat the product offers must be here.
@@ -211,8 +212,8 @@ export async function runMetricAgent(
       workspace: isolated.workspace,
       shellTool: shellToolName(backend.id),
       ...(graphjinPath === "direct"
-        ? { queryTool: "mcp__neko_graphjin__execute_graphql" }
-        : { dataAgentTool: "mcp__neko_graphjin_agent__ask" }),
+        ? { queryTool: GRAPHJIN_EXECUTE_GRAPHQL_TOOL_TITLE }
+        : { dataAgentTool: "mcp_neko_graphjin_agent_ask" }),
       memoryContext,
       supportsMemorySearch,
     });

@@ -102,6 +102,12 @@ export default async function AdminGraphjinPage() {
             Update access
           </ActionLink>
           <ActionLink
+            href={workSeedHref(ENABLE_API_WRITES_SEED)}
+            disabled={!sourceConfigEnabled}
+          >
+            Enable API writes
+          </ActionLink>
+          <ActionLink
             href={workSeedHref(ADD_ROLE_SEED)}
             disabled={!sourceConfigEnabled}
           >
@@ -235,6 +241,9 @@ const REGISTER_SOURCE_SEED =
 
 const UPDATE_ACCESS_SEED =
   "Review GraphJin source access. Use describe_source_graph first, ask me to confirm the source name and desired read/write/delete access, then create a source_config_admin set_source_access proposal.";
+
+const ENABLE_API_WRITES_SEED =
+  "Enable governed writes on a GraphJin API source. Use describe_source_graph and list_openapi_specs first, then confirm with me the source name, the spec key, the operation id, the roles allowed to call it, and whether write access is authenticated or admin. Create one source_config_admin enable_api_writes proposal for admin approval. Database sources stay read-only.";
 
 const ADD_ROLE_SEED =
   "Help me add a GraphJin RBAC role. Inspect the live source graph if useful, then propose a source_config_admin add_role change for admin approval with the role name and JWT match expression.";

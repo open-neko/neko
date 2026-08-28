@@ -21,6 +21,10 @@ import {
   ensureIsolatedJobWorkspace,
   ensureWorkWorkspace,
 } from "./work/workspace";
+import {
+  GRAPHJIN_EXECUTE_GRAPHQL_TOOL_TITLE,
+  graphjinMcpToolTitle,
+} from "./graphjin/mcp-names";
 
 export function buildProfilerPrompt(args: {
   orgName: string;
@@ -31,10 +35,12 @@ export function buildProfilerPrompt(args: {
 }): string {
   const { orgName, companyNote, knowledge, queryTool } = args;
   const agentic = knowledge.mode === "agentic";
+  const catalogTool = graphjinMcpToolTitle("query_catalog");
+  const helpTool = graphjinMcpToolTitle("graphql_help");
+  const savedQueryTool = graphjinMcpToolTitle("execute_saved_query");
   const executeQuery = `call \`${queryTool}\` with {"query":"<your read-only graphql>"}`;
   const discoveryRule = agentic
-    ? `1. The knowledge sections below are a SLIM role-aware bootstrap (table summaries, help-card index, DSL essentials) — not the whole schema. Discover deeper detail ON DEMAND with catalog queries: call \`${queryTool}\` with {"query":"query { gj_catalog(id: \\"table:<db>:<schema>.<table>\\") { details_json examples_json edges_json } }"}
-   Pull the table card (and column rows) before writing a non-trivial query.`
+    ? `1. The knowledge sections below are a SLIM role-aware bootstrap, not the whole schema. Start with \`${catalogTool}\` using {"search":"<the profiling goal>"}, then inspect the best returned ids for evidence, examples, and relationship edges. Use \`${helpTool}\` only when the catalog route is unclear. Prefer \`${savedQueryTool}\` when an approved query fits; never guess a field or relationship.`
     : `1. Read the prefetched GraphJin knowledge sections below before writing any query. They are the authoritative DSL + schema/relationship context for this database. Don't run schema-discovery commands; that context is already prefetched here.`;
   return `You build a short markdown business profile about a customer company by querying its database via GraphJin.
 
@@ -53,13 +59,13 @@ COMPLETION CONTRACT:
 - Do not get stuck repairing an optional fact. If a query cannot be corrected from the returned error and repair hint, use the evidence already collected and mark that fact "Not measured."
 
 DATA ACCESS — READ-ONLY:
-The database is queried exclusively through the \`${queryTool}\` tool. GraphJin speaks GraphQL (not raw SQL). Mutations and subscriptions are forbidden and denied by the trusted host broker. DO NOT use \`execute_code\`, a shell, Python, raw HTTP requests, or any other path to talk to GraphJin.
+Use only the caller-visible GraphJin MCP tools. The trusted host supplies their exact schemas and keeps the source URL and credential outside the sandbox. This profiler run is read-only: never submit a mutation, configuration change, or other state-changing operation even if a listed tool could perform one. DO NOT use \`execute_code\`, a shell, Python, raw HTTP requests, or any other path to talk to GraphJin.
 
-- Every database read goes through \`${queryTool}\`.
-- Discover schema detail with gj_catalog queries (kinds: table, column, relationship, function; gj_catalog(id:) returns one detailed card). Do not call GraphJin dev tools.
-- No configuration, direct connection, or write tools are available in this job.
-- For join planning, use gj_catalog table cards, relationship rows, details_json, examples_json, and edges_json.
-- Only use \`${queryTool}\` for catalog and data reads in this profiler run.
+- Discover with \`${catalogTool}\` and inspect returned ids before querying data.
+- Execute data reads through \`${savedQueryTool}\` or \`${queryTool}\`.
+- Do not use configuration or write tools in this job.
+- For join planning, use catalog table cards, relationship rows, details_json, examples_json, and edges_json.
+- Do not use GraphJin dev tools or try to reach GraphJin outside its MCP surface.
 - Never invent data — every number in the profile must trace back to a GraphJin query-tool response from this run.
 
 QUERY CONSTRUCTION — let the database aggregate:
@@ -258,7 +264,7 @@ export async function runProfiler(args: {
       companyNote,
       knowledge,
       shellTool: shellToolName(backend.id),
-      queryTool: "mcp__neko_graphjin__execute_graphql",
+      queryTool: GRAPHJIN_EXECUTE_GRAPHQL_TOOL_TITLE,
     });
 
     if (onProgress) onProgress("Running profiler agent…");
