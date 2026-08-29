@@ -59,6 +59,13 @@ export {
   type SkillUseSource,
 } from "./skill-usage";
 export { runSkillLearn, type SkillLearnResult } from "./skill-learn";
+export {
+  MAGENTO_LEARN_SKILLS,
+  magentoScoreImproved,
+  scoreSkillLearnWindow,
+  type SkillLearnScore,
+  type SkillLearnScoreSample,
+} from "./skill-learn-score";
 export { runSkillLearnForOrgSkill } from "./skill-learn-store";
 export { assertAdditiveLearnedBody, scanLearnedText } from "./skill-learn-scan";
 export {
