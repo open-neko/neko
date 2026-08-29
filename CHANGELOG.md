@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.33.0](https://github.com/open-neko/openneko/compare/v2.32.0...v2.33.0) (2026-08-29)
+
+
+### Features
+
+* **magento:** align pack UI with product language ([0c3e960](https://github.com/open-neko/openneko/commit/0c3e9600c2cbe6279221f38beab1946ba9b53786))
+* **packs:** add governed Magento V2 store management ([06df1da](https://github.com/open-neko/openneko/commit/06df1dae4c60fe61c139500dc538c65c48f53882))
+* **packs:** add Magento V2 store management ([c3f4e8a](https://github.com/open-neko/openneko/commit/c3f4e8a7e9232714fe98beba391439b3ab5f9816))
+
+
+### Bug Fixes
+
+* **ci:** make visual contract platform-neutral ([27b6c92](https://github.com/open-neko/openneko/commit/27b6c928cfaef8ac16bf18c2e90abd7bdd1db166))
+* **magento:** remove numeric risk labels from operator surfaces ([9bf19cd](https://github.com/open-neko/openneko/commit/9bf19cd82c98a400625598e5733bc95b5c3c4c23))
+* **web:** align Magento controls with design system ([3e7d6c2](https://github.com/open-neko/openneko/commit/3e7d6c22b24c88ca7b5a133ebf2a5609ac3fef62))
+
 ## [2.32.0](https://github.com/open-neko/openneko/compare/v2.31.0...v2.32.0) (2026-08-28)
 
 
