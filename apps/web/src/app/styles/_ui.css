@@ -9,6 +9,11 @@
   min-width: 0;
 }
 
+[data-ui-checkbox] {
+  min-height: var(--control-md);
+  align-items: center;
+}
+
 @media (max-width: 720px), (pointer: coarse) {
   :where([data-ui-button], .ui-button),
   [data-ui-tab],
@@ -17,6 +22,7 @@
   [data-ui-menu-item],
   [data-ui-disclosure],
   [data-ui-field-control],
+  [data-ui-checkbox],
   [data-ui-stat-link] {
     min-height: var(--control-touch);
   }

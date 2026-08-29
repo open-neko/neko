@@ -2018,6 +2018,118 @@ export const action_request = pgTable(
   }),
 );
 
+export const action_changeset = pgTable(
+  "action_changeset",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    action_request_id: uuid("action_request_id").references(
+      () => action_request.id,
+      { onDelete: "set null" },
+    ),
+    // The SQL migration owns the self-reference; omitting it here avoids a
+    // circular initializer while retaining the database-level foreign key.
+    inverse_of_id: uuid("inverse_of_id"),
+    domain: text("domain").notNull(),
+    scope: jsonb("scope")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    operation_id: text("operation_id").notNull(),
+    risk_class: smallint("risk_class").notNull(),
+    status: text("status").notNull().default("draft"),
+    summary: text("summary").notNull().default(""),
+    idempotency_key: text("idempotency_key").notNull(),
+    bulk_uuid: text("bulk_uuid"),
+    cap_snapshot: jsonb("cap_snapshot")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    projected_exposure: numeric("projected_exposure", {
+      precision: 18,
+      scale: 4,
+    }),
+    previewed_at: ts("previewed_at"),
+    approved_by_user_id: text("approved_by_user_id").references(
+      () => app_user.id,
+      { onDelete: "set null" },
+    ),
+    approved_at: ts("approved_at"),
+    executed_at: ts("executed_at"),
+    reconciled_at: ts("reconciled_at"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    org_idempotency_unique: uniqueIndex(
+      "action_changeset_org_idempotency_unique",
+    ).on(t.org_id, t.idempotency_key),
+    org_status_idx: index("action_changeset_org_status_idx").on(
+      t.org_id,
+      t.status,
+      t.created_at.desc(),
+    ),
+    request_idx: index("action_changeset_request_idx").on(
+      t.action_request_id,
+      t.created_at.desc(),
+    ),
+  }),
+);
+
+export const action_changeset_row = pgTable(
+  "action_changeset_row",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    changeset_id: uuid("changeset_id")
+      .notNull()
+      .references(() => action_changeset.id, { onDelete: "cascade" }),
+    row_index: integer("row_index").notNull(),
+    entity_ref: text("entity_ref").notNull(),
+    operation_id: text("operation_id").notNull(),
+    path: jsonb("path")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    query: jsonb("query")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    before_image: jsonb("before_image")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    after_image: jsonb("after_image")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    expected_current: jsonb("expected_current")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    status: text("status").notNull().default("draft"),
+    external_ref: text("external_ref"),
+    reconciled_image: jsonb("reconciled_image").$type<Record<string, unknown>>(),
+    error: text("error"),
+    started_at: ts("started_at"),
+    finished_at: ts("finished_at"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    position_unique: uniqueIndex("action_changeset_row_position_unique").on(
+      t.changeset_id,
+      t.row_index,
+    ),
+    status_idx: index("action_changeset_row_status_idx").on(
+      t.changeset_id,
+      t.status,
+      t.row_index,
+    ),
+  }),
+);
+
 export const action_execution = pgTable(
   "action_execution",
   {
@@ -2028,6 +2140,9 @@ export const action_execution = pgTable(
     action_request_id: uuid("action_request_id")
       .notNull()
       .references(() => action_request.id, { onDelete: "cascade" }),
+    changeset_id: uuid("changeset_id").references(() => action_changeset.id, {
+      onDelete: "set null",
+    }),
     executor: text("executor").notNull(),
     command_or_operation: text("command_or_operation"),
     payload: jsonb("payload"),
@@ -2045,6 +2160,149 @@ export const action_execution = pgTable(
       t.created_at.desc(),
     ),
     org_status_idx: index("action_execution_org_status_idx").on(
+      t.org_id,
+      t.status,
+      t.created_at.desc(),
+    ),
+    changeset_idx: index("action_execution_changeset_idx").on(
+      t.changeset_id,
+      t.created_at.desc(),
+    ),
+  }),
+);
+
+export const magento_store_control = pgTable(
+  "magento_store_control",
+  {
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    domain: text("domain").notNull(),
+    risk_class: smallint("risk_class").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    auto_execute: boolean("auto_execute").notNull().default(false),
+    caps: jsonb("caps")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    scope: jsonb("scope")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    updated_by_user_id: text("updated_by_user_id").references(
+      () => app_user.id,
+      { onDelete: "set null" },
+    ),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.org_id, t.domain] }),
+  }),
+);
+
+export const magento_attribute_classification = pgTable(
+  "magento_attribute_classification",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    domain: text("domain").notNull(),
+    entity_type: text("entity_type").notNull(),
+    attribute: text("attribute").notNull(),
+    risk_class: smallint("risk_class").notNull(),
+    category: text("category").notNull(),
+    rationale: text("rationale").notNull().default(""),
+    reviewed: boolean("reviewed").notNull().default(true),
+    pack_default: boolean("pack_default").notNull().default(true),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    identity_unique: uniqueIndex(
+      "magento_attribute_classification_identity_unique",
+    ).on(t.org_id, t.domain, t.entity_type, t.attribute),
+    lookup_idx: index("magento_attribute_classification_lookup_idx").on(
+      t.org_id,
+      t.domain,
+      t.entity_type,
+    ),
+  }),
+);
+
+export const magento_auto_rule = pgTable(
+  "magento_auto_rule",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    instruction: text("instruction").notNull(),
+    domain: text("domain").notNull(),
+    action_kind: text("action_kind").notNull(),
+    compiled_policy: jsonb("compiled_policy")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    daily_cap: integer("daily_cap").notNull(),
+    cooldown_seconds: integer("cooldown_seconds").notNull().default(0),
+    enabled: boolean("enabled").notNull().default(false),
+    suspended_reason: text("suspended_reason"),
+    last_fired_at: ts("last_fired_at"),
+    created_by_user_id: text("created_by_user_id").references(
+      () => app_user.id,
+      { onDelete: "set null" },
+    ),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    org_name_unique: uniqueIndex("magento_auto_rule_org_name_unique").on(
+      t.org_id,
+      t.name,
+    ),
+    active_idx: index("magento_auto_rule_active_idx").on(
+      t.org_id,
+      t.enabled,
+      t.domain,
+    ),
+  }),
+);
+
+export const magento_financial_handoff = pgTable(
+  "magento_financial_handoff",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    action_request_id: uuid("action_request_id").references(
+      () => action_request.id,
+      { onDelete: "set null" },
+    ),
+    kind: text("kind").notNull(),
+    entity_ref: text("entity_ref").notNull(),
+    status: text("status").notNull().default("draft"),
+    draft: jsonb("draft")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    evidence: jsonb("evidence")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    completed_by_user_id: text("completed_by_user_id").references(
+      () => app_user.id,
+      { onDelete: "set null" },
+    ),
+    completed_at: ts("completed_at"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    org_status_idx: index("magento_financial_handoff_org_status_idx").on(
       t.org_id,
       t.status,
       t.created_at.desc(),

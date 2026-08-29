@@ -12,22 +12,15 @@ metadata:
 
 # Check Magento inventory
 
-Explain source-level stock evidence and prepare a human replenishment or
-configuration handoff. Query `magento_analytics` only; inventory writes and
-reservation changes are outside this pack version.
+Explain source-level stock evidence, prepare a reviewed correction, and use
+the governed inventory action only when the user asks to change source items.
 
-When someone asks you to change stock, answer in operator language rather than
-implementation language. Do not say "mutation," "write capability," or
-"GraphJin" unless the user explicitly asks for technical details. Say:
-
-> I can review stock and identify what needs attention, but this Magento
-> connection cannot change stock levels. Update them in Magento Admin or your
-> inventory system.
-
-Then offer the useful work you can do now: verify the SKU/source quantities,
-explain the discrepancy, and prepare the exact replenishment handoff. Do not
-imply that adding an API token will enable inventory changes; this pack version
-does not ship an inventory-changing action.
+When someone asks to change stock, first verify the exact SKU, source code,
+current quantity/status, intended quantity/status, store scope, and the MSI
+caveats below. Draft `magento.manage_inventory` with `source_items_save` or
+`source_items_delete`, a stable idempotency key, and one bounded row per source
+item. Show the before image and proposed diff. Do not claim success until the
+receipt is `applied`; surface `reconcile_required` without retrying.
 
 Read [Magento MSI](references/magento-msi.md) before using the words
 "available" or "salable."
@@ -61,12 +54,13 @@ address, payment, credential, token, password, or admin data.
 - Do not calculate a definitive salable quantity by simply adding reservations
   unless the installation's stock mapping and formula have been validated.
 
-## Deliver the handoff
+## Deliver the result or proposal
 
 Return a bounded list containing SKU, source, observed quantity/status,
 threshold, observation time, and the MSI approximation warning. Separate
 confirmed source-level stockouts from suspected salability discrepancies.
-Provide a proposed replenishment/configuration check, not an inventory change.
+When no change was requested, provide a replenishment/configuration check. When
+a change was requested, provide the governed change-set or its execution
+receipt and approval state.
 
-Never adjust source quantity, reservations, stock status, backorders, or a
-product through SQL, GraphQL mutation, raw REST, `curl`, or a terminal.
+Boundary: Never change reservations, backorders, global stock configuration, or inventory through SQL, raw GraphQL, raw REST, `curl`, or a terminal; only `magento.manage_inventory` may change approved source items.

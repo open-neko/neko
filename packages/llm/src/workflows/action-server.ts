@@ -151,7 +151,7 @@ export async function handleActionRequest(
 
   await emitActionRequestEvent(ctx, request, decision);
 
-  if (status === "approved") {
+  if (request.status === "approved") {
     await enqueue(QUEUE.ACTION_EXECUTE, {
       orgId: ctx.orgId,
       actionRequestId: request.id,
@@ -231,11 +231,11 @@ async function handleActionRequestViaControlPlane(
     kind: args.kind,
     scope: args.scope,
     risk_level: args.risk_level,
-    decision: status === "approved" ? "auto_approved" : "pending_approval",
+    decision: request.status === "approved" ? "auto_approved" : "pending_approval",
     ...(args.summary ? { summary: args.summary } : {}),
   });
 
-  if (status === "approved") {
+  if (request.status === "approved") {
     await controlPlane.enqueueActionExecute({
       orgId: ctx.orgId,
       actionRequestId: request.id,
@@ -351,12 +351,12 @@ export async function handleWorkActionRequest(
     action_request_id: request.id,
     kind: request.kind,
     scope: request.scope,
-    decision: status === "approved" ? "auto_approved" : "pending_approval",
+    decision: request.status === "approved" ? "auto_approved" : "pending_approval",
     ...(intent ? { intent, summary: intent } : args.summary ? { summary: args.summary } : {}),
     ...(request.riskLevel ? { risk_level: request.riskLevel } : {}),
   });
 
-  if (status === "approved") {
+  if (request.status === "approved") {
     await enqueue(QUEUE.ACTION_EXECUTE, {
       orgId: ctx.orgId,
       actionRequestId: request.id,

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MAGENTO_ANALYTICS_TABLES,
+  bulkConsumerReadiness,
+  magentoOperatorReadiness,
   readMagentoVersion,
   supportedMagentoDatabase,
 } from "../src/packs/magento-preflight.js";
@@ -61,5 +63,63 @@ describe("Magento database compatibility", () => {
   it("rejects versions below the manifest contract", () => {
     expect(() => supportedMagentoDatabase("10.5.27-MariaDB")).toThrow(/MariaDB 10\.6\+/);
     expect(() => supportedMagentoDatabase("5.7.44")).toThrow(/MySQL 8\.0\+/);
+  });
+});
+
+describe("Magento bulk consumer readiness", () => {
+  it("uses the latest completed run instead of a future pending schedule", async () => {
+    const query = vi.fn().mockResolvedValue([[{
+      status: "success",
+      executed_at: new Date(),
+    }]]);
+
+    await expect(bulkConsumerReadiness({ query } as never, "")).resolves.toBe("ready");
+    expect(query.mock.calls[0]?.[0]).toContain("status = 'success'");
+    expect(query.mock.calls[0]?.[0]).toContain("ORDER BY executed_at DESC");
+  });
+});
+
+describe("Magento operator readiness", () => {
+  const input = {
+    host: "db",
+    port: 3306,
+    database: "magento",
+    username: "analytics",
+    password: "secret",
+    tablePrefix: "",
+    baseUrl: "https://store.example.com",
+    storeCode: "default",
+    integrationToken: "integration-token",
+    customersEnabled: false,
+  };
+
+  it("reports ACL readiness per domain and keeps customers disabled", async () => {
+    const request = vi.fn<typeof fetch>().mockImplementation(async (url) =>
+      new Response("{}", { status: String(url).includes("salesRules") ? 403 : 200 }),
+    );
+    const result = await magentoOperatorReadiness(input, request);
+    expect(result).toEqual({
+      overall: "acl_missing",
+      domains: {
+        catalog: "ready",
+        inventory: "ready",
+        orders: "ready",
+        promotions: "acl_missing",
+        content: "ready",
+        customers: "domain_disabled",
+      },
+    });
+    expect(request).toHaveBeenCalledTimes(5);
+  });
+
+  it("distinguishes an invalid token from a missing token", async () => {
+    await expect(magentoOperatorReadiness(
+      { ...input, integrationToken: null },
+      vi.fn<typeof fetch>(),
+    )).resolves.toMatchObject({ overall: "integration_token_missing" });
+    await expect(magentoOperatorReadiness(
+      input,
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("", { status: 401 })),
+    )).resolves.toMatchObject({ overall: "integration_token_invalid" });
   });
 });

@@ -10,9 +10,9 @@ describe("worker-owned action request preflight", () => {
     status: "pending_approval" as const,
   };
 
-  it("returns only the prepared worker request id", async () => {
+  it("returns the prepared worker request id and post-preflight status", async () => {
     const fetchImpl = vi.fn(async () =>
-      new Response(JSON.stringify({ id: "action-prepared" }), {
+      new Response(JSON.stringify({ id: "action-prepared", status: "approved" }), {
         status: 200,
         headers: { "content-type": "application/json" },
       }),
@@ -20,7 +20,7 @@ describe("worker-owned action request preflight", () => {
 
     await expect(
       createActionRequestViaWorker("http://worker:4100/", input, fetchImpl),
-    ).resolves.toEqual({ id: "action-prepared" });
+    ).resolves.toEqual({ id: "action-prepared", status: "approved" });
     expect(fetchImpl).toHaveBeenCalledWith(
       "http://worker:4100/admin/action-requests/create",
       expect.objectContaining({

@@ -116,3 +116,43 @@ describe("/api/admin/packs/[packId]/[action]", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("/api/admin/packs/magento/store-management", () => {
+  it("proxies the admin control surface", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { controls: [{ domain: "catalog" }] }));
+    const { GET } = await import("@/app/api/admin/packs/magento/store-management/route");
+    const result = await callRoute(GET);
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ controls: [{ domain: "catalog" }] });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/admin/packs/magento/store-management",
+    );
+  });
+
+  it("replaces a forged actor on domain and rule writes", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { controls: [] }));
+    const { POST } = await import("@/app/api/admin/packs/magento/store-management/route");
+    const result = await callRoute(POST, {
+      method: "POST",
+      body: { action: "update_domain", domain: "catalog", enabled: true, actorUserId: "forged" },
+    });
+    expect(result.status).toBe(200);
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      action: "update_domain",
+      domain: "catalog",
+      enabled: true,
+      actorUserId: "admin-1",
+    });
+  });
+
+  it("keeps store controls behind the admin gate", async () => {
+    mockRequireAdminActor.mockResolvedValue(
+      NextResponse.json({ error: "admin only" }, { status: 403 }),
+    );
+    const { GET } = await import("@/app/api/admin/packs/magento/store-management/route");
+    const result = await callRoute(GET);
+    expect(result.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

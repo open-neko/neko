@@ -222,6 +222,8 @@ export interface PacksHandlerSurface {
   configure(packId: string, input: Record<string, unknown>): Promise<unknown>;
   upgrade(packId: string, input: Record<string, unknown>): Promise<unknown>;
   uninstall(packId: string, input: Record<string, unknown>): Promise<unknown>;
+  magentoStoreManagement(): Promise<unknown>;
+  updateMagentoStoreManagement(input: Record<string, unknown>): Promise<unknown>;
 }
 
 export interface SchedulerHealthSurface {
@@ -355,7 +357,7 @@ export type AdminHandlerOptions = {
 };
 
 export interface ActionRequestHandlerSurface {
-  create(input: Record<string, unknown>): Promise<{ id: string }>;
+  create(input: Record<string, unknown>): Promise<{ id: string; status: string }>;
 }
 
 export interface ExternalEventHandlerSurface {
@@ -595,6 +597,14 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
       void handlePacksList(res, packs);
       return;
     }
+    if (req.method === "GET" && req.url === "/admin/packs/magento/store-management") {
+      void handleMagentoStoreManagementRead(res, packs);
+      return;
+    }
+    if (req.method === "POST" && req.url === "/admin/packs/magento/store-management") {
+      void handleMagentoStoreManagementWrite(req, res, packs);
+      return;
+    }
     const packPath = (req.url ?? "").split(/[?#]/, 1)[0] ?? "";
     const packRoute = /^\/admin\/packs\/([^/]+)(?:\/(plan|status|doctor|install|configure|upgrade|uninstall))?$/.exec(
       packPath,
@@ -657,6 +667,42 @@ async function handlePacksList(
     json(res, 200, { packs: await packs.list() });
   } catch (error) {
     json(res, 500, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleMagentoStoreManagementRead(
+  res: ServerResponse,
+  packs: PacksHandlerSurface | null,
+): Promise<void> {
+  if (!packs) {
+    json(res, 503, { error: "solution-pack service unavailable" });
+    return;
+  }
+  try {
+    json(res, 200, await packs.magentoStoreManagement());
+  } catch (error) {
+    json(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleMagentoStoreManagementWrite(
+  req: IncomingMessage,
+  res: ServerResponse,
+  packs: PacksHandlerSurface | null,
+): Promise<void> {
+  if (!packs) {
+    json(res, 503, { error: "solution-pack service unavailable" });
+    return;
+  }
+  const body = await readJson(req).catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    json(res, 400, { error: "request body must be a JSON object" });
+    return;
+  }
+  try {
+    json(res, 200, await packs.updateMagentoStoreManagement(body as Record<string, unknown>));
+  } catch (error) {
+    json(res, 400, { error: error instanceof Error ? error.message : String(error) });
   }
 }
 

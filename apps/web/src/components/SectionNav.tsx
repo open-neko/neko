@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useApprovalsCount } from "@/lib/nav";
 
 export default function SectionNav({
   current,
@@ -17,33 +17,8 @@ export default function SectionNav({
     | "business-profile";
   children?: ReactNode;
 }) {
-  const [pendingApprovals, setPendingApprovals] = useState<number>(0);
-
-  // Poll the pending count so the badge stays current. The Actions link
-  // itself is always visible — operators should always know they can find
-  // the queue here, even when nothing is pending.
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const res = await fetch("/api/approvals?countOnly=true", {
-          cache: "no-store",
-        });
-        if (cancelled) return;
-        if (!res.ok) return;
-        const data = (await res.json()) as { count?: number };
-        setPendingApprovals(data.count ?? 0);
-      } catch {
-        // best-effort; ignore network blips
-      }
-    };
-    void tick();
-    const id = setInterval(tick, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, []);
+  // The shared hook owns polling and deterministic visual-test state.
+  const pendingApprovals = useApprovalsCount();
 
   return (
     <nav className="topbar-nav">

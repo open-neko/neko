@@ -12,9 +12,8 @@ metadata:
 
 # Triage Magento fulfillment
 
-Identify orders that need human fulfillment attention and rank them using
-observable lifecycle evidence. Query `magento_analytics` only and do not mutate
-orders or shipments.
+Identify orders that need fulfillment attention, rank them using observable
+lifecycle evidence, and prepare a governed order action when explicitly asked.
 
 ## Define the queue
 
@@ -61,5 +60,11 @@ with order ID/store/age/quantities, the reason each item was selected, and the
 next check. Use `magento-investigate-order` for a deeper single-order timeline
 and `magento-check-inventory` for a suspected stock constraint.
 
-Never ship, cancel, invoice, refund, alter stock, terminate a process, or call a
-Magento endpoint through raw tools.
+For an explicitly requested operational change, draft `magento.manage_orders`
+with the resolved numeric order ID, named store scope, stable idempotency key,
+and the smallest supported operation. Shipping, invoicing, cancellation, and
+order edits require a human administrator. Hold, unhold, and a
+private internal comment remain reconciled change-sets. Never retry an
+ambiguous result.
+
+Boundary: Never refund, approve a return, alter stock, or call Magento through SQL, raw GraphQL, raw REST, `curl`, or a terminal; fulfillment writes only use an approved `magento.manage_orders` change-set.

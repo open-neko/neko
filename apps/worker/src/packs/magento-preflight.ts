@@ -3,6 +3,7 @@ import { request as httpsRequest } from "node:https";
 import { createConnection, type Connection } from "mysql2/promise";
 import type { RowDataPacket } from "mysql2";
 import { MAGENTO_READ_TABLES } from "./magento-source-policy.js";
+import { MAGENTO_DOMAINS, type MagentoDomain } from "@neko/packs";
 
 interface GrantRow extends RowDataPacket {}
 
@@ -23,6 +24,15 @@ interface TableNameRow extends RowDataPacket {
 
 interface StoreRow extends RowDataPacket {
   store_id: number;
+  code?: string;
+  website_id?: number;
+  group_id?: number;
+  name?: string;
+}
+
+interface CronHealthRow extends RowDataPacket {
+  executed_at: Date | string | null;
+  status: string | null;
 }
 
 export const MAGENTO_ANALYTICS_TABLES = MAGENTO_READ_TABLES;
@@ -60,6 +70,23 @@ export type MagentoPreflightInput = {
   baseUrl: string;
   storeCode: string;
   integrationToken?: string | null;
+  customersEnabled?: boolean;
+};
+
+export type MagentoReadinessReason =
+  | "ready"
+  | "integration_token_missing"
+  | "integration_token_invalid"
+  | "acl_missing"
+  | "graphjin_version_unsupported"
+  | "domain_disabled";
+
+export type MagentoScope = {
+  storeId: number;
+  code: string;
+  websiteId: number;
+  groupId: number;
+  name: string;
 };
 
 export type MagentoPreflightResult = {
@@ -72,14 +99,13 @@ export type MagentoPreflightResult = {
   availableAnalyticsTables: string[];
   blockedTables: string[];
   storeIds: number[];
+  scopes: MagentoScope[];
   baseCurrency: string | null;
   timezone: string | null;
   magentoVersion: string;
-  operatorReadiness:
-    | "integration_token_missing"
-    | "integration_token_invalid"
-    | "acl_missing"
-    | "graphjin_version_unsupported";
+  operatorReadiness: MagentoReadinessReason;
+  operatorDomains: Record<MagentoDomain, MagentoReadinessReason>;
+  bulkConsumerReadiness: "ready" | "bulk_consumers_not_running";
 };
 
 function quoteIdentifier(value: string): string {
@@ -190,6 +216,52 @@ async function discoverStoreIds(
   return ids;
 }
 
+async function discoverScopes(
+  connection: Connection,
+  prefix: string,
+  storeCode: string,
+): Promise<MagentoScope[]> {
+  const table = quoteIdentifier(`${prefix}store`);
+  const normalized = storeCode.trim();
+  const [rows] = normalized === "all"
+    ? await connection.execute<StoreRow[]>(
+        `SELECT store_id, code, website_id, group_id, name FROM ${table} WHERE is_active = 1 AND code <> 'admin' ORDER BY store_id`,
+      )
+    : await connection.execute<StoreRow[]>(
+        `SELECT store_id, code, website_id, group_id, name FROM ${table} WHERE is_active = 1 AND code = ? ORDER BY store_id`,
+        [normalized],
+      );
+  return rows.map((row) => ({
+    storeId: Number(row.store_id),
+    code: String(row.code ?? ""),
+    websiteId: Number(row.website_id ?? 0),
+    groupId: Number(row.group_id ?? 0),
+    name: String(row.name ?? row.code ?? ""),
+  }));
+}
+
+export async function bulkConsumerReadiness(
+  connection: Connection,
+  prefix: string,
+): Promise<MagentoPreflightResult["bulkConsumerReadiness"]> {
+  const table = quoteIdentifier(`${prefix}cron_schedule`);
+  const [rows] = await connection.query<CronHealthRow[]>(
+    `SELECT executed_at, status FROM ${table}
+     WHERE job_code = 'consumers_runner'
+       AND status = 'success'
+       AND executed_at IS NOT NULL
+     ORDER BY executed_at DESC LIMIT 1`,
+  );
+  const latest = rows[0];
+  if (!latest || latest.status !== "success" || !latest.executed_at) {
+    return "bulk_consumers_not_running";
+  }
+  const timestamp = new Date(latest.executed_at).getTime();
+  return Number.isFinite(timestamp) && Date.now() - timestamp <= 30 * 60 * 1_000
+    ? "ready"
+    : "bulk_consumers_not_running";
+}
+
 function isLoopbackHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
@@ -265,22 +337,55 @@ export async function readMagentoVersion(
   return match[0] === "2.4" ? "2.4.x" : match[0];
 }
 
-async function operatorReadiness(input: MagentoPreflightInput): Promise<MagentoPreflightResult["operatorReadiness"]> {
-  if (!input.integrationToken) return "integration_token_missing";
-  const url = new URL(
-    `${input.baseUrl.replace(/\/+$/, "")}/rest/${encodeURIComponent(input.storeCode)}/V1/orders`,
-  );
-  url.searchParams.set("searchCriteria[pageSize]", "1");
-  const response = await fetch(url, {
-    headers: { authorization: `Bearer ${input.integrationToken}` },
-    signal: AbortSignal.timeout(10_000),
-  }).catch(() => null);
-  if (!response) return "integration_token_invalid";
-  if (response.status === 401) return "integration_token_invalid";
-  if (response.status === 403) return "acl_missing";
-  if (!response.ok) return "acl_missing";
-  // The current OpenNeko pin lacks the released GraphJin mutation contract.
-  return "graphjin_version_unsupported";
+const DOMAIN_PROBES: Record<MagentoDomain, string> = {
+  catalog: "/V1/products?searchCriteria[pageSize]=1",
+  inventory: "/V1/inventory/source-items?searchCriteria[pageSize]=1",
+  orders: "/V1/orders?searchCriteria[pageSize]=1",
+  promotions: "/V1/salesRules/search?searchCriteria[pageSize]=1",
+  content: "/V1/cmsPage/search?searchCriteria[pageSize]=1",
+  customers: "/V1/customers/search?searchCriteria[pageSize]=1",
+};
+
+export async function magentoOperatorReadiness(
+  input: MagentoPreflightInput,
+  request: typeof fetch = fetch,
+): Promise<{
+  overall: MagentoReadinessReason;
+  domains: Record<MagentoDomain, MagentoReadinessReason>;
+}> {
+  const same = (reason: MagentoReadinessReason) => ({
+    overall: reason,
+    domains: Object.fromEntries(
+      MAGENTO_DOMAINS.map((domain) => [domain, domain === "customers" && !input.customersEnabled ? "domain_disabled" : reason]),
+    ) as Record<MagentoDomain, MagentoReadinessReason>,
+  });
+  if (!input.integrationToken) return same("integration_token_missing");
+  const domains = {} as Record<MagentoDomain, MagentoReadinessReason>;
+  for (const domain of MAGENTO_DOMAINS) {
+    if (domain === "customers" && !input.customersEnabled) {
+      domains[domain] = "domain_disabled";
+      continue;
+    }
+    const endpoint = `${input.baseUrl.replace(/\/+$/, "")}/rest/${encodeURIComponent(input.storeCode)}${DOMAIN_PROBES[domain]}`;
+    const response = await request(endpoint, {
+      headers: { authorization: `Bearer ${input.integrationToken}` },
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => null);
+    domains[domain] = !response || response.status === 401
+      ? "integration_token_invalid"
+      : response.status === 403
+        ? "acl_missing"
+        : response.ok || response.status === 400 || response.status === 404
+          ? "ready"
+          : "acl_missing";
+  }
+  const actionable = MAGENTO_DOMAINS.filter((domain) => domain !== "customers" || input.customersEnabled);
+  const overall = actionable.every((domain) => domains[domain] === "ready")
+    ? "ready"
+    : actionable.some((domain) => domains[domain] === "integration_token_invalid")
+      ? "integration_token_invalid"
+      : "acl_missing";
+  return { overall, domains };
 }
 
 export async function runMagentoPreflight(
@@ -311,6 +416,8 @@ export async function runMagentoPreflight(
     );
     const config = await discoverCoreConfig(connection, tablePrefix);
     const storeIds = await discoverStoreIds(connection, tablePrefix, input.storeCode);
+    const scopes = await discoverScopes(connection, tablePrefix, input.storeCode);
+    const readiness = await magentoOperatorReadiness(input);
     const database = versionRows[0];
     if (!database) throw new Error("MariaDB/MySQL version preflight returned no row");
     const supportedDatabase = supportedMagentoDatabase(database.database_version);
@@ -326,9 +433,12 @@ export async function runMagentoPreflight(
       ),
       blockedTables: tableNames.filter((name) => !analyticsTables.has(name)),
       storeIds,
+      scopes,
       ...config,
       magentoVersion: await readMagentoVersion(input.baseUrl),
-      operatorReadiness: await operatorReadiness(input),
+      operatorReadiness: readiness.overall,
+      operatorDomains: readiness.domains,
+      bulkConsumerReadiness: await bulkConsumerReadiness(connection, tablePrefix),
     };
   } finally {
     await connection.end();

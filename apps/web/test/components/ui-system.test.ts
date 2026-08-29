@@ -2,8 +2,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Button, IconButton } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { Disclosure } from "@/components/ui/Disclosure";
 import { FieldInput } from "@/components/ui/Field";
+import { LocalDateTime } from "@/components/ui/LocalDateTime";
 import { Segment, SegmentedControl, Tab, Tabs } from "@/components/ui/Tabs";
 
 describe("shared UI contracts", () => {
@@ -50,6 +52,22 @@ describe("shared UI contracts", () => {
     expect(segments).toContain('data-ui-segment=""');
   });
 
+  it("keeps checkbox controls and labels on the shared visual contract", () => {
+    const checkbox = renderToStaticMarkup(
+      createElement(Checkbox, {
+        checked: true,
+        label: "Allow routine changes to run automatically",
+        readOnly: true,
+      }),
+    );
+
+    expect(checkbox).toContain('data-ui-checkbox=""');
+    expect(checkbox).toContain('data-ui-checkbox-control=""');
+    expect(checkbox).toContain('type="checkbox"');
+    expect(checkbox).toContain("font-body");
+    expect(checkbox).toContain("accent-accent");
+  });
+
   it("preserves labelled fields and native disclosure semantics", () => {
     const field = renderToStaticMarkup(
       createElement(FieldInput, {
@@ -67,5 +85,16 @@ describe("shared UI contracts", () => {
     expect(disclosure).toContain("<details");
     expect(disclosure).toContain("<summary");
     expect(disclosure).toContain('data-ui-disclosure=""');
+  });
+
+  it("renders deterministic timestamp fallbacks before client localization", () => {
+    const timestamp = renderToStaticMarkup(
+      createElement(LocalDateTime, {
+        value: "2026-08-29T08:00:00.000Z",
+        fallback: "recently",
+      }),
+    );
+    expect(timestamp).toContain('dateTime="2026-08-29T08:00:00.000Z"');
+    expect(timestamp).toContain(">recently</time>");
   });
 });

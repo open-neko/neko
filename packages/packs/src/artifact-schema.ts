@@ -102,7 +102,7 @@ const mappingSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([mappingLeafSchema, z.record(z.string(), mappingSchema)]),
 );
 
-const actionSchema = z
+const legacyActionSchema = z
   .object({
     ...base,
     kind: targetRef,
@@ -142,6 +142,88 @@ const actionSchema = z
   })
   .strict();
 
+const magentoOperationSchema = z
+  .object({
+    operationId: z.string().min(1),
+    mutationRoot: z.string().regex(/^[_A-Za-z][_0-9A-Za-z]*$/),
+    readRoot: z.string().regex(/^[_A-Za-z][_0-9A-Za-z]*$/).optional(),
+    readOperationId: z.string().min(1).optional(),
+    readPath: z.string().startsWith("/V1/").optional(),
+    bodyKey: z.string().min(1).optional(),
+    inverseOperation: z.string().min(1).optional(),
+    entityIdField: z.string().min(1).optional(),
+    defaultClass: z.union([z.literal(1), z.literal(2)]),
+    entityType: z.string().min(1),
+    reversible: z.boolean(),
+    numericPathParams: z.array(z.string().min(1)).optional(),
+    resultMode: z.enum(["sync", "async_bulk"]).default("sync"),
+  })
+  .strict();
+
+const magentoGovernedAdapterSchema = z
+  .object({
+    kind: z.enum(["magento_governed_operation", "magento_changeset"]),
+    source: z.literal("magento_operator"),
+    spec: z.literal("magento-operator-v2"),
+    operations: z.record(z.string().min(1), magentoOperationSchema),
+    ambiguousOutcome: z.literal("reconcile_required"),
+    retry: z.literal("never"),
+  })
+  .strict();
+
+const magentoHandoffAdapterSchema = z
+  .object({
+    kind: z.literal("magento_financial_handoff"),
+    handoffKinds: z
+      .array(
+        z.enum([
+          "online_refund",
+          "return_approval",
+          "financial_configuration",
+          "store_credit_over_cap",
+        ]),
+      )
+      .min(1),
+  })
+  .strict();
+
+const magentoV2ActionSchema = z
+  .object({
+    ...base,
+    kind: targetRef,
+    description: z.string().min(1),
+    domain: z.enum([
+      "catalog",
+      "inventory",
+      "orders",
+      "promotions",
+      "content",
+      "customers",
+    ]),
+    readiness: z
+      .object({
+        capability: z.literal("operator"),
+        domain: z.enum([
+          "catalog",
+          "inventory",
+          "orders",
+          "promotions",
+          "content",
+          "customers",
+        ]),
+        unavailableReasons: z.array(z.string()).min(1),
+      })
+      .strict(),
+    inputSchema: z.record(z.string(), z.unknown()),
+    adapter: z.union([
+      magentoGovernedAdapterSchema,
+      magentoHandoffAdapterSchema,
+    ]),
+  })
+  .strict();
+
+const actionSchema = z.union([legacyActionSchema, magentoV2ActionSchema]);
+
 const policySchema = z
   .object({
     ...base,
@@ -149,8 +231,8 @@ const policySchema = z
     description: z.string(),
     appliesToKinds: z.array(targetRef).min(1),
     appliesToScopes: z.array(targetRef).min(1),
-    mode: z.literal("ask"),
-    approverRole: z.literal("admin"),
+    mode: z.enum(["ask", "auto", "draft", "never"]),
+    approverRole: z.literal("admin").optional(),
     priority: z.number().int(),
     enabled: z.boolean(),
     allowedTargets: z.record(z.string(), z.unknown()),

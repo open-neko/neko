@@ -42,8 +42,15 @@ func TestPackagedGraphJinReusesReleasedRuntime(t *testing.T) {
 	if !strings.Contains(graphjin.Image, "ghcr.io/open-neko/records-graphjin:") {
 		t.Fatalf("packaged graphjin image = %q, want the shared records-graphjin runtime", graphjin.Image)
 	}
-	if want := []string{"graphjin"}; !reflect.DeepEqual(graphjin.Entrypoint, want) {
+	if want := []string{"/bin/sh", "/config/.openneko-graphjin-supervisor.sh"}; !reflect.DeepEqual(graphjin.Entrypoint, want) {
 		t.Fatalf("packaged graphjin entrypoint = %v, want %v", graphjin.Entrypoint, want)
+	}
+	configInit, ok := core.Services["graphjin-config-init"]
+	if !ok {
+		t.Fatal("packaged core is missing graphjin-config-init")
+	}
+	if !strings.Contains(strings.Join(configInit.Entrypoint, "\n"), "graphjin-supervisor.sh") {
+		t.Fatal("packaged graphjin config init does not install the supervisor entrypoint")
 	}
 
 	demoRaw, err := ComposeFS.ReadFile("compose/demo.yml")
@@ -271,12 +278,16 @@ func TestSourceAndPackagedComposeStateInventoryMatch(t *testing.T) {
 		got := composeParityInventoryFor(root.Services[name])
 		want := composeParityInventoryFor(packaged.Services[name])
 		if name == "graphjin-config-init" {
-			// Source compose reads the neutral seed from the checkout. Packaged
-			// compose reads the same path baked into neko-worker, so it correctly
-			// has no host bind mount for this immutable input.
+			// Source compose reads immutable seeds from the checkout. Packaged
+			// compose reads the same paths baked into neko-worker, so it correctly
+			// has no host bind mounts for these inputs.
 			got.Mounts = withoutMount(
 				got.Mounts,
 				"./db/graphjin/customer.sources.example.yml:/seed/customer.sources.yml:ro",
+			)
+			got.Mounts = withoutMount(
+				got.Mounts,
+				"./scripts/graphjin-supervisor.sh:/seed/graphjin-supervisor.sh:ro",
 			)
 		}
 		if !reflect.DeepEqual(got, want) {

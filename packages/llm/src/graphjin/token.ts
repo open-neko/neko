@@ -18,7 +18,8 @@ export type GraphjinTokenInput = {
   orgId: string;
   /** K1 actor; null userId = service/org principal. */
   userId: string | null;
-  role: "admin" | "member" | "service";
+  /** GraphJin role name. Core callers use admin/member/service; governed packs use isolated executor roles. */
+  role: "admin" | "member" | "service" | (string & {});
   ttlSeconds?: number;
   /** Test seam. */
   nowMs?: number;
