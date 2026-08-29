@@ -58,6 +58,9 @@ export {
   type SkillOriginKind,
   type SkillUseSource,
 } from "./skill-usage";
+export { runSkillLearn, type SkillLearnResult } from "./skill-learn";
+export { runSkillLearnForOrgSkill } from "./skill-learn-store";
+export { assertAdditiveLearnedBody, scanLearnedText } from "./skill-learn-scan";
 export {
   LEARNED_FILE,
   SKILL_OVERLAYS_DIR,

@@ -50,6 +50,7 @@ const M_0064 = join(
   "0064_magento_store_management_v2.sql",
 );
 const M_0065 = join(REPO_ROOT, "db", "migrations", "0065_skill_usage.sql");
+const M_0066 = join(REPO_ROOT, "db", "migrations", "0066_skill_learn.sql");
 
 function uniqueDbName(): string {
   return `vitest_migrations_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -524,6 +525,35 @@ describeIfDb("schema migrations", () => {
           )
         `),
       ).rejects.toThrow(/origin|check constraint/i);
+    });
+  });
+
+  it("0066 creates skill learn tables with flags default off", async () => {
+    await withTempDb(async (client) => {
+      await applyFile(client, M_0001);
+      await applyFile(client, M_0006);
+      await applyFile(client, M_0065);
+      await applyFile(client, M_0066);
+      await applyFile(client, M_0066);
+      const tables = await client.query<{ table_name: string }>(
+        `select table_name from information_schema.tables
+         where table_schema = 'public'
+           and table_name like 'skill_learn%'
+         order by table_name`,
+      );
+      expect(tables.rows.map((row) => row.table_name)).toEqual([
+        "skill_learn_event",
+        "skill_learn_org",
+        "skill_learn_state",
+      ]);
+      await client.query(`
+        insert into organization (id, name) values ('learn-org', 'Learn');
+        insert into skill_learn_org (org_id) values ('learn-org');
+      `);
+      const flags = await client.query<{ enabled: boolean }>(
+        `select enabled from skill_learn_org where org_id = 'learn-org'`,
+      );
+      expect(flags.rows[0]?.enabled).toBe(false);
     });
   });
 
