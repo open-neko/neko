@@ -13,11 +13,13 @@ import { basename, dirname, extname, join, relative, resolve, sep } from "node:p
 import {
   action_policy,
   action_changeset,
+  action_changeset_row,
   and,
   data_source,
   db,
   desc,
   eq,
+  inArray,
   metric,
   magento_attribute_classification,
   magento_auto_rule,
@@ -58,6 +60,7 @@ import {
   type MagentoPreflightResult,
 } from "./magento-preflight.js";
 import { magentoGraphjinTables } from "./magento-source-policy.js";
+import { buildMagentoActivity, isMagentoTestRule } from "./magento-activity.js";
 import {
   inspectPackArtifactCurrent,
   inspectInstalledPackArtifactCurrent,
@@ -1077,9 +1080,9 @@ export class PackService {
       for (const domain of ["catalog", "inventory", "orders", "promotions", "content", "customers"] as const) {
         const reason = preflight.operatorDomains[domain];
         checks.push({
-          id: `operator-${domain}`,
+          id: `changes-${domain}`,
           status: reason === "ready" ? "ready" : reason === "domain_disabled" ? "optional" : "blocked",
-          detail: `${domain}: ${operatorReadinessDetail(reason)}`,
+          detail: operatorReadinessDetail(reason),
         });
       }
       checks.push({
@@ -1091,16 +1094,16 @@ export class PackService {
       });
     } else {
       checks.push({
-        id: "operator",
+        id: "changes",
         status: "optional",
         detail: operatorReadinessDetail(null),
       });
     }
     const requiredBlocked = checks.some(
-      (check) => !check.id.startsWith("operator") && check.id !== "bulk-consumers" && check.status === "blocked",
+      (check) => !check.id.startsWith("changes") && check.id !== "bulk-consumers" && check.status === "blocked",
     );
     const operatorBlocked = checks.some(
-      (check) => (check.id.startsWith("operator-") || check.id === "bulk-consumers") && check.status === "blocked",
+      (check) => (check.id.startsWith("changes-") || check.id === "bulk-consumers") && check.status === "blocked",
     );
     return {
       packId,
@@ -1131,6 +1134,8 @@ export class PackService {
         bulkUuid: action_changeset.bulk_uuid,
         projectedExposure: action_changeset.projected_exposure,
         inverseOfId: action_changeset.inverse_of_id,
+        scope: action_changeset.scope,
+        capSnapshot: action_changeset.cap_snapshot,
         createdAt: action_changeset.created_at,
         reconciledAt: action_changeset.reconciled_at,
       })
@@ -1138,12 +1143,25 @@ export class PackService {
       .where(eq(action_changeset.org_id, this.orgId))
       .orderBy(desc(action_changeset.created_at))
       .limit(20);
+    const changesetRows = changesets.length === 0
+      ? []
+      : await db()
+        .select({
+          changesetId: action_changeset_row.changeset_id,
+          entityRef: action_changeset_row.entity_ref,
+          beforeImage: action_changeset_row.before_image,
+          afterImage: action_changeset_row.after_image,
+        })
+        .from(action_changeset_row)
+        .where(inArray(action_changeset_row.changeset_id, changesets.map((changeset) => changeset.id)));
     const handoffs = await db()
       .select({
         id: magento_financial_handoff.id,
         kind: magento_financial_handoff.kind,
         entityRef: magento_financial_handoff.entity_ref,
         status: magento_financial_handoff.status,
+        draft: magento_financial_handoff.draft,
+        evidence: magento_financial_handoff.evidence,
         createdAt: magento_financial_handoff.created_at,
         completedAt: magento_financial_handoff.completed_at,
       })
@@ -1196,6 +1214,16 @@ export class PackService {
         }];
       });
     });
+    const changesetsWithMode = changesets.map(({ riskClass, ...changeset }) => ({
+      ...changeset,
+      executionMode: magentoExecutionMode(riskClass as MagentoRiskClass),
+    }));
+    const rowsByChangeset = new Map<string, typeof changesetRows>();
+    for (const row of changesetRows) {
+      const rows = rowsByChangeset.get(row.changesetId) ?? [];
+      rows.push(row);
+      rowsByChangeset.set(row.changesetId, rows);
+    }
     return {
       controls: controls.map((control) => {
         const domainReadiness = readinessByDomain.get(control.domain);
@@ -1207,28 +1235,41 @@ export class PackService {
           caps: control.caps,
           scope: control.scope,
           readiness: domainReadiness?.readiness ?? "blocked",
-          readinessReason: domainReadiness ? domainReadiness.reason : "operator_unavailable",
+          readinessReason: domainReadiness ? domainReadiness.reason : "change_access_unavailable",
+          readinessMessage: domainReadiness
+            ? operatorReadinessDetail(
+              domainReadiness.reason as MagentoPreflightResult["operatorReadiness"],
+            )
+            : "View-only access could not be checked because the reporting connection is unavailable.",
           updatedAt: control.updated_at,
         };
       }),
-      rules: rules.map((rule) => ({
-        id: rule.id,
-        name: rule.name,
-        instruction: rule.instruction,
-        domain: rule.domain,
-        actionKind: rule.action_kind,
-        compiledPolicy: rule.compiled_policy,
-        dailyCap: rule.daily_cap,
-        cooldownSeconds: rule.cooldown_seconds,
-        enabled: rule.enabled,
-        suspendedReason: rule.suspended_reason,
-        lastFiredAt: rule.last_fired_at,
-      })),
-      changesets: changesets.map(({ riskClass, ...changeset }) => ({
-        ...changeset,
-        executionMode: magentoExecutionMode(riskClass as MagentoRiskClass),
-      })),
+      rules: rules.map((rule) => {
+        const compiledPolicy = rule.compiled_policy;
+        return {
+          id: rule.id,
+          name: rule.name,
+          instruction: rule.instruction,
+          domain: rule.domain,
+          actionKind: rule.action_kind,
+          compiledPolicy,
+          dailyCap: rule.daily_cap,
+          cooldownSeconds: rule.cooldown_seconds,
+          enabled: rule.enabled,
+          suspendedReason: rule.suspended_reason,
+          lastFiredAt: rule.last_fired_at,
+          isTest: isMagentoTestRule({ name: rule.name, compiledPolicy }),
+        };
+      }),
+      changesets: changesetsWithMode,
       handoffs,
+      activity: buildMagentoActivity({
+        changesets: changesetsWithMode.map((changeset) => ({
+          ...changeset,
+          rows: rowsByChangeset.get(changeset.id) ?? [],
+        })),
+        handoffs,
+      }),
       operations,
       handoffOnly: {
         executePath: false,
@@ -1309,6 +1350,9 @@ export class PackService {
       const instruction = typeof input.instruction === "string" ? input.instruction.trim() : "";
       const domain = String(input.domain ?? "");
       const actionKind = typeof input.actionKind === "string" ? input.actionKind.trim() : "";
+      const policySource = input.source === "acceptance_test"
+        ? "acceptance_test"
+        : "admin_plain_language";
       const dailyCap = Number(input.dailyCap);
       const cooldownSeconds = Number(input.cooldownSeconds ?? 0);
       if (!name || name.length > 120 || !instruction || instruction.length > 1000) {
@@ -1346,7 +1390,7 @@ export class PackService {
         action_kind: actionKind,
         compiled_policy: {
           version: 1,
-          source: "admin_plain_language",
+          source: policySource,
           condition: "watcher_finding",
           dailyCap,
           cooldownSeconds,
@@ -1363,7 +1407,7 @@ export class PackService {
           action_kind: actionKind,
           compiled_policy: {
             version: 1,
-            source: "admin_plain_language",
+            source: policySource,
             condition: "watcher_finding",
             dailyCap,
             cooldownSeconds,

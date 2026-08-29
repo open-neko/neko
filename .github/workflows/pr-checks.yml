@@ -20,6 +20,38 @@ jobs:
       - name: Verify failed-to-recovered release transitions
         run: bash scripts/check-release-recovery-contract.sh
 
+  design-system:
+    name: Web design system
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Enforce shared UI controls and tokens
+        env:
+          UI_SYSTEM_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/check-web-design-system.mjs
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.14.1
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: AX_SKIP_SKILL_INSTALL=1 pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @neko/web exec playwright install --with-deps chromium
+
+      - name: Verify Magento design-system rendering
+        run: pnpm --filter @neko/web test:visual:design
+
   records-recovery:
     name: Records recovery
     runs-on: ubuntu-latest

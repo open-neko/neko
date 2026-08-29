@@ -31,6 +31,7 @@ const M_0005 = join(REPO_ROOT, "db", "migrations", "0005_metric_refresh_status.s
 const M_0006 = join(REPO_ROOT, "db", "migrations", "0006_work_runtime.sql");
 const M_0007 = join(REPO_ROOT, "db", "migrations", "0007_work_memory.sql");
 const M_0009 = join(REPO_ROOT, "db", "migrations", "0009_workflows.sql");
+const M_0010 = join(REPO_ROOT, "db", "migrations", "0010_subscriptions_observations.sql");
 const M_0011 = join(REPO_ROOT, "db", "migrations", "0011_action_stack.sql");
 const M_0019 = join(REPO_ROOT, "db", "migrations", "0019_install_policy_scope.sql");
 const M_0048 = join(REPO_ROOT, "db", "migrations", "0048_graphjin_config_scope.sql");
@@ -381,6 +382,7 @@ describeIfDb("schema migrations", () => {
       await applyFile(client, M_0001);
       await applyFile(client, M_0006);
       await applyFile(client, M_0009);
+      await applyFile(client, M_0010);
       await applyFile(client, M_0011);
       await applyFile(client, M_0064);
       await applyFile(client, M_0064);

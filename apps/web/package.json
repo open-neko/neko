@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:visual": "playwright test --config=playwright.records.config.ts",
+    "test:visual:design": "playwright test --config=playwright.design-system.config.ts",
+    "design-system:check": "node ../../scripts/check-web-design-system.mjs",
     "test:watch": "vitest"
   },
   "dependencies": {

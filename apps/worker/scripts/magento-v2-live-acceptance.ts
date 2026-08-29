@@ -226,6 +226,7 @@ async function main() {
       dailyCap: 1,
       cooldownSeconds: 0,
       enabled: true,
+      source: "acceptance_test",
     }) as { rules?: Array<{ id?: string; name?: string }> };
     autoRuleId = withRule.rules?.find((rule) => rule.name === ruleName)?.id ?? null;
     if (!autoRuleId) throw new Error("Acceptance automatic rule was not persisted");
@@ -238,7 +239,7 @@ async function main() {
         kind: "magento.manage_catalog",
         payload: {
           operation: "product_update",
-          scope: { store: storeCode },
+          scope: { store: storeCode, activityOrigin: "acceptance_test" },
           auto_rule_id: autoRuleId,
           idempotency_key: `${marker}-auto-1`,
           rows: [{
@@ -260,7 +261,7 @@ async function main() {
       kind: "magento.manage_catalog",
       payload: {
         operation: "product_update",
-        scope: { store: storeCode },
+        scope: { store: storeCode, activityOrigin: "acceptance_test" },
         auto_rule_id: autoRuleId,
         idempotency_key: `${marker}-auto-2`,
         rows: [{
@@ -296,7 +297,7 @@ async function main() {
         kind: "magento.manage_catalog",
         payload: {
           operation: "product_bulk_update",
-          scope: { store: storeCode },
+          scope: { store: storeCode, activityOrigin: "acceptance_test" },
           idempotency_key: `${marker}-bulk-price`,
           rows: bulkRows,
         },
@@ -319,7 +320,7 @@ async function main() {
         kind: "magento.manage_content",
         payload: {
           operation: "cms_block_update",
-          scope: { store: storeCode },
+          scope: { store: storeCode, activityOrigin: "acceptance_test" },
           idempotency_key: `${marker}-content`,
           rows: [{
             entity_ref: `cms-block:${block.id}`,

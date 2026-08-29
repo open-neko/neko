@@ -19,6 +19,7 @@ Use `Button`, `IconButton`, `ButtonLink`, or `buttonClassName` instead of creati
 - Use `Checkbox` for boolean settings so control size, accent, focus, label typography, and disabled states stay aligned.
 - Use `Field` with `Input`, `Textarea`, or `NativeSelect` for labelled form controls.
 - Use `Disclosure` for secondary detail that would otherwise make a page difficult to scan.
+- Use `LocalDateTime` for browser-local timestamps so server rendering and hydration stay consistent.
 
 ## Status and density
 
@@ -32,3 +33,13 @@ Preserve this hierarchy at every breakpoint:
 4. secondary detail on demand.
 
 Bespoke controls are reserved for interactions whose behavior is genuinely unique, such as the Work composer, chat composer, navigation rail, and timeline playback—not for ordinary buttons, fields, tabs, or menus.
+
+## Change contract
+
+For every UI PR, add a reuse map before implementation:
+
+| Surface need | Canonical component or token | Verification |
+| --- | --- | --- |
+| Example: boolean setting | `Checkbox` | 16px control, accent, focus, disabled and phone tap target checked live |
+
+Run `pnpm ui:check` from the repository root. Modified page components may not introduce raw native controls, page-local control styles, literal colors, or handcrafted status pills. If an interaction is genuinely unique, add a specific `data-ui-bespoke-reason` and document why none of the shared primitives can represent it.

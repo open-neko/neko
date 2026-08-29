@@ -6,8 +6,13 @@ import { toast } from "sonner";
 import AppHeader from "@/components/AppHeader";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
+import { ActionGroup } from "@/components/ui/ActionGroup";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { Disclosure } from "@/components/ui/Disclosure";
+import { Field, Input, NativeSelect, Textarea } from "@/components/ui/Field";
+import { LocalDateTime } from "@/components/ui/LocalDateTime";
+import { Pill, type PillVariant } from "@/components/ui/Pill";
 
 type PackStatus = {
   packId: string;
@@ -31,10 +36,35 @@ type StoreControl = {
   autoExecute: boolean;
   readiness: string;
   readinessReason: string | null;
+  readinessMessage: string;
   caps: Record<string, number>;
 };
 
-type StoreManagement = {
+type ActivityItem = {
+  id: string;
+  kind: "change" | "handoff";
+  title: string;
+  description: string;
+  outcome: "completed" | "reverted" | "awaiting_approval" | "in_progress" | "needs_attention" | "failed" | "cancelled";
+  outcomeLabel: string;
+  affectedCount: number;
+  source: "requested_change" | "automatic_rule" | "test";
+  sourceLabel: string;
+  isTest: boolean;
+  occurredAt: string;
+  currentState: string | null;
+  technical: {
+    reference: string;
+    area: string;
+    operation: string;
+    execution: string;
+    originalRequest: string;
+    bulkReference: string | null;
+    inverseOfReference: string | null;
+  };
+};
+
+export type StoreManagement = {
   controls: StoreControl[];
   rules: Array<{
     id: string;
@@ -46,6 +76,7 @@ type StoreManagement = {
     cooldownSeconds: number;
     enabled: boolean;
     suspendedReason: string | null;
+    isTest: boolean;
   }>;
   changesets: Array<{
     id: string;
@@ -65,6 +96,7 @@ type StoreManagement = {
     status: string;
     createdAt: string;
   }>;
+  activity: ActivityItem[];
   handoffOnly: { executePath: false; handoffKinds: string[] };
 };
 
@@ -92,10 +124,6 @@ const initialForm: FormState = {
   integrationToken: "",
 };
 
-const FIELD = "flex flex-col gap-2";
-const LABEL = "font-body text-ui-body font-semibold text-text";
-const HELP = "font-body text-ui-body-sm leading-[1.45] text-text3";
-const INPUT = "rounded-xl border-[1.5px] border-border bg-bg px-3.5 py-3 font-body text-ui-body-lg text-text outline-none transition focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
 const REPORTING_LOGIN_REQUEST = `Please create a dedicated read-only MariaDB/MySQL login for OpenNeko analytics on our Magento database.
 
 Grant only SELECT and SHOW VIEW on the Magento database. Do not grant INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, ALL PRIVILEGES, or GRANT OPTION.
@@ -103,14 +131,28 @@ Grant only SELECT and SHOW VIEW on the Magento database. Do not grant INSERT, UP
 Please send me the database hostname, port, database name, username, and password, and allow connections from the server running OpenNeko.`;
 
 const CAP_LABELS: Record<string, string> = {
-  maxRowsPerChangeset: "Rows per change-set",
+  maxRowsPerChangeset: "Items per change",
   maxPriceDeltaPercent: "Price delta (%)",
   maxDiscountPercent: "Discount (%)",
   maxCouponCount: "Coupons",
   maxProjectedExposure: "Projected exposure",
   maxDailyAutoActions: "Automatic actions/day",
-  skuCooldownSeconds: "Entity cooldown (seconds)",
+  skuCooldownSeconds: "Time between changes (seconds)",
 };
+
+const DOMAIN_LABELS: Record<string, string> = {
+  catalog: "Catalog",
+  content: "Content",
+  customers: "Customers",
+  inventory: "Inventory",
+  orders: "Orders",
+  promotions: "Promotions",
+};
+
+function domainLabel(domain: string): string {
+  return DOMAIN_LABELS[domain]
+    ?? domain.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase());
+}
 
 function visibleCaps(control: StoreControl): Array<[string, number]> {
   const keys = ["maxRowsPerChangeset", "maxDailyAutoActions", "skuCooldownSeconds"];
@@ -138,39 +180,112 @@ function healthLabel(status: string): string {
 }
 
 function checkLabel(id: string): string {
-  if (id === "operator") return "Magento access";
-  if (id === "analytics-query") return "Reporting query";
-  return id.replaceAll("-", " ");
+  const changeArea = id.match(/^changes-(catalog|content|customers|inventory|orders|promotions)$/)?.[1];
+  if (changeArea) return `${domainLabel(changeArea)} changes`;
+  if (id === "changes") return "Magento changes";
+  if (id === "analytics") return "Reporting access";
+  if (id === "magento") return "Magento connection";
+  if (id === "graphjin") return "Reporting service";
+  if (id === "analytics-query") return "Live reporting check";
+  if (id === "bulk-consumers") return "Bulk updates";
+  return domainLabel(id.replaceAll("-", " "));
+}
+
+function checkDescription(check: DoctorResult["checks"][number]): string {
+  const healthy = check.status === "ready";
+  if (check.id === "analytics") {
+    return healthy
+      ? "OpenNeko can read Magento reporting data without permission to change it."
+      : "OpenNeko cannot use the read-only Magento reporting login. Check the database connection and permissions.";
+  }
+  if (check.id === "magento") {
+    return healthy
+      ? "OpenNeko can reach the Magento store and identify its store configuration."
+      : "OpenNeko cannot reach the Magento store. Check the store address and integration token.";
+  }
+  if (check.id === "graphjin") {
+    return healthy
+      ? "The Magento reporting service is ready."
+      : "The Magento reporting service is unavailable. Check the reporting connection and try again.";
+  }
+  if (check.id === "analytics-query") {
+    return healthy
+      ? "A live Magento order query completed successfully."
+      : "OpenNeko could not run a live Magento reporting query. Check the reporting login and database.";
+  }
+  if (check.id === "bulk-consumers") {
+    return healthy
+      ? "Magento finished its recent bulk updates."
+      : "Magento has not completed its recent bulk updates. Check the Magento queue before trying another bulk change.";
+  }
+  return check.detail;
 }
 
 function checkStatusLabel(id: string, status: string): string {
-  if (id === "operator") return status === "ready" ? "Changes available" : "View only";
+  if (id === "changes" || id.startsWith("changes-")) {
+    return status === "ready" ? "Changes available" : "View only";
+  }
   if (status === "ready") return "Healthy";
   if (status === "optional") return "Optional";
   if (status === "blocked") return "Needs attention";
   return status.replaceAll("_", " ");
 }
 
-function checkTone(status: string): string {
-  if (status === "ready") return "text-success-ink";
-  if (status === "optional") return "text-text3";
-  return "text-danger";
+function checkTone(status: string): PillVariant {
+  if (status === "ready") return "success";
+  if (status === "optional") return "muted";
+  return "danger";
 }
 
 function executionModeLabel(mode: string): string {
   if (mode === "approval_required") return "Administrator approval required";
-  if (mode === "controlled_automation_eligible") return "Can run automatically within limits";
+  if (mode === "controlled_automation_eligible") return "Automatic under the configured store limits";
   if (mode === "handoff_only") return "Complete in Magento Admin";
   return mode.replaceAll("_", " ");
 }
 
-export default function MagentoPackAdmin() {
-  const [status, setStatus] = useState<PackStatus | null>(null);
-  const [doctor, setDoctor] = useState<DoctorResult | null>(null);
-  const [management, setManagement] = useState<StoreManagement | null>(null);
-  const [loading, setLoading] = useState(true);
+function dailyLimitLabel(limit: number): string {
+  return `Up to ${limit} ${limit === 1 ? "change" : "changes"} per day`;
+}
+
+function cooldownLabel(seconds: number): string {
+  if (seconds === 0) return "No waiting period";
+  if (seconds % 3600 === 0) {
+    const hours = seconds / 3600;
+    return `At least ${hours} ${hours === 1 ? "hour" : "hours"} between changes`;
+  }
+  if (seconds % 60 === 0) {
+    const minutes = seconds / 60;
+    return `At least ${minutes} ${minutes === 1 ? "minute" : "minutes"} between changes`;
+  }
+  return `At least ${seconds} seconds between changes`;
+}
+
+function pausedRuleLabel(reason: string | null): string | null {
+  if (!reason) return null;
+  if (reason === "suspended_by_admin") return "Paused by an administrator";
+  return `Paused: ${reason.replaceAll("_", " ")}`;
+}
+
+function activityTone(outcome: ActivityItem["outcome"]): PillVariant {
+  if (outcome === "completed" || outcome === "reverted") return "success";
+  if (outcome === "awaiting_approval" || outcome === "in_progress") return "watch";
+  if (outcome === "needs_attention" || outcome === "failed") return "danger";
+  return "muted";
+}
+
+export type MagentoPackAdminFixture = {
+  status: PackStatus;
+  doctor: DoctorResult;
+  management: StoreManagement;
+};
+
+export default function MagentoPackAdmin({ fixture }: { fixture?: MagentoPackAdminFixture }) {
+  const [status, setStatus] = useState<PackStatus | null>(fixture?.status ?? null);
+  const [doctor, setDoctor] = useState<DoctorResult | null>(fixture?.doctor ?? null);
+  const [management, setManagement] = useState<StoreManagement | null>(fixture?.management ?? null);
+  const [loading, setLoading] = useState(!fixture);
   const [busy, setBusy] = useState<string | null>(null);
-  const [advanced, setAdvanced] = useState(false);
   const [rotateCredentials, setRotateCredentials] = useState(false);
   const [clearIntegrationToken, setClearIntegrationToken] = useState(false);
   const [form, setForm] = useState<FormState>(initialForm);
@@ -209,9 +324,10 @@ export default function MagentoPackAdmin() {
   }, []);
 
   useEffect(() => {
+    if (fixture) return;
     const initial = window.setTimeout(() => void refresh(true), 0);
     return () => window.clearTimeout(initial);
-  }, [refresh]);
+  }, [fixture, refresh]);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -355,7 +471,7 @@ export default function MagentoPackAdmin() {
       ? rule.domain
       : eligibleDomains[0]?.domain;
     if (!domain) {
-      toast.error("Turn on automatic actions for an eligible domain first.");
+      toast.error("Allow routine changes to run automatically in at least one store area first.");
       return;
     }
     await updateStoreManagement(
@@ -370,12 +486,13 @@ export default function MagentoPackAdmin() {
         cooldownSeconds: Number(rule.cooldownSeconds),
         enabled: true,
       },
-      "Automatic rule saved with its own cap and cooldown.",
+      "Automatic rule saved with its daily limit and waiting period.",
     );
     setRule((current) => ({ ...current, name: "", instruction: "" }));
   }
 
   const installed = status && status.status !== "removed";
+  const visibleRules = management?.rules.filter((item) => !item.isTest) ?? [];
 
   return (
     <div className="root" style={{ "--page-width": "min(1000px, 100%)" } as React.CSSProperties}>
@@ -396,18 +513,18 @@ export default function MagentoPackAdmin() {
             <div className="settings-card-head">
               <div>
                 <h2 className="settings-card-title">Magento pack</h2>
-                <p className="settings-card-copy">Version {status.version} · installed {status.installedAt ? new Date(status.installedAt).toLocaleString() : "recently"}</p>
+                <p className="settings-card-copy">Version {status.version} · installed {status.installedAt ? <LocalDateTime value={status.installedAt} fallback="recently" /> : "recently"}</p>
               </div>
               <div className="settings-source">
                 <strong className={doctor?.status === "blocked" ? "is-warn" : "is-ok"}>{healthLabel(doctor?.status ?? status.status)}</strong>
               </div>
             </div>
             {status.lastError ? <p className="mt-3 text-sm text-danger">{status.lastError}</p> : null}
-            <div className="mt-5 flex flex-wrap gap-2">
+            <ActionGroup align="start" className="mt-5">
               <Button type="button" disabled={busy !== null} onClick={() => void runAction("doctor")}>{busy === "doctor" ? "Checking…" : "Check health"}</Button>
               <Button type="button" variant="secondary" disabled={busy !== null} onClick={() => void runAction("upgrade")}>{busy === "upgrade" ? "Updating…" : "Update pack"}</Button>
               <Button type="button" variant="secondary" disabled={busy !== null} onClick={() => setRotateCredentials((value) => !value)}>Change credentials</Button>
-            </div>
+            </ActionGroup>
           </section>
 
           <section className="settings-card">
@@ -422,7 +539,7 @@ export default function MagentoPackAdmin() {
                 { href: "/", title: "View Magento metrics", copy: "See current store performance and findings." },
                 { href: "/workflows", title: "Run automations", copy: "Start or review Magento workflows." },
                 { href: "/actions", title: "Review proposed changes", copy: "Approve or reject a specific Magento change prepared by OpenNeko." },
-                { href: "/skills", title: "Magento operator skills", copy: "Choose a focused skill for orders, fulfillment, refunds, inventory, performance, or platform health." },
+                { href: "/skills", title: "Magento skills", copy: "Choose a focused skill for orders, fulfillment, refunds, inventory, performance, or platform health." },
               ].map((item) => (
                 <Link key={item.href} href={item.href} className="rounded-xl border border-border px-4 py-3 transition hover:border-accent">
                   <strong className="font-display text-ui-body font-bold text-text">{item.title}</strong>
@@ -446,21 +563,18 @@ export default function MagentoPackAdmin() {
                   <div key={control.domain} className="rounded-xl border border-border px-4 py-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0 flex-1">
-                        <strong className="font-display text-ui-body font-bold capitalize text-text">{control.domain}</strong>
+                        <strong className="font-display text-ui-body font-bold text-text">{domainLabel(control.domain)}</strong>
                         <p className="mt-1 text-ui-body-sm text-text3">
                           {control.automationEligible
-                            ? "Eligible actions can run automatically within limits; sensitive changes still require approval."
-                            : "Every change requires administrator approval."}
+                            ? "Routine changes in this area can be automated. Higher-risk changes still wait for administrator approval."
+                            : "OpenNeko can prepare changes in this area, but an administrator must approve every one."}
                         </p>
                         <p className={`mt-2 font-body text-ui-caption font-semibold ${control.readiness === "ready" && control.enabled ? "text-success-ink" : "text-text3"}`}>
                           {control.readiness !== "ready" || !control.enabled
-                            ? "View only"
+                            ? control.readinessMessage
                             : control.autoExecute
-                              ? "Auto within rules"
-                              : "Approved changes"}
-                          {control.readinessReason && control.readiness !== "ready"
-                            ? ` · ${control.readinessReason.replaceAll("_", " ")}`
-                            : ""}
+                              ? "Routine changes can run automatically"
+                              : "Every change waits for approval"}
                         </p>
                       </div>
                       <Checkbox
@@ -471,50 +585,52 @@ export default function MagentoPackAdmin() {
                         onChange={(event) => void updateStoreManagement(
                           `domain-${control.domain}`,
                           { action: "update_domain", domain: control.domain, enabled: event.target.checked },
-                          `${control.domain} change access updated.`,
+                          `${domainLabel(control.domain)} change access updated.`,
                         )}
                       />
                     </div>
                     <Checkbox
-                      label="Allow automatic actions within limits"
+                      label="Allow routine changes to run automatically"
                       className="mt-4"
                       checked={control.autoExecute}
                       disabled={busy !== null || !control.enabled || !control.automationEligible}
                       onChange={(event) => void updateStoreManagement(
                         `auto-${control.domain}`,
                         { action: "update_domain", domain: control.domain, autoExecute: event.target.checked },
-                        `${control.domain} automatic execution updated.`,
+                        `${domainLabel(control.domain)} automatic execution updated.`,
                       )}
                     />
-                    <p className="mt-2 text-xs leading-[1.45] text-text3">Up to {control.caps.maxRowsPerChangeset ?? 0} rows per change-set; {control.caps.maxDailyAutoActions ?? 0} automatic actions per day.</p>
-                    <details className="mt-3 border-t border-border pt-3">
-                      <summary className="cursor-pointer text-xs font-semibold text-text2">Edit caps</summary>
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <p className="mt-2 text-ui-caption leading-[var(--leading-compact)] text-text3">Up to {control.caps.maxRowsPerChangeset ?? 0} items per change; {control.caps.maxDailyAutoActions ?? 0} automatic actions per day.</p>
+                    <Disclosure title="Edit limits" className="mt-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
                         {visibleCaps(control).map(([key, value]) => (
-                          <label key={`${control.domain}-${key}`} className="flex flex-col gap-1 text-xs text-text3">
-                            {CAP_LABELS[key] ?? key}
-                            <input
+                          <Field
+                            key={`${control.domain}-${key}`}
+                            label={CAP_LABELS[key] ?? key}
+                            htmlFor={`${control.domain}-${key}`}
+                          >
+                            <Input
+                              id={`${control.domain}-${key}`}
                               key={`${control.domain}-${key}-${value}`}
                               type="number"
                               min="0"
                               defaultValue={value}
                               disabled={busy !== null}
-                              className="rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-text outline-none focus:border-accent"
                               onBlur={(event) => {
                                 const next = Number(event.target.value);
                                 if (Number.isFinite(next) && next >= 0 && next !== value) {
                                   void updateStoreManagement(
                                     `cap-${control.domain}-${key}`,
                                     { action: "update_domain", domain: control.domain, caps: { [key]: next } },
-                                    `${control.domain} cap updated.`,
+                                    `${domainLabel(control.domain)} limit updated.`,
                                   );
                                 }
                               }}
                             />
-                          </label>
+                          </Field>
                         ))}
                       </div>
-                    </details>
+                    </Disclosure>
                   </div>
                 ))}
               </div>
@@ -525,87 +641,78 @@ export default function MagentoPackAdmin() {
               </div>
 
               <div className="mt-6 border-t border-border pt-5">
-                <h3 className="text-sm font-semibold text-text">Automatic rules</h3>
-                <p className="mt-1 text-ui-body-sm text-text3">Rules run only where automatic actions are enabled and stop at their daily limit or per-entity cooldown.</p>
+                <h3>Automatic rules</h3>
+                <p className="mt-1 text-ui-body-sm text-text3">Each rule stops at its daily limit and waits the configured time before changing the same item again.</p>
                 {management.controls.some((control) => control.enabled && control.autoExecute && control.automationEligible) ? (
                   <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={createRule}>
-                    <label className={FIELD}>
-                      <span className={LABEL}>Rule name</span>
-                      <input required maxLength={120} className={INPUT} value={rule.name} onChange={(event) => setRule((current) => ({ ...current, name: event.target.value }))} />
-                    </label>
-                    <label className={FIELD}>
-                      <span className={LABEL}>Domain</span>
-                      <select className={INPUT} value={rule.domain} onChange={(event) => setRule((current) => ({ ...current, domain: event.target.value }))}>
-                        {management.controls.filter((control) => control.enabled && control.autoExecute && control.automationEligible).map((control) => <option key={control.domain} value={control.domain}>{control.domain}</option>)}
-                      </select>
-                    </label>
-                    <label className={`${FIELD} sm:col-span-2`}>
-                      <span className={LABEL}>Plain-language instruction</span>
-                      <textarea required maxLength={1000} rows={3} className={INPUT} value={rule.instruction} onChange={(event) => setRule((current) => ({ ...current, instruction: event.target.value }))} />
-                    </label>
-                    <label className={FIELD}>
-                      <span className={LABEL}>Daily cap</span>
-                      <input required type="number" min="1" className={INPUT} value={rule.dailyCap} onChange={(event) => setRule((current) => ({ ...current, dailyCap: event.target.value }))} />
-                    </label>
-                    <label className={FIELD}>
-                      <span className={LABEL}>Entity cooldown (seconds)</span>
-                      <input required type="number" min="0" className={INPUT} value={rule.cooldownSeconds} onChange={(event) => setRule((current) => ({ ...current, cooldownSeconds: event.target.value }))} />
-                    </label>
+                    <Field label="Rule name" htmlFor="magento-rule-name">
+                      <Input id="magento-rule-name" required maxLength={120} value={rule.name} onChange={(event) => setRule((current) => ({ ...current, name: event.target.value }))} />
+                    </Field>
+                    <Field label="Store area" htmlFor="magento-rule-domain">
+                      <NativeSelect id="magento-rule-domain" value={rule.domain} onChange={(event) => setRule((current) => ({ ...current, domain: event.target.value }))}>
+                        {management.controls.filter((control) => control.enabled && control.autoExecute && control.automationEligible).map((control) => <option key={control.domain} value={control.domain}>{domainLabel(control.domain)}</option>)}
+                      </NativeSelect>
+                    </Field>
+                    <Field label="Plain-language instruction" htmlFor="magento-rule-instruction" className="sm:col-span-2">
+                      <Textarea id="magento-rule-instruction" required maxLength={1000} rows={3} value={rule.instruction} onChange={(event) => setRule((current) => ({ ...current, instruction: event.target.value }))} />
+                    </Field>
+                    <Field label="Daily limit" htmlFor="magento-rule-daily-limit">
+                      <Input id="magento-rule-daily-limit" required type="number" min="1" value={rule.dailyCap} onChange={(event) => setRule((current) => ({ ...current, dailyCap: event.target.value }))} />
+                    </Field>
+                    <Field label="Time between changes (seconds)" htmlFor="magento-rule-cooldown">
+                      <Input id="magento-rule-cooldown" required type="number" min="0" value={rule.cooldownSeconds} onChange={(event) => setRule((current) => ({ ...current, cooldownSeconds: event.target.value }))} />
+                    </Field>
                     <div className="sm:col-span-2"><Button type="submit" disabled={busy !== null}>{busy === "create-rule" ? "Saving…" : "Save automatic rule"}</Button></div>
                   </form>
                 ) : (
-                  <p className="mt-3 rounded-lg bg-bg2 px-3 py-3 text-ui-body-sm text-text3">Turn on “Allow automatic actions within limits” for an eligible area before creating a rule.</p>
+                  <p className="mt-3 rounded-lg bg-bg2 px-3 py-3 text-ui-body-sm text-text3">Turn on “Allow routine changes to run automatically” for an eligible area before creating a rule.</p>
                 )}
-                {management.rules.length > 0 ? (
+                {visibleRules.length > 0 ? (
                   <ul className="mt-4 flex flex-col gap-2">
-                    {management.rules.map((item) => (
-                      <li key={item.id} className="flex items-start justify-between gap-3 rounded-xl border border-border px-4 py-3">
-                        <div>
-                          <strong className="font-display text-ui-body font-bold text-text">{item.name}</strong>
-                          <p className="mt-1 text-ui-body-sm text-text3">{item.instruction}</p>
-                          <p className="mt-1 text-xs capitalize text-text3">{item.domain} · {item.dailyCap}/day · {item.cooldownSeconds}s cooldown{item.suspendedReason ? ` · ${item.suspendedReason.replaceAll("_", " ")}` : ""}</p>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          disabled={busy !== null}
-                          onClick={() => void updateStoreManagement(
-                            `rule-${item.id}`,
-                            { action: "set_rule_status", ruleId: item.id, enabled: !item.enabled },
-                            item.enabled ? "Automatic rule suspended." : "Automatic rule enabled.",
-                          )}
-                        >{item.enabled ? "Suspend" : "Enable"}</Button>
-                      </li>
-                    ))}
+                    {visibleRules.map((item) => {
+                      const pausedLabel = pausedRuleLabel(item.suspendedReason);
+                      return (
+                        <li key={item.id} className="flex items-start justify-between gap-3 rounded-xl border border-border px-4 py-3">
+                          <div>
+                            <strong className="font-display text-ui-body font-bold text-text">{item.name}</strong>
+                            <p className="mt-1 text-ui-body-sm text-text3">{item.instruction}</p>
+                            <p className="mt-1 text-ui-caption text-text3">{domainLabel(item.domain)} · {dailyLimitLabel(item.dailyCap)} · {cooldownLabel(item.cooldownSeconds)}{pausedLabel ? ` · ${pausedLabel}` : ""}</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            disabled={busy !== null}
+                            onClick={() => void updateStoreManagement(
+                              `rule-${item.id}`,
+                              { action: "set_rule_status", ruleId: item.id, enabled: !item.enabled },
+                              item.enabled ? "Automatic rule suspended." : "Automatic rule enabled.",
+                            )}
+                          >{item.enabled ? "Suspend" : "Enable"}</Button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : null}
               </div>
 
               <div className="mt-6 border-t border-border pt-5">
-                <h3 className="text-sm font-semibold text-text">Recent change-sets and handoffs</h3>
-                {management.changesets.length === 0 && management.handoffs.length === 0 ? (
-                  <p className="mt-2 text-ui-body-sm text-text3">No Magento changes have been exercised yet.</p>
+                <h3>Recent activity</h3>
+                <p className="mt-1 text-ui-body-sm text-text3">What changed in Magento and whether anything still needs attention.</p>
+                {management.activity.filter((item) => !item.isTest).length === 0 ? (
+                  <p className="mt-3 text-ui-body-sm text-text3">No store changes yet.</p>
                 ) : (
-                  <ul className="mt-3 flex flex-col gap-2">
-                    {management.changesets.slice(0, 8).map((changeset) => (
-                      <li key={changeset.id} className="rounded-xl border border-border px-4 py-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <strong className="font-display text-ui-body font-bold text-text">{changeset.summary}</strong>
-                            <p className="mt-1 text-xs capitalize text-text3">{changeset.domain} · {changeset.operationId.replaceAll("_", " ")} · {executionModeLabel(changeset.executionMode)}{changeset.inverseOfId ? " · inverse" : ""}</p>
-                          </div>
-                          <span className="text-xs font-semibold uppercase tracking-wide text-text2">{changeset.status.replaceAll("_", " ")}</span>
-                        </div>
-                      </li>
-                    ))}
-                    {management.handoffs.slice(0, 4).map((handoff) => (
-                      <li key={handoff.id} className="rounded-xl border border-border px-4 py-3">
-                        <strong className="font-display text-ui-body font-bold text-text">Magento Admin handoff · {handoff.kind.replaceAll("_", " ")}</strong>
-                        <p className="mt-1 text-xs text-text3">{handoff.entityRef} · {handoff.status.replaceAll("_", " ")}</p>
-                      </li>
-                    ))}
-                  </ul>
+                  <ActivityList items={management.activity.filter((item) => !item.isTest).slice(0, 8)} />
                 )}
+                {management.activity.some((item) => item.isTest) ? (
+                  <Disclosure
+                    title="Test activity"
+                    meta={`${management.activity.filter((item) => item.isTest).length} hidden`}
+                    className="mt-3"
+                  >
+                    <p className="mb-3 text-ui-body-sm text-text3">Local acceptance checks are kept for audit and hidden from everyday activity.</p>
+                    <ActivityList items={management.activity.filter((item) => item.isTest)} />
+                  </Disclosure>
+                ) : null}
               </div>
             </section>
           ) : null}
@@ -619,15 +726,23 @@ export default function MagentoPackAdmin() {
                 </div>
               </div>
               <ul className="mt-4 flex flex-col gap-3">
-                {doctor.checks.map((check) => (
-                  <li key={check.id} className="flex flex-col gap-1 rounded-xl border border-border px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <strong className="font-display text-ui-body font-bold capitalize text-text">{checkLabel(check.id)}</strong>
-                      <p className="mt-1 text-ui-body-sm leading-[1.45] text-text3">{check.detail}</p>
-                    </div>
-                    <span className={`mt-1 text-xs font-semibold uppercase tracking-wide ${checkTone(check.status)}`}>{checkStatusLabel(check.id, check.status)}</span>
-                  </li>
-                ))}
+                {doctor.checks.map((check) => {
+                  const description = checkDescription(check);
+                  return (
+                    <li key={check.id} className="flex flex-col gap-1 rounded-xl border border-border px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <strong className="font-display text-ui-body font-bold text-text">{checkLabel(check.id)}</strong>
+                        <p className="mt-1 text-ui-body-sm leading-[1.45] text-text3">{description}</p>
+                        {description !== check.detail ? (
+                          <Disclosure title="Technical details" className="mt-2">
+                            <p className="break-all text-ui-caption leading-[var(--leading-compact)] text-text3">{check.detail}</p>
+                          </Disclosure>
+                        ) : null}
+                      </div>
+                      <Pill variant={checkTone(check.status)} className="mt-1">{checkStatusLabel(check.id, check.status)}</Pill>
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           ) : null}
@@ -648,10 +763,10 @@ export default function MagentoPackAdmin() {
                 disabled={Boolean(form.integrationToken)}
                 onChange={(event) => setClearIntegrationToken(event.target.checked)}
               />
-              <div className="mt-5 flex gap-2">
+              <ActionGroup align="start" className="mt-5">
                 <Button type="submit" disabled={busy !== null}>{busy === "configure" ? "Testing and saving…" : "Save credentials"}</Button>
                 <Button type="button" variant="secondary" disabled={busy !== null} onClick={() => setRotateCredentials(false)}>Cancel</Button>
-              </div>
+              </ActionGroup>
             </form>
           ) : null}
 
@@ -675,53 +790,51 @@ export default function MagentoPackAdmin() {
             <div className="settings-source"><strong>About 2 minutes</strong></div>
           </div>
 
-          <details className="mt-5 rounded-xl border border-border bg-bg2 px-4 py-3 text-sm text-text2">
-            <summary className="cursor-pointer font-semibold text-text">I do not have a read-only reporting login</summary>
-            <p className="mt-3 leading-[1.5]">Send this request to your Magento hosting provider or database administrator. OpenNeko never needs your Magento administrator password or Adobe Marketplace keys.</p>
+          <Disclosure title="I do not have a read-only reporting login" className="mt-5 bg-bg2">
+            <p className="text-ui-body-sm leading-[var(--leading-body)] text-text2">Send this request to your Magento hosting provider or database administrator. OpenNeko never needs your Magento administrator password or Adobe Marketplace keys.</p>
             <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-bg px-3 py-3 text-xs leading-[1.5] text-text2">{REPORTING_LOGIN_REQUEST}</pre>
             <Button type="button" variant="secondary" className="mt-3" onClick={() => void copyReportingLoginRequest()}>Copy request</Button>
-          </details>
+          </Disclosure>
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <label className={`${FIELD} sm:col-span-2`}>
-              <span className={LABEL}>Magento address</span>
-              <input required type="url" className={INPUT} value={form.baseUrl} onChange={(event) => update("baseUrl", event.target.value)} />
-              <span className={HELP}>The storefront URL as seen from OpenNeko. The default works when Magento is another local Docker or OrbStack stack.</span>
-            </label>
-            <label className={FIELD}>
-              <span className={LABEL}>Database address</span>
-              <input required className={INPUT} value={form.databaseHost} onChange={(event) => update("databaseHost", event.target.value)} />
-            </label>
-            <label className={FIELD}>
-              <span className={LABEL}>Database name</span>
-              <input required className={INPUT} value={form.databaseName} onChange={(event) => update("databaseName", event.target.value)} />
-            </label>
+            <Field
+              label="Magento address"
+              htmlFor="magento-address"
+              hint="The storefront URL as seen from OpenNeko. The default works when Magento is another local Docker or OrbStack stack."
+              className="sm:col-span-2"
+            >
+              <Input id="magento-address" required type="url" value={form.baseUrl} onChange={(event) => update("baseUrl", event.target.value)} />
+            </Field>
+            <Field label="Database address" htmlFor="magento-database-address">
+              <Input id="magento-database-address" required value={form.databaseHost} onChange={(event) => update("databaseHost", event.target.value)} />
+            </Field>
+            <Field label="Database name" htmlFor="magento-database-name">
+              <Input id="magento-database-name" required value={form.databaseName} onChange={(event) => update("databaseName", event.target.value)} />
+            </Field>
           </div>
 
           <CredentialFields form={form} update={update} required />
 
-          <button type="button" className="mt-5 text-sm font-semibold text-text2 underline" onClick={() => setAdvanced((value) => !value)}>{advanced ? "Hide advanced settings" : "Advanced settings"}</button>
-          {advanced ? (
+          <Disclosure title="Advanced settings" className="mt-5">
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <label className={FIELD}>
-                <span className={LABEL}>Database port</span>
-                <input required type="number" min="1" max="65535" className={INPUT} value={form.databasePort} onChange={(event) => update("databasePort", event.target.value)} />
-              </label>
-              <label className={FIELD}>
-                <span className={LABEL}>Store code</span>
-                <input className={INPUT} value={form.storeCode} onChange={(event) => update("storeCode", event.target.value)} />
-              </label>
-              <label className={FIELD}>
-                <span className={LABEL}>Table prefix</span>
-                <input className={INPUT} value={form.tablePrefix} onChange={(event) => update("tablePrefix", event.target.value)} />
-              </label>
-              <label className={FIELD}>
-                <span className={LABEL}>Magento API token (optional)</span>
-                <input type="password" autoComplete="off" className={INPUT} value={form.integrationToken} onChange={(event) => update("integrationToken", event.target.value)} />
-                <span className={HELP}>This token is only for specific Magento changes that OpenNeko supports. Each change must be enabled by an administrator and still requires approval.</span>
-              </label>
+              <Field label="Database port" htmlFor="magento-database-port">
+                <Input id="magento-database-port" required type="number" min="1" max="65535" value={form.databasePort} onChange={(event) => update("databasePort", event.target.value)} />
+              </Field>
+              <Field label="Store code" htmlFor="magento-store-code">
+                <Input id="magento-store-code" value={form.storeCode} onChange={(event) => update("storeCode", event.target.value)} />
+              </Field>
+              <Field label="Table prefix" htmlFor="magento-table-prefix">
+                <Input id="magento-table-prefix" value={form.tablePrefix} onChange={(event) => update("tablePrefix", event.target.value)} />
+              </Field>
+              <Field
+                label="Magento API token (optional)"
+                htmlFor="magento-api-token"
+                hint="This token is only for specific Magento changes that OpenNeko supports. Each change must be enabled by an administrator and still requires approval."
+              >
+                <Input id="magento-api-token" type="password" autoComplete="off" value={form.integrationToken} onChange={(event) => update("integrationToken", event.target.value)} />
+              </Field>
             </div>
-          ) : null}
+          </Disclosure>
 
           <div className="mt-6 rounded-xl border border-border bg-bg2 px-4 py-3 text-ui-body-sm leading-[1.5] text-text2">
             OpenNeko starts in view-only mode: it can analyze the store but cannot change Magento data. Any supported change is enabled separately by an administrator and requires approval.
@@ -732,6 +845,60 @@ export default function MagentoPackAdmin() {
         </form>
       )}
     </div>
+  );
+}
+
+function ActivityList({ items }: { items: ActivityItem[] }) {
+  return (
+    <ul className="mt-3 flex flex-col gap-2">
+      {items.map((item) => (
+        <li key={item.id} className="rounded-inner border border-border px-4 py-3">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <strong className="font-display text-ui-body font-bold text-text">{item.title}</strong>
+              <p className="mt-1 text-ui-body-sm leading-[var(--leading-body)] text-text2">{item.description}</p>
+              <p className="mt-1.5 text-ui-caption leading-[var(--leading-compact)] text-text3">
+                <LocalDateTime value={item.occurredAt} /> · {item.sourceLabel}
+                {item.currentState ? ` · ${item.currentState}` : ""}
+              </p>
+            </div>
+            <Pill variant={activityTone(item.outcome)}>{item.outcomeLabel}</Pill>
+          </div>
+          <Disclosure title="View details" meta={item.technical.area} className="mt-3">
+            <dl className="grid gap-x-5 gap-y-3 text-ui-caption sm:grid-cols-2">
+              <div>
+                <dt className="font-bold text-text2">Requested as</dt>
+                <dd className="mt-0.5 text-text3">{item.technical.originalRequest}</dd>
+              </div>
+              <div>
+                <dt className="font-bold text-text2">How it runs</dt>
+                <dd className="mt-0.5 text-text3">{executionModeLabel(item.technical.execution)}</dd>
+              </div>
+              <div>
+                <dt className="font-bold text-text2">Operation</dt>
+                <dd className="mt-0.5 font-mono text-text3">{item.technical.operation.replaceAll("_", " ")}</dd>
+              </div>
+              <div>
+                <dt className="font-bold text-text2">Audit reference</dt>
+                <dd className="mt-0.5 break-all font-mono text-text3">{item.technical.reference}</dd>
+              </div>
+              {item.technical.inverseOfReference ? (
+                <div>
+                  <dt className="font-bold text-text2">Restores change</dt>
+                  <dd className="mt-0.5 break-all font-mono text-text3">{item.technical.inverseOfReference}</dd>
+                </div>
+              ) : null}
+              {item.technical.bulkReference ? (
+                <div>
+                  <dt className="font-bold text-text2">Magento job reference</dt>
+                  <dd className="mt-0.5 break-all font-mono text-text3">{item.technical.bulkReference}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </Disclosure>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -748,21 +915,25 @@ function CredentialFields({
 }) {
   return (
     <div className="mt-4 grid gap-4 sm:grid-cols-2">
-      <label className={FIELD}>
-        <span className={LABEL}>Read-only reporting username</span>
-        <input required={required} autoComplete="username" className={INPUT} value={form.analyticsUsername} onChange={(event) => update("analyticsUsername", event.target.value)} />
-      </label>
-      <label className={FIELD}>
-        <span className={LABEL}>Read-only reporting password</span>
-        <input required={required} type="password" autoComplete="new-password" className={INPUT} value={form.analyticsPassword} onChange={(event) => update("analyticsPassword", event.target.value)} />
-        {!required ? <span className={HELP}>Leave blank to keep the saved reporting login.</span> : null}
-      </label>
+      <Field label="Read-only reporting username" htmlFor="magento-reporting-username">
+        <Input id="magento-reporting-username" required={required} autoComplete="username" value={form.analyticsUsername} onChange={(event) => update("analyticsUsername", event.target.value)} />
+      </Field>
+      <Field
+        label="Read-only reporting password"
+        htmlFor="magento-reporting-password"
+        hint={!required ? "Leave blank to keep the saved reporting login." : undefined}
+      >
+        <Input id="magento-reporting-password" required={required} type="password" autoComplete="new-password" value={form.analyticsPassword} onChange={(event) => update("analyticsPassword", event.target.value)} />
+      </Field>
       {includeToken ? (
-        <label className={`${FIELD} sm:col-span-2`}>
-          <span className={LABEL}>Magento API token (optional)</span>
-          <input type="password" autoComplete="off" className={INPUT} value={form.integrationToken} onChange={(event) => update("integrationToken", event.target.value)} />
-          <span className={HELP}>Leave blank to keep the saved token. A token alone does not allow OpenNeko to change Magento.</span>
-        </label>
+        <Field
+          label="Magento API token (optional)"
+          htmlFor="magento-replacement-api-token"
+          hint="Leave blank to keep the saved token. A token alone does not allow OpenNeko to change Magento."
+          className="sm:col-span-2"
+        >
+          <Input id="magento-replacement-api-token" type="password" autoComplete="off" value={form.integrationToken} onChange={(event) => update("integrationToken", event.target.value)} />
+        </Field>
       ) : null}
     </div>
   );
