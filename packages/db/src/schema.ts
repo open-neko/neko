@@ -5,6 +5,7 @@ import {
   customType,
   date,
   index,
+  bigint,
   integer,
   jsonb,
   numeric,
@@ -2479,6 +2480,40 @@ export const pack_operation = pgTable(
     org_status_idx: index("pack_operation_org_status_idx").on(
       t.org_id,
       t.status,
+      t.created_at.desc(),
+    ),
+  }),
+);
+
+export const skill_usage = pgTable(
+  "skill_usage",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    run_id: uuid("run_id")
+      .notNull()
+      .references(() => work_run.id, { onDelete: "cascade" }),
+    skill_name: text("skill_name").notNull(),
+    content_hash: text("content_hash").notNull(),
+    origin: text("origin").notNull(),
+    pack_id: text("pack_id"),
+    pack_version: text("pack_version"),
+    config_commit_sha: text("config_commit_sha"),
+    source: text("source").notNull(),
+    first_event_id: bigint("first_event_id", { mode: "number" }).notNull(),
+    attempt: integer("attempt").notNull().default(1),
+    created_at: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    run_skill_unique: uniqueIndex("skill_usage_run_skill_unique").on(
+      t.run_id,
+      t.skill_name,
+    ),
+    org_skill_recent_idx: index("skill_usage_org_skill_recent_idx").on(
+      t.org_id,
+      t.skill_name,
       t.created_at.desc(),
     ),
   }),

@@ -51,6 +51,13 @@ export {
 export * from "./memory";
 export * from "./library";
 export * from "./store";
+export {
+  detectSkillUse,
+  recordSkillUsageFromEvent,
+  type DetectedSkillUse,
+  type SkillOriginKind,
+  type SkillUseSource,
+} from "./skill-usage";
 export * from "./authz";
 export * from "./personas";
 export {

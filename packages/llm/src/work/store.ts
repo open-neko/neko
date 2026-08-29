@@ -462,7 +462,18 @@ export async function appendWorkRunEvent(args: {
       payload: args.event,
     })
     .returning({ id: work_run_event.id });
-  return row?.id ?? 0;
+  const eventId = row?.id ?? 0;
+  if (args.event.type === "tool_start" && eventId > 0) {
+    const { recordSkillUsageFromEvent } = await import("./skill-usage");
+    await recordSkillUsageFromEvent({
+      orgId: args.orgId,
+      threadId: args.threadId,
+      runId: args.runId,
+      event: args.event,
+      triggeringEventId: eventId,
+    });
+  }
+  return eventId;
 }
 
 export async function getWorkRunEvents(

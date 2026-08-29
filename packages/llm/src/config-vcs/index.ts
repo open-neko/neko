@@ -48,6 +48,20 @@ export type ConfigCommit = {
   date: string;
 };
 
+export async function readConfigHead(
+  workspaceRoot: string,
+): Promise<string | null> {
+  const root = resolve(workspaceRoot);
+  if (!existsSync(join(root, ".git"))) return null;
+  try {
+    const { stdout } = await git(root, ["rev-parse", "HEAD"]);
+    const sha = stdout.trim();
+    return sha || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function ensureConfigRepo(workspaceRoot: string): Promise<void> {
   const root = resolve(workspaceRoot);
   await withRepoLock(root, async () => {

@@ -162,7 +162,22 @@ export type AgentEvent =
   // emitted once at the end of a /work run via a `neko_vitals` fence. Each
   // channel renders them its own way (the web rail as a tile grid, a chat
   // channel as a one-line recap, a voice channel by reading them aloud).
-  | { type: "vitals"; items: AgentVital[] };
+  | { type: "vitals"; items: AgentVital[] }
+  /**
+   * Host-derived: the run loaded a skill. The model does not author this.
+   * firstEventId is the work_run_event.id of the tool_start that used it.
+   */
+  | {
+      type: "skill_used";
+      name: string;
+      source: "hermes" | "read";
+      contentHash: string;
+      origin: "builtin" | "custom" | "pack";
+      packId?: string;
+      packVersion?: string;
+      configCommitSha?: string | null;
+      firstEventId: number;
+    };
 
 export type AgentChatMessage = {
   id?: string;

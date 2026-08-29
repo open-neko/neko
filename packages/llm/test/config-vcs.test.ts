@@ -7,6 +7,7 @@ import {
   commitConfigChange,
   ensureConfigRepo,
   listConfigHistory,
+  readConfigHead,
   restoreConfigPath,
 } from "../src/config-vcs";
 import { writeWorkSkill } from "../src/work/skills";
@@ -37,6 +38,7 @@ describe("config-vcs (CV0)", () => {
       message: "Added skill: s1",
     });
     expect(sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(await readConfigHead(root)).toBe(sha);
     const history = await listConfigHistory(root, "knowledge");
     expect(history).toHaveLength(0);
   });

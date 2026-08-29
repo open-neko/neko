@@ -49,6 +49,7 @@ const M_0064 = join(
   "migrations",
   "0064_magento_store_management_v2.sql",
 );
+const M_0065 = join(REPO_ROOT, "db", "migrations", "0065_skill_usage.sql");
 
 function uniqueDbName(): string {
   return `vitest_migrations_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -459,6 +460,70 @@ describeIfDb("schema migrations", () => {
          where changeset_id = '10000000-0000-0000-0000-000000000064'
       `);
       expect(linked.rows[0]?.count).toBe("1");
+    });
+  });
+
+  it("0065 records one skill usage row per run and skill", async () => {
+    await withTempDb(async (client) => {
+      await applyFile(client, M_0001);
+      await applyFile(client, M_0006);
+      await applyFile(client, M_0065);
+      await applyFile(client, M_0065);
+
+      await client.query(`
+        insert into organization (id, name) values ('skill-org', 'Skill Org');
+        insert into work_thread (id, org_id, title)
+        values ('00000000-0000-0000-0000-000000000065', 'skill-org', 'Thread');
+        insert into work_run (id, org_id, thread_id, backend, status)
+        values (
+          '10000000-0000-0000-0000-000000000065',
+          'skill-org',
+          '00000000-0000-0000-0000-000000000065',
+          'hermes',
+          'running'
+        );
+        insert into skill_usage (
+          org_id, run_id, skill_name, content_hash, origin, source, first_event_id
+        ) values (
+          'skill-org',
+          '10000000-0000-0000-0000-000000000065',
+          'pdf',
+          'abc',
+          'builtin',
+          'read',
+          1
+        );
+      `);
+      await expect(
+        client.query(`
+          insert into skill_usage (
+            org_id, run_id, skill_name, content_hash, origin, source, first_event_id
+          ) values (
+            'skill-org',
+            '10000000-0000-0000-0000-000000000065',
+            'pdf',
+            'def',
+            'builtin',
+            'read',
+            2
+          )
+        `),
+      ).rejects.toThrow(/unique|duplicate/i);
+      await expect(
+        client.query(`
+          insert into skill_usage (
+            org_id, run_id, skill_name, content_hash, origin, source, first_event_id
+          ) values (
+            'skill-org',
+            '10000000-0000-0000-0000-000000000065',
+            'bad',
+            'abc',
+            'wiki',
+            'read',
+            3
+          )
+        `),
+      ).rejects.toThrow(/origin|check constraint/i);
     });
   });
 

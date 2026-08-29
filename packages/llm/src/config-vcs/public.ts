@@ -3,6 +3,7 @@ export {
   ensureConfigRepo,
   insertConfigChangeRow,
   listConfigHistory,
+  readConfigHead,
   recordConfigChange,
   restoreConfigPath,
   type ConfigCommit,
