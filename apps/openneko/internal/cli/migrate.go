@@ -21,6 +21,10 @@ func newMigrateCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			out := cmd.OutOrStdout()
+			gatewayPassword, err := openShellDBPassword()
+			if err != nil {
+				return fmt.Errorf("resolve OpenShell gateway database credential: %w", err)
+			}
 			skip := skipSchema || envTruthy("OPENNEKO_SKIP_MIGRATE")
 			if !skip {
 				conn, err := pgx.Connect(ctx, defaultConn().DSN())
@@ -39,7 +43,7 @@ func newMigrateCmd() *cobra.Command {
 			} else {
 				fmt.Fprintln(out, "schema migrations skipped")
 			}
-			if err := ensureOpenShellGatewayRole(ctx); err != nil {
+			if err := ensureOpenShellGatewayRole(ctx, gatewayPassword); err != nil {
 				return err
 			}
 			fmt.Fprintln(out, "OpenShell database role ready")

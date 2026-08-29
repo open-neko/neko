@@ -188,6 +188,9 @@ func TestPackagedComposeKeepsRuntimeTrafficOnDockerNetwork(t *testing.T) {
 	if _, ok := migrate.Environment["OPENNEKO_OPENSHELL_DB_PASSWORD"]; !ok {
 		t.Fatal("migration service must receive the gateway-role password")
 	}
+	if migrate.Environment["OPENNEKO_REQUIRE_EXPLICIT_OPENSHELL_DB_PASSWORD"] != "1" {
+		t.Fatal("migration service must fail closed when the gateway-role password is absent")
+	}
 	if core.Services["web"].DependsOn["worker"].Condition != "service_healthy" {
 		t.Fatal("web must start after the worker control plane is healthy")
 	}

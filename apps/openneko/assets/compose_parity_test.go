@@ -115,6 +115,13 @@ func TestStorageReconciliationGatesEveryDatabaseConsumer(t *testing.T) {
 				t.Fatalf("%s storage-reconcile is missing %s", label, key)
 			}
 		}
+		migrate := document.Services["neko-migrate"]
+		if _, ok := migrate.Environment["OPENNEKO_OPENSHELL_DB_PASSWORD"]; !ok {
+			t.Fatalf("%s neko-migrate is missing the propagated OpenShell credential", label)
+		}
+		if got := migrate.Environment["OPENNEKO_REQUIRE_EXPLICIT_OPENSHELL_DB_PASSWORD"]; got != "1" {
+			t.Fatalf("%s neko-migrate explicit-credential guard = %v, want 1", label, got)
+		}
 		for _, consumer := range []string{
 			"neko-migrate", "neko-backup", "records-graphjin", "records-watch-graphjin",
 		} {

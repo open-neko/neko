@@ -380,6 +380,7 @@ func defaultOpenShellSubnet(mode compose.Mode) string {
 const openShellDBRole = "openshell"
 
 const openShellDBPasswordEnv = "OPENNEKO_OPENSHELL_DB_PASSWORD"
+const requireExplicitOpenShellDBPasswordEnv = "OPENNEKO_REQUIRE_EXPLICIT_OPENSHELL_DB_PASSWORD"
 
 func configureOpenShellDBURL() {
 	if os.Getenv(openShellDBPasswordEnv) == "" {
@@ -427,11 +428,7 @@ func deriveOpenShellDBURL() (string, bool) {
 // table); its password is the stable per-install value from the host
 // secret-key. Runs as the app superuser over the same connection migrations
 // use — which is reachable by the time this is called (stage 1 waited on it).
-func ensureOpenShellGatewayRole(ctx context.Context) error {
-	pw, err := openShellDBPassword()
-	if err != nil {
-		return fmt.Errorf("derive gateway DB password: %w", err)
-	}
+func ensureOpenShellGatewayRole(ctx context.Context, password string) error {
 	cc := defaultConn()
 	conn, err := pgx.Connect(ctx, cc.DSN())
 	if err != nil {
@@ -447,7 +444,7 @@ func ensureOpenShellGatewayRole(ctx context.Context) error {
 	// are fixed/operator-owned identifiers, not request input.
 	stmts := []string{
 		fmt.Sprintf(`DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '%s') THEN CREATE ROLE %s LOGIN; END IF; END $$`, openShellDBRole, openShellDBRole),
-		fmt.Sprintf(`ALTER ROLE %s WITH LOGIN PASSWORD '%s'`, openShellDBRole, pw),
+		fmt.Sprintf(`ALTER ROLE %s WITH LOGIN PASSWORD '%s'`, openShellDBRole, password),
 		fmt.Sprintf(`GRANT %s TO %s`, appRole, openShellDBRole),
 	}
 	for _, s := range stmts {
@@ -462,6 +459,19 @@ func openShellDBPassword() (string, error) {
 	if pw := os.Getenv(openShellDBPasswordEnv); pw != "" {
 		return pw, nil
 	}
+	// Managed migration containers must receive the exact password that the
+	// host supervisor put in the gateway's OPENSHELL_DB_URL. Falling back to
+	// the container volume's secret-key can derive a different password from
+	// the host and silently ALTER ROLE underneath an already-running gateway.
+	if envTruthy(requireExplicitOpenShellDBPasswordEnv) {
+		return "", fmt.Errorf(
+			"%s is required for managed migrations; refusing to derive a replacement from container-local config",
+			openShellDBPasswordEnv,
+		)
+	}
+	// Standalone host-side `openneko migrate` keeps its historical behavior:
+	// derive from the host install's secret-key when no managed-container guard
+	// is present.
 	return config.OpenShellDBPassword("")
 }
 

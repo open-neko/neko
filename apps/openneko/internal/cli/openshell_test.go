@@ -146,6 +146,9 @@ func TestConfigureOpenShellDBURL(t *testing.T) {
 	if pw != want || len(pw) != 64 { // sha256 hex
 		t.Fatalf("password should be the derived secret-key value (64 hex): got %d chars", len(pw))
 	}
+	if propagated := os.Getenv(openShellDBPasswordEnv); propagated != pw {
+		t.Fatal("gateway URL and managed-migration credential diverged")
+	}
 
 	// A rotated neko password in config.json must NOT leak into the gateway URL
 	// (the role is decoupled), and a custom database name is honored.
