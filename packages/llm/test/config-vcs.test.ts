@@ -41,6 +41,20 @@ describe("config-vcs (CV0)", () => {
     expect(await readConfigHead(root)).toBe(sha);
     const history = await listConfigHistory(root, "knowledge");
     expect(history).toHaveLength(0);
+
+    await mkdir(join(root, "skill-overlays", "s1"), { recursive: true });
+    await writeFile(
+      join(root, "skill-overlays", "s1", "LEARNED.md"),
+      "---\nbase_hash: abc\nstatus: applied\n---\nDo not loop.\n",
+      "utf8",
+    );
+    const overlaySha = await commitConfigChange({
+      workspaceRoot: root,
+      paths: ["skill-overlays/s1"],
+      message: "Added overlay: s1",
+    });
+    expect(overlaySha).toMatch(/^[0-9a-f]{40}$/);
+    expect(await listConfigHistory(root, "skill-overlays/s1")).toHaveLength(1);
   });
 
   it("commit -> history -> restore round-trips an artifact", async () => {

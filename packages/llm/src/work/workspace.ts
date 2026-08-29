@@ -18,6 +18,11 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentWorkspace } from "../agent-backend";
+import {
+  composeSkillTree,
+  overlayAppliesToBase,
+  readLearnedOverlay,
+} from "./skill-overlay";
 
 export function resolveBuiltinSkillsRoot(
   moduleUrl = import.meta.url,
@@ -101,6 +106,7 @@ export async function ensureOrgWorkspace(orgId: string): Promise<OrgWorkspaceRoo
   const knowledgeRoot = join(orgRoot, "knowledge");
   const uploadsRoot = join(orgRoot, "uploads");
   const runsRoot = join(orgRoot, "runs");
+  const skillOverlaysRoot = join(orgRoot, "skill-overlays");
 
   for (const dir of [
     orgRoot,
@@ -109,6 +115,7 @@ export async function ensureOrgWorkspace(orgId: string): Promise<OrgWorkspaceRoo
     knowledgeRoot,
     uploadsRoot,
     runsRoot,
+    skillOverlaysRoot,
   ]) {
     await mkdir(dir, { recursive: true });
   }
@@ -353,9 +360,10 @@ export async function copySkillOverrides(
     const bundled = join(BUILTIN_SKILLS_ROOT, entry.name);
     const source = forced.has(entry.name) ? bundled : workspaceSource;
     let isUnmodifiedBuiltin = false;
+    let workspaceHash = "";
     if (!forced.has(entry.name)) {
       try {
-        const workspaceHash = await fingerprintSkillTree(workspaceSource);
+        workspaceHash = await fingerprintSkillTree(workspaceSource);
         const imageHash = await builtinFingerprint(entry.name, bundled);
         const origin = await readSkillOrigin(workspaceSource);
         if (origin?.kind === "builtin" && origin.sourceHash === workspaceHash) {
@@ -368,11 +376,21 @@ export async function copySkillOverrides(
         // A missing bundled directory identifies an organization-created skill.
       }
     }
-    if (isUnmodifiedBuiltin) continue;
+    const orgRoot = dirname(skillsRoot);
+    const overlay = await readLearnedOverlay(orgRoot, entry.name);
+    const overlayLive = await overlayAppliesToBase(
+      overlay,
+      workspaceHash || (await fingerprintSkillTree(workspaceSource).catch(() => "")),
+    );
+    if (isUnmodifiedBuiltin && !overlayLive) continue;
 
     const destination = join(destinationRoot, entry.name);
-    await rm(destination, { recursive: true, force: true });
-    await cp(source, destination, { recursive: true, force: true });
+    const composeBase = isUnmodifiedBuiltin ? bundled : source;
+    await composeSkillTree({
+      baseDir: composeBase,
+      destDir: destination,
+      overlay: overlayLive ? overlay : null,
+    });
     copied.push(entry.name);
   }
   const missing = [...forced].filter((name) => !copied.includes(name));

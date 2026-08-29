@@ -11,11 +11,8 @@ import { join } from "node:path";
 import type { AgentEvent } from "../agent-backend";
 import { readConfigHead } from "../config-vcs";
 import { appendWorkRunEvent } from "./store";
-import {
-  fingerprintSkillTree,
-  getOrgAgentRoot,
-  readSkillOrigin,
-} from "./workspace";
+import { fingerprintEffectiveSkill } from "./skill-overlay";
+import { getOrgAgentRoot, readSkillOrigin } from "./workspace";
 
 const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SKILL_MD_PATH_RE =
@@ -80,7 +77,9 @@ async function persistSkillUsage(input: {
   const orgRoot = getOrgAgentRoot(input.orgId);
   const skillDir = join(orgRoot, "skills", input.detected.name);
   const [contentHash, pack, configCommitSha, originHint] = await Promise.all([
-    fingerprintSkillTree(skillDir).catch(() => null),
+    fingerprintEffectiveSkill(orgRoot, input.detected.name, skillDir).catch(
+      () => null,
+    ),
     lookupPackSkill(input.orgId, input.detected.name),
     readConfigHead(orgRoot),
     readSkillOrigin(skillDir),

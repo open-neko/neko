@@ -58,6 +58,19 @@ export {
   type SkillOriginKind,
   type SkillUseSource,
 } from "./skill-usage";
+export {
+  LEARNED_FILE,
+  SKILL_OVERLAYS_DIR,
+  appendLearnedSection,
+  composeSkillTree,
+  fingerprintEffectiveSkill,
+  overlayAppliesToBase,
+  readLearnedOverlay,
+  skillOverlayDir,
+  stripLearnedSection,
+  writeLearnedOverlay,
+  type LearnedOverlay,
+} from "./skill-overlay";
 export * from "./authz";
 export * from "./personas";
 export {
