@@ -52,6 +52,14 @@ jobs:
       - name: Verify Magento design-system rendering
         run: pnpm --filter @neko/web test:visual:design
 
+      - name: Upload Magento design-system renders
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: magento-design-system-${{ github.run_attempt }}
+          path: apps/web/test-results/
+          if-no-files-found: error
+
   records-recovery:
     name: Records recovery
     runs-on: ubuntu-latest

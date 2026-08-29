@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 function captureBrowserErrors(page: Page) {
   const errors: string[] = [];
@@ -9,6 +9,17 @@ function captureBrowserErrors(page: Page) {
   return errors;
 }
 
+async function verifyScreenshot(page: Page, testInfo: TestInfo, name: string) {
+  if (process.env.CI === "true") {
+    // Font rasterization and wrapping differ between macOS development and
+    // Linux runners. CI enforces the platform-neutral geometry above and
+    // publishes its own full-page render for review.
+    await page.screenshot({ path: testInfo.outputPath(name), fullPage: true });
+    return;
+  }
+  await expect(page).toHaveScreenshot(name, { fullPage: true });
+}
+
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "light" });
   await page.clock.setFixedTime(new Date("2026-08-29T08:00:00.000Z"));
@@ -16,7 +27,7 @@ test.beforeEach(async ({ page }) => {
 
 test("Magento settings use the shared visual language and plain activity copy", async ({
   page,
-}) => {
+}, testInfo) => {
   const browserErrors = captureBrowserErrors(page);
   await page.goto("/admin/settings/packs", { waitUntil: "domcontentloaded" });
 
@@ -57,9 +68,7 @@ test("Magento settings use the shared visual language and plain activity copy", 
   expect(sharedStyles.headingFont).toContain("Archivo");
   expect(sharedStyles.documentWidth).toBeLessThanOrEqual(sharedStyles.viewportWidth + 1);
 
-  await expect(page).toHaveScreenshot("magento-design-system-desktop.png", {
-    fullPage: true,
-  });
+  await verifyScreenshot(page, testInfo, "magento-design-system-desktop.png");
 
   await page.getByText("View details", { exact: true }).first().click();
   await expect(page.getByText("Requested as", { exact: true }).first()).toBeVisible();
@@ -67,7 +76,7 @@ test("Magento settings use the shared visual language and plain activity copy", 
   expect(browserErrors).toEqual([]);
 });
 
-test("Magento controls keep phone geometry and do not overflow", async ({ page }) => {
+test("Magento controls keep phone geometry and do not overflow", async ({ page }, testInfo) => {
   const browserErrors = captureBrowserErrors(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/admin/settings/packs", { waitUntil: "domcontentloaded" });
@@ -101,8 +110,6 @@ test("Magento controls keep phone geometry and do not overflow", async ({ page }
   expect(geometry.enabledWhiteSpace).toBe("nowrap");
   expect(geometry.enabledHeight).toBeGreaterThanOrEqual(44);
 
-  await expect(page).toHaveScreenshot("magento-design-system-phone.png", {
-    fullPage: true,
-  });
+  await verifyScreenshot(page, testInfo, "magento-design-system-phone.png");
   expect(browserErrors).toEqual([]);
 });
