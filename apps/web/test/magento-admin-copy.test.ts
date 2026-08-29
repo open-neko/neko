@@ -19,4 +19,13 @@ describe("Magento pack administration copy", () => {
     expect(source).toContain("Allow automatic actions within limits");
     expect(source).toContain("Actions OpenNeko will not perform");
   });
+
+  it("uses shared controls and typography for Magento settings", async () => {
+    const source = await readFile(adminSource, "utf8");
+
+    expect(source).toContain('from "@/components/ui/Checkbox"');
+    expect(source).toContain("<Checkbox");
+    expect(source).not.toMatch(/<input[\s\S]{0,120}type="checkbox"/);
+    expect(source).toContain("font-display text-ui-body font-bold capitalize text-text");
+  });
 });

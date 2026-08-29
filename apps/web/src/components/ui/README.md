@@ -16,6 +16,7 @@ Use `Button`, `IconButton`, `ButtonLink`, or `buttonClassName` instead of creati
 
 - Use `Tabs` for switching content views.
 - Use `SegmentedControl` for filters or a choice within one view.
+- Use `Checkbox` for boolean settings so control size, accent, focus, label typography, and disabled states stay aligned.
 - Use `Field` with `Input`, `Textarea`, or `NativeSelect` for labelled form controls.
 - Use `Disclosure` for secondary detail that would otherwise make a page difficult to scan.
 

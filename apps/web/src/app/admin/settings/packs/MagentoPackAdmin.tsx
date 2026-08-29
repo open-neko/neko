@@ -7,6 +7,7 @@ import AppHeader from "@/components/AppHeader";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import { Button } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
 
 type PackStatus = {
   packId: string;
@@ -92,9 +93,9 @@ const initialForm: FormState = {
 };
 
 const FIELD = "flex flex-col gap-2";
-const LABEL = "text-ui-body font-semibold text-text";
-const HELP = "text-ui-body-sm leading-[1.45] text-text3";
-const INPUT = "rounded-xl border-[1.5px] border-border bg-bg px-3.5 py-3 text-ui-body-lg text-text outline-none transition focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
+const LABEL = "font-body text-ui-body font-semibold text-text";
+const HELP = "font-body text-ui-body-sm leading-[1.45] text-text3";
+const INPUT = "rounded-xl border-[1.5px] border-border bg-bg px-3.5 py-3 font-body text-ui-body-lg text-text outline-none transition focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
 const REPORTING_LOGIN_REQUEST = `Please create a dedicated read-only MariaDB/MySQL login for OpenNeko analytics on our Magento database.
 
 Grant only SELECT and SHOW VIEW on the Magento database. Do not grant INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, ALL PRIVILEGES, or GRANT OPTION.
@@ -424,7 +425,7 @@ export default function MagentoPackAdmin() {
                 { href: "/skills", title: "Magento operator skills", copy: "Choose a focused skill for orders, fulfillment, refunds, inventory, performance, or platform health." },
               ].map((item) => (
                 <Link key={item.href} href={item.href} className="rounded-xl border border-border px-4 py-3 transition hover:border-accent">
-                  <strong className="text-sm text-text">{item.title}</strong>
+                  <strong className="font-display text-ui-body font-bold text-text">{item.title}</strong>
                   <p className="mt-1 text-ui-body-sm leading-[1.45] text-text3">{item.copy}</p>
                 </Link>
               ))}
@@ -443,15 +444,15 @@ export default function MagentoPackAdmin() {
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {management.controls.map((control) => (
                   <div key={control.domain} className="rounded-xl border border-border px-4 py-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <strong className="text-sm capitalize text-text">{control.domain}</strong>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <strong className="font-display text-ui-body font-bold capitalize text-text">{control.domain}</strong>
                         <p className="mt-1 text-ui-body-sm text-text3">
                           {control.automationEligible
                             ? "Eligible actions can run automatically within limits; sensitive changes still require approval."
                             : "Every change requires administrator approval."}
                         </p>
-                        <p className={`mt-2 text-xs font-semibold ${control.readiness === "ready" && control.enabled ? "text-success-ink" : "text-text3"}`}>
+                        <p className={`mt-2 font-body text-ui-caption font-semibold ${control.readiness === "ready" && control.enabled ? "text-success-ink" : "text-text3"}`}>
                           {control.readiness !== "ready" || !control.enabled
                             ? "View only"
                             : control.autoExecute
@@ -462,33 +463,29 @@ export default function MagentoPackAdmin() {
                             : ""}
                         </p>
                       </div>
-                      <label className="flex items-center gap-2 text-xs font-semibold text-text2">
-                        <input
-                          type="checkbox"
-                          checked={control.enabled}
-                          disabled={busy !== null}
-                          onChange={(event) => void updateStoreManagement(
-                            `domain-${control.domain}`,
-                            { action: "update_domain", domain: control.domain, enabled: event.target.checked },
-                            `${control.domain} change access updated.`,
-                          )}
-                        />
-                        Enabled
-                      </label>
-                    </div>
-                    <label className="mt-4 flex items-center gap-2 text-ui-body-sm text-text2">
-                      <input
-                        type="checkbox"
-                        checked={control.autoExecute}
-                        disabled={busy !== null || !control.enabled || !control.automationEligible}
+                      <Checkbox
+                        label="Enabled"
+                        className="shrink-0 whitespace-nowrap text-ui-caption font-semibold"
+                        checked={control.enabled}
+                        disabled={busy !== null}
                         onChange={(event) => void updateStoreManagement(
-                          `auto-${control.domain}`,
-                          { action: "update_domain", domain: control.domain, autoExecute: event.target.checked },
-                          `${control.domain} automatic execution updated.`,
+                          `domain-${control.domain}`,
+                          { action: "update_domain", domain: control.domain, enabled: event.target.checked },
+                          `${control.domain} change access updated.`,
                         )}
                       />
-                      Allow automatic actions within limits
-                    </label>
+                    </div>
+                    <Checkbox
+                      label="Allow automatic actions within limits"
+                      className="mt-4"
+                      checked={control.autoExecute}
+                      disabled={busy !== null || !control.enabled || !control.automationEligible}
+                      onChange={(event) => void updateStoreManagement(
+                        `auto-${control.domain}`,
+                        { action: "update_domain", domain: control.domain, autoExecute: event.target.checked },
+                        `${control.domain} automatic execution updated.`,
+                      )}
+                    />
                     <p className="mt-2 text-xs leading-[1.45] text-text3">Up to {control.caps.maxRowsPerChangeset ?? 0} rows per change-set; {control.caps.maxDailyAutoActions ?? 0} automatic actions per day.</p>
                     <details className="mt-3 border-t border-border pt-3">
                       <summary className="cursor-pointer text-xs font-semibold text-text2">Edit caps</summary>
@@ -564,7 +561,7 @@ export default function MagentoPackAdmin() {
                     {management.rules.map((item) => (
                       <li key={item.id} className="flex items-start justify-between gap-3 rounded-xl border border-border px-4 py-3">
                         <div>
-                          <strong className="text-sm text-text">{item.name}</strong>
+                          <strong className="font-display text-ui-body font-bold text-text">{item.name}</strong>
                           <p className="mt-1 text-ui-body-sm text-text3">{item.instruction}</p>
                           <p className="mt-1 text-xs capitalize text-text3">{item.domain} · {item.dailyCap}/day · {item.cooldownSeconds}s cooldown{item.suspendedReason ? ` · ${item.suspendedReason.replaceAll("_", " ")}` : ""}</p>
                         </div>
@@ -594,7 +591,7 @@ export default function MagentoPackAdmin() {
                       <li key={changeset.id} className="rounded-xl border border-border px-4 py-3">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <strong className="text-sm text-text">{changeset.summary}</strong>
+                            <strong className="font-display text-ui-body font-bold text-text">{changeset.summary}</strong>
                             <p className="mt-1 text-xs capitalize text-text3">{changeset.domain} · {changeset.operationId.replaceAll("_", " ")} · {executionModeLabel(changeset.executionMode)}{changeset.inverseOfId ? " · inverse" : ""}</p>
                           </div>
                           <span className="text-xs font-semibold uppercase tracking-wide text-text2">{changeset.status.replaceAll("_", " ")}</span>
@@ -603,7 +600,7 @@ export default function MagentoPackAdmin() {
                     ))}
                     {management.handoffs.slice(0, 4).map((handoff) => (
                       <li key={handoff.id} className="rounded-xl border border-border px-4 py-3">
-                        <strong className="text-sm text-text">Magento Admin handoff · {handoff.kind.replaceAll("_", " ")}</strong>
+                        <strong className="font-display text-ui-body font-bold text-text">Magento Admin handoff · {handoff.kind.replaceAll("_", " ")}</strong>
                         <p className="mt-1 text-xs text-text3">{handoff.entityRef} · {handoff.status.replaceAll("_", " ")}</p>
                       </li>
                     ))}
@@ -625,7 +622,7 @@ export default function MagentoPackAdmin() {
                 {doctor.checks.map((check) => (
                   <li key={check.id} className="flex flex-col gap-1 rounded-xl border border-border px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <strong className="text-sm capitalize text-text">{checkLabel(check.id)}</strong>
+                      <strong className="font-display text-ui-body font-bold capitalize text-text">{checkLabel(check.id)}</strong>
                       <p className="mt-1 text-ui-body-sm leading-[1.45] text-text3">{check.detail}</p>
                     </div>
                     <span className={`mt-1 text-xs font-semibold uppercase tracking-wide ${checkTone(check.status)}`}>{checkStatusLabel(check.id, check.status)}</span>
@@ -644,15 +641,13 @@ export default function MagentoPackAdmin() {
                 </div>
               </div>
               <CredentialFields form={form} update={update} includeToken required={false} />
-              <label className="mt-4 flex items-center gap-2 text-sm text-text2">
-                <input
-                  type="checkbox"
-                  checked={clearIntegrationToken}
-                  disabled={Boolean(form.integrationToken)}
-                  onChange={(event) => setClearIntegrationToken(event.target.checked)}
-                />
-                Remove the saved Magento API token
-              </label>
+              <Checkbox
+                label="Remove the saved Magento API token"
+                className="mt-4"
+                checked={clearIntegrationToken}
+                disabled={Boolean(form.integrationToken)}
+                onChange={(event) => setClearIntegrationToken(event.target.checked)}
+              />
               <div className="mt-5 flex gap-2">
                 <Button type="submit" disabled={busy !== null}>{busy === "configure" ? "Testing and saving…" : "Save credentials"}</Button>
                 <Button type="button" variant="secondary" disabled={busy !== null} onClick={() => setRotateCredentials(false)}>Cancel</Button>
