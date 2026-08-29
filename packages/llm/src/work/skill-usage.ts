@@ -17,6 +17,8 @@ import { getOrgAgentRoot, readSkillOrigin } from "./workspace";
 const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SKILL_MD_PATH_RE =
   /(?:^|\/)skills\/([a-z0-9]+(?:-[a-z0-9]+)*)\/SKILL\.md(?:$|[?#])/i;
+const SKILL_VIEW_RE =
+  /skill view \(([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/|\))/i;
 
 export type SkillUseSource = "hermes" | "read";
 export type SkillOriginKind = "builtin" | "custom" | "pack";
@@ -31,6 +33,9 @@ export function detectSkillUse(event: AgentEvent): DetectedSkillUse | null {
 
   const fromPath = skillNameFromPaths(collectStrings(event.input));
   if (fromPath) return { name: fromPath, source: "read" };
+
+  const fromView = skillNameFromSkillView(collectStrings(event.input));
+  if (fromView) return { name: fromView, source: "hermes" };
 
   const toolName = event.name.trim();
   if (!isHermesSkillTool(toolName, event.input)) return null;
@@ -185,6 +190,14 @@ function skillNameFromHermesInput(input: unknown): string | null {
     const fromPath = skillNameFromPaths([trimmed]);
     if (fromPath) return fromPath;
     if (SKILL_NAME_RE.test(trimmed)) return trimmed;
+  }
+  return null;
+}
+
+function skillNameFromSkillView(values: string[]): string | null {
+  for (const value of values) {
+    const match = SKILL_VIEW_RE.exec(value);
+    if (match?.[1] && SKILL_NAME_RE.test(match[1])) return match[1];
   }
   return null;
 }

@@ -39,6 +39,22 @@ describe("detectSkillUse", () => {
     });
   });
 
+  it("reads a Hermes skill view title from a Magento run", () => {
+    const event: AgentEvent = {
+      type: "tool_start",
+      id: "tc-live",
+      name: "read",
+      input: {
+        title: "skill view (magento-investigate-refunds)",
+        locations: [],
+      },
+    };
+    expect(detectSkillUse(event)).toEqual({
+      name: "magento-investigate-refunds",
+      source: "hermes",
+    });
+  });
+
   it("ignores other tool starts", () => {
     const event: AgentEvent = {
       type: "tool_start",
