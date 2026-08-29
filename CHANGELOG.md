@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.33.1](https://github.com/open-neko/openneko/compare/v2.33.0...v2.33.1) (2026-08-29)
+
+
+### Bug Fixes
+
+* **cli:** prevent OpenShell credential drift ([124b4d0](https://github.com/open-neko/openneko/commit/124b4d0b79edd45780b6e3b2d735f060b90b858e))
+* **cli:** prevent OpenShell migration credential drift ([1e9af32](https://github.com/open-neko/openneko/commit/1e9af325ea984290025202fdb73efaa617c4dffd))
+
 ## [2.33.0](https://github.com/open-neko/openneko/compare/v2.32.0...v2.33.0) (2026-08-29)
 
 
