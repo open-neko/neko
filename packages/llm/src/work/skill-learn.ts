@@ -6,6 +6,7 @@ import {
   writeLearnedOverlay,
   type LearnedOverlay,
 } from "./skill-overlay";
+import { proposeSkillLearn } from "./skill-learn-propose";
 import { fingerprintSkillTree } from "./workspace";
 
 export const DEFAULT_MIN_REPEATS = 5;
@@ -65,6 +66,7 @@ export type SkillLearnContext = {
     baseHash: string;
     usages: SkillUsageSnapshot[];
   }) => Promise<SkillLearnProposal | null>;
+  llm?: import("./skill-learn-propose").SkillLearnLlm;
 };
 
 export async function runSkillLearn(
@@ -126,7 +128,14 @@ export async function runSkillLearn(
         baseHash,
         usages: cohort,
       })
-    : null;
+    : await proposeSkillLearn({
+        orgId: ctx.orgId,
+        orgRoot: ctx.orgRoot,
+        skillName: ctx.skillName,
+        baseHash,
+        usages: cohort,
+        llm: ctx.llm,
+      });
   if (!proposal) {
     return skip("no_proposal", {
       baseHash,

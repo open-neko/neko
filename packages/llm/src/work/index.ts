@@ -60,6 +60,11 @@ export {
 } from "./skill-usage";
 export { runSkillLearn, type SkillLearnResult } from "./skill-learn";
 export {
+  parseSkillLearnProposal,
+  proposeSkillLearn,
+  type SkillLearnLlm,
+} from "./skill-learn-propose";
+export {
   MAGENTO_LEARN_SKILLS,
   magentoScoreImproved,
   scoreSkillLearnWindow,

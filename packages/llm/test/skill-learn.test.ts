@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { runSkillLearn } from "../src/work/skill-learn";
+import { parseSkillLearnProposal } from "../src/work/skill-learn-propose";
 import { scanLearnedText } from "../src/work/skill-learn-scan";
 import { fingerprintSkillTree } from "../src/work/workspace";
 
@@ -38,6 +39,36 @@ describe("skill-learn module boundary", () => {
       "utf8",
     );
     expect(source).not.toMatch(/work_memory|library_concept|rememberWorkMemory/);
+    expect(source).toMatch(/proposeSkillLearn/);
+    const store = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), "../src/work/skill-learn-store.ts"),
+      "utf8",
+    );
+    expect(store).not.toMatch(/propose:/);
+  });
+});
+
+describe("parseSkillLearnProposal", () => {
+  it("accepts schema JSON and drops run ids that were not in the cohort", () => {
+    const parsed = parseSkillLearnProposal(
+      `here\n{"lesson":"parent items","rationale":"child rows double-count","learnedMarkdown":"Prefer parent items.","evidenceRunIds":["run-1","nope"]}`,
+      ["run-1", "run-2"],
+    );
+    expect(parsed).toEqual({
+      lesson: "parent items",
+      rationale: "child rows double-count",
+      learnedMarkdown: "Prefer parent items.",
+      evidenceRunIds: ["run-1"],
+    });
+  });
+
+  it("rejects JSON with no allowed evidence run ids", () => {
+    expect(
+      parseSkillLearnProposal(
+        `{"lesson":"x","rationale":"y","learnedMarkdown":"z","evidenceRunIds":["other"]}`,
+        ["run-1"],
+      ),
+    ).toBeNull();
   });
 });
 
@@ -76,6 +107,37 @@ describe("runSkillLearn", () => {
     expect(result.reason).toBe("below_repeat_threshold");
     expect(result.trace.skipReason).toMatch(/settled 4 < 5/);
     expect(result.trace.evidenceRunIds).toHaveLength(4);
+  });
+
+  it("applies through the production proposer when llm returns schema JSON", async () => {
+    const orgRoot = await mkdtemp(join(tmpdir(), "neko-learn-prod-propose-"));
+    cleanupPaths.push(orgRoot);
+    const skillDir = join(orgRoot, "skills", "magento-investigate-refunds");
+    await mkdir(skillDir, { recursive: true });
+    const original = await readFile(join(MAGENTO_REFUNDS, "SKILL.md"), "utf8");
+    await writeFile(join(skillDir, "SKILL.md"), original, "utf8");
+    const cohort = usages(5, new Date(0));
+    const result = await runSkillLearn({
+      orgId: "org",
+      orgRoot,
+      skillName: "magento-investigate-refunds",
+      orgEnabled: true,
+      skillEnabled: true,
+      usages: cohort,
+      settlementMs: 0,
+      minRepeats: 5,
+      llm: async () =>
+        JSON.stringify({
+          lesson: "parent items",
+          rationale: "five settled runs double-counted child rows",
+          learnedMarkdown:
+            "Prefer parent items when product structures would double-count.",
+          evidenceRunIds: cohort.map((usage) => usage.runId),
+        }),
+    });
+    expect(result.decision).toBe("applied");
+    expect(result.trace.lesson).toBe("parent items");
+    expect(await readFile(join(skillDir, "SKILL.md"), "utf8")).toBe(original);
   });
 
   it("applies additive LEARNED.md and does not rewrite pack SKILL.md", async () => {
