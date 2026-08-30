@@ -13,6 +13,7 @@ import { Disclosure } from "@/components/ui/Disclosure";
 import { Input } from "@/components/ui/Field";
 import { Pill, type PillVariant } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
+import SkillLearnCard from "./SkillLearnCard";
 
 type Policy = {
   id: string;
@@ -197,7 +198,7 @@ export default function RulesClient() {
         <PageHeading
           eyebrow="Agent governance"
           title="Rules"
-          description="Control what agents may execute automatically, what requires review, and what is never allowed."
+          description="Control skill learning and what agents may execute automatically, queue for review, or never run."
           actions={
           <Button
             variant="primary"
@@ -212,7 +213,9 @@ export default function RulesClient() {
           }
         />
 
-        <label className="relative mb-5 block max-w-[520px]">
+        <SkillLearnCard />
+
+        <label className="relative mb-5 mt-6 block max-w-[520px]">
           <span className="sr-only">Search rules and action kinds</span>
           <Search
             aria-hidden="true"

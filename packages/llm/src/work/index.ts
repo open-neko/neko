@@ -71,7 +71,12 @@ export {
   type SkillLearnScore,
   type SkillLearnScoreSample,
 } from "./skill-learn-score";
-export { runSkillLearnForOrgSkill } from "./skill-learn-store";
+export {
+  getSkillLearnOrgSettings,
+  runSkillLearnForOrgSkill,
+  setSkillLearnOrgEnabled,
+  type SkillLearnOrgSettings,
+} from "./skill-learn-store";
 export { assertAdditiveLearnedBody, scanLearnedText } from "./skill-learn-scan";
 export {
   LEARNED_FILE,

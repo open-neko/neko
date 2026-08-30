@@ -122,7 +122,7 @@ export default async function AdminPage() {
     {
       href: "/admin/rules",
       title: "Rules",
-      copy: "Decide what OpenNeko can act on its own, what queues for review, and what's never allowed.",
+      copy: "Skill learning, plus what OpenNeko can act on its own, queue for review, or never run.",
       status:
         policyTotal === 0
           ? "Defaults on demand"

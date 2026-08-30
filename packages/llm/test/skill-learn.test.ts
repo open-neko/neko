@@ -109,6 +109,34 @@ describe("runSkillLearn", () => {
     expect(result.trace.evidenceRunIds).toHaveLength(4);
   });
 
+  it("skips when org learning is off", async () => {
+    const result = await runSkillLearn({
+      orgId: "org",
+      orgRoot: "/tmp",
+      skillName: "demo",
+      orgEnabled: false,
+      skillEnabled: true,
+      usages: usages(5, new Date(0)),
+      settlementMs: 0,
+    });
+    expect(result.decision).toBe("skipped");
+    expect(result.reason).toBe("flags_off");
+  });
+
+  it("skips when skill learning is off", async () => {
+    const result = await runSkillLearn({
+      orgId: "org",
+      orgRoot: "/tmp",
+      skillName: "demo",
+      orgEnabled: true,
+      skillEnabled: false,
+      usages: usages(5, new Date(0)),
+      settlementMs: 0,
+    });
+    expect(result.decision).toBe("skipped");
+    expect(result.reason).toBe("flags_off");
+  });
+
   it("applies through the production proposer when llm returns schema JSON", async () => {
     const orgRoot = await mkdtemp(join(tmpdir(), "neko-learn-prod-propose-"));
     cleanupPaths.push(orgRoot);
