@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.34.0](https://github.com/open-neko/openneko/compare/v2.33.1...v2.34.0) (2026-08-30)
+
+
+### Features
+
+* **skills:** add an admin control for skill learning ([4fdb813](https://github.com/open-neko/openneko/commit/4fdb8132af0b608573b31b0f3b20ac87b1a06301))
+* **skills:** auto-apply additive learned guidance with a decision log ([bd7a31b](https://github.com/open-neko/openneko/commit/bd7a31bc03941ee6c576e6cac66dd9d64a11b2d6))
+* **skills:** compose additive learned guidance onto shipped skill trees ([ccb028e](https://github.com/open-neko/openneko/commit/ccb028e18dae535dc00896b9c021d67d4f87651f))
+* **skills:** detect Hermes skill view titles on Magento runs ([7ff4aac](https://github.com/open-neko/openneko/commit/7ff4aac296b520ca8fbc52192dfb9be7ade5b2bc))
+* **skills:** learn additive guidance from usage ([b9fb6d8](https://github.com/open-neko/openneko/commit/b9fb6d87de6046a53fdb66d0b8a450a916e123a4))
+* **skills:** record skill usage with revision and origin ([d047e50](https://github.com/open-neko/openneko/commit/d047e5023459ed43c9f8e6aecadcb3261bd86a4a))
+* **skills:** score Magento skill-learn correction and cost windows ([f3645a8](https://github.com/open-neko/openneko/commit/f3645a8b75fb2c1a48a4c888d33caf18f425406a))
+* **skills:** use a tool-free schema proposer on the worker learn path ([b603cf8](https://github.com/open-neko/openneko/commit/b603cf837fa7158a51a3f07c256d8ad902a87fe5))
+
 ## [2.33.1](https://github.com/open-neko/openneko/compare/v2.33.0...v2.33.1) (2026-08-29)
 
 
