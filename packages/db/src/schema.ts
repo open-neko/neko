@@ -5,6 +5,7 @@ import {
   customType,
   date,
   index,
+  bigint,
   integer,
   jsonb,
   numeric,
@@ -2479,6 +2480,105 @@ export const pack_operation = pgTable(
     org_status_idx: index("pack_operation_org_status_idx").on(
       t.org_id,
       t.status,
+      t.created_at.desc(),
+    ),
+  }),
+);
+
+export const skill_usage = pgTable(
+  "skill_usage",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    run_id: uuid("run_id")
+      .notNull()
+      .references(() => work_run.id, { onDelete: "cascade" }),
+    skill_name: text("skill_name").notNull(),
+    content_hash: text("content_hash").notNull(),
+    origin: text("origin").notNull(),
+    pack_id: text("pack_id"),
+    pack_version: text("pack_version"),
+    config_commit_sha: text("config_commit_sha"),
+    source: text("source").notNull(),
+    first_event_id: bigint("first_event_id", { mode: "number" }).notNull(),
+    attempt: integer("attempt").notNull().default(1),
+    created_at: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    run_skill_unique: uniqueIndex("skill_usage_run_skill_unique").on(
+      t.run_id,
+      t.skill_name,
+    ),
+    org_skill_recent_idx: index("skill_usage_org_skill_recent_idx").on(
+      t.org_id,
+      t.skill_name,
+      t.created_at.desc(),
+    ),
+  }),
+);
+
+export const skill_learn_org = pgTable("skill_learn_org", {
+  org_id: text("org_id")
+    .primaryKey()
+    .references(() => organization.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  updated_at: ts("updated_at").notNull().defaultNow(),
+});
+
+export const skill_learn_state = pgTable(
+  "skill_learn_state",
+  {
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    skill_name: text("skill_name").notNull(),
+    enabled: boolean("enabled").notNull().default(false),
+    high_water_event_id: bigint("high_water_event_id", {
+      mode: "number",
+    })
+      .notNull()
+      .default(0),
+    pending_settled_count: integer("pending_settled_count").notNull().default(0),
+    next_due_at: ts("next_due_at"),
+    current_base_hash: text("current_base_hash"),
+    current_learned_hash: text("current_learned_hash"),
+    lease_owner: text("lease_owner"),
+    lease_until: ts("lease_until"),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.org_id, t.skill_name] }),
+  }),
+);
+
+export const skill_learn_event = pgTable(
+  "skill_learn_event",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    skill_name: text("skill_name").notNull(),
+    base_hash: text("base_hash"),
+    content_hash: text("content_hash"),
+    run_ids: jsonb("run_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    lesson: text("lesson"),
+    rationale: text("rationale"),
+    diff: text("diff"),
+    model_trace: jsonb("model_trace")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    decision: text("decision").notNull(),
+    reason: text("reason").notNull().default(""),
+    created_at: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    org_skill_recent_idx: index("skill_learn_event_org_skill_recent_idx").on(
+      t.org_id,
+      t.skill_name,
       t.created_at.desc(),
     ),
   }),

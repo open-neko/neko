@@ -18,6 +18,11 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentWorkspace } from "../agent-backend";
+import {
+  composeSkillTree,
+  overlayAppliesToBase,
+  readLearnedOverlay,
+} from "./skill-overlay";
 
 export function resolveBuiltinSkillsRoot(
   moduleUrl = import.meta.url,
@@ -43,6 +48,13 @@ export function resolveBuiltinSkillsRoot(
     "builtin-skills",
   );
 }
+
+export const SKILL_ORIGIN_FILE = ".openneko-origin";
+
+export type SkillOriginRecord = {
+  kind: "builtin";
+  sourceHash: string;
+};
 
 const BUILTIN_SKILLS_ROOT = resolveBuiltinSkillsRoot();
 
@@ -94,6 +106,7 @@ export async function ensureOrgWorkspace(orgId: string): Promise<OrgWorkspaceRoo
   const knowledgeRoot = join(orgRoot, "knowledge");
   const uploadsRoot = join(orgRoot, "uploads");
   const runsRoot = join(orgRoot, "runs");
+  const skillOverlaysRoot = join(orgRoot, "skill-overlays");
 
   for (const dir of [
     orgRoot,
@@ -102,6 +115,7 @@ export async function ensureOrgWorkspace(orgId: string): Promise<OrgWorkspaceRoo
     knowledgeRoot,
     uploadsRoot,
     runsRoot,
+    skillOverlaysRoot,
   ]) {
     await mkdir(dir, { recursive: true });
   }
@@ -259,12 +273,13 @@ export async function materializeBuiltinSkills(skillsRoot: string): Promise<void
 
 const builtinSkillFingerprints = new Map<string, Promise<string>>();
 
-async function fingerprintTree(root: string): Promise<string> {
+export async function fingerprintSkillTree(root: string): Promise<string> {
   const hash = createHash("sha256");
   const visit = async (dir: string, prefix: string): Promise<void> => {
     const entries = await readdir(dir, { withFileTypes: true });
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
+      if (!prefix && entry.name === SKILL_ORIGIN_FILE) continue;
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
       const absolute = join(dir, entry.name);
       if (entry.isDirectory()) {
@@ -283,10 +298,35 @@ async function fingerprintTree(root: string): Promise<string> {
   return hash.digest("hex");
 }
 
+export async function readSkillOrigin(
+  skillDir: string,
+): Promise<SkillOriginRecord | null> {
+  try {
+    const raw = await readFile(join(skillDir, SKILL_ORIGIN_FILE), "utf8");
+    const parsed = JSON.parse(raw) as Partial<SkillOriginRecord>;
+    if (parsed.kind !== "builtin") return null;
+    if (typeof parsed.sourceHash !== "string" || !parsed.sourceHash) return null;
+    return { kind: "builtin", sourceHash: parsed.sourceHash };
+  } catch {
+    return null;
+  }
+}
+
+async function writeBuiltinOrigin(
+  skillDir: string,
+  sourceHash: string,
+): Promise<void> {
+  await writeFile(
+    join(skillDir, SKILL_ORIGIN_FILE),
+    `${JSON.stringify({ kind: "builtin", sourceHash } satisfies SkillOriginRecord)}\n`,
+    "utf8",
+  );
+}
+
 function builtinFingerprint(name: string, root: string): Promise<string> {
   let pending = builtinSkillFingerprints.get(name);
   if (!pending) {
-    pending = fingerprintTree(root);
+    pending = fingerprintSkillTree(root);
     builtinSkillFingerprints.set(name, pending);
   }
   return pending;
@@ -320,20 +360,37 @@ export async function copySkillOverrides(
     const bundled = join(BUILTIN_SKILLS_ROOT, entry.name);
     const source = forced.has(entry.name) ? bundled : workspaceSource;
     let isUnmodifiedBuiltin = false;
+    let workspaceHash = "";
     if (!forced.has(entry.name)) {
       try {
-        isUnmodifiedBuiltin =
-          (await fingerprintTree(workspaceSource)) ===
-          (await builtinFingerprint(entry.name, bundled));
+        workspaceHash = await fingerprintSkillTree(workspaceSource);
+        const imageHash = await builtinFingerprint(entry.name, bundled);
+        const origin = await readSkillOrigin(workspaceSource);
+        if (origin?.kind === "builtin" && origin.sourceHash === workspaceHash) {
+          // Unchanged since seed, including a stale image copy.
+          isUnmodifiedBuiltin = true;
+        } else if (!origin) {
+          isUnmodifiedBuiltin = workspaceHash === imageHash;
+        }
       } catch {
         // A missing bundled directory identifies an organization-created skill.
       }
     }
-    if (isUnmodifiedBuiltin) continue;
+    const orgRoot = dirname(skillsRoot);
+    const overlay = await readLearnedOverlay(orgRoot, entry.name);
+    const overlayLive = await overlayAppliesToBase(
+      overlay,
+      workspaceHash || (await fingerprintSkillTree(workspaceSource).catch(() => "")),
+    );
+    if (isUnmodifiedBuiltin && !overlayLive) continue;
 
     const destination = join(destinationRoot, entry.name);
-    await rm(destination, { recursive: true, force: true });
-    await cp(source, destination, { recursive: true, force: true });
+    const composeBase = isUnmodifiedBuiltin ? bundled : source;
+    await composeSkillTree({
+      baseDir: composeBase,
+      destDir: destination,
+      overlay: overlayLive ? overlay : null,
+    });
     copied.push(entry.name);
   }
   const missing = [...forced].filter((name) => !copied.includes(name));
@@ -352,10 +409,13 @@ async function seedBuiltinSkills(skillsRoot: string): Promise<void> {
       await access(dest, fsConstants.F_OK);
       continue;
     } catch {
-      await cp(join(BUILTIN_SKILLS_ROOT, entry.name), dest, {
+      const source = join(BUILTIN_SKILLS_ROOT, entry.name);
+      await cp(source, dest, {
         recursive: true,
         errorOnExist: false,
       });
+      const sourceHash = await builtinFingerprint(entry.name, source);
+      await writeBuiltinOrigin(dest, sourceHash);
     }
   }
 }

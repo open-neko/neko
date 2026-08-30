@@ -1,4 +1,6 @@
 import { ensureHostConfigProvisioned, type AgentEvent } from "@neko/llm";
+import { enqueue, QUEUE } from "@neko/db/jobs";
+import { db, eq, skill_usage } from "@neko/db";
 import {
   agentRuntimeDepsFromEnv,
   appendWorkRunEvent,
@@ -155,6 +157,7 @@ export async function runWorkRun(
   }
   await persistProcessingJobTelemetry(jobId, summary);
   console.log(`[work-run.telemetry] ${JSON.stringify(summary)}`);
+  await enqueueSkillLearnForRun(orgId, runId);
 
   // Channel-initiated runs have no other return path — send the reply back to
   // the sender. Web runs (no channelPlugin) stream over SSE instead.
@@ -164,5 +167,27 @@ export async function runWorkRun(
     (result.status === "completed" || result.status === "needs_input")
   ) {
     await deliverChatReply(orgId, channelPlugin, recipient, runId, result.finalText, surfaces, vitals);
+  }
+}
+
+async function enqueueSkillLearnForRun(orgId: string, runId: string): Promise<void> {
+  try {
+    const rows = await db()
+      .select({ skillName: skill_usage.skill_name })
+      .from(skill_usage)
+      .where(eq(skill_usage.run_id, runId));
+    for (const row of rows) {
+      await enqueue(
+        QUEUE.SKILL_LEARN,
+        { orgId, skillName: row.skillName },
+        { singletonKey: `skill-learn:${orgId}:${row.skillName}` },
+      );
+    }
+  } catch (error) {
+    console.warn(
+      `[work-run] skill learn enqueue failed for ${runId}: ${
+        error instanceof Error ? error.message : error
+      }`,
+    );
   }
 }

@@ -11,11 +11,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  SKILL_ORIGIN_FILE,
   copySkillOverrides,
   ensureIsolatedJobWorkspace,
   ensureOrgWorkspace,
   ensureWorkWorkspace,
+  fingerprintSkillTree,
   materializeBuiltinSkills,
+  readSkillOrigin,
   resolveBuiltinSkillsRoot,
 } from "../src/work/workspace";
 
@@ -131,6 +134,40 @@ describe("work workspace", () => {
     expect(await readdir(stagedSkills)).toContain("pdf");
     expect(await readFile(join(stagedSkills, "skill-creator", "SKILL.md"), "utf8"))
       .toContain("Org override.");
+  }, 30_000);
+
+  it("records a builtin seed origin and skips a stale unmodified seed", async () => {
+    const home = await mkdtemp(join(tmpdir(), "neko-work-home-"));
+    const stage = await mkdtemp(join(tmpdir(), "neko-skills-stage-"));
+    cleanupPaths.push(home, stage);
+    process.env.HOME = home;
+
+    const workspace = await ensureOrgWorkspace("org-test");
+    const pdfDir = join(workspace.skillsRoot, "pdf");
+    const origin = await readSkillOrigin(pdfDir);
+    expect(origin?.kind).toBe("builtin");
+    expect(origin?.sourceHash).toBe(await fingerprintSkillTree(pdfDir));
+
+    await writeFile(
+      join(pdfDir, "SKILL.md"),
+      `${await readFile(join(pdfDir, "SKILL.md"), "utf8")}\nStale seed body.\n`,
+    );
+    await writeFile(
+      join(pdfDir, SKILL_ORIGIN_FILE),
+      `${JSON.stringify({
+        kind: "builtin",
+        sourceHash: await fingerprintSkillTree(pdfDir),
+      })}\n`,
+    );
+
+    const stagedSkills = join(stage, "skills");
+    const copied = await copySkillOverrides(workspace.skillsRoot, stagedSkills);
+    expect(copied).not.toContain("pdf");
+
+    await materializeBuiltinSkills(stagedSkills);
+    expect(await readFile(join(stagedSkills, "pdf", "SKILL.md"), "utf8")).not.toContain(
+      "Stale seed body.",
+    );
   }, 30_000);
 
   it("creates an empty disposable tree for non-interactive agent jobs", async () => {

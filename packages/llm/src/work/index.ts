@@ -51,6 +51,46 @@ export {
 export * from "./memory";
 export * from "./library";
 export * from "./store";
+export {
+  detectSkillUse,
+  recordSkillUsageFromEvent,
+  type DetectedSkillUse,
+  type SkillOriginKind,
+  type SkillUseSource,
+} from "./skill-usage";
+export { runSkillLearn, type SkillLearnResult } from "./skill-learn";
+export {
+  parseSkillLearnProposal,
+  proposeSkillLearn,
+  type SkillLearnLlm,
+} from "./skill-learn-propose";
+export {
+  MAGENTO_LEARN_SKILLS,
+  magentoScoreImproved,
+  scoreSkillLearnWindow,
+  type SkillLearnScore,
+  type SkillLearnScoreSample,
+} from "./skill-learn-score";
+export {
+  getSkillLearnOrgSettings,
+  runSkillLearnForOrgSkill,
+  setSkillLearnOrgEnabled,
+  type SkillLearnOrgSettings,
+} from "./skill-learn-store";
+export { assertAdditiveLearnedBody, scanLearnedText } from "./skill-learn-scan";
+export {
+  LEARNED_FILE,
+  SKILL_OVERLAYS_DIR,
+  appendLearnedSection,
+  composeSkillTree,
+  fingerprintEffectiveSkill,
+  overlayAppliesToBase,
+  readLearnedOverlay,
+  skillOverlayDir,
+  stripLearnedSection,
+  writeLearnedOverlay,
+  type LearnedOverlay,
+} from "./skill-overlay";
 export * from "./authz";
 export * from "./personas";
 export {

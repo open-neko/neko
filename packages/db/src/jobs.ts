@@ -34,6 +34,7 @@ export const QUEUE = {
   RECORDS_WATCH_SWEEP: "records_watch_sweep",
   CHANNEL_DELIVER: "channel_deliver",
   LIBRARY_DISTILL: "library_distill",
+  SKILL_LEARN: "skill_learn",
 } as const;
 
 export type QueueName = (typeof QUEUE)[keyof typeof QUEUE];
@@ -113,6 +114,11 @@ export type LibraryDistillPayload = {
   documentId: string;
   /** Operator retry: bypass triage and the cataloged/skipped guard. */
   force?: boolean;
+};
+
+export type SkillLearnPayload = {
+  orgId: string;
+  skillName: string;
 };
 
 export type RecordsIdentityLinkPayload = {

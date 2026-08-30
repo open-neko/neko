@@ -21,6 +21,7 @@ agent_events:
   needs_input: [OUTPUT-NEEDS-INPUT]
   followups: [OUTPUT-FOLLOWUPS]
   vitals: [OUTPUT-VITALS]
+  skill_used: [WORK-SKILLS]
 
 worker_queues:
   business_profile_build: [ONBOARD-PROFILE]
@@ -45,6 +46,7 @@ worker_queues:
   records_watch_sweep: [RECORDS-WATCH]
   channel_deliver: [CHANNEL-DELIVERY]
   library_distill: [LIBRARY-DISTILL, LIBRARY-LAYERS]
+  skill_learn: [WORK-SKILLS]
 
 observation_kinds:
   run.start: [RUNTIME-OBSERVABILITY]
