@@ -85,7 +85,7 @@ export default async function RecordRecyclePage({
         </div>
         <form className="records-search" action={recycleBase} method="get">
           <Search aria-hidden="true" />
-          <input
+          <input data-ui-bespoke-reason="records list search and hidden query fields"
             type="search"
             name="q"
             defaultValue={query.q}

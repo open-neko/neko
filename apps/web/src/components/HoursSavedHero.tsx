@@ -40,7 +40,7 @@ export default function HoursSavedHero({
 
   return (
     <div className="mb-7" style={{ animation: "fadeUp 0.5s ease 0.12s both" }}>
-      <button
+      <button data-ui-bespoke-reason="briefing card interaction"
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}

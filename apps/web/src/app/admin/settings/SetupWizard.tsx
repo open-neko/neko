@@ -5,12 +5,11 @@ import EntryShell from "@/components/EntryShell";
 import { toast } from "sonner";
 import Select from "@/components/Select";
 import { Button } from "@/components/ui/Button";
-
-const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { Field, Input } from "@/components/ui/Field";
 
 type ProviderOption = { value: string; label: string; description: string };
-type Field = {
+type ProviderField = {
   key: string;
   label: string;
   kind: "text" | "secret" | "url";
@@ -34,7 +33,7 @@ type SettingsPayload = {
   research: ProviderConfig;
   options: { primary: readonly ProviderOption[]; research: readonly ProviderOption[] };
   defaults: { primary: Record<string, string>; research: Record<string, string> };
-  fields: { primary: Record<string, Field[]>; research: Record<string, Field[]> };
+  fields: { primary: Record<string, ProviderField[]>; research: Record<string, ProviderField[]> };
 };
 
 type AgentSettingsPayload = {
@@ -136,9 +135,9 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
     return [...initial.providers.options.primary];
   }, [initial.providers.options.primary]);
 
-  const primaryFields: Field[] =
+  const primaryFields: ProviderField[] =
     initial.providers.fields.primary[primary.provider] ?? [];
-  const researchFields: Field[] =
+  const researchFields: ProviderField[] =
     initial.providers.fields.research[research.provider] ?? [];
 
   const onPrimaryProviderChange = (next: string) => {
@@ -404,28 +403,31 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
           title="Choose a database password"
           description="OpenNeko's storage ships with a default password. Pick something only you know — you won't need to enter it again."
         >
-          <Field label="New password (min 8 chars)">
-            <input
-              className={INPUT_CLS}
+          <Field label="New password (min 8 chars)" htmlFor="setup-new-password">
+            <Input
+              id="setup-new-password"
               type="password"
               value={newPassword}
               autoComplete="new-password"
               onChange={(e) => setNewPassword(e.target.value)}
             />
           </Field>
-          <Field label="Confirm password">
-            <input
-              className={INPUT_CLS}
+          <Field
+            label="Confirm password"
+            htmlFor="setup-confirm-password"
+            error={
+              confirmPassword.length > 0 && confirmPassword !== newPassword
+                ? "Passwords don't match."
+                : undefined
+            }
+          >
+            <Input
+              id="setup-confirm-password"
               type="password"
               value={confirmPassword}
               autoComplete="new-password"
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
-            {confirmPassword.length > 0 && confirmPassword !== newPassword && (
-              <span className="text-ui-body-sm text-[#c33] leading-[1.45]">
-                Passwords don&apos;t match.
-              </span>
-            )}
           </Field>
           <div className="flex justify-end gap-2.5 mt-5 max-[720px]:flex-col max-[720px]:items-stretch [&>button]:max-[720px]:w-full">
             <Button
@@ -448,9 +450,13 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
           title="Connect your data"
           description="Graphjin server endpoint OpenNeko should connect to."
         >
-          <Field label="GraphJin URL *">
-            <input
-              className={INPUT_CLS}
+          <Field
+            label="GraphJin URL *"
+            htmlFor="setup-graphjin-url"
+            hint="Just the base URL. OpenNeko handles the GraphQL and MCP endpoints automatically."
+          >
+            <Input
+              id="setup-graphjin-url"
               value={data.rootUrl}
               placeholder="http://localhost:8080"
               onChange={(e) => {
@@ -458,13 +464,10 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
                 setData((p) => ({ ...p, rootUrl: e.target.value }));
               }}
             />
-            <span className="text-ui-body-sm text-text3 leading-[1.45]">
-              Just the base URL — OpenNeko handles the GraphQL and MCP endpoints automatically.
-            </span>
           </Field>
-          <Field label="Label">
-            <input
-              className={INPUT_CLS}
+          <Field label="Label" htmlFor="setup-data-label">
+            <Input
+              id="setup-data-label"
               value={data.label}
               placeholder="primary"
               onChange={(e) => setData((p) => ({ ...p, label: e.target.value }))}
@@ -503,9 +506,9 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
                 ariaLabel="Primary provider"
               />
             </Field>
-            <Field label="Model">
-              <input
-                className={INPUT_CLS}
+            <Field label="Model" htmlFor="setup-primary-model">
+              <Input
+                id="setup-primary-model"
                 value={primary.model}
                 onChange={(e) => setPrimary((p) => ({ ...p, model: e.target.value }))}
               />
@@ -531,18 +534,19 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
             />
           ))}
 
-          <Field label="Concurrent jobs">
-            <input
-              className={INPUT_CLS}
+          <Field
+            label="Concurrent jobs"
+            htmlFor="setup-concurrent-jobs"
+            hint="How many metric jobs the worker runs in parallel. Worker restart applies changes."
+          >
+            <Input
+              id="setup-concurrent-jobs"
               type="number"
               min={1}
               max={1000}
               value={concurrentJobs}
               onChange={(e) => setConcurrentJobs(e.target.value)}
             />
-            <span className="text-ui-body-sm text-text3 leading-[1.45]">
-              How many metric jobs the worker runs in parallel. Worker restart applies changes.
-            </span>
           </Field>
 
           <InlineError message={primaryError} />
@@ -567,14 +571,13 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
           title="Research (optional)"
           description="Lets the system pull industry context from Perplexity once your business team submits the onboarding profile. Leave the toggle off to set this up later."
         >
-          <label className="inline-flex items-center gap-2.5 mt-[18px] text-text2 text-ui-body-lg">
-            <input
-              type="checkbox"
+          <div className="mt-[18px]">
+            <Checkbox
+              label="Enable industry research"
               checked={researchEnabled}
               onChange={(e) => setResearchEnabled(e.target.checked)}
             />
-            <span>Enable industry research</span>
-          </label>
+          </div>
 
           {researchEnabled && (
             <>
@@ -596,9 +599,9 @@ export default function SetupWizard({ initial }: { initial: Initial }) {
                     ariaLabel="Research provider"
                   />
                 </Field>
-                <Field label="Model">
-                  <input
-                    className={INPUT_CLS}
+                <Field label="Model" htmlFor="setup-research-model">
+                  <Input
+                    id="setup-research-model"
                     value={research.model}
                     onChange={(e) => setResearch((p) => ({ ...p, model: e.target.value }))}
                   />
@@ -674,21 +677,12 @@ function Step({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-2">
-      <span className="text-ui-body font-semibold text-text">{label}</span>
-      {children}
-    </label>
-  );
-}
-
 function InlineError({ message }: { message: string | null }) {
   if (!message) return null;
   return (
     <div
       role="alert"
-      className="rounded-2xl px-4 py-3.5 mt-3.5 text-ui-body leading-[1.5] bg-[#fff0ee] border border-[#f2c9c3] text-[#9a4035]"
+      className="rounded-2xl px-4 py-3.5 mt-3.5 text-ui-body leading-[1.5] bg-danger-soft border border-danger/30 text-danger"
     >
       {message}
     </div>
@@ -700,25 +694,27 @@ function ProviderFieldInput({
   value,
   onChange,
 }: {
-  field: Field;
+  field: ProviderField;
   value: string;
   onChange: (v: string) => void;
 }) {
+  const id = `setup-provider-${field.key}`;
   return (
-    <label className="flex flex-col gap-2">
-      <span className="text-ui-body font-semibold text-text">
-        {field.label}
-        {field.required ? " *" : ""}
-      </span>
-      <input
-        className={INPUT_CLS}
+    <Field
+      label={`${field.label}${field.required ? " *" : ""}`}
+      htmlFor={id}
+      hint={field.help}
+    >
+      <Input
+        id={id}
         type={field.kind === "secret" ? "password" : "text"}
         value={value}
         placeholder={field.placeholder}
+        autoComplete={field.kind === "secret" ? "off" : undefined}
+        spellCheck={false}
         onChange={(e) => onChange(e.target.value)}
       />
-      {field.help && <span className="text-ui-body-sm text-text3 leading-[1.45]">{field.help}</span>}
-    </label>
+    </Field>
   );
 }
 

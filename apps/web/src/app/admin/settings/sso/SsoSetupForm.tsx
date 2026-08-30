@@ -7,6 +7,7 @@ import CreatorCredit from "@/components/CreatorCredit";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import { Button, ButtonLink } from "@/components/ui/Button";
+import { Input, NativeSelect } from "@/components/ui/Field";
 import type {
   SsoEnvironmentRow,
   SsoOrganizationRow,
@@ -14,9 +15,7 @@ import type {
   SsoSetupStatusResult,
 } from "@/lib/sso-setup";
 
-const HELP_CLS = "text-ui-body-sm text-text3 leading-[1.45]";
-const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
+const copyClass = "text-ui-body-sm text-text3 leading-[1.45]";
 
 function StepHeader({
   step,
@@ -337,13 +336,13 @@ export default function SsoSetupForm({
         <section className="flex flex-col gap-6 mt-2">
           {loadError ? (
             <div className="rounded-xl border border-border bg-bg px-4 py-3">
-              <p className={HELP_CLS}>{loadError}</p>
+              <p className={copyClass}>{loadError}</p>
             </div>
           ) : null}
 
           {status?.lastError && status.status === "failed" ? (
             <div className="rounded-xl border border-red-300 bg-bg px-4 py-3">
-              <p className={HELP_CLS}>{status.lastError}</p>
+              <p className={copyClass}>{status.lastError}</p>
             </div>
           ) : null}
 
@@ -355,14 +354,14 @@ export default function SsoSetupForm({
               title="Authorize the Scalekit workspace"
             />
             {step1Done ? (
-              <p className={HELP_CLS}>
+              <p className={copyClass}>
                 Connected — the agent manages your Scalekit workspace
                 (environments, organizations, users, connections) with this
                 org-wide authorization.
               </p>
             ) : (
               <>
-                <p className={HELP_CLS}>
+                <p className={copyClass}>
                   Opens Scalekit in your browser. Sign in or create the account
                   there; the consent screen names the scopes and endpoint.
                 </p>
@@ -384,7 +383,7 @@ export default function SsoSetupForm({
             />
             {step2Done && editingStep !== 2 ? (
               <>
-                <p className={HELP_CLS}>
+                <p className={copyClass}>
                   {status?.environmentTier === "prod" ? "Production" : "Development"}
                   {" · "}
                   {status?.environmentId}
@@ -392,18 +391,19 @@ export default function SsoSetupForm({
                   {status?.organizationId}
                 </p>
                 <div>
-                  <button
+                  <Button
                     type="button"
-                    className="text-ui-caption text-text2 underline"
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setEditingStep(2)}
                   >
                     Change
-                  </button>
+                  </Button>
                 </div>
               </>
             ) : (
               <>
-                <p className={HELP_CLS}>
+                <p className={copyClass}>
                   {pickerBusy
                     ? "Loading your Scalekit environments…"
                     : envOptions.length > 0
@@ -422,8 +422,8 @@ export default function SsoSetupForm({
                       Loading environments…
                     </span>
                   ) : envOptions.length > 0 ? (
-                    <select
-                      className={`${INPUT_CLS} flex-1 min-w-[240px]`}
+                    <NativeSelect
+                      className="flex-1 min-w-[240px]"
                       value={environmentId}
                       onChange={(e) => onEnvSelect(e.target.value)}
                     >
@@ -433,20 +433,20 @@ export default function SsoSetupForm({
                           {e.domain ? ` — ${e.domain}` : ""}
                         </option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   ) : (
-                    <select
-                      className={`${INPUT_CLS} max-w-[180px]`}
+                    <NativeSelect
+                      className="max-w-[180px]"
                       value={tier}
                       onChange={(e) => setTier(e.target.value)}
                     >
                       <option value="dev">Development</option>
                       <option value="prod">Production</option>
-                    </select>
+                    </NativeSelect>
                   )}
                   {envOptions.length > 0 && orgOptions.length > 0 ? (
-                    <select
-                      className={`${INPUT_CLS} flex-1 min-w-[200px]`}
+                    <NativeSelect
+                      className="flex-1 min-w-[200px]"
                       value={organizationId}
                       onChange={(e) => setOrganizationId(e.target.value)}
                     >
@@ -455,21 +455,25 @@ export default function SsoSetupForm({
                           {o.name ?? o.id}
                         </option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   ) : null}
                   {envOptions.length === 0 && (
                     <>
-                      <input
-                        className={`${INPUT_CLS} flex-1 min-w-[200px]`}
+                      <Input
+                        className="flex-1 min-w-[200px]"
                         placeholder="environmentId (env_…)"
                         value={environmentId}
                         onChange={(e) => setEnvironmentId(e.target.value)}
+                        spellCheck={false}
+                        autoComplete="off"
                       />
-                      <input
-                        className={`${INPUT_CLS} flex-1 min-w-[200px]`}
+                      <Input
+                        className="flex-1 min-w-[200px]"
                         placeholder="organizationId (org_…)"
                         value={organizationId}
                         onChange={(e) => setOrganizationId(e.target.value)}
+                        spellCheck={false}
+                        autoComplete="off"
                       />
                     </>
                   )}
@@ -493,20 +497,21 @@ export default function SsoSetupForm({
             <StepHeader step={3} done={step3Done} title="Sign-in credentials" />
             {step3Done && editingStep !== 3 ? (
               <>
-                <p className={HELP_CLS}>Stored in the encrypted vault.</p>
+                <p className={copyClass}>Stored in the encrypted vault.</p>
                 <div>
-                  <button
+                  <Button
                     type="button"
-                    className="text-ui-caption text-text2 underline"
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setEditingStep(3)}
                   >
                     Replace
-                  </button>
+                  </Button>
                 </div>
               </>
             ) : (
               <>
-                <p className={HELP_CLS}>
+                <p className={copyClass}>
                   The agent fetches the environment URL and client id for you.
                   The client secret is shown only once — in Scalekit, under
                   Settings → API Credentials for the selected environment.
@@ -533,24 +538,30 @@ export default function SsoSetupForm({
                   >
                     Find the secret in Scalekit ↗
                   </ButtonLink>
-                  <input
-                    className={`${INPUT_CLS} flex-1 min-w-[220px]`}
+                  <Input
+                    className="flex-1 min-w-[220px]"
                     placeholder="https://your-app.scalekit.com"
                     value={environmentUrl}
                     onChange={(e) => setEnvironmentUrl(e.target.value)}
+                    spellCheck={false}
+                    autoComplete="off"
                   />
-                  <input
-                    className={`${INPUT_CLS} flex-1 min-w-[180px]`}
+                  <Input
+                    className="flex-1 min-w-[180px]"
                     placeholder="client_id (skc_…)"
                     value={clientId}
                     onChange={(e) => setClientId(e.target.value)}
+                    spellCheck={false}
+                    autoComplete="off"
                   />
-                  <input
+                  <Input
                     type="password"
-                    className={`${INPUT_CLS} flex-1 min-w-[180px]`}
+                    className="flex-1 min-w-[180px]"
                     placeholder="client_secret"
                     value={clientSecret}
                     onChange={(e) => setClientSecret(e.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
                   />
                   <Button
                     type="button"
@@ -575,7 +586,7 @@ export default function SsoSetupForm({
               title="Connect the identity provider"
             />
             {step4Done ? (
-              <p className={HELP_CLS}>
+              <p className={copyClass}>
                 SSO is live
                 {status?.provider ? ` via ${status.provider}` : ""}
                 {status?.setupCompletedAt
@@ -584,7 +595,7 @@ export default function SsoSetupForm({
               </p>
             ) : (
               <>
-                <p className={HELP_CLS}>
+                <p className={copyClass}>
                   Optional for the trial — sign-in already works through
                   Scalekit’s hosted login. Generate a portal link to connect
                   your company’s own IdP (Okta, Entra ID…): open it, follow the
@@ -593,7 +604,7 @@ export default function SsoSetupForm({
                 </p>
                 {status?.portalLink ? (
                   <div className="flex flex-col gap-2">
-                    <p className={HELP_CLS}>
+                    <p className={copyClass}>
                       The link is single-use and expires in about a minute —
                       once opened it stays valid for the session.
                     </p>
@@ -615,7 +626,7 @@ export default function SsoSetupForm({
                   </div>
                 ) : null}
                 {status?.connection ? (
-                  <p className={HELP_CLS}>
+                  <p className={copyClass}>
                     Provider: {status.connection.provider ?? "unknown"} ·{" "}
                     {status.connection.status}
                     {status.connection.enabled ? " · enabled" : ""}

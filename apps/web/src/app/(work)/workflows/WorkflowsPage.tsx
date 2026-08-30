@@ -11,6 +11,7 @@ import { formatSavedShort } from "@/lib/hours-saved";
 import { Sparkline } from "@/components/Sparkline";
 import PageHeading from "@/components/PageHeading";
 import { Button, IconButton } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 type WorkflowListItem = {
   id: string;
@@ -289,7 +290,7 @@ export default function WorkflowsPage() {
         <div className="workflow-page-state is-error" role="alert">
           <strong>Workflows could not be loaded</strong>
           <span>{error}</span>
-          <button type="button" onClick={() => void fetchList()}>
+          <button data-ui-bespoke-reason="workflow inspector chrome" type="button" onClick={() => void fetchList()}>
             Retry
           </button>
         </div>
@@ -300,20 +301,23 @@ export default function WorkflowsPage() {
           <span className="workflow-loading-line is-short" />
         </div>
       ) : workflows.length === 0 ? (
-        <div className="workflow-page-state is-empty">
-          <strong>No workflows</strong>
-          <span>Ask OpenNeko to create the first recurring task.</span>
-          <button
-            type="button"
-            onClick={() =>
-              router.push(
-                `/work?seed=${encodeURIComponent("Set up a new workflow that ")}`,
-              )
-            }
-          >
-            Create a workflow
-          </button>
-        </div>
+        <EmptyState
+          className="workflow-page-state is-empty"
+          title="No workflows"
+          body="Ask OpenNeko to create the first recurring task."
+          action={
+            <Button
+              variant="primary"
+              onClick={() =>
+                router.push(
+                  `/work?seed=${encodeURIComponent("Set up a new workflow that ")}`,
+                )
+              }
+            >
+              Create a workflow
+            </Button>
+          }
+        />
       ) : (
         <div
           className={cn(
@@ -365,7 +369,7 @@ export default function WorkflowsPage() {
 
           {selectedWorkflow ? (
             <>
-              <button
+              <button data-ui-bespoke-reason="workflow inspector chrome"
                 type="button"
                 className="workflow-inspector-scrim"
                 aria-label="Close workflow details"
@@ -418,7 +422,7 @@ export default function WorkflowsPage() {
                       )}
                     </p>
                   </div>
-                  <button
+                  <button data-ui-bespoke-reason="workflow inspector chrome"
                     type="button"
                     className="workflow-inspector-close"
                     onClick={() => select(null)}
@@ -533,7 +537,7 @@ function WorkflowRow({
     >
       <div className={`workflows-row${active ? " is-active" : ""}`}>
         <span className="workflows-route-node" aria-hidden="true" />
-        <button
+        <button data-ui-bespoke-reason="workflow inspector chrome"
           type="button"
           className="workflows-row-main"
           onClick={onSelect}
@@ -709,7 +713,7 @@ function WorkflowDetail({
         <div className="workflow-detail-state is-error" role="alert">
           <strong>Details could not be loaded</strong>
           <span>{error}</span>
-          <button type="button" onClick={() => void load()}>
+          <button data-ui-bespoke-reason="workflow inspector chrome" type="button" onClick={() => void load()}>
             Retry
           </button>
         </div>
@@ -840,7 +844,7 @@ function WorkflowDetail({
           </span>
           {workflow.cron && (
             <label className="inline-flex items-center gap-1.5 text-xs text-text3 cursor-pointer">
-              <input
+              <input data-ui-bespoke-reason="workflow inspector chrome"
                 type="checkbox"
                 checked={workflow.cronEnabled}
                 onChange={toggleCron}
@@ -908,7 +912,7 @@ function WorkflowDetail({
           <ul className="list-none p-0 m-0 flex flex-col gap-1.5">
             {recentRuns.map((r) => (
               <li key={r.id} className="flex items-baseline gap-2 text-ui-body-sm">
-                <button
+                <button data-ui-bespoke-reason="workflow inspector chrome"
                   type="button"
                   className="workflow-drawer-run-link"
                   onClick={() => router.push(`/runs/${r.id}`)}
@@ -970,7 +974,7 @@ function WorkflowDetail({
 
       <div className="workflow-detail-foot">
         {workflow.createdByThreadId ? (
-          <button
+          <button data-ui-bespoke-reason="workflow inspector chrome"
             type="button"
             className="bg-transparent border-0 text-text3 cursor-pointer text-xs font-semibold py-1 px-0 hover:text-accent hover:underline hover:underline-offset-[3px]"
             onClick={() => router.push(`/work/${workflow.createdByThreadId}`)}
@@ -980,7 +984,7 @@ function WorkflowDetail({
         ) : (
           <span />
         )}
-        <button
+        <button data-ui-bespoke-reason="workflow inspector chrome"
           type="button"
           className="bg-transparent border-0 text-accent cursor-pointer text-xs font-semibold py-1 px-0 hover:underline hover:underline-offset-[3px]"
           onClick={() =>

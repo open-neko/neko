@@ -457,7 +457,7 @@ export function AppChatSidebar({
   if (collapsed) {
     return (
       <aside className="app-chat-sidebar is-collapsed" aria-label={`${appLabel} chat, collapsed`}>
-        <button type="button" onClick={toggleCollapsed} title="Open app chat" aria-label="Open app chat">
+        <button data-ui-bespoke-reason="records ask composer" type="button" onClick={toggleCollapsed} title="Open app chat" aria-label="Open app chat">
           <PanelRightOpen aria-hidden="true" />
         </button>
         <span className="app-chat-rail-mark" aria-hidden="true"><MessageSquareText /></span>
@@ -474,13 +474,13 @@ export function AppChatSidebar({
           <span><strong>{appLabel}</strong><small>App chat</small></span>
         </span>
         <span className="app-chat-header-actions">
-          <button type="button" onClick={() => setHistoryOpen((open) => !open)} aria-pressed={historyOpen} title="Conversation history">
+          <button data-ui-bespoke-reason="records ask composer" type="button" onClick={() => setHistoryOpen((open) => !open)} aria-pressed={historyOpen} title="Conversation history">
             <History aria-hidden="true" />
           </button>
-          <button type="button" onClick={startNewThread} title="New conversation">
+          <button data-ui-bespoke-reason="records ask composer" type="button" onClick={startNewThread} title="New conversation">
             <Plus aria-hidden="true" />
           </button>
-          <button type="button" onClick={toggleCollapsed} title="Collapse app chat">
+          <button data-ui-bespoke-reason="records ask composer" type="button" onClick={toggleCollapsed} title="Collapse app chat">
             <PanelRightClose aria-hidden="true" />
           </button>
         </span>
@@ -490,17 +490,17 @@ export function AppChatSidebar({
         <section className="app-chat-history" aria-label={`${appLabel} conversation history`}>
           <div className="app-chat-history-title">
             <span>History</span>
-            <button type="button" onClick={startNewThread}><Plus aria-hidden="true" /> New</button>
+            <button data-ui-bespoke-reason="records ask composer" type="button" onClick={startNewThread}><Plus aria-hidden="true" /> New</button>
           </div>
           {threads.length === 0 ? (
             <p>No app conversations yet.</p>
           ) : threads.map((thread) => (
             <div className={`app-chat-history-row${thread.id === activeThreadId ? " is-active" : ""}`} key={thread.id}>
-              <button type="button" onClick={() => void selectThread(thread.id)}>
+              <button data-ui-bespoke-reason="records ask composer" type="button" onClick={() => void selectThread(thread.id)}>
                 <strong>{displayTitle(thread.title)}</strong>
                 <small>{compactDate(thread.lastMessageAt)}</small>
               </button>
-              <button type="button" className="app-chat-history-delete" onClick={() => void deleteThread(thread)} title="Delete conversation" aria-label={`Delete ${displayTitle(thread.title)}`}>
+              <button data-ui-bespoke-reason="records ask composer" type="button" className="app-chat-history-delete" onClick={() => void deleteThread(thread)} title="Delete conversation" aria-label={`Delete ${displayTitle(thread.title)}`}>
                 <Trash2 aria-hidden="true" />
               </button>
             </div>
@@ -545,7 +545,7 @@ export function AppChatSidebar({
           </span>
         )}
         <form className="app-chat-composer" onSubmit={submit}>
-          <textarea
+          <textarea data-ui-bespoke-reason="records ask composer"
             value={draft}
             onChange={(event) => {
               setDraft(event.target.value);
@@ -563,9 +563,9 @@ export function AppChatSidebar({
             maxLength={4_000}
           />
           {sending ? (
-            <button type="button" onClick={() => void cancelRun()} aria-label="Stop response" title="Stop response"><Square aria-hidden="true" /></button>
+            <button data-ui-bespoke-reason="records ask composer" type="button" onClick={() => void cancelRun()} aria-label="Stop response" title="Stop response"><Square aria-hidden="true" /></button>
           ) : (
-            <button type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp aria-hidden="true" /></button>
+            <button data-ui-bespoke-reason="records ask composer" type="submit" disabled={!draft.trim()} aria-label="Send message"><ArrowUp aria-hidden="true" /></button>
           )}
         </form>
         {error && <p className="app-chat-error" role="alert">{error}</p>}

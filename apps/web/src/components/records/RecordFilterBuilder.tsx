@@ -8,6 +8,8 @@ import type {
   RecordListFilter,
 } from "@neko/records";
 import { Button } from "@/components/ui/Button";
+import { Disclosure } from "@/components/ui/Disclosure";
+import { Input, NativeSelect } from "@/components/ui/Field";
 
 export type RecordFilterField = {
   apiName: string;
@@ -127,20 +129,19 @@ export function RecordFilterBuilder({
   }
 
   return (
-    <details className="records-filter-builder">
-      <summary className="records-filter-add">+ Filter</summary>
-      <form onSubmit={apply}>
-        <label>
+    <Disclosure title="Add filter" className="records-filter-builder">
+      <form onSubmit={apply} className="grid gap-3">
+        <label className="grid gap-1.5 font-body text-ui-caption font-bold text-text2">
           Field
-          <select value={fieldName} onChange={(event) => setFieldName(event.target.value)}>
+          <NativeSelect value={fieldName} onChange={(event) => setFieldName(event.target.value)}>
             {fields.map((field) => (
               <option value={field.apiName} key={field.apiName}>{field.label}</option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
-        <label>
+        <label className="grid gap-1.5 font-body text-ui-caption font-bold text-text2">
           Condition
-          <select value={operator} onChange={(event) => setOperator(event.target.value)}>
+          <NativeSelect value={operator} onChange={(event) => setOperator(event.target.value)}>
             <option value="eq">equals</option>
             <option value="neq">does not equal</option>
             <option value="contains">contains</option>
@@ -163,24 +164,24 @@ export function RecordFilterBuilder({
                 <option value="is_closed">is semantically closed</option>
               </>
             )}
-          </select>
+          </NativeSelect>
         </label>
         {!noValue && (
-          <label>
+          <label className="grid gap-1.5 font-body text-ui-caption font-bold text-text2">
             Value
             {picklistOptions.length > 0 && ["eq", "neq"].includes(operator) ? (
-              <select name="value">
+              <NativeSelect name="value">
                 {picklistOptions.map((option) => (
                   <option value={option.value} key={option.value}>{option.label}</option>
                 ))}
-              </select>
+              </NativeSelect>
             ) : operator === "is_null" ? (
-              <select name="value">
+              <NativeSelect name="value">
                 <option value="true">is empty</option>
                 <option value="false">is not empty</option>
-              </select>
+              </NativeSelect>
             ) : (
-              <input
+              <Input
                 name="value"
                 required
                 type={operator === "last_n_days" ? "number" : "text"}
@@ -195,6 +196,6 @@ export function RecordFilterBuilder({
           Apply filter
         </Button>
       </form>
-    </details>
+    </Disclosure>
   );
 }

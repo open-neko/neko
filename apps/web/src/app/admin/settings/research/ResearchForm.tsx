@@ -6,9 +6,11 @@ import PageHeading from "@/components/PageHeading";
 import { toast } from "sonner";
 import Select from "@/components/Select";
 import { Button } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { Field, Input } from "@/components/ui/Field";
 
 type ProviderOption = { value: string; label: string; description: string };
-type Field = {
+type ProviderField = {
   key: string;
   label: string;
   kind: "text" | "secret" | "url";
@@ -25,18 +27,12 @@ type ProviderConfig = {
   config: Record<string, unknown>;
   secretStatus: Record<string, string>;
 };
-const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
-const FIELD_CLS = "flex flex-col gap-2";
-const LABEL_CLS = "text-ui-body font-semibold text-text";
-const HELP_CLS = "text-ui-body-sm text-text3 leading-[1.45]";
-
 type SettingsPayload = {
   primary: ProviderConfig;
   research: ProviderConfig;
   options: { primary: readonly ProviderOption[]; research: readonly ProviderOption[] };
   defaults: { primary: Record<string, string>; research: Record<string, string> };
-  fields: { primary: Record<string, Field[]>; research: Record<string, Field[]> };
+  fields: { primary: Record<string, ProviderField[]>; research: Record<string, ProviderField[]> };
 };
 
 export default function ResearchForm({ initial }: { initial: SettingsPayload }) {
@@ -61,7 +57,7 @@ export default function ResearchForm({ initial }: { initial: SettingsPayload }) 
   });
   const [saving, setSaving] = useState(false);
 
-  const fields: Field[] = initial.fields.research[research.provider] ?? [];
+  const fields: ProviderField[] = initial.fields.research[research.provider] ?? [];
   const providerOptions = initial.options.research.filter((o) => o.value !== "disabled");
 
   async function save() {
@@ -120,21 +116,20 @@ export default function ResearchForm({ initial }: { initial: SettingsPayload }) 
       />
 
       <section className="settings-card">
-        <label className="inline-flex items-center gap-2.5 mt-[18px] text-text2 text-ui-body-lg">
-          <input
-            type="checkbox"
+        <div className="mt-[18px]">
+          <Checkbox
+            label="Enable industry research"
             checked={enabled}
             onChange={(e) => setEnabled(e.target.checked)}
           />
-          <span>Enable industry research</span>
-        </label>
+        </div>
 
         {enabled && (
           <div className="grid gap-4 mt-4">
             <div className="settings-grid">
-              <label className={FIELD_CLS}>
-                <span className={LABEL_CLS}>Provider</span>
+              <Field label="Provider">
                 <Select
+                  id="research-provider"
                   value={research.provider}
                   onChange={(v) =>
                     setResearch({
@@ -149,15 +144,14 @@ export default function ResearchForm({ initial }: { initial: SettingsPayload }) 
                   options={providerOptions}
                   ariaLabel="Research provider"
                 />
-              </label>
-              <label className={FIELD_CLS}>
-                <span className={LABEL_CLS}>Model</span>
-                <input
-                  className={INPUT_CLS}
+              </Field>
+              <Field label="Model" htmlFor="research-model">
+                <Input
+                  id="research-model"
                   value={research.model}
                   onChange={(e) => setResearch((p) => ({ ...p, model: e.target.value }))}
                 />
-              </label>
+              </Field>
             </div>
 
             {fields.map((field) => {
@@ -168,16 +162,19 @@ export default function ResearchForm({ initial }: { initial: SettingsPayload }) 
                 : (research.config[field.key] as string) ?? "";
 
               return (
-                <label key={field.key} className={FIELD_CLS}>
-                  <span className={LABEL_CLS}>
-                    {field.label}
-                    {field.required ? " *" : ""}
-                  </span>
-                  <input
-                    className={INPUT_CLS}
+                <Field
+                  key={field.key}
+                  label={`${field.label}${field.required ? " *" : ""}`}
+                  htmlFor={`research-field-${field.key}`}
+                  hint={field.help}
+                >
+                  <Input
+                    id={`research-field-${field.key}`}
                     type={field.kind === "secret" ? "password" : "text"}
                     value={value}
                     placeholder={field.placeholder}
+                    autoComplete={isSecret ? "off" : undefined}
+                    spellCheck={false}
                     onChange={(e) => {
                       if (isSecret) {
                         setResearch((p) => ({
@@ -193,13 +190,13 @@ export default function ResearchForm({ initial }: { initial: SettingsPayload }) 
                       }
                     }}
                   />
-                  {field.help && <span className={HELP_CLS}>{field.help}</span>}
                   {isSecret && masked && !research.clearedSecrets[field.key] && (
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-text3 text-ui-body-sm">Saved: {masked}</span>
-                      <button
+                      <Button
                         type="button"
-                        className="border-0 bg-transparent text-[#b05555] cursor-pointer text-ui-body-sm font-semibold"
+                        variant="danger"
+                        size="sm"
                         onClick={() =>
                           setResearch((p) => ({
                             ...p,
@@ -209,10 +206,10 @@ export default function ResearchForm({ initial }: { initial: SettingsPayload }) 
                         }
                       >
                         Clear saved value
-                      </button>
+                      </Button>
                     </div>
                   )}
-                </label>
+                </Field>
               );
             })}
           </div>

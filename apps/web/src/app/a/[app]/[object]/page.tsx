@@ -217,18 +217,18 @@ export default async function RecordObjectPage({
         </div>
         <form className="records-search" action={base} method="get">
           <Search aria-hidden="true" />
-          <input
+          <input data-ui-bespoke-reason="records list search and hidden query fields"
             type="search"
             name="q"
             defaultValue={query.q}
             placeholder={`Search ${result.view.object.pluralLabel.toLowerCase()}`}
             aria-label={`Search ${result.view.object.pluralLabel}`}
           />
-          {query.sort && <input type="hidden" name="sort" value={query.sort} />}
-          {query.direction && <input type="hidden" name="direction" value={query.direction} />}
-          {query.mine && <input type="hidden" name="mine" value={query.mine} />}
-          {query.filter && <input type="hidden" name="filter" value={query.filter} />}
-          {query.view && <input type="hidden" name="view" value={query.view} />}
+          {query.sort && <input data-ui-bespoke-reason="records list search and hidden query fields" type="hidden" name="sort" value={query.sort} />}
+          {query.direction && <input data-ui-bespoke-reason="records list search and hidden query fields" type="hidden" name="direction" value={query.direction} />}
+          {query.mine && <input data-ui-bespoke-reason="records list search and hidden query fields" type="hidden" name="mine" value={query.mine} />}
+          {query.filter && <input data-ui-bespoke-reason="records list search and hidden query fields" type="hidden" name="filter" value={query.filter} />}
+          {query.view && <input data-ui-bespoke-reason="records list search and hidden query fields" type="hidden" name="view" value={query.view} />}
         </form>
         {result.view.permission.canCreate && (
           <Link

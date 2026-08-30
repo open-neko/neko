@@ -1083,7 +1083,7 @@ export default function WorkScreen() {
         <span className="work-gate-mark" aria-hidden="true" />
         <strong>Workspace unavailable</strong>
         <p>OpenNeko cannot reach the database. No work has been started.</p>
-        <button
+        <button data-ui-bespoke-reason="work composer and thread chrome"
           onClick={() => { setGateError(null); setGateChecked(false); window.location.reload(); }}
         >
           Retry
@@ -1125,7 +1125,7 @@ export default function WorkScreen() {
           })}
         </ol>
         <div className="work-command-actions">
-          <button
+          <button data-ui-bespoke-reason="work composer and thread chrome"
             type="button"
             className="work-command-action"
             onClick={() => setHistoryOpen(true)}
@@ -1135,7 +1135,7 @@ export default function WorkScreen() {
             <History aria-hidden="true" strokeWidth={1.9} />
             <span>History</span>
           </button>
-          <button
+          <button data-ui-bespoke-reason="work composer and thread chrome"
             type="button"
             className="work-command-action is-primary"
             onClick={() => router.push("/work")}
@@ -1305,7 +1305,7 @@ export default function WorkScreen() {
               aria-label="Workflows"
             >
               {mentionMatches.map((opt, i) => (
-                <button
+                <button data-ui-bespoke-reason="work composer and thread chrome"
                   key={opt.id}
                   type="button"
                   role="option"
@@ -1345,7 +1345,7 @@ export default function WorkScreen() {
                   <span className="text-text3 tabular-nums text-ui-label tracking-wide">
                     {Math.max(1, Math.round(file.size / 1024))} KB
                   </span>
-                  <button
+                  <button data-ui-bespoke-reason="work composer and thread chrome"
                     type="button"
                     aria-label={`Remove ${file.name}`}
                     onClick={() =>
@@ -1358,7 +1358,7 @@ export default function WorkScreen() {
               ))}
             </div>
           ) : null}
-          <textarea
+          <textarea data-ui-bespoke-reason="work composer and thread chrome"
             ref={textareaRef}
             className="work-input"
             placeholder={
@@ -1431,7 +1431,7 @@ export default function WorkScreen() {
           />
           <div className="flex items-center justify-between gap-2.5 px-1.5 py-1 max-[720px]:px-1">
             <div className="inline-flex items-center gap-2 min-w-0">
-              <button
+              <button data-ui-bespoke-reason="work composer and thread chrome"
                 className="work-icon-btn"
                 onClick={() => fileInputRef.current?.click()}
                 title="Attach a file"
@@ -1452,7 +1452,7 @@ export default function WorkScreen() {
               </span>
             </div>
             {sending ? (
-              <button
+              <button data-ui-bespoke-reason="work composer and thread chrome"
                 className="work-send-btn is-stop"
                 type="button"
                 onClick={() => void cancelRun()}
@@ -1462,7 +1462,7 @@ export default function WorkScreen() {
                 <span>Stop</span>
               </button>
             ) : (
-              <button
+              <button data-ui-bespoke-reason="work composer and thread chrome"
                 className="work-send-btn"
                 type="button"
                 onClick={() => void sendMessage()}
@@ -1476,7 +1476,7 @@ export default function WorkScreen() {
           </div>
         </div>
 
-        <input
+        <input data-ui-bespoke-reason="work composer and thread chrome"
           ref={fileInputRef}
           type="file"
           multiple
@@ -1538,7 +1538,7 @@ function EmptyAsk({ onPick }: { onPick: (text: string) => void }) {
       </div>
       <div className="work-empty-prompts" aria-label="Example jobs">
         {EMPTY_PROMPTS.map((prompt, index) => (
-          <button
+          <button data-ui-bespoke-reason="work composer and thread chrome"
             key={prompt.label}
             type="button"
             className="work-empty-prompt"
@@ -1583,11 +1583,11 @@ function PendingMemoryPanel({
           <div className="mt-1 text-text3 text-ui-label">+{pending.length - 1} more</div>
         ) : null}
       </div>
-      <div className="inline-flex min-w-0 gap-[7px] flex-wrap justify-end flex-shrink-0 max-[560px]:justify-start [&_button]:h-[30px] [&_button]:max-w-full [&_button]:rounded-[10px] [&_button]:border [&_button]:border-border [&_button]:bg-card [&_button]:text-text2 [&_button]:inline-flex [&_button]:items-center [&_button]:justify-center [&_button]:gap-1 [&_button]:px-2 [&_button]:text-ui-label [&_button]:cursor-pointer [&_button]:transition-all [&_button]:duration-200 [&_button:hover]:border-accent [&_button:hover]:text-accent">
-        <button type="button" onClick={() => onDecide(item.id, "decline")} title="Dismiss">
+      <div className="inline-flex min-w-0 gap-[7px] flex-wrap justify-end flex-shrink-0 max-[560px]:justify-start [&_button]:h-[30px] [&_button]:max-w-full [&_button]:rounded-[10px] [&_button]:border [&_button]:border-border [&_button]:bg-card [&_button]:text-text2 [&_button]:inline-flex [&_button]:items-center [&_button]:justify-center [&_button]:gap-1 [&_button]:px-2 [&_button]:text-ui-label [&_button]:cursor-pointer [&_button]:transition-[color,border-color,background-color] [&_button]:duration-200 [&_button:hover]:border-accent [&_button:hover]:text-accent">
+        <button data-ui-bespoke-reason="work composer and thread chrome" type="button" onClick={() => onDecide(item.id, "decline")} title="Dismiss">
           <X size={14} />
         </button>
-        <button
+        <button data-ui-bespoke-reason="work composer and thread chrome"
           type="button"
           onClick={() => onDecide(item.id, "accept", { scope: "global" })}
           title="Save globally"
@@ -1596,7 +1596,7 @@ function PendingMemoryPanel({
           <span>Global</span>
         </button>
         {threadId ? (
-          <button
+          <button data-ui-bespoke-reason="work composer and thread chrome"
             type="button"
             onClick={() =>
               onDecide(item.id, "accept", { scope: "thread", scopeId: threadId })
@@ -1657,7 +1657,7 @@ function MessageBubble({
     return (
       <div className="work-bubble-row is-user">
         <div className="work-bubble is-user is-editing">
-          <textarea
+          <textarea data-ui-bespoke-reason="work composer and thread chrome"
             className="work-bubble-edit"
             value={editText}
             onChange={(e) => {
@@ -1686,10 +1686,10 @@ function MessageBubble({
           />
         </div>
         <div className="work-bubble-edit-hint">
-          <button type="button" onClick={cancel}>
+          <button data-ui-bespoke-reason="work composer and thread chrome" type="button" onClick={cancel}>
             Cancel
           </button>
-          <button
+          <button data-ui-bespoke-reason="work composer and thread chrome"
             type="button"
             className="is-primary"
             onClick={save}
@@ -1711,7 +1711,7 @@ function MessageBubble({
       {showActions ? (
         <div className="work-bubble-actions">
           {onCopy ? (
-            <button
+            <button data-ui-bespoke-reason="work composer and thread chrome"
               type="button"
               title={copied ? "Copied" : "Copy"}
               aria-label="Copy"
@@ -1725,7 +1725,7 @@ function MessageBubble({
             </button>
           ) : null}
           {onRetry ? (
-            <button
+            <button data-ui-bespoke-reason="work composer and thread chrome"
               type="button"
               title="Retry"
               aria-label="Retry"
@@ -1735,7 +1735,7 @@ function MessageBubble({
             </button>
           ) : null}
           {onEdit ? (
-            <button
+            <button data-ui-bespoke-reason="work composer and thread chrome"
               type="button"
               title="Edit"
               aria-label="Edit"
@@ -2597,7 +2597,7 @@ function NeedsInputNotice({
               {question.options?.length ? (
                 <div className="work-a2ui-chips">
                   {question.options.map((option) => (
-                    <button
+                    <button data-ui-bespoke-reason="work composer and thread chrome"
                       key={option.label}
                       type="button"
                       className="work-choice-btn"
@@ -2609,7 +2609,7 @@ function NeedsInputNotice({
                   ))}
                 </div>
               ) : (
-                <button
+                <button data-ui-bespoke-reason="work composer and thread chrome"
                   type="button"
                   className="work-a2ui-button"
                   onClick={() => onRespond(`${question.question}\n\n`)}
@@ -2664,7 +2664,7 @@ function CapabilityDeniedNotice({
                 Ask OpenNeko to find the right integration. Installation will
                 still require your explicit approval.
               </p>
-              <button type="button" onClick={() => onRequest(requestPrompt)}>
+              <button data-ui-bespoke-reason="work composer and thread chrome" type="button" onClick={() => onRequest(requestPrompt)}>
                 Request secure integration
               </button>
             </>
@@ -2744,7 +2744,7 @@ function AnswerRunFooter({
           <span>Continue</span>
           <div>
             {followups.map((prompt) => (
-              <button
+              <button data-ui-bespoke-reason="work composer and thread chrome"
                 key={prompt}
                 type="button"
                 onClick={() => onFollowup(prompt)}
@@ -3008,7 +3008,7 @@ function ActionApprovalRow({
         </span>
         {pending && !rejectMode ? (
           <span className="work-action-row-actions">
-            <button
+            <button data-ui-bespoke-reason="work composer and thread chrome"
               type="button"
               disabled={busy}
               onClick={() => decide("approve")}
@@ -3016,7 +3016,7 @@ function ActionApprovalRow({
             >
               {busy ? "Approving…" : "Approve"}
             </button>
-            <button
+            <button data-ui-bespoke-reason="work composer and thread chrome"
               type="button"
               disabled={busy}
               onClick={() => setRejectMode(true)}
@@ -3027,7 +3027,7 @@ function ActionApprovalRow({
           </span>
         ) : null}
         {hasDetail ? (
-          <button
+          <button data-ui-bespoke-reason="work composer and thread chrome"
             type="button"
             className="work-action-row-detail-toggle"
             onClick={() => setOpen((value) => !value)}
@@ -3040,7 +3040,7 @@ function ActionApprovalRow({
 
       {pending && rejectMode ? (
         <div className="work-action-row-decision">
-          <input
+          <input data-ui-bespoke-reason="work composer and thread chrome"
             type="text"
             placeholder="Reason (optional, shown to the agent)"
             value={rejectReason}
@@ -3048,7 +3048,7 @@ function ActionApprovalRow({
             disabled={busy}
           />
           <div className="work-action-row-actions">
-            <button
+            <button data-ui-bespoke-reason="work composer and thread chrome"
               type="button"
               disabled={busy}
               onClick={() => decide("reject")}
@@ -3056,7 +3056,7 @@ function ActionApprovalRow({
             >
               {busy ? "Rejecting…" : "Confirm reject"}
             </button>
-            <button
+            <button data-ui-bespoke-reason="work composer and thread chrome"
               type="button"
               disabled={busy}
               onClick={() => {
@@ -3131,7 +3131,7 @@ function ToolGroup({
 
   return (
     <div className="work-tool-group">
-      <button
+      <button data-ui-bespoke-reason="work composer and thread chrome"
         type="button"
         className="work-tool-group-head"
         onClick={() => setOpen((v) => !v)}
@@ -3201,7 +3201,7 @@ function RegularToolRow({ tool }: { tool: ToolItem }) {
 
   return (
     <div className={`work-tool-row work-tool-row-${status}`}>
-      <button
+      <button data-ui-bespoke-reason="work composer and thread chrome"
         type="button"
         className="work-tool-row-head"
         onClick={() => hasDetail && setOpen((v) => !v)}

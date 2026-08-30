@@ -480,7 +480,7 @@ export default function RunPage() {
                   className="run-action-card bg-card border border-border rounded-2xl px-4 py-3.5"
                 >
                   <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <button
+                    <button data-ui-bespoke-reason="run timeline playback"
                       type="button"
                       className="font-semibold text-sm text-text leading-[1.4] bg-transparent border-0 p-0 text-left cursor-pointer hover:underline hover:underline-offset-[3px]"
                       onClick={() => router.push(`/actions/${a.id}`)}
@@ -519,7 +519,7 @@ export default function RunPage() {
                       <label className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3">
                         Why are you rejecting this? (optional)
                       </label>
-                      <textarea
+                      <textarea data-ui-bespoke-reason="run timeline playback"
                         className="border border-border rounded-[10px] px-3 py-2 font-body text-ui-body-sm text-text bg-card resize-y min-h-[50px] outline-none focus:border-accent"
                         value={rejectReason}
                         placeholder="e.g. wrong channel, retry tomorrow…"
@@ -589,12 +589,12 @@ export default function RunPage() {
             </div>
           </header>
 
-          <details
+          <details data-ui-bespoke-reason="run timeline playback"
             className="run-expander"
             open={showEvents}
             onToggle={(e) => setShowEvents(e.currentTarget.open)}
           >
-            <summary className="run-expander-summary">
+            <summary data-ui-bespoke-reason="run timeline playback" className="run-expander-summary">
               Execution trace
               <span>{data.events.length} events</span>
             </summary>
@@ -607,12 +607,12 @@ export default function RunPage() {
             </div>
           </details>
 
-          <details
+          <details data-ui-bespoke-reason="run timeline playback"
             className="run-expander"
             open={showLineage}
             onToggle={(e) => setShowLineage(e.currentTarget.open)}
           >
-            <summary className="run-expander-summary">
+            <summary data-ui-bespoke-reason="run timeline playback" className="run-expander-summary">
               Origin
               <span>{formatTrigger(run.triggerKind)}</span>
             </summary>

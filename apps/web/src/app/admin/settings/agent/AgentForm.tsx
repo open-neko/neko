@@ -6,9 +6,10 @@ import PageHeading from "@/components/PageHeading";
 import { toast } from "sonner";
 import Select from "@/components/Select";
 import { Button } from "@/components/ui/Button";
+import { Field, Input } from "@/components/ui/Field";
 
 type ProviderOption = { value: string; label: string; description: string };
-type Field = {
+type ProviderField = {
   key: string;
   label: string;
   kind: "text" | "secret" | "url";
@@ -30,14 +31,8 @@ type SettingsPayload = {
   research: ProviderConfig;
   options: { primary: readonly ProviderOption[]; research: readonly ProviderOption[] };
   defaults: { primary: Record<string, string>; research: Record<string, string> };
-  fields: { primary: Record<string, Field[]>; research: Record<string, Field[]> };
+  fields: { primary: Record<string, ProviderField[]>; research: Record<string, ProviderField[]> };
 };
-const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
-const FIELD_CLS = "flex flex-col gap-2";
-const LABEL_CLS = "text-ui-body font-semibold text-text";
-const HELP_CLS = "text-ui-body-sm text-text3 leading-[1.45]";
-
 type AgentSettingsPayload = {
   agent: {
     source: "org" | "default";
@@ -67,7 +62,7 @@ export default function AgentForm({
     [initial.providers.options.primary],
   );
 
-  const fields: Field[] = initial.providers.fields.primary[primary.provider] ?? [];
+  const fields: ProviderField[] = initial.providers.fields.primary[primary.provider] ?? [];
 
   const onPrimaryProviderChange = (next: string) => {
     setPrimary({
@@ -139,39 +134,38 @@ export default function AgentForm({
       <section className="settings-card">
         <div className="grid gap-4 mt-4">
           <div className="settings-grid">
-            <label className={FIELD_CLS}>
-              <span className={LABEL_CLS}>Provider</span>
+            <Field label="Provider">
               <Select
+                id="agent-provider"
                 value={primary.provider}
                 onChange={onPrimaryProviderChange}
                 options={providerOptions}
                 ariaLabel="Primary provider"
               />
-            </label>
-            <label className={FIELD_CLS}>
-              <span className={LABEL_CLS}>Model</span>
-              <input
-                className={INPUT_CLS}
+            </Field>
+            <Field label="Model" htmlFor="agent-model">
+              <Input
+                id="agent-model"
                 value={primary.model}
                 onChange={(e) => setPrimary((p) => ({ ...p, model: e.target.value }))}
               />
-            </label>
+            </Field>
           </div>
 
-          <label className={FIELD_CLS}>
-            <span className={LABEL_CLS}>Concurrent jobs</span>
-            <input
-              className={INPUT_CLS}
+          <Field
+            label="Concurrent jobs"
+            htmlFor="agent-concurrent-jobs"
+            hint="How many metric jobs the worker runs in parallel. Worker restart applies changes."
+          >
+            <Input
+              id="agent-concurrent-jobs"
               type="number"
               min={1}
               max={1000}
               value={concurrentJobs}
               onChange={(e) => setConcurrentJobs(e.target.value)}
             />
-            <span className={HELP_CLS}>
-              How many metric jobs the worker runs in parallel. Worker restart applies changes.
-            </span>
-          </label>
+          </Field>
 
           {fields.map((field) => {
             const masked = primary.secretStatus[field.key];
@@ -181,16 +175,19 @@ export default function AgentForm({
               : (primary.config[field.key] as string) ?? "";
 
             return (
-              <label key={field.key} className={FIELD_CLS}>
-                <span className={LABEL_CLS}>
-                  {field.label}
-                  {field.required ? " *" : ""}
-                </span>
-                <input
-                  className={INPUT_CLS}
+              <Field
+                key={field.key}
+                label={`${field.label}${field.required ? " *" : ""}`}
+                htmlFor={`agent-field-${field.key}`}
+                hint={field.help}
+              >
+                <Input
+                  id={`agent-field-${field.key}`}
                   type={field.kind === "secret" ? "password" : "text"}
                   value={value}
                   placeholder={field.placeholder}
+                  autoComplete={isSecret ? "off" : undefined}
+                  spellCheck={false}
                   onChange={(e) => {
                     if (isSecret) {
                       setPrimary((p) => ({
@@ -206,13 +203,13 @@ export default function AgentForm({
                     }
                   }}
                 />
-                {field.help && <span className={HELP_CLS}>{field.help}</span>}
                 {isSecret && masked && !primary.clearedSecrets[field.key] && (
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-text3 text-ui-body-sm">Saved: {masked}</span>
-                    <button
+                    <Button
                       type="button"
-                      className="border-0 bg-transparent text-[#b05555] cursor-pointer text-ui-body-sm font-semibold"
+                      variant="danger"
+                      size="sm"
                       onClick={() =>
                         setPrimary((p) => ({
                           ...p,
@@ -222,10 +219,10 @@ export default function AgentForm({
                       }
                     >
                       Clear saved value
-                    </button>
+                    </Button>
                   </div>
                 )}
-              </label>
+              </Field>
             );
           })}
         </div>

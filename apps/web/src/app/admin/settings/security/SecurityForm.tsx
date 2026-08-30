@@ -7,6 +7,8 @@ import CreatorCredit from "@/components/CreatorCredit";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
 import { Button } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { Field, Input } from "@/components/ui/Field";
 
 type InstallPolicy = {
   allowUnverified: boolean;
@@ -21,12 +23,6 @@ type InstallPolicyPayload = {
 
 const OFFICIAL_MARKETPLACE_URL =
   "https://open-neko.github.io/plugins/marketplace.json";
-
-const FIELD_CLS = "flex flex-col gap-2";
-const LABEL_CLS = "text-ui-body font-semibold text-text";
-const HELP_CLS = "text-ui-body-sm text-text3 leading-[1.45]";
-const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
 
 export default function SecurityForm({ initial }: { initial: InstallPolicyPayload }) {
   const [policy, setPolicy] = useState<InstallPolicy>(initial.policy);
@@ -123,13 +119,11 @@ export default function SecurityForm({ initial }: { initial: InstallPolicyPayloa
             onChange={(v) => toggle("allowGitUrlInstalls", v)}
           />
 
-          <div className={FIELD_CLS}>
-            <label className={LABEL_CLS}>Allowed marketplaces</label>
-            <p className={HELP_CLS}>
-              Marketplaces this deployment trusts. The official OpenNeko
-              marketplace is always trusted. Add community marketplaces by
-              URL.
-            </p>
+          <Field
+            label="Allowed marketplaces"
+            htmlFor="marketplace-url"
+            hint="Marketplaces this deployment trusts. The official OpenNeko marketplace is always trusted. Add community marketplaces by URL."
+          >
             <ul className="flex flex-col gap-2 mt-1">
               {policy.allowedMarketplaces.map((url) => (
                 <li
@@ -140,30 +134,33 @@ export default function SecurityForm({ initial }: { initial: InstallPolicyPayloa
                   {url === OFFICIAL_MARKETPLACE_URL ? (
                     <span className="text-ui-caption text-text3">official</span>
                   ) : (
-                    <button
+                    <Button
                       type="button"
-                      className="text-ui-caption text-text2 underline"
+                      variant="ghost"
+                      size="sm"
                       onClick={() => removeMarketplace(url)}
                     >
-                      remove
-                    </button>
+                      Remove
+                    </Button>
                   )}
                 </li>
               ))}
             </ul>
             <div className="flex gap-2 mt-2">
-              <input
+              <Input
+                id="marketplace-url"
                 type="url"
                 placeholder="https://example.com/marketplace.json"
                 value={newMarketplace}
                 onChange={(e) => setNewMarketplace(e.target.value)}
-                className={`${INPUT_CLS} flex-1`}
+                className="flex-1"
+                spellCheck={false}
               />
               <Button type="button" onClick={addMarketplace} variant="secondary">
                 Add
               </Button>
             </div>
-          </div>
+          </Field>
   
           <div className="flex justify-end mt-2">
             <Button type="button" onClick={save} disabled={saving}>
@@ -190,19 +187,13 @@ function Toggle({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className={FIELD_CLS}>
-      <label className="flex items-start gap-3 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(e) => onChange(e.target.checked)}
-          className="mt-1 w-4 h-4 cursor-pointer"
-        />
-        <div className="flex flex-col gap-1">
-          <span className={LABEL_CLS}>{label}</span>
-          <span className={HELP_CLS}>{help}</span>
-        </div>
-      </label>
+    <div className="grid gap-1.5">
+      <Checkbox
+        label={label}
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <p className="pl-6 text-ui-caption leading-[var(--leading-compact)] text-text3">{help}</p>
     </div>
   );
 }

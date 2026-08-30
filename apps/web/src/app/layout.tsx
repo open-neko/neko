@@ -3,6 +3,7 @@ import { Toaster } from "sonner";
 import { DensityProvider } from "@/components/DensityProvider";
 import AppRail from "@/components/AppRail";
 import CommandDock from "@/components/CommandDock";
+import { THEME_COLOR } from "@/lib/theme-color";
 import "@fontsource-variable/archivo/wght.css";
 import "@fontsource-variable/manrope/wght.css";
 import "./globals.css";
@@ -22,7 +23,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#FAFAF7",
+  themeColor: THEME_COLOR,
 };
 
 export default function RootLayout({
@@ -36,9 +37,12 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: DENSITY_INIT }} />
       </head>
       <body>
+        <a href="#main-content" className="skip-to-main">
+          Skip to main content
+        </a>
         <DensityProvider>
           <AppRail />
-          {children}
+          <div id="main-content">{children}</div>
           <CommandDock />
         </DensityProvider>
         <Toaster
@@ -51,26 +55,6 @@ export default function RootLayout({
           toastOptions={{
             duration: 4500,
             unstyled: true,
-            style: {
-              width: "min(360px, calc(100vw - 32px))",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 12,
-              padding: "14px 16px 14px 18px",
-              background: "#FFFFFF",
-              color: "#2D2A24",
-              border: "1px solid #EEEBE4",
-              borderRadius: 16,
-              boxShadow:
-                "0 1px 2px rgba(20,18,12,0.04), 0 12px 40px -8px rgba(20,18,12,0.12), 0 24px 60px -16px rgba(20,18,12,0.08)",
-              fontFamily: "var(--font-body), 'Manrope', sans-serif",
-              fontSize: "var(--type-body-sm)",
-              fontWeight: 400,
-              lineHeight: 1.5,
-              boxSizing: "border-box",
-              position: "relative",
-              overflow: "hidden",
-            },
             classNames: {
               toast: "app-toast",
               title: "app-toast-title",

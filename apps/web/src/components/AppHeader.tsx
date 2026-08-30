@@ -92,7 +92,7 @@ export default function AppHeader({ back, children }: AppHeaderProps) {
         </a>
 
         {updateAvailable ? (
-          <button
+          <button data-ui-bespoke-reason="top bar chrome"
             type="button"
             className="topbar-ver is-update"
             onClick={() => window.location.reload()}
@@ -129,7 +129,7 @@ export default function AppHeader({ back, children }: AppHeaderProps) {
         </a>
 
         {user && (
-          <button
+          <button data-ui-bespoke-reason="top bar chrome"
             type="button"
             onClick={handleSignOut}
             aria-label={`Sign out ${user.email}`}

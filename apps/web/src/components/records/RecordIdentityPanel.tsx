@@ -95,7 +95,7 @@ function MappingControl({
         void decide("link");
       }}
     >
-      <select
+      <select data-ui-bespoke-reason="records identity mapping"
         aria-label={`OpenNeko user for ${sourceLabel(mapping)}`}
         value={appUserId}
         onChange={(event) => setAppUserId(event.target.value)}
@@ -173,7 +173,7 @@ function BackfillControl({ appId, sources }: { appId: string; sources: string[] 
 
   return (
     <form className="records-identity-backfill" onSubmit={run}>
-      <select
+      <select data-ui-bespoke-reason="records identity mapping"
         aria-label="Source instance to backfill"
         value={sourceInstanceId}
         onChange={(event) => setSourceInstanceId(event.target.value)}

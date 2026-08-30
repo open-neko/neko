@@ -211,9 +211,9 @@ function RunsPageInner() {
           <ul className="list-none p-0 m-0 flex flex-col gap-2.5">
             {data.runs.map((run) => (
               <li key={run.id}>
-                <button
+                <button data-ui-bespoke-reason="run list row"
                   type="button"
-                  className="w-full text-left bg-card border border-border rounded-2xl px-4 py-3.5 cursor-pointer transition hover:border-accent hover:shadow-[0_12px_30px_-22px_rgba(20,18,12,0.35)]"
+                  className="w-full text-left bg-card border border-border rounded-2xl px-4 py-3.5 cursor-pointer transition-[border-color,box-shadow] hover:border-accent hover:shadow-hover"
                   onClick={() => router.push(`/runs/${run.id}`)}
                 >
                   <div className="flex items-start justify-between gap-3">

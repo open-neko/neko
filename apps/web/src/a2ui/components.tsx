@@ -244,7 +244,7 @@ registerComponent("Table", (comp: A2UIComponent) => {
 });
 
 // ─── Section ───
-// A titled group of components. `collapsible` renders a native <details> so
+// A titled group of components. `collapsible` renders a native <details data-ui-bespoke-reason="agent-rendered A2UI catalog"> so
 // long answers can fold their supporting detail without any client state.
 registerComponent("Section", (comp: A2UIComponent, ctx: RenderContext) => {
   const props = comp as unknown as SectionProps & { id: string };
@@ -252,8 +252,8 @@ registerComponent("Section", (comp: A2UIComponent, ctx: RenderContext) => {
   const body = <div className="work-section-body">{renderChildren(childIds, ctx)}</div>;
   if (props.collapsible) {
     return (
-      <details key={props.id} className="work-section is-collapsible" open={props.defaultOpen !== false}>
-        <summary className="work-section-summary">{props.title}</summary>
+      <details data-ui-bespoke-reason="agent-rendered A2UI catalog" key={props.id} className="work-section is-collapsible" open={props.defaultOpen !== false}>
+        <summary data-ui-bespoke-reason="agent-rendered A2UI catalog" className="work-section-summary">{props.title}</summary>
         {body}
       </details>
     );
@@ -294,7 +294,7 @@ registerComponent("Choice", (comp: A2UIComponent, ctx: RenderContext) => {
   return (
     <div key={props.id} className="work-choice">
       {options.map((opt, i) => (
-        <button
+        <button data-ui-bespoke-reason="agent-rendered A2UI catalog"
           key={i}
           type="button"
           className="work-choice-btn"
@@ -380,7 +380,7 @@ function TabsView({ props, ctx }: { props: TabsProps & { id: string }; ctx: Rend
     <div className="work-a2ui-tabs">
       <div className="work-a2ui-tab-list" role="tablist" aria-label="Configuration sections">
         {tabs.map((tab, index) => (
-          <button
+          <button data-ui-bespoke-reason="agent-rendered A2UI catalog"
             key={`${tab.child}-${index}`}
             type="button"
             role="tab"
@@ -421,7 +421,7 @@ registerComponent("TextField", (comp: A2UIComponent, ctx: RenderContext) => {
   return (
     <label className="work-a2ui-field" htmlFor={common.id}>
       <span className="work-a2ui-label">{props.label}</span>
-      {props.variant === "longText" ? <textarea {...common} rows={4} /> : <input {...common} type={inputType} />}
+      {props.variant === "longText" ? <textarea data-ui-bespoke-reason="agent-rendered A2UI catalog" {...common} rows={4} /> : <input data-ui-bespoke-reason="agent-rendered A2UI catalog" {...common} type={inputType} />}
     </label>
   );
 });
@@ -431,7 +431,7 @@ registerComponent("CheckBox", (comp: A2UIComponent, ctx: RenderContext) => {
   const path = bindingPath(ctx, props.id, "value");
   return (
     <label className="work-a2ui-checkbox">
-      <input
+      <input data-ui-bespoke-reason="agent-rendered A2UI catalog"
         type="checkbox"
         checked={Boolean(props.value)}
         onChange={(event) => path && ctx.onDataChange?.(path, event.target.checked)}
@@ -454,7 +454,7 @@ registerComponent("ChoicePicker", (comp: A2UIComponent, ctx: RenderContext) => {
     return (
       <label className="work-a2ui-field">
         {props.label ? <span className="work-a2ui-label">{props.label}</span> : null}
-        <select
+        <select data-ui-bespoke-reason="agent-rendered A2UI catalog"
           className="work-a2ui-input"
           value={selected[0] ?? ""}
           onChange={(event) => path && ctx.onDataChange?.(path, event.target.value ? [event.target.value] : [])}
@@ -473,7 +473,7 @@ registerComponent("ChoicePicker", (comp: A2UIComponent, ctx: RenderContext) => {
           const checked = selected.includes(option.value);
           return (
             <label key={option.value} className="work-a2ui-check-option">
-              <input
+              <input data-ui-bespoke-reason="agent-rendered A2UI catalog"
                 type="checkbox"
                 checked={checked}
                 onChange={() => {
@@ -583,17 +583,17 @@ function OpenApiSpecInputView({
     <div className="work-openapi-import">
       <div className="work-a2ui-label">{props.label ?? "OpenAPI specification"}</div>
       <div className="work-openapi-mode" role="tablist" aria-label="OpenAPI import method">
-        <button type="button" role="tab" aria-selected={mode === "url"} onClick={() => setMode("url")}>
+        <button data-ui-bespoke-reason="agent-rendered A2UI catalog" type="button" role="tab" aria-selected={mode === "url"} onClick={() => setMode("url")}>
           Hosted URL
         </button>
-        <button type="button" role="tab" aria-selected={mode === "upload"} onClick={() => setMode("upload")}>
+        <button data-ui-bespoke-reason="agent-rendered A2UI catalog" type="button" role="tab" aria-selected={mode === "upload"} onClick={() => setMode("upload")}>
           Upload file
         </button>
       </div>
       {mode === "url" ? (
         <label className="work-a2ui-field">
           <span className="work-a2ui-label">OpenAPI YAML or JSON URL</span>
-          <input
+          <input data-ui-bespoke-reason="agent-rendered A2UI catalog"
             className="work-a2ui-input"
             type="url"
             value={url}
@@ -604,7 +604,7 @@ function OpenApiSpecInputView({
       ) : (
         <label className="work-a2ui-field">
           <span className="work-a2ui-label">OpenAPI file</span>
-          <input
+          <input data-ui-bespoke-reason="agent-rendered A2UI catalog"
             className="work-a2ui-input work-openapi-file"
             type="file"
             accept=".yaml,.yml,.json,application/yaml,application/json,text/yaml"
@@ -614,7 +614,7 @@ function OpenApiSpecInputView({
       )}
       <label className="work-a2ui-field">
         <span className="work-a2ui-label">Base URL override (optional)</span>
-        <input
+        <input data-ui-bespoke-reason="agent-rendered A2UI catalog"
           className="work-a2ui-input"
           type="url"
           value={baseUrl}
@@ -622,7 +622,7 @@ function OpenApiSpecInputView({
           onChange={(event) => setBaseUrl(event.target.value)}
         />
       </label>
-      <button
+      <button data-ui-bespoke-reason="agent-rendered A2UI catalog"
         type="button"
         className="work-a2ui-button"
         disabled={busy}
@@ -739,14 +739,14 @@ function ManagedFileSourceInputView({
       </div>
       <label className="work-a2ui-field">
         <span className="work-a2ui-label">Files</span>
-        <input
+        <input data-ui-bespoke-reason="agent-rendered A2UI catalog"
           className="work-a2ui-input work-openapi-file"
           type="file"
           multiple
           onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
         />
       </label>
-      <button
+      <button data-ui-bespoke-reason="agent-rendered A2UI catalog"
         type="button"
         className="work-a2ui-button"
         disabled={busy || !sourceName || files.length === 0}
@@ -811,7 +811,7 @@ registerComponent("Button", (comp: A2UIComponent, ctx: RenderContext) => {
     ? requiresValue.length > 0 && requiresValue.every(Boolean)
     : Boolean(requiresValue);
   return (
-    <button
+    <button data-ui-bespoke-reason="agent-rendered A2UI catalog"
       type="button"
       className={`work-a2ui-button is-${props.variant ?? "default"}`}
       disabled={hasRequirement && !requirementSatisfied}

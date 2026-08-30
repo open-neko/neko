@@ -123,7 +123,7 @@ function RecordObjectNavigation({
       <label className="app-rail-record-search">
         <Search aria-hidden="true" strokeWidth={2} />
         <span className="sr-only">Search {app.label} objects</span>
-        <input
+        <input data-ui-bespoke-reason="navigation rail"
           type="search"
           value={query}
           onChange={(event) => {
@@ -162,7 +162,7 @@ function RecordObjectNavigation({
                       </span>
                     )}
                   </Link>
-                  <button
+                  <button data-ui-bespoke-reason="navigation rail"
                     type="button"
                     className={`app-rail-record-favorite${favorite ? " is-favorite" : ""}`}
                     aria-label={`${favorite ? "Remove" : "Add"} ${object.pluralLabel} ${favorite ? "from" : "to"} favorites`}
@@ -180,7 +180,7 @@ function RecordObjectNavigation({
           <div className="app-rail-record-empty">No objects match “{query}”.</div>
         )}
         {navigation.hiddenCount > 0 && (
-          <button
+          <button data-ui-bespoke-reason="navigation rail"
             type="button"
             className="app-rail-record-more"
             onClick={() => setExpanded(true)}
@@ -189,7 +189,7 @@ function RecordObjectNavigation({
           </button>
         )}
         {expanded && navigation.hiddenCount === 0 && app.objects.length > 12 && (
-          <button
+          <button data-ui-bespoke-reason="navigation rail"
             type="button"
             className="app-rail-record-more"
             onClick={() => setExpanded(false)}
@@ -422,7 +422,7 @@ export default function AppRail() {
           </span>
         </a>
         {RECORDS_VISUAL_TEST ? null : updateAvailable ? (
-          <button
+          <button data-ui-bespoke-reason="navigation rail"
             type="button"
             className="app-rail-version is-update"
             onClick={() => window.location.reload()}
@@ -470,7 +470,7 @@ export default function AppRail() {
             <label className="app-rail-record-switcher">
               <span className="sr-only">Choose an app</span>
               <Database aria-hidden="true" strokeWidth={2} />
-              <select
+              <select data-ui-bespoke-reason="navigation rail"
                 value={activeRecordApp?.appId ?? ""}
                 onChange={(event) => {
                   if (event.target.value) router.push(`/a/${event.target.value}`);
@@ -571,7 +571,7 @@ export default function AppRail() {
                 </span>
               </span>
             </Link>
-            <button
+            <button data-ui-bespoke-reason="navigation rail"
               type="button"
               className="app-rail-signout"
               onClick={handleSignOut}

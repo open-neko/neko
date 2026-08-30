@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Checkbox } from "@/components/ui/Checkbox";
 
 type GraphjinConfigSettings = {
   sourceConfigEnabled: boolean;
@@ -66,19 +67,14 @@ export default function GraphjinConfigControls({
         </span>
       </div>
 
-      <label className="mt-4 flex cursor-pointer items-start gap-3 text-sm text-text2">
-        <input
-          type="checkbox"
+      <div className="mt-4">
+        <Checkbox
           checked={enabled}
           disabled={saving}
           onChange={(e) => void toggle(e.target.checked)}
-          className="mt-1 h-4 w-4 cursor-pointer disabled:cursor-not-allowed"
+          label="Enable GraphJin config tools for admin Ask sessions and approved MCP action execution."
         />
-        <span>
-          Enable GraphJin config tools for admin Ask sessions and approved MCP
-          action execution.
-        </span>
-      </label>
+      </div>
     </section>
   );
 }

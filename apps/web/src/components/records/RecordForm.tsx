@@ -6,6 +6,8 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { CheckCircle2, LoaderCircle, LockKeyhole } from "lucide-react";
 import type { RecordViewColumn } from "@neko/records";
 import { Button, buttonClassName } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { Input, NativeSelect, Textarea } from "@/components/ui/Field";
 
 type SubmitResponse = {
   status?: "executed" | "queued";
@@ -71,40 +73,41 @@ function FieldControl({
     required: column.required,
   };
   if (column.readOnly || column.kind === "readonly_formula") {
-    return <input {...common} type="text" value={stringValue(value)} disabled readOnly />;
+    return <Input {...common} type="text" value={stringValue(value)} disabled readOnly />;
   }
   if (column.kind === "textarea") {
-    return <textarea {...common} defaultValue={stringValue(value)} rows={5} />;
+    return <Textarea {...common} defaultValue={stringValue(value)} rows={5} />;
   }
   if (column.kind === "boolean") {
     return (
-      <label className="records-checkbox">
-        <input {...common} type="checkbox" defaultChecked={value === true} />
-        <span>Enabled</span>
-      </label>
+      <Checkbox
+        {...common}
+        label="Enabled"
+        defaultChecked={value === true}
+      />
     );
   }
   if (column.kind === "picklist") {
     return (
-      <select {...common} defaultValue={stringValue(value)}>
+      <NativeSelect {...common} defaultValue={stringValue(value)}>
         {!column.required && <option value="">Not set</option>}
         {picklistOptions(column).map((option) => (
           <option value={option.value} key={option.value}>
             {option.label}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     );
   }
   if (column.kind === "multipicklist") {
     return (
-      <select {...common} multiple defaultValue={multiValue(value)} size={Math.min(5, Math.max(3, picklistOptions(column).length))}>
+      <NativeSelect {...common} multiple defaultValue={multiValue(value)} size={Math.min(5, Math.max(3, picklistOptions(column).length))}>
         {picklistOptions(column).map((option) => (
           <option value={option.value} key={option.value}>
             {option.label}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     );
   }
   const type =
@@ -122,7 +125,7 @@ function FieldControl({
                 ? "number"
                 : "text";
   return (
-    <input
+    <Input
       {...common}
       type={type}
       defaultValue={
@@ -182,7 +185,7 @@ function ReferenceControl({
   return (
     <div className="records-reference-control">
       {targets.length > 1 && (
-        <select
+        <NativeSelect
           aria-label={`${column.label} target object`}
           value={target}
           onChange={(event) => {
@@ -192,9 +195,9 @@ function ReferenceControl({
           }}
         >
           {targets.map((candidate) => <option value={candidate} key={candidate}>{candidate}</option>)}
-        </select>
+        </NativeSelect>
       )}
-      <input
+      <Input
         id={`record-field-${column.apiName}`}
         name={column.apiName}
         required={column.required}
@@ -210,6 +213,7 @@ function ReferenceControl({
         aria-controls={listId}
         aria-expanded={options.length > 0}
         placeholder="Search by record name or enter an ID"
+        spellCheck={false}
       />
       <datalist id={listId}>
         {options.map((option) => (

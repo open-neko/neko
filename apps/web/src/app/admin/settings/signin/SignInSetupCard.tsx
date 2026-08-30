@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { Input, NativeSelect } from "@/components/ui/Field";
 
 const MAGIC_LINK_PLUGIN = "@open-neko/plugin-magic-link";
 
@@ -269,38 +270,38 @@ function DeliverySection({
       <form onSubmit={save} className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
           Provider
-          <select
+          <NativeSelect
             value={provider}
             onChange={(event) => setProvider(event.target.value as ProviderId)}
-            className="rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
           >
             {PROVIDERS.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
         <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
           API key
-          <input
+          <Input
             type="password"
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
-            placeholder={keyStored ? "(stored — paste to replace)" : "paste the API key"}
+            placeholder={keyStored ? "(stored, paste to replace)" : "paste the API key"}
             autoComplete="off"
-            className="rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
+            spellCheck={false}
           />
         </label>
         <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
           From address
-          <input
+          <Input
             type="text"
             required
             value={from}
             onChange={(event) => setFrom(event.target.value)}
-            placeholder='OpenNeko <signin@company.com>'
-            className="w-72 rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
+            placeholder="OpenNeko <signin@company.com>"
+            className="w-72"
+            spellCheck={false}
           />
         </label>
         <Button
@@ -396,27 +397,27 @@ function UsersSection({
       <form onSubmit={addUser} className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
           Email
-          <input
+          <Input
             type="email"
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="person@company.com"
-            className="w-72 rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
+            className="w-72"
+            autoComplete="email"
           />
         </label>
         <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
           Role
-          <select
+          <NativeSelect
             value={role}
             onChange={(event) =>
               setRole(event.target.value === "admin" ? "admin" : "member")
             }
-            className="rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
           >
             <option value="admin">admin</option>
             <option value="member">member</option>
-          </select>
+          </NativeSelect>
         </label>
         <Button
           type="submit"
@@ -493,13 +494,14 @@ function TestSection({ status }: { status: Status }) {
       <form onSubmit={sendTest} className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-xs font-semibold text-text2">
           Send to
-          <input
+          <Input
             type="email"
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="you@company.com"
-            className="w-72 rounded-md border border-border bg-surface px-3 py-2 text-sm font-normal text-text"
+            className="w-72"
+            autoComplete="email"
           />
         </label>
         <Button

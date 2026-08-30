@@ -133,7 +133,7 @@ export function RecordAskBox({
         <label className="sr-only" htmlFor={`records-ask-${context.surface}`}>
           Ask OpenNeko about {subject}
         </label>
-        <input
+        <input data-ui-bespoke-reason="records ask composer"
           id={`records-ask-${context.surface}`}
           value={request}
           onChange={(event) => {
@@ -148,7 +148,7 @@ export function RecordAskBox({
           maxLength={2_000}
           disabled={submitting}
         />
-        <button
+        <button data-ui-bespoke-reason="records ask composer"
           type="submit"
           disabled={!request.trim() || submitting}
           aria-label={submitting ? "Opening Ask" : "Open Ask"}
