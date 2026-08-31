@@ -19,7 +19,9 @@ services:
     volumes:
       - graphjin-config:/config
       - ./db/graphjin/dev.sources.example.yml:/seed/agentic.yml:ro
-    command:
+    # This overlay replaces the base initializer rather than appending a
+    # command that the base shell entrypoint would ignore.
+    entrypoint:
       - /bin/sh
       - -c
       - |
@@ -29,6 +31,9 @@ services:
           KEY=$$(head -c 32 /dev/urandom | base64 | tr -d '\n')
           sed -i "s|REPLACE_WITH_BASE64_32_BYTE_KEY|$$KEY|" /config/agentic.yml
         fi
+        cp /seed/graphjin-supervisor.sh /config/.openneko-graphjin-supervisor.sh.tmp
+        chmod 0755 /config/.openneko-graphjin-supervisor.sh.tmp
+        mv /config/.openneko-graphjin-supervisor.sh.tmp /config/.openneko-graphjin-supervisor.sh
         chmod -R a+rwX /config
 
   graphjin:

@@ -213,8 +213,9 @@ Docker — already required to run OpenNeko.
 
 1. Pulls the latest OpenNeko service, agent, and plugin-base images.
 2. Detects the mode recorded by your last `setup` or `start` (`prod`, `dev`, or `demo`) and recreates that stack detached.
-3. Runs pending migrations through the stack's `neko-migrate` container.
-4. Removes old OpenNeko image tags and dangling image layers unless you pass `--no-prune`.
+3. Re-runs every idempotent initializer against the existing volumes, including runtime-artifact repair and pending migrations.
+4. Waits for every declared service health check; a crash loop or unreachable data plane fails the upgrade instead of being reported as success.
+5. Persists the new version and removes old OpenNeko image tags only after the stack is healthy (unless you pass `--no-prune`).
 
 Run it from the same install directory you use for `openneko start`:
 

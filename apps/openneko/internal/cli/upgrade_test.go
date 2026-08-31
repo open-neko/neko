@@ -60,6 +60,16 @@ func TestNormalizeUpgradeImageVersion(t *testing.T) {
 	}
 }
 
+func TestUpgradeWaitsForEveryServiceReadinessCheck(t *testing.T) {
+	want := []string{
+		"up", "-d", "--wait", "--wait-timeout", "180",
+		"--pull", "never", "--remove-orphans", "--force-recreate",
+	}
+	if got := upgradeStackUpArgs(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("upgrade stack args = %v, want %v", got, want)
+	}
+}
+
 func TestResolveUpgradeMode(t *testing.T) {
 	s := &compose.Supervisor{RuntimeDir: t.TempDir()}
 	stubComposeProjects(t, []string{"openneko-prod"}, []string{"openneko-prod"})

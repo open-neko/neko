@@ -100,8 +100,9 @@ jobs:
           set -euxo pipefail
           tag="${{ steps.ctx.outputs.tag }}"
           # With --pull never, any image the stack references but this list
-          # misses fails the boot — so derive the list from the compose files
-          # `--mode prod` actually runs instead of hand-maintaining it
+          # misses fails the boot — so derive the list from the full demo
+          # stack instead of hand-maintaining it. Demo includes every core
+          # service plus the upgrade-sensitive datasource overlay.
           # (busybox:latest for openshell-reg was the second one missed).
           # OPENSHELL_VERSION is intentionally literal in the second sed expression.
           # The final expression unwraps ANY other ${VAR:-default} to its
@@ -112,6 +113,7 @@ jobs:
           mapfile -t refs < <(
             sed -n 's/^[[:space:]]*image:[[:space:]]*//p' \
               apps/openneko/assets/compose/core.yml \
+              apps/openneko/assets/compose/demo.yml \
               apps/openneko/assets/compose/openshell.yml \
             | sed -e "s/\${OPENNEKO_VERSION:-latest}/${tag}/" \
                   -e 's/\${OPENSHELL_VERSION:-\([0-9.][0-9.]*\)}/\1/' \
@@ -185,13 +187,13 @@ jobs:
             test "$runtime" = "glibc 2.36 / PostgreSQL 16.15 (Debian 16.15-1.pgdg12+2) / $image_owner"
           done
 
-      - name: openneko start (detached) against pre-pulled images
+      - name: openneko demo start (detached) against pre-pulled images
         if: ${{ steps.ctx.outputs.build_ok == 'true' }}
         env:
           OPENNEKO_VERSION: ${{ steps.ctx.outputs.tag }}
         run: |
           set -euxo pipefail
-          openneko start --mode prod --detach --pull never
+          openneko start --mode demo --detach --pull never
 
       - name: openneko status (poll until serving)
         if: ${{ steps.ctx.outputs.build_ok == 'true' }}
@@ -199,17 +201,90 @@ jobs:
           OPENNEKO_VERSION: ${{ steps.ctx.outputs.tag }}
         run: |
           set -euo pipefail
-          for i in $(seq 1 60); do
+          for i in $(seq 1 90); do
             if openneko status; then
               echo "stack is serving after ${i} polls"
               exit 0
             fi
             sleep 2
           done
-          echo "stack did not reach 'serving' within 120s — final state:"
+          echo "stack did not reach 'serving' within 180s — final state:"
           openneko status -v || true
           openneko logs || true
           exit 1
+
+      - name: Retained-volume upgrade repairs and serves GraphJin
+        if: ${{ steps.ctx.outputs.build_ok == 'true' }}
+        env:
+          OPENNEKO_VERSION: ${{ steps.ctx.outputs.tag }}
+        run: |
+          set -euo pipefail
+          worker_image="ghcr.io/open-neko/neko-worker:$OPENNEKO_VERSION"
+          config_volume="openneko-demo_graphjin-config"
+
+          # Recreate the production regression exactly: the persisted config
+          # exists, but the runtime supervisor artifact is absent. Also keep a
+          # sentinel proving the upgrade reused rather than replaced the volume.
+          docker run --rm --user 0:0 \
+            --entrypoint /bin/sh \
+            -v "$config_volume:/config" \
+            "$worker_image" -ceu '
+              test -s /config/agentic.yml
+              printf "%s\n" retained-state > /config/.upgrade-smoke-sentinel
+              rm -f /config/.openneko-graphjin-supervisor.sh \
+                    /config/.openneko-graphjin-supervisor.sh.tmp
+            '
+
+          openneko upgrade --stack-only --mode demo \
+            --version "$OPENNEKO_VERSION" --no-prune
+
+          docker run --rm --user 0:0 \
+            --entrypoint /bin/sh \
+            -v "$config_volume:/config" \
+            "$worker_image" -ceu '
+              test "$(cat /config/.upgrade-smoke-sentinel)" = retained-state
+              test -x /config/.openneko-graphjin-supervisor.sh
+            '
+
+          graphjin=$(docker ps -q \
+            --filter label=com.docker.compose.project=openneko-demo \
+            --filter label=com.docker.compose.service=graphjin | head -1)
+          test -n "$graphjin"
+          test "$(docker inspect --format '{{.State.Health.Status}}' "$graphjin")" = healthy
+
+          worker=$(docker ps -q \
+            --filter label=com.docker.compose.project=openneko-demo \
+            --filter label=com.docker.compose.service=worker | head -1)
+          test -n "$worker"
+          docker exec "$worker" node --import tsx/esm --input-type=module --eval '
+            import { mintGraphjinToken, callGraphjinMcpTool } from "@neko/llm";
+            const token = mintGraphjinToken({
+              orgId: "adventureworks",
+              userId: null,
+              role: "service",
+            });
+            const response = await callGraphjinMcpTool({
+              baseUrl: "http://graphjin:8080/api/v1/mcp",
+              headers: { authorization: "Bearer " + token },
+              signal: AbortSignal.timeout(10_000),
+            }, {
+              name: "execute_graphql",
+              arguments: {
+                query: "query { soh(limit: 1, order_by: { id: desc }) { id } }",
+              },
+            });
+            const text = response.content
+              .map((item) => item.type === "text" ? item.text : "")
+              .join("");
+            const payload = JSON.parse(text);
+            if (response.isError ||
+                !Array.isArray(payload.data?.soh) ||
+                payload.data.soh.length !== 1) {
+              throw new Error("authenticated datasource query failed");
+            }
+            console.log("authenticated_datasource_query=ok");
+          '
+          openneko status
 
       - name: Verify reconciled database volumes and pg-boss equality
         if: ${{ steps.ctx.outputs.build_ok == 'true' }}
@@ -217,7 +292,7 @@ jobs:
           set -euo pipefail
           container_for() {
             docker ps -q \
-              --filter label=com.docker.compose.project=openneko-prod \
+              --filter label=com.docker.compose.project=openneko-demo \
               --filter "label=com.docker.compose.service=$1" | head -1
           }
           neko_db=$(container_for neko-db)
@@ -258,7 +333,7 @@ jobs:
         run: |
           set -euo pipefail
           worker=$(docker ps -q \
-            --filter label=com.docker.compose.project=openneko-prod \
+            --filter label=com.docker.compose.project=openneko-demo \
             --filter label=com.docker.compose.service=worker | head -1)
           test -n "$worker"
           docker exec "$worker" openshell sandbox create \
