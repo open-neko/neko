@@ -196,17 +196,14 @@ func describeState(s composeService) string {
 // published web port. It never fails status on its own — it's an extra
 // human signal alongside the container verdict.
 func probeWeb() string {
-	port := strings.TrimSpace(os.Getenv("OPENNEKO_PORT"))
-	if port == "" {
-		port = "3000"
-	}
+	baseURL := webBaseURL()
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://localhost:" + port + "/")
+	resp, err := client.Get(baseURL + "/")
 	if err != nil {
-		return fmt.Sprintf("  ·  web front door (localhost:%s): not answering yet", port)
+		return fmt.Sprintf("  ·  web front door (%s): not answering yet", strings.TrimPrefix(baseURL, "http://"))
 	}
 	defer func() { _, _ = io.Copy(io.Discard, resp.Body); _ = resp.Body.Close() }()
-	return fmt.Sprintf("  ·  web front door (localhost:%s): answering (HTTP %d)", port, resp.StatusCode)
+	return fmt.Sprintf("  ·  web front door (%s): answering (HTTP %d)", strings.TrimPrefix(baseURL, "http://"), resp.StatusCode)
 }
 
 func writeStatus(w io.Writer, state health, lines []string, webLine string) {

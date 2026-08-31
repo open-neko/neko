@@ -17,6 +17,7 @@ import (
 	"github.com/open-neko/neko/apps/openneko/internal/compose"
 	"github.com/open-neko/neko/apps/openneko/internal/config"
 	"github.com/open-neko/neko/apps/openneko/internal/db"
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 	"github.com/open-neko/neko/apps/openneko/internal/setup"
 	"github.com/open-neko/neko/apps/openneko/internal/version"
 )
@@ -39,6 +40,10 @@ Modes:
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
+			selectedMode, err := modeForStart(cmd, mode)
+			if err != nil {
+				return err
+			}
 			// Same host checks setup runs; `start` used to skip them and race
 			// straight into an opaque compose failure (port conflict with a
 			// neighboring stack, docker gone away). A stack already answering
@@ -48,7 +53,7 @@ Modes:
 					return err
 				}
 			}
-			return bringUpStack(ctx, cmd, compose.Mode(mode), bringUpOptions{
+			return bringUpStack(ctx, cmd, selectedMode, bringUpOptions{
 				detach:      detach,
 				skipMigrate: skipMigrate,
 				pullPolicy:  pullPolicy,
@@ -249,6 +254,17 @@ func openShellStateDirOverride(goos, home, existing string) string {
 }
 
 func configureOpenShellStateDir() error {
+	if stateDir, ok, err := instance.StateDir(); err != nil {
+		return err
+	} else if ok {
+		// A named stack's PKI and gateway state must never inherit a global
+		// OPENSHELL_STATE_DIR from another customer.
+		dir := filepath.Join(stateDir, "openshell")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+		return os.Setenv("OPENSHELL_STATE_DIR", dir)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -372,7 +388,8 @@ func defaultOpenShellSubnet(mode compose.Mode) string {
 // password authentication failed"), which kills all agent runs. The local
 // config is the single source of the rotated password (ReadLocal decrypts
 // it), so build the URL from it on every start. An operator-set
-// OPENSHELL_DB_URL always wins.
+// OPENSHELL_DB_URL remains available for the legacy unnamed installation;
+// named installations always derive their own internal database URL.
 // openShellDBRole is the gateway's dedicated neko-db login role. It exists so
 // the gateway's DB credential is independent of the `neko` admin password the
 // operator rotates during setup — rotating that password never strands the
@@ -383,6 +400,13 @@ const openShellDBPasswordEnv = "OPENNEKO_OPENSHELL_DB_PASSWORD"
 const requireExplicitOpenShellDBPasswordEnv = "OPENNEKO_REQUIRE_EXPLICIT_OPENSHELL_DB_PASSWORD"
 
 func configureOpenShellDBURL() {
+	if instance.Current() != "" {
+		// These values are derived from the selected instance's secret-key and
+		// internal Compose database. Do not let a host-wide override point one
+		// customer's gateway at another customer's credentials or database.
+		_ = os.Unsetenv(openShellDBPasswordEnv)
+		_ = os.Unsetenv("OPENSHELL_DB_URL")
+	}
 	if os.Getenv(openShellDBPasswordEnv) == "" {
 		if pw, err := config.OpenShellDBPassword(""); err == nil {
 			_ = os.Setenv(openShellDBPasswordEnv, pw)

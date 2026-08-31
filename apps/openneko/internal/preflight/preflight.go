@@ -81,17 +81,19 @@ func Docker() Result {
 // PortSpec is a host port the stack publishes, with the env var that overrides
 // it (matching start.go's envInt lookups).
 type PortSpec struct {
-	Label  string
-	EnvVar string
-	Def    int
+	Label       string
+	EnvVar      string
+	Def         int
+	BindEnvVar  string
+	DefaultBind string
 }
 
 // DefaultPorts are the only host ports a packaged bring-up publishes. Web is
 // the intentional server boundary. OpenShell's Docker driver requires a
 // loopback-only callback port; databases, GraphJin, and brokers stay private.
 var DefaultPorts = []PortSpec{
-	{"web", "OPENNEKO_PORT", 3000},
-	{"OpenShell gateway (loopback only)", "OPENSHELL_PORT", 18080},
+	{Label: "web", EnvVar: "OPENNEKO_PORT", Def: 3000, BindEnvVar: "OPENNEKO_WEB_BIND_ADDRESS", DefaultBind: "0.0.0.0"},
+	{Label: "OpenShell gateway (loopback only)", EnvVar: "OPENSHELL_PORT", Def: 18080, DefaultBind: "127.0.0.1"},
 }
 
 // Port resolves a spec's effective port from its env override.
@@ -104,20 +106,34 @@ func (s PortSpec) Port() int {
 	return s.Def
 }
 
-// Ports checks each spec's port is bindable on the loopback. A bound port means
-// something already holds it — including a previous OpenNeko, so callers that
-// might be re-running against a live stack should skip this (see setup).
+func (s PortSpec) BindAddress() string {
+	if s.BindEnvVar != "" {
+		if value := strings.TrimSpace(os.Getenv(s.BindEnvVar)); value != "" {
+			return value
+		}
+	}
+	if s.DefaultBind != "" {
+		return s.DefaultBind
+	}
+	return "127.0.0.1"
+}
+
+// Ports checks each spec's port on its configured bind address (the OpenShell
+// spec is always loopback). A bound port means something already holds it —
+// including a previous OpenNeko, so callers that might be re-running against a
+// live stack should skip this (see setup).
 func Ports(specs []PortSpec) []Result {
 	out := make([]Result, 0, len(specs))
 	for _, s := range specs {
 		port := s.Port()
 		name := fmt.Sprintf("port %d (%s)", port, s.Label)
-		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		bindAddress := s.BindAddress()
+		ln, err := net.Listen("tcp", net.JoinHostPort(bindAddress, strconv.Itoa(port)))
 		if err != nil {
 			out = append(out, Result{
 				Name:        name,
 				Level:       Fail,
-				Detail:      "in use",
+				Detail:      fmt.Sprintf("cannot bind %s", net.JoinHostPort(bindAddress, strconv.Itoa(port))),
 				Remediation: fmt.Sprintf("Free it, or pick another port with %s=<port>.", s.EnvVar),
 			})
 			continue

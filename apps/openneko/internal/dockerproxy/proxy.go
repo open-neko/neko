@@ -26,15 +26,29 @@ import (
 // the worker container doesn't try to detect-and-proxy itself recursively.
 const EnvMarker = "OPENNEKO_PROXIED"
 
-// FindRunningWorker returns the name of a running openneko-{prod,dev,demo}-
-// worker-1 container, or "" if none / docker unreachable / we are already
-// inside a proxied invocation. With prod and demo both up, `docker ps`
-// order used to pick an arbitrary stack — plugin installs then landed in
-// the wrong install's config volume — so an ambiguous match now refuses
-// (falls back to the local implementation) and says why.
-func FindRunningWorker() string {
+var ErrAmbiguousWorkers = errors.New("multiple OpenNeko workers are running")
+
+// FindRunningWorker returns a running OpenNeko worker container. When project
+// is non-empty it targets that exact named installation; without a project it
+// retains the legacy single-stack behavior and refuses ambiguous matches.
+func FindRunningWorker(project ...string) string {
+	target := ""
+	if len(project) > 0 {
+		target = strings.TrimSpace(project[0])
+	}
+	name, err := ResolveRunningWorker(target)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[openneko] %v\n", err)
+	}
+	return name
+}
+
+// ResolveRunningWorker is the error-reporting form used by the root CLI. An
+// ambiguous multi-stack host must fail closed instead of silently performing a
+// plugin operation in the caller's current directory.
+func ResolveRunningWorker(project string) (string, error) {
 	if os.Getenv(EnvMarker) == "1" {
-		return ""
+		return "", nil
 	}
 	out, err := exec.Command(
 		"docker", "ps",
@@ -42,25 +56,34 @@ func FindRunningWorker() string {
 		"--format", "{{.Names}}",
 	).Output()
 	if err != nil {
-		return ""
+		return "", err
 	}
-	name, ambiguous := selectWorker(strings.Split(strings.TrimSpace(string(out)), "\n"))
+	name, ambiguous := selectWorkerForProject(strings.Split(strings.TrimSpace(string(out)), "\n"), strings.TrimSpace(project))
 	if len(ambiguous) > 0 {
-		fmt.Fprintf(os.Stderr,
-			"[openneko] multiple running stacks found (%s); refusing to guess — stop the stack you don't mean, or pass --local\n",
-			strings.Join(ambiguous, ", "))
+		return "", fmt.Errorf("%w (%s); select one with --instance <name> or pass --local", ErrAmbiguousWorkers, strings.Join(ambiguous, ", "))
 	}
-	return name
+	return name, nil
 }
 
 // selectWorker picks the single matching worker container from `docker ps`
 // output lines. With more than one match it returns "" plus the sorted
 // candidates so the caller can explain the refusal.
 func selectWorker(lines []string) (string, []string) {
+	return selectWorkerForProject(lines, "")
+}
+
+func selectWorkerForProject(lines []string, project string) (string, []string) {
 	var workers []string
+	target := ""
+	if project != "" {
+		target = project + "-worker-1"
+	}
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "openneko-") && strings.HasSuffix(line, "-worker-1") {
+		if target != "" && line == target {
+			return line, nil
+		}
+		if target == "" && strings.HasPrefix(line, "openneko-") && strings.HasSuffix(line, "-worker-1") {
 			workers = append(workers, line)
 		}
 	}

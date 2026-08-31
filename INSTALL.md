@@ -45,6 +45,79 @@ As a final optional step, `openneko setup` offers to install **first-party plugi
 
 The AdventureWorks seed pre-fills business onboarding (`AdventureWorks Cycles`, fiscal year `July`, seats `CEO`/`CFO`/`COO`, priorities `Defend wholesale margins` / `Grow DTC in Europe`). Otherwise fill it in at `/onboarding`.
 
+## Multiple customer instances on one host
+
+Give every customer a stable lowercase instance name. A named installation gets
+its own Compose project, databases and named volumes, encrypted config and
+secrets, OpenShell PKI/state, backup namespace, runtime markers, and Docker
+subnet.
+
+```bash
+# Bind customer apps to loopback when Caddy, nginx, or another TLS proxy is
+# the public entry point. Ports and the subnet are persisted by setup.
+openneko --instance acme setup \
+  --mode prod \
+  --port 3101 \
+  --openshell-port 18101 \
+  --bind-address 127.0.0.1
+
+openneko --instance globex setup \
+  --mode prod \
+  --port 3102 \
+  --openshell-port 18102 \
+  --bind-address 127.0.0.1
+```
+
+Route a separate TLS hostname to each loopback web port. For example, with
+Caddy:
+
+```caddyfile
+acme.example.com {
+  reverse_proxy 127.0.0.1:3101
+}
+
+globex.example.com {
+  reverse_proxy 127.0.0.1:3102
+}
+```
+
+Only the reverse proxy needs public `80`/`443` firewall access. The customer web
+ports above and each OpenShell gateway stay on host loopback; databases,
+GraphJin, brokers, and backup services stay inside their private Docker
+networks.
+
+For named instances, omitting `--port`, `--openshell-port`, or
+`--docker-subnet` makes setup choose an available value and persist it. Inspect
+the resulting inventory with:
+
+```bash
+openneko instances
+```
+
+Target every later operation explicitly:
+
+```bash
+openneko --instance acme status
+openneko --instance acme logs -f
+openneko --instance acme upgrade
+openneko --instance acme backup now
+openneko --instance acme stop
+```
+
+Named settings live under
+`~/.config/openneko/instances/<name>/installation.json`; durable runtime and
+OpenShell state live under
+`${XDG_STATE_HOME:-$HOME/.local/state}/openneko/instances/<name>/`. Do not reuse
+an instance name for two customers on the same Docker daemon. Each customer is
+still a complete OpenNeko stack, so size VM memory, disk, and backup retention
+for the number of concurrent instances.
+
+Named instances are an operational and data-placement boundary, not a
+hypervisor security boundary. A host administrator or anyone with Docker daemon
+access can reach every stack. Use a separate VM or equivalent tenant boundary
+when a customer contract, threat model, or compliance regime requires host-level
+isolation.
+
 ## Use your own data
 
 ```bash
@@ -69,7 +142,9 @@ Browse the marketplace at [open-neko.github.io/plugins](https://open-neko.github
 ## Command reference
 
 ```bash
-openneko setup [--mode prod|dev|demo]  # guided: preflight + bring-up + configure
+openneko [--instance name] setup [--mode prod|dev|demo] [--port N] \
+  [--openshell-port N] [--bind-address IPv4] [--docker-subnet IPv4/24]
+openneko instances                 # configured host installations
 openneko start [--mode prod|dev|demo] [--detach]
 openneko upgrade [--version vX.Y.Z] [--mode auto|prod|dev|demo]
 openneko status                    # docker compose ps proxy
@@ -212,20 +287,27 @@ openneko reset --all      # wipes everything including secrets and marketplaces
 
 ## Ports
 
-Defaults:
+The packaged stack publishes only two host ports:
 
-- App: `3000`
-- Metadata Postgres: `5432`
-- Metadata GraphJin: `8089`
+- Web app: `3000` by default
+- OpenShell gateway: loopback-only `18080` by default
 
-In `--mode demo` the AdventureWorks Postgres is internal-only.
+Postgres, GraphJin, worker broker, backup API, and demo data services remain on
+the private Docker network. Web is the only port intended to be reachable from
+another machine; the OpenShell host mapping exists only for local sandbox
+callbacks.
 
-Override:
+Configure and persist ports during guided installation:
 
 ```bash
-OPENNEKO_PORT=3001 OPENNEKO_DB_PORT=55432 OPENNEKO_GRAPHJIN_PORT=8090 \
-  openneko start --mode demo --detach
+openneko setup --mode prod --port 3001 --openshell-port 18081
 ```
+
+For the backward-compatible unnamed installation, `OPENNEKO_PORT` and
+`OPENSHELL_PORT` remain available as one-process environment overrides. Named
+instances use their persisted assignments; re-run setup with explicit flags to
+change them. `--bind-address 127.0.0.1` restricts the web listener to the host
+for a reverse-proxy deployment.
 
 ## Build from source (advanced)
 
@@ -320,7 +402,8 @@ CI runs this with `--check` and fails on drift.
 
 **Docker not running.** Start Docker Desktop or the daemon; re-run `openneko start`.
 
-**Port in use.** Override via `OPENNEKO_PORT` / `OPENNEKO_DB_PORT` / `OPENNEKO_GRAPHJIN_PORT`.
+**Port in use.** Re-run setup with `--port` / `--openshell-port`, or use the
+equivalent `OPENNEKO_PORT` / `OPENSHELL_PORT` environment overrides.
 
 **Image pull `unauthorized`.** Confirm packages are public at https://github.com/orgs/open-neko/packages.
 

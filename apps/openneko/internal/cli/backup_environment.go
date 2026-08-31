@@ -19,6 +19,7 @@ import (
 	"github.com/open-neko/neko/apps/openneko/assets"
 	"github.com/open-neko/neko/apps/openneko/internal/compose"
 	"github.com/open-neko/neko/apps/openneko/internal/config"
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 	"github.com/open-neko/neko/apps/openneko/internal/version"
 )
 
@@ -64,7 +65,7 @@ func configureBackupEnvironment(projectNames ...string) error {
 	// container's environment metadata.
 	_ = os.Unsetenv("OPENNEKO_BACKUP_CIPHER_PASS")
 
-	if os.Getenv("OPENNEKO_HOST_CONFIG_DIR") == "" {
+	if instance.Current() != "" || os.Getenv("OPENNEKO_HOST_CONFIG_DIR") == "" {
 		hostConfig, err := filepath.Abs(config.Dir(""))
 		if err != nil {
 			return err

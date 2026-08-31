@@ -5,11 +5,14 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 )
 
 func isolateConfig(t *testing.T) {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv(instance.EnvName, "")
 }
 
 func sampleFS() fstest.MapFS {
@@ -89,6 +92,7 @@ func TestMaterializeUnknownMode(t *testing.T) {
 }
 
 func TestRuntimeDirUsesWorkspaceRoot(t *testing.T) {
+	t.Setenv(instance.EnvName, "")
 	workspaceRoot := t.TempDir()
 	t.Setenv("OPENNEKO_WORKSPACE_ROOT", workspaceRoot)
 
@@ -98,6 +102,38 @@ func TestRuntimeDirUsesWorkspaceRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := filepath.Join(workspaceRoot, ".openneko", "runtime")
+	if got != want {
+		t.Fatalf("runtime dir = %q, want %q", got, want)
+	}
+}
+
+func TestRuntimeDirScopesNamedInstance(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	t.Setenv("OPENNEKO_WORKSPACE_ROOT", workspaceRoot)
+	t.Setenv(instance.EnvName, "acme")
+
+	s := &Supervisor{}
+	got, err := s.runtimeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(workspaceRoot, ".openneko", "instances", "acme", "runtime")
+	if got != want {
+		t.Fatalf("runtime dir = %q, want %q", got, want)
+	}
+}
+
+func TestRuntimeDirUsesNamedInstanceStateOutsideWorkspace(t *testing.T) {
+	t.Setenv("OPENNEKO_WORKSPACE_ROOT", "")
+	t.Setenv("XDG_STATE_HOME", "/var/state")
+	t.Setenv(instance.EnvName, "acme")
+
+	s := &Supervisor{}
+	got, err := s.runtimeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join("/var/state", "openneko", "instances", "acme", "runtime")
 	if got != want {
 		t.Fatalf("runtime dir = %q, want %q", got, want)
 	}
@@ -139,6 +175,33 @@ func TestProjectNameModeRoundTrip(t *testing.T) {
 	mode, ok := ModeFromProjectName(readBack)
 	if !ok || mode != ModeDemo {
 		t.Fatalf("mode = %q ok=%v", mode, ok)
+	}
+}
+
+func TestNamedProjectIdentityRoundTrip(t *testing.T) {
+	project := ProjectNameForModeAndInstance(ModeProd, "acme-west")
+	if project != "openneko-acme-west-prod" {
+		t.Fatalf("project = %q", project)
+	}
+	mode, name, ok := IdentityFromProjectName(project)
+	if !ok || mode != ModeProd || name != "acme-west" {
+		t.Fatalf("identity = %q %q %v", mode, name, ok)
+	}
+	if _, _, ok := IdentityFromProjectName("openneko-Bad-prod"); ok {
+		t.Fatal("invalid instance project parsed successfully")
+	}
+}
+
+func TestNamedProjectFallbackNeverTargetsLegacyProject(t *testing.T) {
+	isolateConfig(t)
+	t.Setenv(instance.EnvName, "acme")
+	s := &Supervisor{RuntimeDir: t.TempDir()}
+	project, err := s.ProjectName("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project != "openneko-acme-prod" {
+		t.Fatalf("named fallback project = %q", project)
 	}
 }
 

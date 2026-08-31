@@ -20,6 +20,8 @@ import (
 	"syscall"
 
 	"github.com/open-neko/neko/apps/openneko/internal/config"
+	"github.com/open-neko/neko/apps/openneko/internal/installation"
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 )
 
 type Mode string
@@ -69,7 +71,15 @@ func (s *Supervisor) runtimeDir() (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if name := instance.Current(); name != "" {
+			return filepath.Join(root, ".openneko", "instances", name, "runtime"), nil
+		}
 		return filepath.Join(root, ".openneko", "runtime"), nil
+	}
+	if stateDir, ok, err := instance.StateDir(); err != nil {
+		return "", err
+	} else if ok {
+		return filepath.Join(stateDir, "runtime"), nil
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -126,8 +136,9 @@ func (s *Supervisor) Materialize(mode Mode) ([]string, error) {
 // invocation. On `start`, callers should pass the mode so containers/
 // volumes/networks land as openneko-<mode>-*. start persists the chosen
 // project name to .openneko/runtime/.project-name so stop/logs/status
-// pick the same project up without needing --mode every time. Falls
-// back to "openneko" when no .project-name marker exists.
+// pick the same project up without needing --mode every time. A named install
+// safely derives its own project when the marker is absent; the unnamed legacy
+// install falls back to "openneko".
 func (s *Supervisor) ProjectName(modeIfStarting Mode) (string, error) {
 	rt, err := s.runtimeDir()
 	if err != nil {
@@ -145,6 +156,18 @@ func (s *Supervisor) ProjectName(modeIfStarting Mode) (string, error) {
 		if v != "" {
 			return v, nil
 		}
+	}
+	if name := instance.Current(); name != "" {
+		settings, ok, err := installation.Load(config.Dir(""))
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return ProjectNameForModeAndInstance(Mode(settings.Mode), name), nil
+		}
+		// A named command must never fall through to the legacy "openneko"
+		// project: even an incomplete setup should remain inside its namespace.
+		return ProjectNameForModeAndInstance(ModeProd, name), nil
 	}
 	return "openneko", nil
 }
@@ -247,8 +270,17 @@ func generateInstallationID() (string, error) {
 
 // ProjectNameForMode is the canonical compose project name for a stack mode.
 func ProjectNameForMode(mode Mode) string {
+	return ProjectNameForModeAndInstance(mode, instance.Current())
+}
+
+// ProjectNameForModeAndInstance returns the stable Compose project name. The
+// empty instance retains the pre-multi-instance project names exactly.
+func ProjectNameForModeAndInstance(mode Mode, name string) string {
 	if mode == "" {
 		mode = ModeProd
+	}
+	if name != "" {
+		return "openneko-" + name + "-" + string(mode)
 	}
 	return "openneko-" + string(mode)
 }
@@ -256,16 +288,31 @@ func ProjectNameForMode(mode Mode) string {
 // ModeFromProjectName recovers the stack mode from a project marker written by
 // ProjectName. The bool is false for legacy names or unrelated projects.
 func ModeFromProjectName(project string) (Mode, bool) {
+	mode, _, ok := IdentityFromProjectName(project)
+	return mode, ok
+}
+
+// IdentityFromProjectName parses both legacy openneko-<mode> projects and
+// named openneko-<instance>-<mode> projects.
+func IdentityFromProjectName(project string) (Mode, string, bool) {
 	const prefix = "openneko-"
 	if !strings.HasPrefix(project, prefix) {
-		return "", false
+		return "", "", false
 	}
-	switch m := Mode(strings.TrimPrefix(project, prefix)); m {
-	case ModeProd, ModeDev, ModeDemo:
-		return m, true
-	default:
-		return "", false
+	rest := strings.TrimPrefix(project, prefix)
+	for _, mode := range []Mode{ModeProd, ModeDev, ModeDemo} {
+		if rest == string(mode) {
+			return mode, "", true
+		}
+		suffix := "-" + string(mode)
+		if strings.HasSuffix(rest, suffix) {
+			name := strings.TrimSuffix(rest, suffix)
+			if instance.Validate(name) == nil && name != "" {
+				return mode, name, true
+			}
+		}
 	}
+	return "", "", false
 }
 
 // ImageVersion reads the persisted image tag for this install. An empty string

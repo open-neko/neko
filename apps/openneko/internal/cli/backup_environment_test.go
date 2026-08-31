@@ -12,6 +12,7 @@ import (
 	"github.com/open-neko/neko/apps/openneko/assets"
 	"github.com/open-neko/neko/apps/openneko/internal/compose"
 	"github.com/open-neko/neko/apps/openneko/internal/config"
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 )
 
 func configureBackupTestEnvironment(t *testing.T) (string, string, string) {
@@ -84,6 +85,19 @@ func TestConfigureBackupEnvironmentCreatesRepositoryBoundExternalKey(t *testing.
 	}
 	if got := os.Getenv("OPENNEKO_HOST_CONFIG_DIR"); got != filepath.Join(configHome, "openneko") {
 		t.Fatalf("host config snapshot path = %q", got)
+	}
+}
+
+func TestNamedBackupEnvironmentOverridesGlobalHostConfigPath(t *testing.T) {
+	configHome, _, _ := configureBackupTestEnvironment(t)
+	t.Setenv(instance.EnvName, "acme")
+	t.Setenv("OPENNEKO_HOST_CONFIG_DIR", filepath.Join(t.TempDir(), "another-customer"))
+	if err := configureBackupEnvironment("openneko-acme-prod"); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(configHome, "openneko", "instances", "acme")
+	if got := os.Getenv("OPENNEKO_HOST_CONFIG_DIR"); got != want {
+		t.Fatalf("host config dir = %q, want %q", got, want)
 	}
 }
 

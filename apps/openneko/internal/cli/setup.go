@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -28,6 +29,10 @@ func newSetupCmd() *cobra.Command {
 		mode           string
 		verbose        bool
 		skipOnboarding bool
+		webPort        int
+		openShellPort  int
+		webBindAddress string
+		dockerSubnet   string
 
 		// Headless onboarding overrides. Setting any credential flag opts the
 		// run into headless mode (no prompts), so CI and the demo-install skill
@@ -67,15 +72,28 @@ at the prompt) to finish at the web UI. Credential flags
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
 
-			m := compose.Mode(mode)
-			if m == "" {
-				m = compose.ModeProd
+			settings, err := prepareSetupInstallation(ctx, cmd, mode, setupHostOptions{
+				webPort:             webPort,
+				webPortChanged:      cmd.Flags().Changed("port"),
+				openShellPort:       openShellPort,
+				openShellChanged:    cmd.Flags().Changed("openshell-port"),
+				webBindAddress:      webBindAddress,
+				webBindChanged:      cmd.Flags().Changed("bind-address"),
+				dockerSubnet:        dockerSubnet,
+				dockerSubnetChanged: cmd.Flags().Changed("docker-subnet"),
+			})
+			if err != nil {
+				return err
 			}
+			m := compose.Mode(settings.Mode)
 			baseURL := webBaseURL()
 			client := setup.NewClient(baseURL)
 			alreadyUp := client.Ready(ctx)
 
 			subtitle := string(m) + " mode"
+			if settings.Instance != "" {
+				subtitle = settings.Instance + " · " + subtitle
+			}
 			if alreadyUp {
 				subtitle += " · stack already running"
 			}
@@ -90,11 +108,22 @@ at the prompt) to finish at the web UI. Credential flags
 				// The wizard configures WHATEVER stack answers on this port.
 				// `setup --mode demo` next to a live prod stack silently
 				// configured prod with demo defaults; refuse the mismatch.
-				if project := runningWebProject(); project != "" {
-					if detected, ok := compose.ModeFromProjectName(project); ok && detected != m {
+				project := runningWebProject(strconv.Itoa(settings.WebPort))
+				if settings.Instance != "" && project == "" {
+					return fmt.Errorf("%s is already answering, but it is not the web container for instance %q; choose another --port", baseURL, settings.Instance)
+				}
+				if project != "" {
+					detectedMode, detectedInstance, ok := compose.IdentityFromProjectName(project)
+					if project == "openneko" {
+						detectedMode, detectedInstance, ok = compose.ModeProd, "", true
+					}
+					if !ok && settings.Instance != "" {
+						return fmt.Errorf("the stack answering %s has unrecognized Compose project %q", baseURL, project)
+					}
+					if ok && (detectedMode != m || detectedInstance != settings.Instance) {
 						return fmt.Errorf(
-							"the stack answering %s is %q (mode %s), but --mode %s was requested; stop that stack first or re-run with --mode %s",
-							baseURL, project, detected, m, detected,
+							"the stack answering %s is %q (instance %q, mode %s), not requested instance %q in mode %s",
+							baseURL, project, detectedInstance, detectedMode, settings.Instance, m,
 						)
 					}
 				}
@@ -180,6 +209,10 @@ at the prompt) to finish at the web UI. Credential flags
 	}
 
 	cmd.Flags().StringVar(&mode, "mode", "prod", "Stack mode: prod|dev|demo")
+	cmd.Flags().IntVar(&webPort, "port", 0, "Host port for the web app (named instances auto-select when omitted)")
+	cmd.Flags().IntVar(&openShellPort, "openshell-port", 0, "Loopback host port for the OpenShell gateway (named instances auto-select when omitted)")
+	cmd.Flags().StringVar(&webBindAddress, "bind-address", "", "IPv4 address for the web listener (default 0.0.0.0; use 127.0.0.1 behind a reverse proxy)")
+	cmd.Flags().StringVar(&dockerSubnet, "docker-subnet", "", "Private IPv4 /24 for this instance (named instances auto-select when omitted)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Stream full image-pull output during bring-up")
 	cmd.Flags().BoolVar(&skipOnboarding, "skip-onboarding", false, "Bring up the stack only; finish configuration in the browser")
 	cmd.Flags().StringVar(&adminPassword, "admin-password", "", "Headless: admin database password")
@@ -337,19 +370,20 @@ func matchPlugins(tokens []string, plugins []marketplace.Plugin) []string {
 // runningWebProject returns the compose project of the running web
 // container, or "" when none is found / docker is unreachable. Used to
 // detect which stack actually owns the port setup is about to configure.
-func runningWebProject() string {
+func runningWebProject(port string) string {
 	out, err := exec.Command(
 		"docker", "ps",
 		"--filter", "status=running",
 		"--filter", "label=com.docker.compose.service=web",
-		"--format", `{{.Label "com.docker.compose.project"}}`,
+		"--format", `{{.Label "com.docker.compose.project"}}|{{.Ports}}`,
 	).Output()
 	if err != nil {
 		return ""
 	}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			return line
+		project, ports, ok := strings.Cut(strings.TrimSpace(line), "|")
+		if ok && project != "" && strings.Contains(ports, ":"+port+"->8080/tcp") {
+			return project
 		}
 	}
 	return ""
@@ -360,7 +394,11 @@ func webBaseURL() string {
 	if port == "" {
 		port = "3000"
 	}
-	return "http://localhost:" + port
+	host := strings.TrimSpace(os.Getenv("OPENNEKO_WEB_BIND_ADDRESS"))
+	if host == "" || host == "0.0.0.0" {
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
 
 // runPreflight runs the host readiness checks and prints them, returning a

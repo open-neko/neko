@@ -10,6 +10,7 @@ import (
 
 	"github.com/open-neko/neko/apps/openneko/assets"
 	"github.com/open-neko/neko/apps/openneko/internal/compose"
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 )
 
 func newSeedCmd() *cobra.Command {
@@ -24,6 +25,18 @@ func newSeedCmd() *cobra.Command {
 			}
 			if target != "adventureworks" {
 				return WithExit(2, fmt.Errorf("seed: unknown target %q (want: adventureworks)", target))
+			}
+			if instance.Current() != "" {
+				settings, ok, err := requireConfiguredNamedInstallation()
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("instance %q has not been configured; run `openneko --instance %s setup --mode demo` first", instance.Current(), instance.Current())
+				}
+				if settings.Mode != string(compose.ModeDemo) {
+					return fmt.Errorf("instance %q is installed in %s mode; AdventureWorks seed requires a demo instance", instance.Current(), settings.Mode)
+				}
 			}
 			sup := compose.New(assets.ComposeFS)
 			project, err := sup.ProjectName(compose.ModeDemo)

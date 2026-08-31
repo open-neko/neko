@@ -32,9 +32,10 @@ func newResetCmd() *cobra.Command {
 				return err
 			}
 			// Tear down every possible project name an operator could have used
-			// in this dir, so reset works regardless of the last mode.
+			// for this instance, so reset works regardless of the last mode without
+			// touching another customer's projects.
 			for _, m := range []compose.Mode{compose.ModeProd, compose.ModeDev, compose.ModeDemo} {
-				_, _ = sup.Run(context.Background(), "openneko-"+string(m), files, []string{"down", "-v"}, os.Stdout, os.Stderr)
+				_, _ = sup.Run(context.Background(), compose.ProjectNameForMode(m), files, []string{"down", "-v"}, os.Stdout, os.Stderr)
 			}
 			oldRepository := os.Getenv("OPENNEKO_BACKUP_REPOSITORY")
 			_, newID, err := sup.RotateInstallationID()

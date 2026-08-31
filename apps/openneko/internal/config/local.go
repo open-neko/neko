@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 )
 
 // LocalPg mirrors the `pg` block of ~/.config/openneko/config.json, written
@@ -31,7 +33,7 @@ type Local struct {
 func ReadLocal(override string) (Local, string) {
 	candidates := []string{filepath.Join(Dir(override), "config.json")}
 	// Pre-rebrand fallback path; matches the TS reader.
-	if override == "" {
+	if override == "" && instance.Current() == "" {
 		base := os.Getenv("XDG_CONFIG_HOME")
 		if base == "" {
 			if home, err := os.UserHomeDir(); err == nil && home != "" {

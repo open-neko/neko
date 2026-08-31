@@ -28,6 +28,10 @@ The demo seeds three watchers against sample data — kick off **Slow-Ship Opera
 
 Full propose-and-approve walkthrough, the live trial (order simulator + scenario injector), and connecting your own data → **[INSTALL.md](INSTALL.md)**.
 
+Hosting several smaller customers on one VM? Named installations isolate each
+customer's Compose project, databases, secrets, sandbox state, backups, ports,
+and Docker network. See [Multiple customer instances](INSTALL.md#multiple-customer-instances-on-one-host).
+
 ## What you get
 
 The full feature catalog, in plain language, lives in **[FEATURES.md](FEATURES.md)** — ask-anything answers, chat-first administration, watchers, channels (Slack / Telegram), personal-vs-team knowledge, and the verifiable security model. The highlights:
