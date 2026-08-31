@@ -3,6 +3,8 @@ package assets
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -42,23 +44,228 @@ func TestPackagedGraphJinReusesReleasedRuntime(t *testing.T) {
 	if !strings.Contains(graphjin.Image, "ghcr.io/open-neko/records-graphjin:") {
 		t.Fatalf("packaged graphjin image = %q, want the shared records-graphjin runtime", graphjin.Image)
 	}
-	if want := []string{"/bin/sh", "/config/.openneko-graphjin-supervisor.sh"}; !reflect.DeepEqual(graphjin.Entrypoint, want) {
-		t.Fatalf("packaged graphjin entrypoint = %v, want %v", graphjin.Entrypoint, want)
+	entrypoint := strings.Join(graphjin.Entrypoint, "\n")
+	for _, required := range []string{
+		"/usr/local/bin/openneko-graphjin-supervisor.sh",
+		"/config/.openneko-graphjin-supervisor.sh",
+	} {
+		if !strings.Contains(entrypoint, required) {
+			t.Fatalf("packaged graphjin entrypoint does not include %s: %v", required, graphjin.Entrypoint)
+		}
+	}
+	wantHealthcheck := []string{
+		"CMD", "curl", "-sS", "-o", "/dev/null",
+		"http://127.0.0.1:8080/api/v1/graphql",
+	}
+	if got := composeHealthcheckTest(t, "packaged", "graphjin", graphjin); !reflect.DeepEqual(got, wantHealthcheck) {
+		t.Fatalf("packaged graphjin readiness check = %v, want %v", got, wantHealthcheck)
 	}
 	configInit, ok := core.Services["graphjin-config-init"]
 	if !ok {
 		t.Fatal("packaged core is missing graphjin-config-init")
 	}
-	if !strings.Contains(strings.Join(configInit.Entrypoint, "\n"), "graphjin-supervisor.sh") {
-		t.Fatal("packaged graphjin config init does not install the supervisor entrypoint")
-	}
+	assertGraphJinSupervisorRepair(t, "packaged core", configInit, "/app/scripts/graphjin-supervisor.sh")
+	assertGraphJinConfigVolumeMatches(t, "packaged core", configInit, graphjin)
 
 	demoRaw, err := ComposeFS.ReadFile("compose/demo.yml")
 	if err != nil {
 		t.Fatal(err)
 	}
+	demo := loadComposeParityDocument(t, demoRaw)
+	demoConfigInit := demo.Services["graphjin-config-init"]
+	assertGraphJinSupervisorRepair(t, "packaged demo overlay", demoConfigInit, "/app/scripts/graphjin-supervisor.sh")
+	assertGraphJinConfigVolumeMatches(t, "packaged demo overlay", demoConfigInit, demo.Services["graphjin"])
 	if strings.Contains(string(demoRaw), "dosco/graphjin") {
 		t.Fatal("packaged demo restores the duplicate upstream GraphJin image")
+	}
+}
+
+func TestGraphJinSupervisorIsImageOwnedAndEverySourceOverlayRepairsOldVolumes(t *testing.T) {
+	root := repoRootForTest(t)
+	dockerfile, err := os.ReadFile(root + "/Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"COPY scripts/graphjin-supervisor.sh /usr/local/bin/openneko-graphjin-supervisor.sh",
+		"chmod +x /usr/local/bin/openneko-graphjin-supervisor.sh",
+	} {
+		if !strings.Contains(string(dockerfile), required) {
+			t.Fatalf("GraphJin runtime does not own its supervisor: missing %q", required)
+		}
+	}
+
+	baseRaw, err := os.ReadFile(root + "/compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := loadComposeParityDocument(t, baseRaw)
+	if strings.Contains(base.Services["graphjin"].Image, "dosco/graphjin") {
+		t.Fatal("source graphjin uses the shell-less upstream image with a shell supervisor")
+	}
+	assertGraphJinSupervisorRepair(t, "source core", base.Services["graphjin-config-init"], "/seed/graphjin-supervisor.sh")
+	assertGraphJinConfigVolumeMatches(t, "source core", base.Services["graphjin-config-init"], base.Services["graphjin"])
+
+	for _, overlayName := range []string{"compose.adventureworks.yml", "compose.graphjin-agent.yml"} {
+		raw, err := os.ReadFile(root + "/" + overlayName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		overlay := loadComposeParityDocument(t, raw)
+		initializer := overlay.Services["graphjin-config-init"]
+		if len(initializer.Command) != 0 {
+			t.Fatalf("%s appends a command that the inherited initializer entrypoint would ignore", overlayName)
+		}
+		assertGraphJinSupervisorRepair(t, overlayName, initializer, "/seed/graphjin-supervisor.sh")
+	}
+}
+
+func assertGraphJinSupervisorRepair(t *testing.T, label string, service composeParityService, source string) {
+	t.Helper()
+	script := strings.Join(service.Entrypoint, "\n")
+	copyLine := "cp " + source + " /config/.openneko-graphjin-supervisor.sh.tmp"
+	for _, required := range []string{
+		copyLine,
+		"chmod 0755 /config/.openneko-graphjin-supervisor.sh.tmp",
+		"mv /config/.openneko-graphjin-supervisor.sh.tmp /config/.openneko-graphjin-supervisor.sh",
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("%s does not atomically repair an existing GraphJin supervisor volume: missing %q", label, required)
+		}
+	}
+	if lastConditionalEnd := strings.LastIndex(script, "\nfi\n"); lastConditionalEnd >= 0 && strings.Index(script, copyLine) < lastConditionalEnd {
+		t.Fatalf("%s repairs the supervisor only on first install; upgrades must refresh it unconditionally", label)
+	}
+}
+
+func assertGraphJinConfigVolumeMatches(t *testing.T, label string, initializer, graphjin composeParityService) {
+	t.Helper()
+	initSource := composeMountSourceAt(initializer.Volumes, "/config")
+	graphjinSource := composeMountSourceAt(graphjin.Volumes, "/config")
+	if initSource == "" || graphjinSource == "" || initSource != graphjinSource {
+		t.Fatalf("%s repairs GraphJin volume %q but serves volume %q", label, initSource, graphjinSource)
+	}
+}
+
+func composeMountSourceAt(mounts []string, target string) string {
+	for _, mount := range mounts {
+		parts := strings.Split(mount, ":")
+		if len(parts) >= 2 && parts[1] == target {
+			return parts[0]
+		}
+	}
+	return ""
+}
+
+func TestPackagedDemoInitializerHealsAnExistingVolumeMissingTheSupervisor(t *testing.T) {
+	root := repoRootForTest(t)
+	supervisorSource := filepath.Join(root, "scripts", "graphjin-supervisor.sh")
+	wantSupervisor, err := os.ReadFile(supervisorSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, composeFile := range []string{"core.yml", "demo.yml"} {
+		t.Run(composeFile, func(t *testing.T) {
+			raw, err := ComposeFS.ReadFile("compose/" + composeFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			service := loadComposeParityDocument(t, raw).Services["graphjin-config-init"]
+			script := strings.Join(service.Entrypoint[2:], "\n")
+
+			configDir := t.TempDir()
+			persistedConfig := filepath.Join(configDir, "agentic.yml")
+			if err := os.WriteFile(persistedConfig, []byte("persisted: true\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			// This is the v2.33-v2.35 production state: config survived the
+			// upgrade, while the supervisor file was never installed.
+			missingSupervisor := filepath.Join(configDir, ".openneko-graphjin-supervisor.sh")
+			if err := os.Remove(missingSupervisor); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+
+			script = strings.ReplaceAll(script, "/app/scripts/graphjin-supervisor.sh", supervisorSource)
+			script = strings.ReplaceAll(script, "/config", configDir)
+			// Docker Compose turns $$ into a literal $ before invoking the shell.
+			script = strings.ReplaceAll(script, "$$", "$")
+			cmd := exec.Command("/bin/sh", "-c", script)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("run %s initializer against existing volume: %v\n%s", composeFile, err, output)
+			}
+
+			gotSupervisor, err := os.ReadFile(missingSupervisor)
+			if err != nil {
+				t.Fatalf("repaired supervisor is missing: %v", err)
+			}
+			if !reflect.DeepEqual(gotSupervisor, wantSupervisor) {
+				t.Fatal("repaired supervisor does not match the released runtime artifact")
+			}
+			info, err := os.Stat(missingSupervisor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm()&0o111 == 0 {
+				t.Fatalf("repaired supervisor mode = %o, want executable", info.Mode().Perm())
+			}
+			persisted, err := os.ReadFile(persistedConfig)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(persisted) != "persisted: true\n" {
+				t.Fatalf("initializer replaced existing datasource config: %q", persisted)
+			}
+		})
+	}
+}
+
+func TestPostReleaseSmokeGatesRetainedDemoUpgrades(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRootForTest(t), ".github", "workflows", "post-release-smoke.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsedWorkflow any
+	if err := yaml.Unmarshal(raw, &parsedWorkflow); err != nil {
+		t.Fatalf("post-release smoke is not valid YAML: %v", err)
+	}
+	workflow := string(raw)
+	for _, required := range []string{
+		"openneko start --mode demo --detach --pull never",
+		"rm -f /config/.openneko-graphjin-supervisor.sh",
+		"openneko upgrade --stack-only --mode demo",
+		"test -x /config/.openneko-graphjin-supervisor.sh",
+		"{{.State.Health.Status}}",
+		"authenticated_datasource_query=ok",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("post-release smoke no longer gates retained demo upgrades: missing %q", required)
+		}
+	}
+}
+
+func TestProductionDeployRequiresAuthenticatedDatasourceQuery(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRootForTest(t), ".github", "workflows", "deploy.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsedWorkflow any
+	if err := yaml.Unmarshal(raw, &parsedWorkflow); err != nil {
+		t.Fatalf("production deploy is not valid YAML: %v", err)
+	}
+	workflow := string(raw)
+	for _, required := range []string{
+		"openneko upgrade --mode demo",
+		"OPENNEKO_PORT=80 openneko status",
+		"callGraphjinMcpTool",
+		"authenticated_datasource_query=ok",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("production deploy no longer verifies the datasource upgrade: missing %q", required)
+		}
+	}
+	if strings.Contains(workflow, "OPENNEKO_PORT=80 openneko status || true") {
+		t.Fatal("production deploy ignores an unhealthy upgraded stack")
 	}
 }
 

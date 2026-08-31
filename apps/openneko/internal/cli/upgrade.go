@@ -194,14 +194,24 @@ func restartUpgradedStack(ctx context.Context, sup *compose.Supervisor, project 
 	// otherwise reuses already-exited containers during the one-time migration
 	// from the legacy dynamic <project>_default network, leaving them unable to
 	// resolve services that have moved to <project>_runtime.
-	code, err := sup.Run(ctx, project, files, []string{"up", "-d", "--pull", "never", "--remove-orphans", "--force-recreate"}, os.Stdout, os.Stderr)
+	code, err := sup.Run(ctx, project, files, upgradeStackUpArgs(), os.Stdout, os.Stderr)
 	if err != nil {
 		return err
 	}
 	if code != 0 {
-		return WithExit(code, nil)
+		return WithExit(code, errors.New("upgraded stack failed its readiness checks"))
 	}
 	return nil
+}
+
+func upgradeStackUpArgs() []string {
+	// An upgrade is not successful merely because Compose created containers.
+	// Wait for every declared healthcheck so crash loops and unreachable data
+	// planes fail before the new image marker is persisted or old images prune.
+	return []string{
+		"up", "-d", "--wait", "--wait-timeout", "180",
+		"--pull", "never", "--remove-orphans", "--force-recreate",
+	}
 }
 
 func resolveUpgradeMode(ctx context.Context, flag string, sup *compose.Supervisor) (compose.Mode, bool, error) {

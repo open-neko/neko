@@ -521,6 +521,8 @@ CMD ["--help"]
 FROM alpine:3.22 AS graphjin-runtime
 RUN apk add --no-cache ca-certificates curl tini
 COPY --from=graphjin-bin /usr/local/bin/graphjin /usr/local/bin/graphjin
+COPY scripts/graphjin-supervisor.sh /usr/local/bin/openneko-graphjin-supervisor.sh
+RUN chmod +x /usr/local/bin/openneko-graphjin-supervisor.sh
 
 FROM graphjin-runtime AS neko-graphjin
 COPY scripts/neko-graphjin-entrypoint.sh /usr/local/bin/neko-graphjin-entrypoint.sh

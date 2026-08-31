@@ -53,6 +53,9 @@ services:
         if [ ! -f /config/dev.yml ]; then
           cp /seed/dev.yml /config/dev.yml
         fi
+        cp /seed/graphjin-supervisor.sh /config/.openneko-graphjin-supervisor.sh.tmp
+        chmod 0755 /config/.openneko-graphjin-supervisor.sh.tmp
+        mv /config/.openneko-graphjin-supervisor.sh.tmp /config/.openneko-graphjin-supervisor.sh
         chmod -R a+rwX /config
     restart: "no"
 
@@ -64,7 +67,6 @@ services:
       GRAPHJIN_SOURCES_CONFIG: ""
 
   graphjin:
-    image: dosco/graphjin:3.20.47
     restart: unless-stopped
     depends_on:
       adventureworks-init:

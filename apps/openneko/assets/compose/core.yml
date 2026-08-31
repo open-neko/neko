@@ -315,7 +315,12 @@ services:
           KEY=$$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64"))')
           sed -i "s|REPLACE_WITH_BASE64_32_BYTE_KEY|$$KEY|" /config/agentic.yml
         fi
-        cp /app/scripts/graphjin-supervisor.sh /config/.openneko-graphjin-supervisor.sh
+        # Compatibility fallback for a main supervisor paired with a released
+        # records-graphjin image that predates the image-owned supervisor.
+        # Refresh it unconditionally so existing persistent volumes self-heal.
+        cp /app/scripts/graphjin-supervisor.sh /config/.openneko-graphjin-supervisor.sh.tmp
+        chmod 0755 /config/.openneko-graphjin-supervisor.sh.tmp
+        mv /config/.openneko-graphjin-supervisor.sh.tmp /config/.openneko-graphjin-supervisor.sh
         chmod -R a+rwX /config
     volumes:
       - openneko-graphjin-cli:/config
@@ -366,10 +371,20 @@ services:
 
   graphjin:
     # Reuse the already-required records-graphjin image: it contains the same
-    # pinned GraphJin binary, so a full install does not pull a second 120 MiB
-    # runtime. Overriding the records entrypoint selects vanilla GraphJin.
+    # pinned GraphJin binary and owns its supervisor, so a full install does
+    # not pull a second runtime or execute code from a persistent config
+    # volume. The fallback preserves main-supervisor/release-image skew during
+    # the first release that introduces the image-owned path.
     image: ${OPENNEKO_GRAPHJIN_IMAGE:-ghcr.io/open-neko/records-graphjin:${OPENNEKO_VERSION:-latest}}
-    entrypoint: ["/bin/sh", "/config/.openneko-graphjin-supervisor.sh"]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ -x /usr/local/bin/openneko-graphjin-supervisor.sh ]; then
+          exec /usr/local/bin/openneko-graphjin-supervisor.sh "$$@"
+        fi
+        exec /bin/sh /config/.openneko-graphjin-supervisor.sh "$$@"
+      - --
     restart: unless-stopped
     depends_on:
       graphjin-config-init:
@@ -389,6 +404,14 @@ services:
     volumes:
       - openneko-graphjin-cli:/config
     command: ["serve", "--path", "/config"]
+    healthcheck:
+      # JWT-protected GraphQL may return a non-2xx response to this anonymous
+      # request. Any HTTP response proves the data plane is accepting traffic.
+      test: ["CMD", "curl", "-sS", "-o", "/dev/null", "http://127.0.0.1:8080/api/v1/graphql"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
 
   # One-shot: applies SQL migrations to neko-db after both database volumes
   # satisfy the enforced storage contract. Every long-running service depends

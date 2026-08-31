@@ -63,6 +63,11 @@ services:
           KEY=$(node -e 'console.log(require("crypto").randomBytes(32).toString("base64"))')
           sed -i "s|REPLACE_WITH_BASE64_32_BYTE_KEY|$$KEY|" /config/agentic.yml
         fi
+        # This overlay replaces the core initializer, so it must preserve the
+        # compatibility repair for existing volumes and older released images.
+        cp /app/scripts/graphjin-supervisor.sh /config/.openneko-graphjin-supervisor.sh.tmp
+        chmod 0755 /config/.openneko-graphjin-supervisor.sh.tmp
+        mv /config/.openneko-graphjin-supervisor.sh.tmp /config/.openneko-graphjin-supervisor.sh
         chmod -R a+rwX /config
     volumes:
       - graphjin-config:/config
