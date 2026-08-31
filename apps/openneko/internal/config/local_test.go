@@ -5,7 +5,24 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 )
+
+func TestNamedInstanceDoesNotReadLegacyGlobalConfig(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", base)
+	t.Setenv(instance.EnvName, "acme")
+	if err := os.MkdirAll(filepath.Join(base, "neko"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "neko", "config.json"), []byte(`{"pg":{"password":"legacy"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, path := ReadLocal(""); path != "" || got.Pg != nil {
+		t.Fatalf("named instance read global legacy config: path=%q config=%+v", path, got)
+	}
+}
 
 func TestWriteLocalPgPasswordRoundTrip(t *testing.T) {
 	dir := t.TempDir()

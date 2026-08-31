@@ -9,8 +9,18 @@ import (
 func TestDefaultPortsIncludeWebAndLoopbackGateway(t *testing.T) {
 	if len(DefaultPorts) != 2 ||
 		DefaultPorts[0].Label != "web" || DefaultPorts[0].Def != 3000 ||
-		DefaultPorts[1].EnvVar != "OPENSHELL_PORT" || DefaultPorts[1].Def != 18080 {
+		DefaultPorts[0].BindEnvVar != "OPENNEKO_WEB_BIND_ADDRESS" ||
+		DefaultPorts[1].EnvVar != "OPENSHELL_PORT" || DefaultPorts[1].Def != 18080 ||
+		DefaultPorts[1].BindAddress() != "127.0.0.1" {
 		t.Fatalf("packaged host ports = %+v, want web and loopback OpenShell gateway", DefaultPorts)
+	}
+}
+
+func TestPortSpecBindAddressHonorsEnvironment(t *testing.T) {
+	t.Setenv("OPENNEKO_TEST_BIND", "127.0.0.2")
+	spec := PortSpec{BindEnvVar: "OPENNEKO_TEST_BIND", DefaultBind: "0.0.0.0"}
+	if got := spec.BindAddress(); got != "127.0.0.2" {
+		t.Fatalf("bind address = %q", got)
 	}
 }
 

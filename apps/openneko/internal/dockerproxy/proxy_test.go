@@ -118,3 +118,18 @@ func TestSelectWorker(t *testing.T) {
 		t.Fatalf("ambiguous candidates = %v", amb)
 	}
 }
+
+func TestSelectWorkerTargetsNamedProject(t *testing.T) {
+	lines := []string{
+		"openneko-acme-prod-worker-1",
+		"openneko-globex-prod-worker-1",
+	}
+	name, ambiguous := selectWorkerForProject(lines, "openneko-globex-prod")
+	if name != "openneko-globex-prod-worker-1" || ambiguous != nil {
+		t.Fatalf("targeted selection = %q %v", name, ambiguous)
+	}
+	name, ambiguous = selectWorkerForProject(lines, "openneko-missing-prod")
+	if name != "" || ambiguous != nil {
+		t.Fatalf("missing target = %q %v", name, ambiguous)
+	}
+}

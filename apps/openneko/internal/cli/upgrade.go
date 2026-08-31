@@ -14,6 +14,7 @@ import (
 
 	"github.com/open-neko/neko/apps/openneko/assets"
 	"github.com/open-neko/neko/apps/openneko/internal/compose"
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 	opennekoversion "github.com/open-neko/neko/apps/openneko/internal/version"
 )
 
@@ -69,6 +70,13 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command, opts upgradeOptions) er
 	errOut := cmd.ErrOrStderr()
 	if opts.stackOnly && opts.cliOnly {
 		return errors.New("--stack-only and --cli-only are mutually exclusive")
+	}
+	if instance.Current() != "" && !opts.cliOnly {
+		if _, ok, err := requireConfiguredNamedInstallation(); err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("instance %q has not been configured; run `openneko --instance %s setup` first", instance.Current(), instance.Current())
+		}
 	}
 	target, err := resolveUpgradeTarget(ctx, opts.imageVersion, opts.stackOnly)
 	if err != nil {
@@ -201,10 +209,20 @@ func resolveUpgradeMode(ctx context.Context, flag string, sup *compose.Superviso
 	if mode != "" && mode != "auto" {
 		switch compose.Mode(mode) {
 		case compose.ModeProd, compose.ModeDev, compose.ModeDemo:
+			if settings, ok, err := loadCurrentInstallation(); err != nil {
+				return "", false, err
+			} else if ok && instance.Current() != "" && settings.Mode != mode {
+				return "", false, fmt.Errorf("instance %q is installed in %s mode, not %s", instance.Current(), settings.Mode, mode)
+			}
 			return compose.Mode(mode), false, nil
 		default:
 			return "", false, fmt.Errorf("--mode must be one of: auto, prod, dev, demo (got %q)", flag)
 		}
+	}
+	if settings, ok, err := loadCurrentInstallation(); err != nil {
+		return "", false, err
+	} else if ok {
+		return compose.Mode(settings.Mode), false, nil
 	}
 	project, err := sup.ProjectName("")
 	if err != nil {
@@ -256,46 +274,54 @@ func dockerComposeProjectNames(ctx context.Context, all bool) ([]string, error) 
 }
 
 func modeFromExistingProjects(projects []string) (compose.Mode, bool, error) {
-	modes := map[compose.Mode]string{}
+	matches := map[string]compose.Mode{}
+	var named []string
+	selected := instance.Current()
 	for _, project := range projects {
-		mode, ok := modeFromLegacyProjectName(project)
+		mode, projectInstance, ok := compose.IdentityFromProjectName(project)
+		if !ok && project == "openneko" {
+			mode, ok = compose.ModeProd, true
+		}
 		if !ok {
 			continue
 		}
-		modes[mode] = project
+		if selected != "" {
+			if projectInstance == selected {
+				matches[project] = mode
+			}
+			continue
+		}
+		if projectInstance != "" {
+			named = append(named, project)
+			continue
+		}
+		matches[project] = mode
 	}
-	if len(modes) == 0 {
+	if len(matches) == 0 && len(named) > 0 && selected == "" {
+		sort.Strings(named)
+		return "", false, fmt.Errorf("found named OpenNeko stacks (%s); re-run with --instance <name>", strings.Join(named, ", "))
+	}
+	if len(matches) == 0 {
 		return "", false, nil
 	}
-	if len(modes) == 1 {
-		for mode := range modes {
+	if len(matches) == 1 {
+		for _, mode := range matches {
 			return mode, true, nil
 		}
 	}
-	return "", false, fmt.Errorf("found multiple OpenNeko stacks (%s); re-run with --mode prod, --mode dev, or --mode demo", strings.Join(sortedProjectNames(modes), ", "))
-}
-
-func modeFromLegacyProjectName(project string) (compose.Mode, bool) {
-	if project == "openneko" {
-		return compose.ModeProd, true
+	selectedProjects := make([]string, 0, len(matches))
+	for project := range matches {
+		selectedProjects = append(selectedProjects, project)
 	}
-	if mode, ok := compose.ModeFromProjectName(project); ok {
-		return mode, true
+	sort.Strings(selectedProjects)
+	if selected == "" {
+		return "", false, fmt.Errorf("found multiple OpenNeko stacks (%s); re-run with --mode prod, --mode dev, or --mode demo", strings.Join(selectedProjects, ", "))
 	}
-	return "", false
+	return "", false, fmt.Errorf("instance %q has multiple OpenNeko stack projects (%s); remove the obsolete project before upgrading", selected, strings.Join(selectedProjects, ", "))
 }
 
 func uniqueLines(s string) []string {
 	return uniqueStrings(strings.Split(s, "\n"))
-}
-
-func sortedProjectNames(modes map[compose.Mode]string) []string {
-	names := make([]string, 0, len(modes))
-	for _, project := range modes {
-		names = append(names, project)
-	}
-	sort.Strings(names)
-	return names
 }
 
 var semverishImageVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+.*$`)

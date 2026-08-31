@@ -3,11 +3,16 @@ package cli
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/open-neko/neko/apps/openneko/internal/compose"
+	"github.com/open-neko/neko/apps/openneko/internal/config"
+	"github.com/open-neko/neko/apps/openneko/internal/installation"
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 	opennekoversion "github.com/open-neko/neko/apps/openneko/internal/version"
 )
 
@@ -135,12 +140,70 @@ func TestResolveUpgradeModeDetectsLegacyProdProject(t *testing.T) {
 }
 
 func TestResolveUpgradeModeErrorsOnMultipleStacks(t *testing.T) {
+	t.Setenv(instance.EnvName, "")
 	s := &compose.Supervisor{RuntimeDir: t.TempDir()}
 	stubComposeProjects(t, []string{"openneko-dev", "openneko-demo"}, []string{"openneko-dev", "openneko-demo"})
 
 	_, _, err := resolveUpgradeMode(context.Background(), "auto", s)
 	if err == nil {
 		t.Fatal("expected multiple stack error")
+	}
+}
+
+func TestResolveUpgradeModeRefusesUnnamedGuessForNamedStack(t *testing.T) {
+	t.Setenv(instance.EnvName, "")
+	s := &compose.Supervisor{RuntimeDir: t.TempDir()}
+	stubComposeProjects(t, []string{"openneko-acme-prod"}, []string{"openneko-acme-prod"})
+	_, _, err := resolveUpgradeMode(context.Background(), "auto", s)
+	if err == nil || !strings.Contains(err.Error(), "--instance") {
+		t.Fatalf("error = %v, want named-instance guidance", err)
+	}
+}
+
+func TestUpgradeRefusesUnconfiguredNamedInstanceBeforeResolvingRelease(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv(instance.EnvName, "missing")
+	cmd := newUpgradeCmd()
+	cmd.SetArgs([]string{"--stack-only", "--version", "v9.8.7"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "has not been configured") {
+		t.Fatalf("error = %v, want unconfigured instance error", err)
+	}
+}
+
+func TestSeedRefusesNamedProductionInstance(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv(instance.EnvName, "acme")
+	settings := installation.Settings{
+		Version:        installation.CurrentVersion,
+		Instance:       "acme",
+		Mode:           "prod",
+		WebPort:        3101,
+		WebBindAddress: "127.0.0.1",
+		OpenShellPort:  18101,
+		DockerSubnet:   "10.224.1.0/24",
+	}
+	if err := os.MkdirAll(filepath.Dir(installation.Path(config.Dir(""))), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := installation.Save(config.Dir(""), settings); err != nil {
+		t.Fatal(err)
+	}
+	cmd := newSeedCmd()
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "requires a demo instance") {
+		t.Fatalf("error = %v, want demo-mode requirement", err)
+	}
+}
+
+func TestModeFromExistingProjectsTargetsSelectedInstance(t *testing.T) {
+	t.Setenv(instance.EnvName, "acme")
+	mode, ok, err := modeFromExistingProjects([]string{
+		"openneko-globex-demo",
+		"openneko-acme-prod",
+	})
+	if err != nil || !ok || mode != compose.ModeProd {
+		t.Fatalf("mode = %q, ok=%v, err=%v", mode, ok, err)
 	}
 }
 

@@ -30,7 +30,9 @@ You also need Docker (Docker Desktop on macOS, Docker Engine on Linux).
 ### Stack supervision
 
 ```bash
-openneko setup [--mode prod|dev|demo]   # guided install: preflight + bring-up + configure
+openneko [--instance name] setup [--mode prod|dev|demo] [--port N] \
+  [--openshell-port N] [--bind-address IPv4] [--docker-subnet IPv4/24]
+openneko instances                       # list configured installations
 openneko start [--mode prod|dev|demo] [--detach]
 openneko upgrade [--version vX.Y.Z] [--mode auto|prod|dev|demo] [--stack-only|--cli-only]
 openneko stop [--volumes]
@@ -49,10 +51,18 @@ Modes:
 - `dev` — developer defaults; from a source checkout use repo-root `pnpm dev:setup` + `pnpm dev` for demo data and hot-reloaded web/worker
 - `demo` — core + AdventureWorks trial bundle
 
-The binary materializes its embedded compose files to `.openneko/runtime/`
-in the current working directory before invoking `docker compose`. A
-project- or user-level override at `~/.config/openneko/compose.override.yml`
-is appended automatically when present.
+The unnamed backward-compatible installation materializes its embedded Compose
+files to `.openneko/runtime/` in the current working directory. A named
+installation uses
+`${XDG_STATE_HOME:-$HOME/.local/state}/openneko/instances/<name>/runtime/`, so
+it can be managed consistently from any working directory. Its host config and
+override live under `~/.config/openneko/instances/<name>/`. The CLI appends the
+matching `compose.override.yml` automatically when present.
+
+Named instances allow multiple production stacks on one Docker host. Setup
+persists the web/OpenShell ports and assigns an isolated Docker subnet; Compose
+resources use `openneko-<instance>-<mode>`. Always pass `--instance <name>` to
+lifecycle and plugin commands for that customer.
 
 `openneko upgrade` resolves the latest stable release (or the exact
 `--version`), updates the local CLI first, and re-executes that new binary
@@ -82,13 +92,11 @@ into the database and backup containers. This also avoids rootful Docker
 changing ownership of metadata the rootless host CLI must read.
 
 Default repositories are isolated by Compose project and a persistent
-installation ID under `~/.local/share/openneko/repositories/`. Two demo
-stacks launched from different working directories therefore cannot attach
-their PostgreSQL clusters to each other's pgBackRest stanzas. Reinstalling in
-the same working directory reuses the installation ID; a fresh directory gets
-a new repository and leaves the old one untouched. `stop --volumes` and
-`reset` also rotate the installation ID after deleting database volumes, so a
-new PostgreSQL cluster is never pointed at the previous cluster's stanzas.
+installation ID under `~/.local/share/openneko/repositories/`. Named instances
+therefore cannot attach their PostgreSQL clusters to another customer's
+pgBackRest stanzas. `stop --volumes` and `reset` also rotate the installation
+ID after deleting database volumes, so a new PostgreSQL cluster is never
+pointed at the previous cluster's stanzas.
 
 - Rootless Linux and macOS default to
   `${XDG_STATE_HOME:-$HOME/.local/state}/openneko/backup-keys/`.

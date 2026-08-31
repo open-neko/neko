@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 	"github.com/open-neko/neko/apps/openneko/internal/plugin/manifest"
 )
 
@@ -23,7 +24,7 @@ func TestExitCodeFor(t *testing.T) {
 
 func TestRootHasAllCommands(t *testing.T) {
 	root := NewRoot()
-	want := []string{"setup", "init", "install", "remove", "list", "doctor", "marketplace", "secrets", "pack", "version", "start", "upgrade", "stop", "status", "backup", "restore", "records", "storage", "logs", "migrate", "seed", "reset", "eval"}
+	want := []string{"setup", "instances", "init", "install", "remove", "list", "doctor", "marketplace", "secrets", "pack", "version", "start", "upgrade", "stop", "status", "backup", "restore", "records", "storage", "logs", "migrate", "seed", "reset", "eval"}
 	got := map[string]bool{}
 	for _, c := range root.Commands() {
 		got[c.Name()] = true
@@ -64,6 +65,39 @@ func TestVersionSubcommandShort(t *testing.T) {
 	got := strings.TrimSpace(out.String())
 	if got == "" || strings.Contains(got, "\n") || strings.Contains(got, "OpenNeko") {
 		t.Fatalf("expected short version output, got %q", out.String())
+	}
+}
+
+func TestPersistentInstanceFlagWorksAfterSubcommand(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv(instance.EnvName, "")
+	root := NewRoot()
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"version", "--short", "--instance", "acme"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := instance.Current(); got != "acme" {
+		t.Fatalf("selected instance = %q", got)
+	}
+}
+
+func TestNamedInstanceFromWorkerContainer(t *testing.T) {
+	name, ok := namedInstanceFromWorkerContainer("openneko-acme-west-prod-worker-1")
+	if !ok || name != "acme-west" {
+		t.Fatalf("named worker = %q, ok=%v", name, ok)
+	}
+	for _, container := range []string{
+		"openneko-prod-worker-1",
+		"openneko-acme-prod-web-1",
+		"unrelated-worker-1",
+	} {
+		if name, ok := namedInstanceFromWorkerContainer(container); ok || name != "" {
+			t.Fatalf("%q parsed as named instance %q", container, name)
+		}
 	}
 }
 

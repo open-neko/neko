@@ -9,6 +9,7 @@ import (
 
 	"github.com/open-neko/neko/apps/openneko/internal/compose"
 	"github.com/open-neko/neko/apps/openneko/internal/config"
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 )
 
 func TestAgentImageRef(t *testing.T) {
@@ -32,6 +33,39 @@ func TestOpenShellStateDirOverride(t *testing.T) {
 	// An explicit existing value is always respected (no override).
 	if got := openShellStateDirOverride("darwin", "/Users/x", "/custom/state"); got != "" {
 		t.Fatalf("existing value must win: got %q", got)
+	}
+}
+
+func TestConfigureOpenShellStateDirScopesNamedInstance(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv(instance.EnvName, "acme")
+	t.Setenv("OPENSHELL_STATE_DIR", filepath.Join(t.TempDir(), "another-customer"))
+	if err := configureOpenShellStateDir(); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(stateHome, "openneko", "instances", "acme", "openshell")
+	if got := os.Getenv("OPENSHELL_STATE_DIR"); got != want {
+		t.Fatalf("OPENSHELL_STATE_DIR = %q, want %q", got, want)
+	}
+}
+
+func TestConfigureOpenShellDBURLScopesNamedInstance(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv(instance.EnvName, "acme")
+	t.Setenv(openShellDBPasswordEnv, "another-customer-password")
+	t.Setenv("OPENSHELL_DB_URL", "postgres://other:secret@other-db:5432/other")
+
+	configureOpenShellDBURL()
+	wantPassword, err := config.OpenShellDBPassword("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv(openShellDBPasswordEnv); got != wantPassword {
+		t.Fatal("named OpenShell password was not derived from selected config")
+	}
+	if got := os.Getenv("OPENSHELL_DB_URL"); !strings.Contains(got, "@neko-db:5432/") || strings.Contains(got, "other-db") {
+		t.Fatalf("named OPENSHELL_DB_URL = %q", got)
 	}
 }
 
@@ -114,6 +148,7 @@ func TestConfigureOpenShellNetworkRejectsBridgeGatewayOutsideSubnet(t *testing.T
 
 func TestConfigureOpenShellDBURL(t *testing.T) {
 	// Operator-set URL always wins.
+	t.Setenv(instance.EnvName, "")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv(openShellDBPasswordEnv, "")
 	t.Setenv("OPENSHELL_DB_URL", "postgres://op:set@elsewhere:5432/db")

@@ -10,11 +10,16 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/open-neko/neko/apps/openneko/assets"
+	"github.com/open-neko/neko/apps/openneko/internal/compose"
 	"github.com/open-neko/neko/apps/openneko/internal/dockerproxy"
+	"github.com/open-neko/neko/apps/openneko/internal/instance"
 	"github.com/open-neko/neko/apps/openneko/internal/version"
 )
 
@@ -27,11 +32,58 @@ func MaybeProxyToWorker(cmd *cobra.Command) (int, bool) {
 	if local, _ := cmd.Flags().GetBool("local"); local {
 		return 0, false
 	}
-	container := dockerproxy.FindRunningWorker()
+	project := ""
+	settings, ok, err := loadCurrentInstallation()
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "openneko: cannot read selected installation: %v\n", err)
+		return 1, true
+	}
+	if ok {
+		project = compose.ProjectNameForModeAndInstance(compose.Mode(settings.Mode), settings.Instance)
+		if settings.Instance == "" {
+			sup := compose.New(assets.ComposeFS)
+			if saved, savedErr := sup.ProjectName(""); savedErr == nil && saved != "" {
+				project = saved
+			}
+		}
+	} else if instance.Current() != "" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "openneko: instance %q has not been configured; run `openneko --instance %s setup` first\n", instance.Current(), instance.Current())
+		return 1, true
+	}
+	container, resolveErr := dockerproxy.ResolveRunningWorker(project)
+	if resolveErr != nil {
+		if project == "" && !errors.Is(resolveErr, dockerproxy.ErrAmbiguousWorkers) {
+			// No packaged installation was selected. Preserve the source-dev
+			// workflow, where plugin operations intentionally execute locally.
+			return 0, false
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(), "openneko: cannot locate instance worker: %v\n", resolveErr)
+		return 1, true
+	}
 	if container == "" {
+		if project != "" {
+			fmt.Fprintf(cmd.ErrOrStderr(), "openneko: worker for %s is not running; start the selected instance or pass --local\n", project)
+			return 1, true
+		}
 		return 0, false
 	}
+	if project == "" {
+		if name, named := namedInstanceFromWorkerContainer(container); named {
+			fmt.Fprintf(cmd.ErrOrStderr(), "openneko: worker %s belongs to named instance %q; re-run with --instance %s\n", container, name, name)
+			return 1, true
+		}
+	}
 	return dockerproxy.ProxyToWorker(container, os.Args[1:]), true
+}
+
+func namedInstanceFromWorkerContainer(container string) (string, bool) {
+	const suffix = "-worker-1"
+	project := strings.TrimSuffix(strings.TrimSpace(container), suffix)
+	if project == container {
+		return "", false
+	}
+	_, name, ok := compose.IdentityFromProjectName(project)
+	return name, ok && name != ""
 }
 
 type exitErr struct {
@@ -62,6 +114,7 @@ func ExitCodeFor(err error) int {
 }
 
 func NewRoot() *cobra.Command {
+	var selectedInstance string
 	cmd := &cobra.Command{
 		Use:   "openneko",
 		Short: "OpenNeko operator CLI",
@@ -70,11 +123,14 @@ func NewRoot() *cobra.Command {
 Getting started: setup (guided install — preflight, bring-up, configure).
 Plugin ops: init, install, list, remove, marketplace, secrets, doctor.
 Solution packs: pack list, pack inspect, pack plan, pack install, pack status.
-Stack ops:  start, upgrade, stop, logs, status, backup, restore, storage, migrate, seed, reset.
+Stack ops:  instances, start, upgrade, stop, logs, status, backup, restore, storage, migrate, seed, reset.
 Developer ops: eval.`,
 		Version:       version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			return activateInstallation(selectedInstance)
+		},
 	}
 	cmd.SetVersionTemplate("{{.Version}}\n")
 	// Persistent flag: plugin-op commands (init/install/remove/list/
@@ -84,8 +140,10 @@ Developer ops: eval.`,
 	// host-side execution (use this for source-build dev workflows that
 	// happen to have a compose stack running alongside `pnpm dev`).
 	cmd.PersistentFlags().Bool("local", false, "Force local execution; don't auto-proxy plugin ops into a running worker container")
+	cmd.PersistentFlags().StringVar(&selectedInstance, "instance", "", "Target a named OpenNeko installation")
 	cmd.AddCommand(
 		newSetupCmd(),
+		newInstancesCmd(),
 		newInitCmd(),
 		newInstallCmd(),
 		newRemoveCmd(),
