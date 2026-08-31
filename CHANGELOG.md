@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.35.1](https://github.com/open-neko/openneko/compare/v2.35.0...v2.35.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **compose:** self-heal GraphJin datasource upgrades ([6c382b1](https://github.com/open-neko/openneko/commit/6c382b1a517ef28875589729fd1979b4ccd6e919))
+* **compose:** self-heal GraphJin upgrades ([06b3463](https://github.com/open-neko/openneko/commit/06b3463d5b89f641d188f20e5be804de01dbd515))
+
 ## [2.35.0](https://github.com/open-neko/openneko/compare/v2.34.0...v2.35.0) (2026-08-31)
 
 
