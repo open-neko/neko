@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.35.0](https://github.com/open-neko/openneko/compare/v2.34.0...v2.35.0) (2026-08-31)
+
+
+### Features
+
+* **cli:** support named multi-instance installs ([399a1b6](https://github.com/open-neko/openneko/commit/399a1b64ac0ef3e966597b4b3c415b660aa2dc15))
+* **cli:** support named multi-instance installs ([b874a50](https://github.com/open-neko/openneko/commit/b874a5041e2510467c740afab0b72283437f8a01))
+
 ## [2.34.0](https://github.com/open-neko/openneko/compare/v2.33.1...v2.34.0) (2026-08-30)
 
 
