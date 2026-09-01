@@ -6,7 +6,8 @@ import AppHeader from "@/components/AppHeader";
 import CreatorCredit from "@/components/CreatorCredit";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
-import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/Button";
+import { Pill, type PillVariant } from "@/components/ui/Pill";
 import { Segment, SegmentedControl } from "@/components/ui/Tabs";
 
 type StatusFilter = "active" | "completed" | "failed" | "all";
@@ -15,6 +16,7 @@ type WorkflowRunRow = {
   id: string;
   workflow: { id: string; name: string };
   triggerKind: string;
+  executionMode: "single" | "batch" | null;
   chainDepth: number;
   status: string;
   summary: string | null;
@@ -73,20 +75,20 @@ function statusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }
 
-function statusClass(status: string): string {
+function statusVariant(status: string): PillVariant {
   switch (status) {
     case "completed":
-      return "bg-success-soft text-success-ink";
+      return "success";
     case "failed":
     case "cancelled":
-      return "bg-danger-soft text-danger";
+      return "danger";
     case "queued":
     case "running":
     case "needs_input":
     case "waiting_approval":
-      return "bg-watch-soft text-warn-ink";
+      return "watch";
     default:
-      return "bg-neutral text-text2";
+      return "muted";
   }
 }
 
@@ -211,9 +213,10 @@ function RunsPageInner() {
           <ul className="list-none p-0 m-0 flex flex-col gap-2.5">
             {data.runs.map((run) => (
               <li key={run.id}>
-                <button data-ui-bespoke-reason="run list row"
-                  type="button"
-                  className="w-full text-left bg-card border border-border rounded-2xl px-4 py-3.5 cursor-pointer transition-[border-color,box-shadow] hover:border-accent hover:shadow-hover"
+                <Button
+                  variant="secondary"
+                  size="md"
+                  className="!min-h-0 w-full !items-stretch !justify-start !whitespace-normal !rounded-2xl px-4 py-3.5 text-left hover:shadow-soft"
                   onClick={() => router.push(`/runs/${run.id}`)}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -228,19 +231,23 @@ function RunsPageInner() {
                             ? ` · chain ${run.chainDepth}`
                             : ""}
                         </span>
+                        {run.triggerKind === "api" && run.executionMode ? (
+                          <Pill
+                            variant={
+                              run.executionMode === "batch" ? "success" : "muted"
+                            }
+                          >
+                            {run.executionMode}
+                          </Pill>
+                        ) : null}
                       </div>
                       <p className="mt-1.5 mb-0 text-ui-body-sm leading-[1.45] text-text2 line-clamp-2">
                         {describeRun(run)}
                       </p>
                     </div>
-                    <span
-                      className={cn(
-                        "shrink-0 uppercase text-ui-label tracking-[0.12em] font-bold px-2 py-0.5 rounded-full",
-                        statusClass(run.status),
-                      )}
-                    >
+                    <Pill variant={statusVariant(run.status)}>
                       {statusLabel(run.status)}
-                    </span>
+                    </Pill>
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-1.5 text-ui-caption text-text3">
                     <span className="font-mono">
@@ -272,7 +279,7 @@ function RunsPageInner() {
                       →
                     </span>
                   </div>
-                </button>
+                </Button>
               </li>
             ))}
           </ul>

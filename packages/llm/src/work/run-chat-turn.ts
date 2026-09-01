@@ -1,7 +1,6 @@
 import { getGraphjinConfigSettingsForOrg } from "@neko/db";
 import type { AgentChatMessage, AgentEvent } from "../agent-backend";
 import { resolveAgentBackend as defaultResolveAgentBackend } from "../agent-backend-resolver";
-import { normalizeGraphjinAgentUsage } from "../usage-normalization";
 import { extractMemoryFences } from "../agent-backends/memory-fence";
 import {
   extractActionRequestFences,
@@ -52,6 +51,7 @@ import {
 import type { PluginActionDescriptor } from "./tools";
 import { createToolOutputRecorder } from "./tool-output/metrics";
 import { runAgentBackend } from "./agent-core";
+import { createAgentEventTelemetry } from "./agent-event-telemetry";
 import {
   parseAppWorkContext,
   parseRecordWorkContext,
@@ -66,7 +66,7 @@ import {
   ensureWorkWorkspace as defaultEnsureWorkWorkspace,
   listInstalledSkills as defaultListInstalledSkills,
 } from "./workspace";
-import { observeSafely, type HarnessObserver } from "@neko/telemetry";
+import type { HarnessObserver } from "@neko/telemetry";
 
 /**
  * Delivery channel for a run. "web" renders a2ui cards (the channel injects the
@@ -269,19 +269,10 @@ export async function runChatTurn(
   > | null = null;
   let needsInputFinished = false;
   const operationId = `work:${runId}`;
-  const stageOperationId = `${operationId}:agent`;
-  const modelOperationId = `${operationId}:model:1`;
-  let agentStartedAt = Date.now();
-  const toolStarts = new Map<string, { name: string; startedAt: number }>();
-  let firstOutputObserved = false;
-  let stageOpen = false;
-  let modelOpen = false;
-  let outerUsage:
-    | Extract<AgentEvent, { type: "usage" }>
-    | undefined;
-  const observe = async (
-    input: Parameters<HarnessObserver["observe"]>[0],
-  ): Promise<void> => observeSafely(opts.observer, input);
+  const eventTelemetry = createAgentEventTelemetry({
+    observer: opts.observer,
+    operationId,
+  });
   // Token instrumentation: correlate each tool_end back to its tool_start name
   // and record output size. Flag-gated (OPENNEKO_TOOL_OUTPUT_METRICS) — see
   // work/tool-output/metrics.ts.
@@ -307,124 +298,7 @@ export async function runChatTurn(
       needsInputEvent = event;
     }
     toolRecorder.observe(event);
-    if (
-      !firstOutputObserved &&
-      ((event.type === "message" && event.role === "assistant") ||
-        event.type === "surface")
-    ) {
-      firstOutputObserved = true;
-      const firstOutputMs = Date.now() - agentStartedAt;
-      await observe({
-        kind: "model.first_chunk",
-        operationId: modelOperationId,
-        parentOperationId: stageOperationId,
-        measurements: { firstOutputMs, coverage: "unavailable" },
-      });
-      await observe({
-        kind: "run.first_output",
-        operationId,
-        measurements: { firstOutputMs, coverage: "unavailable" },
-      });
-    }
-    if (event.type === "tool_start") {
-      toolStarts.set(event.id, { name: event.name, startedAt: Date.now() });
-      await observe({
-        kind: "tool.start",
-        operationId: `${operationId}:tool:${event.id}`,
-        parentOperationId: modelOperationId,
-        attributes: { "gen_ai.tool.name": event.name },
-        measurements: {
-          inputBytes: byteLength(event.input),
-          coverage: "unavailable",
-        },
-      });
-      if (isGraphjinAgentTool(event.name)) {
-        await observe({
-          kind: "delegation.start",
-          operationId: `${operationId}:delegation:${event.id}`,
-          parentOperationId: modelOperationId,
-          attributes: { "openneko.delegation.target": "graphjin-agent" },
-        });
-        await observe({
-          kind: "model.request",
-          operationId: `${operationId}:inner-model:${event.id}`,
-          parentOperationId: `${operationId}:delegation:${event.id}`,
-          attributes: { "openneko.model.scope": "inner" },
-        });
-      }
-    } else if (event.type === "tool_end") {
-      const started = toolStarts.get(event.id);
-      toolStarts.delete(event.id);
-      await observe({
-        kind: "tool.end",
-        operationId: `${operationId}:tool:${event.id}`,
-        parentOperationId: modelOperationId,
-        status: event.error ? "error" : "ok",
-        ...(event.error ? { errorType: "tool_error" } : {}),
-        attributes: {
-          "gen_ai.tool.name": started?.name ?? "unknown",
-        },
-        measurements: {
-          ...(started ? { durationMs: Date.now() - started.startedAt } : {}),
-          outputBytes: byteLength(event.result ?? event.error),
-          coverage: "unavailable",
-        },
-      });
-      if (started && isGraphjinAgentTool(started.name)) {
-        const inner = normalizeGraphjinAgentUsage(event.result);
-        await observe({
-          kind: "model.response",
-          operationId: `${operationId}:inner-model:${event.id}`,
-          parentOperationId: `${operationId}:delegation:${event.id}`,
-          status: event.error ? "error" : "ok",
-          ...(event.error ? { errorType: "graphjin_agent_error" } : {}),
-          attributes: {
-            "openneko.model.scope": "inner",
-            ...(inner?.provider
-              ? { "gen_ai.provider.name": inner.provider }
-              : {}),
-            ...(inner?.model ? { "gen_ai.response.model": inner.model } : {}),
-          },
-          measurements: inner?.usage ?? {
-            coverage: "unavailable",
-            missingReasons: ["GraphJin agent response omitted normalized usage"],
-          },
-        });
-        await observe({
-          kind: "delegation.end",
-          operationId: `${operationId}:delegation:${event.id}`,
-          parentOperationId: modelOperationId,
-          status: event.error ? "error" : "ok",
-          ...(event.error ? { errorType: "graphjin_agent_error" } : {}),
-          attributes: { "openneko.delegation.target": "graphjin-agent" },
-        });
-      }
-    } else if (event.type === "usage" && event.source === "outer") {
-      outerUsage = event;
-    } else if (event.type === "action_request_emit") {
-      await observe({
-        kind: "policy.decision",
-        operationId: `${operationId}:policy:${event.action_request_id}`,
-        parentOperationId: operationId,
-        status: "ok",
-        attributes: {
-          "openneko.policy.decision": event.decision,
-          "openneko.action.kind": event.kind,
-          "openneko.action.scope": event.scope,
-        },
-      });
-    } else if (event.type === "action_request_result") {
-      await observe({
-        kind: "approval.decision",
-        operationId: `${operationId}:action:${event.action_request_id}`,
-        parentOperationId: operationId,
-        status: event.status === "failed" ? "error" : "ok",
-        attributes: {
-          "openneko.action.kind": event.kind,
-          "openneko.action.status": event.status,
-        },
-      });
-    }
+    await eventTelemetry.observeEvent(event);
     await emit(event);
     const denial = extractNetworkPolicyDenial(event);
     if (denial) {
@@ -601,25 +475,11 @@ export async function runChatTurn(
       ...(recordContext ? { recordContext } : {}),
     });
 
-    agentStartedAt = Date.now();
-    await observe({
-      kind: "stage.start",
-      operationId: stageOperationId,
-      parentOperationId: operationId,
-      attributes: { "openneko.stage": "agent" },
+    await eventTelemetry.startAgent({
+      backend: backend.id,
+      ...(backend.model ? { model: backend.model } : {}),
+      inputBytes: Buffer.byteLength(`${prompt}\n\n${message}`, "utf8"),
     });
-    stageOpen = true;
-    await observe({
-      kind: "model.request",
-      operationId: modelOperationId,
-      parentOperationId: stageOperationId,
-      attributes: {
-        "openneko.model.scope": "outer",
-        "openneko.backend": backend.id,
-        ...(backend.model ? { "gen_ai.request.model": backend.model } : {}),
-      },
-    });
-    modelOpen = true;
     const result = await runCore({
       backend,
       prompt,
@@ -641,39 +501,11 @@ export async function runChatTurn(
       signal,
     });
     const agentStatus = result.status === "completed" ? "ok" : "error";
-    await observe({
-      kind: "model.response",
-      operationId: modelOperationId,
-      parentOperationId: stageOperationId,
+    await eventTelemetry.finishAgent({
       status: agentStatus,
       ...(result.error ? { errorType: "agent_backend_error" } : {}),
-      attributes: {
-        "openneko.model.scope": "outer",
-        ...(outerUsage?.provider
-          ? { "gen_ai.provider.name": outerUsage.provider }
-          : {}),
-        ...(outerUsage?.model
-          ? { "gen_ai.response.model": outerUsage.model }
-          : {}),
-      },
-      measurements: outerUsage?.usage ?? {
-        coverage: "unavailable",
-        missingReasons: ["backend emitted no normalized usage"],
-      },
+      outputBytes: Buffer.byteLength(result.finalText, "utf8"),
     });
-    modelOpen = false;
-    await observe({
-      kind: "stage.end",
-      operationId: stageOperationId,
-      parentOperationId: operationId,
-      status: agentStatus,
-      attributes: { "openneko.stage": "agent" },
-      measurements: {
-        durationMs: Date.now() - agentStartedAt,
-        coverage: "unavailable",
-      },
-    });
-    stageOpen = false;
 
     const backendStateChanged =
       result.backendState && result.backendState !== bundle.thread.backendState;
@@ -759,6 +591,7 @@ export async function runChatTurn(
           goal: workflowFence.payload.goal,
           systemPromptOverlay: workflowFence.payload.systemPromptOverlay,
           steps: workflowFence.payload.steps,
+          batch: workflowFence.payload.batch,
           triggers: workflowFence.payload.triggers,
           createdByThreadId: threadId,
           createdByRunId: runId,
@@ -944,51 +777,11 @@ export async function runChatTurn(
     };
   } catch (error) {
     if (needsInputEvent) {
-      for (const [toolId, tool] of toolStarts) {
-        await observe({
-          kind: "tool.end",
-          operationId: `${operationId}:tool:${toolId}`,
-          parentOperationId: modelOperationId,
-          status: "ok",
-          attributes: { "gen_ai.tool.name": tool.name },
-          measurements: {
-            durationMs: Date.now() - tool.startedAt,
-            coverage: "unavailable",
-          },
-        });
-      }
-      toolStarts.clear();
-      if (modelOpen) {
-        await observe({
-          kind: "model.response",
-          operationId: modelOperationId,
-          parentOperationId: stageOperationId,
-          status: "ok",
-          attributes: { "openneko.outcome": "needs_input" },
-          measurements: outerUsage?.usage ?? {
-            coverage: "unavailable",
-            missingReasons: ["turn paused for operator input"],
-          },
-        });
-        modelOpen = false;
-      }
-      if (stageOpen) {
-        await observe({
-          kind: "stage.end",
-          operationId: stageOperationId,
-          parentOperationId: operationId,
-          status: "ok",
-          attributes: {
-            "openneko.stage": "agent",
-            "openneko.outcome": "needs_input",
-          },
-          measurements: {
-            durationMs: Date.now() - agentStartedAt,
-            coverage: "unavailable",
-          },
-        });
-        stageOpen = false;
-      }
+      await eventTelemetry.closeOpen({
+        status: "ok",
+        outcome: "needs_input",
+        usageMissingReason: "turn paused for operator input",
+      });
       return await finishNeedsInput();
     }
     const aborted =
@@ -1001,91 +794,16 @@ export async function runChatTurn(
       : error instanceof Error
         ? error.message
         : "Work run failed unexpectedly.";
-    for (const [toolId, tool] of toolStarts) {
-      if (isGraphjinAgentTool(tool.name)) {
-        await observe({
-          kind: "model.response",
-          operationId: `${operationId}:inner-model:${toolId}`,
-          parentOperationId: `${operationId}:delegation:${toolId}`,
-          status: "error",
-          errorType: aborted ? "cancelled" : "graphjin_agent_error",
-          measurements: {
-            coverage: "unavailable",
-            missingReasons: ["GraphJin agent call did not complete"],
-          },
-        });
-        await observe({
-          kind: "delegation.end",
-          operationId: `${operationId}:delegation:${toolId}`,
-          parentOperationId: modelOperationId,
-          status: "error",
-          errorType: aborted ? "cancelled" : "graphjin_agent_error",
-          attributes: { "openneko.delegation.target": "graphjin-agent" },
-        });
-      }
-      await observe({
-        kind: "tool.end",
-        operationId: `${operationId}:tool:${toolId}`,
-        parentOperationId: modelOperationId,
-        status: "error",
-        errorType: aborted ? "cancelled" : "agent_backend_error",
-        attributes: { "gen_ai.tool.name": tool.name },
-        measurements: {
-          durationMs: Date.now() - tool.startedAt,
-          coverage: "unavailable",
-        },
-      });
-    }
-    toolStarts.clear();
-    if (modelOpen) {
-      await observe({
-        kind: "model.response",
-        operationId: modelOperationId,
-        parentOperationId: stageOperationId,
-        status: "error",
-        errorType: aborted ? "cancelled" : "agent_backend_error",
-        measurements: outerUsage?.usage ?? {
-          coverage: "unavailable",
-          missingReasons: ["model call did not complete with normalized usage"],
-        },
-      });
-      modelOpen = false;
-    }
-    if (stageOpen) {
-      await observe({
-        kind: "stage.end",
-        operationId: stageOperationId,
-        parentOperationId: operationId,
-        status: "error",
-        errorType: aborted ? "cancelled" : "agent_backend_error",
-        attributes: { "openneko.stage": "agent" },
-        measurements: {
-          durationMs: Date.now() - agentStartedAt,
-          coverage: "unavailable",
-        },
-      });
-      stageOpen = false;
-    }
+    await eventTelemetry.closeOpen({
+      status: "error",
+      outcome: status,
+      errorType: aborted ? "cancelled" : "agent_backend_error",
+      usageMissingReason: "model call did not complete with normalized usage",
+    });
     await wrappedEmit({ type: "error", message: errMsg });
     await finishWorkRun(runId, status, aborted ? null : errMsg);
     await wrappedEmit({ type: "done", result: { status } });
     if (!aborted) throw error;
     return { status, finalText: assistantText };
   }
-}
-
-function byteLength(value: unknown): number {
-  if (value === undefined) return 0;
-  try {
-    return Buffer.byteLength(
-      typeof value === "string" ? value : JSON.stringify(value),
-      "utf8",
-    );
-  } catch {
-    return 0;
-  }
-}
-
-function isGraphjinAgentTool(name: string): boolean {
-  return name.toLocaleLowerCase().includes("neko_graphjin_agent");
 }

@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   bigserial,
   boolean,
+  check,
   customType,
   date,
   index,
@@ -1543,6 +1544,13 @@ export const workflow_run = pgTable(
     trigger_payload: jsonb("trigger_payload")
       .notNull()
       .default(sql`'{}'::jsonb`),
+    // Public API mode is typed run metadata, not something callers can hide
+    // inside trigger_payload. Null retains the historical meaning for manual,
+    // cron, subscription, and watcher runs.
+    execution_mode: text("execution_mode"),
+    // A bounded, redacted projection for operator surfaces. The executable
+    // request body lives on the short-retention admission row instead.
+    trigger_input_preview: jsonb("trigger_input_preview"),
     triggered_by_subscription_id: uuid("triggered_by_subscription_id"),
     triggered_by_output_id: uuid("triggered_by_output_id"),
     triggered_by_observation_id: uuid("triggered_by_observation_id"),
@@ -1552,6 +1560,13 @@ export const workflow_run = pgTable(
     finished_at: ts("finished_at"),
     summary: text("summary"),
     error: text("error"),
+    telemetry_summary: jsonb("telemetry_summary"),
+    terminal_result: jsonb("terminal_result"),
+    result_artifact_path: text("result_artifact_path"),
+    progress: jsonb("progress").notNull().default(sql`'{}'::jsonb`),
+    queue_attempts: integer("queue_attempts").notNull().default(0),
+    admitted_at: ts("admitted_at"),
+    result_expires_at: ts("result_expires_at"),
     source_writes: jsonb("source_writes")
       .notNull()
       .default(sql`'[]'::jsonb`),
@@ -1559,6 +1574,10 @@ export const workflow_run = pgTable(
     updated_at: ts("updated_at").notNull().defaultNow(),
   },
   (t) => ({
+    execution_mode_check: check(
+      "workflow_run_execution_mode_check",
+      sql`(${t.trigger_kind} = 'api' and ${t.execution_mode} in ('single', 'batch')) or (${t.trigger_kind} <> 'api' and ${t.execution_mode} is null)`,
+    ),
     work_run_unique: uniqueIndex("workflow_run_work_run_unique").on(
       t.work_run_id,
     ),
@@ -1571,6 +1590,283 @@ export const workflow_run = pgTable(
       t.status,
       t.created_at.desc(),
     ),
+  }),
+);
+
+/**
+ * Per-workflow external API gate. The token verifier is a SHA-256 digest of a
+ * 256-bit random token; plaintext exists only in the enable/rotate response.
+ * Limits are deliberately explicit so an administrator can inspect the exact
+ * admission contract without reading an opaque settings blob.
+ */
+export const workflow_api_access = pgTable(
+  "workflow_api_access",
+  {
+    workflow_id: uuid("workflow_id")
+      .primaryKey()
+      .references(() => workflow_definition.id, { onDelete: "cascade" }),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(false),
+    token_verifier: text("token_verifier"),
+    token_prefix: text("token_prefix"),
+    token_created_at: ts("token_created_at"),
+    token_rotated_at: ts("token_rotated_at"),
+    last_used_at: ts("last_used_at"),
+    request_limit_per_minute: integer("request_limit_per_minute")
+      .notNull()
+      .default(30),
+    poll_limit_per_minute: integer("poll_limit_per_minute")
+      .notNull()
+      .default(120),
+    queue_cap: integer("queue_cap").notNull().default(25),
+    concurrency_cap: integer("concurrency_cap").notNull().default(2),
+    batch_max_records: integer("batch_max_records").notNull().default(1000),
+    batch_chunk_size: integer("batch_chunk_size").notNull().default(100),
+    max_request_bytes: integer("max_request_bytes").notNull().default(262144),
+    max_result_bytes: integer("max_result_bytes").notNull().default(262144),
+    max_artifact_bytes: integer("max_artifact_bytes")
+      .notNull()
+      .default(10485760),
+    max_runtime_seconds: integer("max_runtime_seconds").notNull().default(600),
+    max_model_calls: integer("max_model_calls").notNull().default(8),
+    max_tool_calls: integer("max_tool_calls").notNull().default(32),
+    max_tokens_per_run: integer("max_tokens_per_run").notNull().default(100000),
+    max_cost_micros_per_run: integer("max_cost_micros_per_run")
+      .notNull()
+      .default(5000000),
+    rolling_window_seconds: integer("rolling_window_seconds")
+      .notNull()
+      .default(86400),
+    rolling_token_budget: integer("rolling_token_budget")
+      .notNull()
+      .default(250000),
+    rolling_cost_micros_budget: integer("rolling_cost_micros_budget")
+      .notNull()
+      .default(10000000),
+    retention_hours: integer("retention_hours").notNull().default(168),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => ({
+    token_state_check: check(
+      "workflow_api_access_token_state",
+      sql`${t.enabled} = false or (${t.token_verifier} is not null and ${t.token_prefix} is not null and ${t.token_created_at} is not null)`,
+    ),
+    batch_bounds_check: check(
+      "workflow_api_access_batch_bounds",
+      sql`${t.batch_chunk_size} <= ${t.batch_max_records}`,
+    ),
+    verifier_shape_check: check(
+      "workflow_api_access_verifier_shape",
+      sql`${t.token_verifier} is null or ${t.token_verifier} ~ '^[0-9a-f]{64}$'`,
+    ),
+    prefix_shape_check: check(
+      "workflow_api_access_prefix_shape",
+      sql`${t.token_prefix} is null or ${t.token_prefix} ~ '^onk_wf_[0-9a-f]{12}$'`,
+    ),
+    request_limit_check: check(
+      "workflow_api_access_request_limit_per_minute_check",
+      sql`${t.request_limit_per_minute} between 1 and 600`,
+    ),
+    poll_limit_check: check(
+      "workflow_api_access_poll_limit_per_minute_check",
+      sql`${t.poll_limit_per_minute} between 1 and 1200`,
+    ),
+    queue_cap_check: check(
+      "workflow_api_access_queue_cap_check",
+      sql`${t.queue_cap} between 1 and 250`,
+    ),
+    concurrency_cap_check: check(
+      "workflow_api_access_concurrency_cap_check",
+      sql`${t.concurrency_cap} between 1 and 20`,
+    ),
+    batch_max_records_check: check(
+      "workflow_api_access_batch_max_records_check",
+      sql`${t.batch_max_records} between 1 and 10000`,
+    ),
+    batch_chunk_size_check: check(
+      "workflow_api_access_batch_chunk_size_check",
+      sql`${t.batch_chunk_size} between 1 and 500`,
+    ),
+    max_request_bytes_check: check(
+      "workflow_api_access_max_request_bytes_check",
+      sql`${t.max_request_bytes} between 1024 and 1048576`,
+    ),
+    max_result_bytes_check: check(
+      "workflow_api_access_max_result_bytes_check",
+      sql`${t.max_result_bytes} between 1024 and 1048576`,
+    ),
+    max_artifact_bytes_check: check(
+      "workflow_api_access_max_artifact_bytes_check",
+      sql`${t.max_artifact_bytes} between 1024 and 52428800`,
+    ),
+    max_runtime_seconds_check: check(
+      "workflow_api_access_max_runtime_seconds_check",
+      sql`${t.max_runtime_seconds} between 30 and 1800`,
+    ),
+    max_model_calls_check: check(
+      "workflow_api_access_max_model_calls_check",
+      sql`${t.max_model_calls} between 1 and 32`,
+    ),
+    max_tool_calls_check: check(
+      "workflow_api_access_max_tool_calls_check",
+      sql`${t.max_tool_calls} between 1 and 128`,
+    ),
+    max_tokens_per_run_check: check(
+      "workflow_api_access_max_tokens_per_run_check",
+      sql`${t.max_tokens_per_run} between 1000 and 1000000`,
+    ),
+    max_cost_per_run_check: check(
+      "workflow_api_access_max_cost_micros_per_run_check",
+      sql`${t.max_cost_micros_per_run} between 1000 and 100000000`,
+    ),
+    rolling_window_check: check(
+      "workflow_api_access_rolling_window_seconds_check",
+      sql`${t.rolling_window_seconds} between 3600 and 604800`,
+    ),
+    rolling_token_budget_check: check(
+      "workflow_api_access_rolling_token_budget_check",
+      sql`${t.rolling_token_budget} between 1000 and 10000000`,
+    ),
+    rolling_cost_budget_check: check(
+      "workflow_api_access_rolling_cost_micros_budget_check",
+      sql`${t.rolling_cost_micros_budget} between 1000 and 1000000000`,
+    ),
+    retention_hours_check: check(
+      "workflow_api_access_retention_hours_check",
+      sql`${t.retention_hours} between 1 and 720`,
+    ),
+    org_idx: index("workflow_api_access_org_idx").on(t.org_id, t.enabled),
+  }),
+);
+
+/**
+ * Idempotency record + transactional outbox for external workflow runs.
+ * request_payload is capped and expires; batch rows live in input_file_path,
+ * keeping their data plane out of Postgres and the worker queue.
+ */
+export const workflow_api_admission = pgTable(
+  "workflow_api_admission",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    org_id: text("org_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    workflow_id: uuid("workflow_id")
+      .notNull()
+      .references(() => workflow_definition.id, { onDelete: "cascade" }),
+    workflow_run_id: uuid("workflow_run_id")
+      .notNull()
+      .references(() => workflow_run.id, { onDelete: "cascade" }),
+    idempotency_hash: text("idempotency_hash").notNull(),
+    payload_hash: text("payload_hash").notNull(),
+    execution_mode: text("execution_mode").notNull(),
+    request_payload: jsonb("request_payload"),
+    input_file_path: text("input_file_path"),
+    batch_contract: jsonb("batch_contract"),
+    request_bytes: integer("request_bytes").notNull(),
+    accepted_records: integer("accepted_records"),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    reserved_tokens: integer("reserved_tokens").notNull().default(0),
+    reserved_cost_micros: integer("reserved_cost_micros").notNull().default(0),
+    actual_tokens: integer("actual_tokens"),
+    actual_cost_micros: integer("actual_cost_micros"),
+    available_at: ts("available_at").notNull().defaultNow(),
+    lease_until: ts("lease_until"),
+    queue_job_id: text("queue_job_id"),
+    last_error_code: text("last_error_code"),
+    created_at: ts("created_at").notNull().defaultNow(),
+    updated_at: ts("updated_at").notNull().defaultNow(),
+    dispatched_at: ts("dispatched_at"),
+    started_at: ts("started_at"),
+    completed_at: ts("completed_at"),
+    expires_at: ts("expires_at").notNull(),
+  },
+  (t) => ({
+    execution_mode_check: check(
+      "workflow_api_admission_execution_mode_check",
+      sql`${t.execution_mode} in ('single', 'batch')`,
+    ),
+    status_check: check(
+      "workflow_api_admission_status_check",
+      sql`${t.status} in ('pending', 'dispatching', 'enqueued', 'running', 'completed', 'failed', 'cancelled', 'expired')`,
+    ),
+    payload_location_check: check(
+      "workflow_api_admission_payload_location",
+      sql`(${t.execution_mode} = 'single' and ${t.request_payload} is not null and ${t.input_file_path} is null and ${t.batch_contract} is null and ${t.accepted_records} is null) or (${t.execution_mode} = 'batch' and ${t.request_payload} is null and ${t.input_file_path} is not null and ${t.batch_contract} is not null and ${t.accepted_records} between 1 and 10000)`,
+    ),
+    request_bounds_check: check(
+      "workflow_api_admission_request_bounds",
+      sql`${t.request_bytes} between 2 and 1048576`,
+    ),
+    attempts_check: check(
+      "workflow_api_admission_attempts_nonnegative",
+      sql`${t.attempts} >= 0`,
+    ),
+    reservations_check: check(
+      "workflow_api_admission_reservations_nonnegative",
+      sql`${t.reserved_tokens} >= 0 and ${t.reserved_cost_micros} >= 0 and (${t.actual_tokens} is null or ${t.actual_tokens} >= 0) and (${t.actual_cost_micros} is null or ${t.actual_cost_micros} >= 0)`,
+    ),
+    hashes_check: check(
+      "workflow_api_admission_hashes_shape",
+      sql`${t.idempotency_hash} ~ '^[0-9a-f]{64}$' and ${t.payload_hash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    expiry_check: check(
+      "workflow_api_admission_expiry_check",
+      sql`${t.expires_at} > ${t.created_at}`,
+    ),
+    idempotency_unique: uniqueIndex(
+      "workflow_api_admission_idempotency_unique",
+    ).on(t.org_id, t.workflow_id, t.idempotency_hash),
+    workflow_run_unique: uniqueIndex(
+      "workflow_api_admission_workflow_run_unique",
+    ).on(t.workflow_run_id),
+    dispatch_idx: index("workflow_api_admission_dispatch_idx").on(
+      t.status,
+      t.available_at,
+    ),
+    workflow_created_idx: index(
+      "workflow_api_admission_workflow_created_idx",
+    ).on(t.workflow_id, t.created_at.desc()),
+  }),
+);
+
+/** Durable fixed-window counters shared by every web replica. */
+export const workflow_api_rate_bucket = pgTable(
+  "workflow_api_rate_bucket",
+  {
+    scope_kind: text("scope_kind").notNull(),
+    scope_id: text("scope_id").notNull(),
+    operation: text("operation").notNull(),
+    window_start: ts("window_start").notNull(),
+    count: integer("count").notNull().default(0),
+    expires_at: ts("expires_at").notNull(),
+  },
+  (t) => ({
+    count_check: check(
+      "workflow_api_rate_bucket_count_check",
+      sql`${t.count} >= 0`,
+    ),
+    scope_check: check(
+      "workflow_api_rate_bucket_scope_check",
+      sql`${t.scope_kind} in ('deployment', 'client', 'workflow', 'organization')`,
+    ),
+    operation_check: check(
+      "workflow_api_rate_bucket_operation_check",
+      sql`${t.operation} in ('edge', 'invoke', 'poll')`,
+    ),
+    expiry_check: check(
+      "workflow_api_rate_bucket_expiry_check",
+      sql`${t.expires_at} > ${t.window_start}`,
+    ),
+    pk: primaryKey({
+      name: "workflow_api_rate_bucket_pk",
+      columns: [t.scope_kind, t.scope_id, t.operation, t.window_start],
+    }),
+    expiry_idx: index("workflow_api_rate_bucket_expiry_idx").on(t.expires_at),
   }),
 );
 

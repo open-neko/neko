@@ -2,14 +2,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Check, MessageCircle, Pin, TriangleAlert } from "lucide-react";
+import { Check, Download, MessageCircle, Pin, TriangleAlert } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AppHeader from "@/components/AppHeader";
 import CreatorCredit from "@/components/CreatorCredit";
 import PageHeading from "@/components/PageHeading";
 import SectionNav from "@/components/SectionNav";
-import { Button } from "@/components/ui/Button";
+import { ActionGroup } from "@/components/ui/ActionGroup";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Disclosure } from "@/components/ui/Disclosure";
+import { Field, Textarea } from "@/components/ui/Field";
+import { Pill, type PillVariant } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
 
 type RunDetailPayload = {
@@ -26,8 +31,47 @@ type RunDetailPayload = {
     workRunId: string | null;
     triggerKind: string;
     triggerPayload: unknown;
+    executionMode: "single" | "batch" | null;
+    triggerInputPreview: Record<string, unknown> | null;
     chainDepth: number;
     status: string;
+    telemetry: {
+      durations?: {
+        wallMs?: number;
+        queueMs?: number;
+        firstOutputMs?: number;
+      };
+      counts?: {
+        inference?: number;
+        tools?: number;
+        delegations?: number;
+        retries?: number;
+        validations?: number;
+      };
+      batch?: {
+        acceptedRows?: number;
+        processedRows?: number;
+        finalRows?: number;
+        chunkCount?: number;
+        artifactBytes?: number;
+      };
+      usage?: {
+        inputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+        billedCostUsd?: number;
+        estimatedCostUsd?: number;
+        coverage?: "complete" | "partial" | "unavailable";
+        missingReasons?: string[];
+      };
+      telemetryComplete?: boolean;
+    } | null;
+    terminalResult: Record<string, unknown> | null;
+    progress: Record<string, unknown>;
+    queueAttempts: number;
+    admittedAt: string | null;
+    resultExpiresAt: string | null;
+    artifactUrl: string | null;
     summary: string | null;
     error: string | null;
     startedAt: string | null;
@@ -155,19 +199,19 @@ function formatTaxonomy(value: string): string {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function actionPillClasses(status: string): string {
+function actionPillVariant(status: string): PillVariant {
   switch (status) {
     case "pending_approval":
-      return "bg-watch-soft text-warn-ink";
+      return "watch";
     case "executed":
-      return "bg-success-soft text-success-mid";
+      return "success";
     case "rejected":
     case "failed":
-      return "bg-danger-soft text-danger";
+      return "danger";
     case "approved":
-      return "bg-accent-soft text-accent";
+      return "live";
     default:
-      return "bg-neutral text-text2";
+      return "muted";
   }
 }
 
@@ -185,7 +229,7 @@ function actionRiskClasses(risk: string): string {
   }
 }
 
-function formatTrigger(kind: string): string {
+function formatTrigger(kind: string, mode?: string | null): string {
   switch (kind) {
     case "manual":
       return "Manual";
@@ -193,9 +237,35 @@ function formatTrigger(kind: string): string {
       return "Scheduled";
     case "subscription":
       return "Triggered";
+    case "api":
+      return `API${mode ? ` · ${formatTaxonomy(mode)}` : ""}`;
     default:
       return formatTaxonomy(kind);
   }
+}
+
+function formatBytes(value: number | undefined): string {
+  if (value === undefined) return "—";
+  if (value < 1_024) return `${value} B`;
+  if (value < 1_048_576) return `${(value / 1_024).toFixed(1)} KiB`;
+  return `${(value / 1_048_576).toFixed(1)} MiB`;
+}
+
+function formatNumber(value: number | undefined): string {
+  if (value === undefined) return "—";
+  return new Intl.NumberFormat("en-IN").format(value);
+}
+
+function formatCost(value: number | undefined): string {
+  if (value === undefined) return "—";
+  return `$${value.toFixed(value < 0.01 ? 4 : 2)}`;
+}
+
+function apiRunStatusVariant(status: string): PillVariant {
+  if (status === "completed") return "success";
+  if (status === "failed" || status === "cancelled") return "danger";
+  if (status === "running") return "live";
+  return "watch";
 }
 
 export default function RunPage() {
@@ -350,7 +420,12 @@ export default function RunPage() {
   return (
     <>
       <div className="root run-root">
-        <AppHeader back={{ href: "/workflows", label: "Agent workflows" }}>
+        <AppHeader
+          back={{
+            href: workflow ? `/workflows?id=${encodeURIComponent(workflow.id)}` : "/workflows",
+            label: workflow?.name ?? "Agent workflows",
+          }}
+        >
           <SectionNav current="workflows" />
         </AppHeader>
 
@@ -358,7 +433,7 @@ export default function RunPage() {
           eyebrow="Run"
           title={workflow?.name ?? "Run"}
           meta={run.status.replace(/_/g, " ")}
-          description={`${formatRunTimestamp(run.startedAt ?? run.createdAt)} · ${formatTrigger(run.triggerKind)} · ${formatDuration(durationMs)}`}
+          description={`${formatRunTimestamp(run.startedAt ?? run.createdAt)} · ${formatTrigger(run.triggerKind, run.executionMode)} · ${formatDuration(durationMs)}`}
           actions={
             <Button
               size="sm"
@@ -371,6 +446,10 @@ export default function RunPage() {
             </Button>
           }
         />
+
+        {run.triggerKind === "api" ? (
+          <ApiRunContext run={run} workflowId={workflow?.id ?? run.workflowId} />
+        ) : null}
 
         {run.status === "completed" &&
           outputs.length === 0 &&
@@ -480,22 +559,18 @@ export default function RunPage() {
                   className="run-action-card bg-card border border-border rounded-2xl px-4 py-3.5"
                 >
                   <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <button data-ui-bespoke-reason="run timeline playback"
-                      type="button"
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       className="font-semibold text-sm text-text leading-[1.4] bg-transparent border-0 p-0 text-left cursor-pointer hover:underline hover:underline-offset-[3px]"
                       onClick={() => router.push(`/actions/${a.id}`)}
                       title="Open action receipt"
                     >
                       {a.summary || a.kind}
-                    </button>
-                    <span
-                      className={cn(
-                        "text-ui-label font-bold tracking-[0.12em] uppercase px-[9px] py-[3px] rounded-full shrink-0",
-                        actionPillClasses(a.status),
-                      )}
-                    >
+                    </Button>
+                    <Pill variant={actionPillVariant(a.status)}>
                       {actionStatusLabel(a.status)}
-                    </span>
+                    </Pill>
                   </div>
                   <div className="flex flex-wrap gap-1.5 items-center text-xs text-text3">
                     <span className="font-mono text-text2">{a.kind}</span>
@@ -516,17 +591,16 @@ export default function RunPage() {
                   </div>
                   {a.status === "pending_approval" && rejectingId === a.id ? (
                     <div className="pt-3 border-t border-border mt-2.5 flex flex-col gap-2">
-                      <label className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3">
-                        Why are you rejecting this? (optional)
-                      </label>
-                      <textarea data-ui-bespoke-reason="run timeline playback"
-                        className="border border-border rounded-[10px] px-3 py-2 font-body text-ui-body-sm text-text bg-card resize-y min-h-[50px] outline-none focus:border-accent"
-                        value={rejectReason}
-                        placeholder="e.g. wrong channel, retry tomorrow…"
-                        onChange={(e) => setRejectReason(e.target.value)}
-                        autoFocus
-                        rows={2}
-                      />
+                      <Field label="Why are you rejecting this?" hint="Optional">
+                        <Textarea
+                          className="min-h-[72px]"
+                          value={rejectReason}
+                          placeholder="e.g. wrong channel, retry tomorrow…"
+                          onChange={(e) => setRejectReason(e.target.value)}
+                          autoFocus
+                          rows={2}
+                        />
+                      </Field>
                       <div className="flex gap-2 mt-2.5">
                         <Button
                           variant="danger"
@@ -589,15 +663,13 @@ export default function RunPage() {
             </div>
           </header>
 
-          <details data-ui-bespoke-reason="run timeline playback"
+          <Disclosure
             className="run-expander"
             open={showEvents}
             onToggle={(e) => setShowEvents(e.currentTarget.open)}
+            title="Execution trace"
+            meta={`${data.events.length} events`}
           >
-            <summary data-ui-bespoke-reason="run timeline playback" className="run-expander-summary">
-              Execution trace
-              <span>{data.events.length} events</span>
-            </summary>
             <div className="run-expander-content">
               {data.events.length === 0 ? (
                 <p className="run-empty-state">No events recorded.</p>
@@ -605,17 +677,15 @@ export default function RunPage() {
                 <EventStream events={data.events} />
               )}
             </div>
-          </details>
+          </Disclosure>
 
-          <details data-ui-bespoke-reason="run timeline playback"
+          <Disclosure
             className="run-expander"
             open={showLineage}
             onToggle={(e) => setShowLineage(e.currentTarget.open)}
+            title="Origin"
+            meta={formatTrigger(run.triggerKind, run.executionMode)}
           >
-            <summary data-ui-bespoke-reason="run timeline playback" className="run-expander-summary">
-              Origin
-              <span>{formatTrigger(run.triggerKind)}</span>
-            </summary>
             <div className="run-expander-content">
               {!lineage.upstream && run.triggerKind === "manual" && (
                 <p className="run-empty-state">
@@ -659,12 +729,193 @@ export default function RunPage() {
                 </div>
               )}
             </div>
-          </details>
+          </Disclosure>
         </section>
       </div>
 
       <CreatorCredit />
     </>
+  );
+}
+
+type RunRecord = RunDetailPayload["run"];
+
+function recordNumber(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+): number | undefined {
+  const value = record?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function recordString(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+): string | undefined {
+  const value = record?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function ApiRunContext({
+  run,
+  workflowId,
+}: {
+  run: RunRecord;
+  workflowId: string;
+}) {
+  const usage = run.telemetry?.usage;
+  const counts = run.telemetry?.counts;
+  const batch = run.telemetry?.batch;
+  const acceptedRows =
+    recordNumber(run.progress, "acceptedRows") ?? batch?.acceptedRows;
+  const processedRows =
+    recordNumber(run.progress, "processedRows") ?? batch?.processedRows;
+  const finalRows = recordNumber(run.progress, "finalRows") ?? batch?.finalRows;
+  const chunkCount =
+    recordNumber(run.progress, "chunkCount") ?? batch?.chunkCount;
+  const plannedChunks = recordNumber(run.progress, "plannedChunks");
+  const artifactBytes =
+    recordNumber(run.progress, "artifactBytes") ?? batch?.artifactBytes;
+  const stage = recordString(run.progress, "stage") ?? run.status;
+  const queueMs =
+    run.telemetry?.durations?.queueMs ??
+    (run.admittedAt && run.startedAt
+      ? Math.max(
+          0,
+          new Date(run.startedAt).getTime() - new Date(run.admittedAt).getTime(),
+        )
+      : undefined);
+  const cost = usage?.billedCostUsd ?? usage?.estimatedCostUsd;
+  const progressPercent =
+    acceptedRows && processedRows !== undefined
+      ? Math.min(100, Math.round((processedRows / acceptedRows) * 100))
+      : null;
+
+  return (
+    <Section
+      title="API execution"
+      meta={run.executionMode ? `${formatTaxonomy(run.executionMode)} mode` : "API"}
+    >
+      <Card className="run-api-card">
+        <div className="run-api-card-head">
+          <div>
+            <Pill variant={apiRunStatusVariant(run.status)}>
+              {formatTaxonomy(run.status)}
+            </Pill>
+            <strong>{formatTaxonomy(stage)}</strong>
+          </div>
+          <ActionGroup>
+            <ButtonLink
+              variant="ghost"
+              size="sm"
+              href={`/workflows?id=${encodeURIComponent(workflowId)}`}
+            >
+              View workflow
+            </ButtonLink>
+            {run.artifactUrl ? (
+              <ButtonLink size="sm" href={run.artifactUrl} download>
+                <Download aria-hidden="true" />
+                Download CSV
+              </ButtonLink>
+            ) : null}
+          </ActionGroup>
+        </div>
+
+        <dl className="run-api-metrics">
+          <div>
+            <dt>Queue time</dt>
+            <dd>{formatDuration(queueMs ?? null)}</dd>
+          </div>
+          <div>
+            <dt>Queue attempts</dt>
+            <dd>{formatNumber(run.queueAttempts)}</dd>
+          </div>
+          <div>
+            <dt>Model calls</dt>
+            <dd>{formatNumber(counts?.inference)}</dd>
+          </div>
+          <div>
+            <dt>Tool calls</dt>
+            <dd>{formatNumber(counts?.tools)}</dd>
+          </div>
+          <div>
+            <dt>Total tokens</dt>
+            <dd>{formatNumber(usage?.totalTokens)}</dd>
+          </div>
+          <div>
+            <dt>Provider spend</dt>
+            <dd>{formatCost(cost)}</dd>
+          </div>
+        </dl>
+
+        {run.error ? (
+          <div className="run-api-error" role="alert">
+            <Pill variant="danger">Execution error</Pill>
+            <p>{run.error}</p>
+          </div>
+        ) : null}
+
+        {run.executionMode === "batch" ? (
+          <div className="run-api-progress" aria-label="Batch progress">
+            <div>
+              <span>
+                {formatNumber(processedRows)} of {formatNumber(acceptedRows)} records
+              </span>
+              <strong>{progressPercent === null ? "—" : `${progressPercent}%`}</strong>
+            </div>
+            <div className="run-api-progress-track" aria-hidden="true">
+              <span style={{ width: `${progressPercent ?? 0}%` }} />
+            </div>
+            <p>
+              {formatNumber(finalRows)} final rows · {formatNumber(chunkCount)}
+              {plannedChunks === undefined ? "" : ` of ${formatNumber(plannedChunks)}`} chunks · {formatBytes(artifactBytes)} artifact
+            </p>
+          </div>
+        ) : null}
+
+        <div className="run-api-json-grid">
+          <JsonPanel
+            title="Input preview"
+            value={run.triggerInputPreview}
+            empty="No retained preview."
+          />
+          {run.terminalResult ? (
+            <JsonPanel
+              title="Terminal result"
+              value={run.terminalResult}
+              empty="No inline result."
+            />
+          ) : null}
+        </div>
+
+        <div className="run-api-retention">
+          <span>
+            Telemetry {usage?.coverage ?? "unavailable"}
+            {run.telemetry?.telemetryComplete ? " · complete" : ""}
+          </span>
+          {run.resultExpiresAt ? (
+            <span>Result retained until {formatRunTimestamp(run.resultExpiresAt)}</span>
+          ) : null}
+        </div>
+      </Card>
+    </Section>
+  );
+}
+
+function JsonPanel({
+  title,
+  value,
+  empty,
+}: {
+  title: string;
+  value: Record<string, unknown> | null;
+  empty: string;
+}) {
+  return (
+    <div className="run-api-json">
+      <h3>{title}</h3>
+      {value ? <pre><code>{JSON.stringify(value, null, 2)}</code></pre> : <p>{empty}</p>}
+    </div>
   );
 }
 
@@ -781,7 +1032,7 @@ function Section({
   children,
 }: {
   title: string;
-  meta?: string;
+  meta?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (

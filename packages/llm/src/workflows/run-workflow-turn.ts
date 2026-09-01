@@ -1,4 +1,5 @@
 import type { AgentEvent } from "../agent-backend";
+import type { HarnessObserver } from "@neko/telemetry";
 import { resolveAgentBackend as defaultResolveAgentBackend } from "../agent-backend-resolver";
 import {
   knowledgePackPaths,
@@ -15,6 +16,7 @@ import {
 } from "../work/store";
 import { ensureWorkWorkspace } from "../work/workspace";
 import { inProcessControlPlane } from "../work/control-plane";
+import { createAgentEventTelemetry } from "../work/agent-event-telemetry";
 import {
   runWorkflowAgentBackend as defaultRunWorkflowAgentBackend,
 } from "./agent-core";
@@ -28,6 +30,7 @@ import {
   createWorkflowRun,
   finishWorkflowRun,
   getWorkflow,
+  getWorkflowRun,
   type WorkflowRecord,
   type WorkflowRunRecord,
 } from "./store";
@@ -39,7 +42,12 @@ export class WorkflowNeedsInputError extends Error {
   }
 }
 
-export type WorkflowTriggerKind = "manual" | "cron" | "subscription" | "watcher";
+export type WorkflowTriggerKind =
+  | "manual"
+  | "cron"
+  | "subscription"
+  | "watcher"
+  | "api";
 
 export type PrepareWorkflowRunOptions = {
   orgId: string;
@@ -106,12 +114,40 @@ export async function prepareWorkflowRun(
   };
 }
 
+/** Load the linked rows created transactionally by external API admission. */
+export async function loadPreparedWorkflowRun(input: {
+  orgId: string;
+  workflowId: string;
+  workflowRunId: string;
+}): Promise<PreparedWorkflowRun> {
+  const [workflow, workflowRun] = await Promise.all([
+    getWorkflow(input.orgId, input.workflowId),
+    getWorkflowRun(input.orgId, input.workflowRunId),
+  ]);
+  if (
+    !workflow ||
+    !workflowRun ||
+    workflowRun.workflowId !== input.workflowId ||
+    workflowRun.triggerKind !== "api"
+  ) {
+    throw new Error("Admitted workflow API run could not be loaded.");
+  }
+  return {
+    workflow,
+    workflowRun,
+    threadId: workflowRun.threadId,
+    workRunId: workflowRun.workRunId,
+  };
+}
+
 export type RunWorkflowTurnOptions = {
   prepared: PreparedWorkflowRun;
   userMessage?: string;
   mode: "live" | "headless";
   emit: (event: AgentEvent) => Promise<void>;
   signal?: AbortSignal;
+  /** Metadata-only observation stream shared with Ask. */
+  observer?: HarnessObserver;
   /**
    * Installed plugin action kinds, so the runner agent proposes real kinds
    * (e.g. send_slack_dm) that policy rules + adapters match — not a generic
@@ -152,6 +188,9 @@ function synthesizeSeedMessage(
   if (triggerKind === "subscription") {
     return `[subscription-triggered run started at ${new Date().toISOString()}] Begin executing the "${workflow.name}" workflow.`;
   }
+  if (triggerKind === "api") {
+    return `Begin executing the externally admitted "${workflow.name}" workflow with the supplied API input.`;
+  }
   return `Begin executing the "${workflow.name}" workflow.`;
 }
 
@@ -175,6 +214,10 @@ export async function runWorkflowTurn(
 
   let assistantText = "";
   let needsInput = false;
+  const eventTelemetry = createAgentEventTelemetry({
+    observer: opts.observer,
+    operationId: `workflow:${workRunId}`,
+  });
   const wrappedEmit = async (event: AgentEvent): Promise<void> => {
     if (event.type === "message" && event.role === "assistant") {
       assistantText += event.content;
@@ -182,6 +225,7 @@ export async function runWorkflowTurn(
     if (event.type === "needs_input") {
       needsInput = true;
     }
+    await eventTelemetry.observeEvent(event);
     await emit(event);
   };
 
@@ -221,6 +265,11 @@ export async function runWorkflowTurn(
       userMessage,
     );
 
+    await eventTelemetry.startAgent({
+      backend: backend.id,
+      ...(backend.model ? { model: backend.model } : {}),
+      inputBytes: Buffer.byteLength(`${prompt}\n\n${seedMessage}`, "utf8"),
+    });
     const result = await runCore({
       backend,
       prompt,
@@ -237,6 +286,11 @@ export async function runWorkflowTurn(
       emit: wrappedEmit,
       tag: `workflow ${workflow.name} ${workflowRun.id}`,
       signal,
+    });
+    await eventTelemetry.finishAgent({
+      status: result.status === "completed" ? "ok" : "error",
+      ...(result.error ? { errorType: "agent_backend_error" } : {}),
+      outputBytes: Buffer.byteLength(result.finalText, "utf8"),
     });
 
     if (needsInput) {
@@ -301,6 +355,11 @@ export async function runWorkflowTurn(
     };
   } catch (error) {
     if (error instanceof WorkflowNeedsInputError || needsInput) {
+      await eventTelemetry.closeOpen({
+        status: "ok",
+        outcome: "needs_input",
+        usageMissingReason: "workflow paused for operator input",
+      });
       await finishWorkRun(workRunId, "failed", null);
       await finishWorkflowRun({
         workflowRunId: workflowRun.id,
@@ -328,6 +387,13 @@ export async function runWorkflowTurn(
       : error instanceof Error
         ? error.message
         : "Workflow run failed unexpectedly.";
+
+    await eventTelemetry.closeOpen({
+      status: "error",
+      outcome: status,
+      errorType: aborted ? "cancelled" : "agent_backend_error",
+      usageMissingReason: "workflow model call did not complete with normalized usage",
+    });
 
     await wrappedEmit({ type: "error", message: errMsg });
     await finishWorkRun(workRunId, status, aborted ? null : errMsg);

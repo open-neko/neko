@@ -8,6 +8,7 @@ import {
   workflowSavedCard,
 } from "./builder-cards";
 import { WORKFLOW_SAVE_SCHEMA } from "./fence-schemas";
+import { parseCompiledWorkflowBatchContract } from "./api-contract";
 
 export type WorkflowBuilderContext = {
   orgId: string;
@@ -30,6 +31,9 @@ export function buildWorkflowBuilderServer(ctx: WorkflowBuilderContext) {
       "workflow with the same name already exists, it is updated in place.",
       "Use this when the operator asks to set up, modify, or rename a task or",
       "pipeline. Pass `triggers.cron` to run it on a schedule, or",
+      "pass `batch` to define the workflow's own record field and CSV output",
+      "columns for batch API execution. Batch support belongs to the workflow",
+      "and does not require a skill (a workflow may use zero, one, or many).",
       "`triggers.when` to fire it when a row in the operator's data source",
       "matches a filter (e.g. 'when stock dips below reorder point') — for the",
       "latter, introspect the schema first with the GraphJin MCP",
@@ -46,6 +50,7 @@ export function buildWorkflowBuilderServer(ctx: WorkflowBuilderContext) {
         goal: args.goal,
         systemPromptOverlay: args.systemPromptOverlay,
         steps: args.steps,
+        batch: args.batch,
         triggers: args.triggers,
         createdByThreadId: ctx.createdByThreadId ?? null,
         createdByRunId: ctx.createdByRunId ?? null,
@@ -121,22 +126,31 @@ export function buildWorkflowBuilderServer(ctx: WorkflowBuilderContext) {
               ok: true,
               total,
               returned: workflows.length,
-              workflows: workflows.map((w) => ({
-                id: w.id,
-                name: w.name,
-                description: w.description,
-                enabled: w.enabled,
-                status: w.status,
-                goal: w.goal,
-                systemPromptOverlay: w.systemPromptOverlay,
-                steps: w.steps,
-                cron: w.cron,
-                cronTimezone: w.cronTimezone,
-                cronEnabled: w.cronEnabled,
-                when: w.when,
-                updatedAt: w.updatedAt,
-                createdAt: w.createdAt,
-              })),
+              workflows: workflows.map((w) => {
+                const batch = parseCompiledWorkflowBatchContract(w.outputContract);
+                return {
+                  id: w.id,
+                  name: w.name,
+                  description: w.description,
+                  enabled: w.enabled,
+                  status: w.status,
+                  goal: w.goal,
+                  systemPromptOverlay: w.systemPromptOverlay,
+                  steps: w.steps,
+                  batch: batch
+                    ? {
+                        recordsField: batch.recordsField,
+                        columns: batch.columns,
+                      }
+                    : null,
+                  cron: w.cron,
+                  cronTimezone: w.cronTimezone,
+                  cronEnabled: w.cronEnabled,
+                  when: w.when,
+                  updatedAt: w.updatedAt,
+                  createdAt: w.createdAt,
+                };
+              }),
             }),
           },
         ],

@@ -15,6 +15,8 @@ import {
   createWorkRun,
   createWorkThread,
 } from "../../src/work/store";
+import { enableWorkflowApiAccess } from "../../src/workflows/api-access";
+import { admitWorkflowApiRun } from "../../src/workflows/api-admission";
 
 const reachable = await dbReachable();
 const describeIfDb = reachable ? describe : describe.skip;
@@ -77,6 +79,80 @@ describeIfDb("workflow store", () => {
 
       const refetched = await getWorkflowByOrgName(orgId, "Onboarding checker");
       expect(refetched?.id).toBe(first.workflow.id);
+    });
+  });
+
+  it("compiles, preserves, and removes a workflow-native batch contract", async () => {
+    await withTestOrg(async (orgId) => {
+      const created = await saveWorkflow({
+        orgId,
+        name: "Batch order projection",
+        steps: [{ id: "project", description: "Project each order into CSV" }],
+        batch: {
+          recordsField: "orders",
+          columns: [
+            { name: "Order", path: "id" },
+            { name: "Customer", path: "customer.name" },
+          ],
+        },
+      });
+      expect(created.workflow.outputContract).toMatchObject({
+        apiBatch: {
+          version: 1,
+          compiled: true,
+          compiler: "workflow",
+          recordsField: "orders",
+        },
+      });
+
+      const preserved = await saveWorkflow({
+        orgId,
+        name: "Batch order projection",
+        description: "Updated without redefining its batch contract.",
+        steps: [{ id: "project", description: "Project each order into CSV" }],
+      });
+      expect(preserved.workflow.outputContract).toEqual(
+        created.workflow.outputContract,
+      );
+
+      const removed = await saveWorkflow({
+        orgId,
+        name: "Batch order projection",
+        steps: [{ id: "project", description: "Project each order into CSV" }],
+        batch: null,
+      });
+      expect(removed.workflow.outputContract).toBeNull();
+    });
+  });
+
+  it("admits a workflow run against the real rolling-budget query", async () => {
+    await withTestOrg(async (orgId) => {
+      const { workflow } = await saveWorkflow({
+        orgId,
+        name: "API admission SQL regression",
+        steps: [{ id: "inspect", description: "Inspect the supplied record" }],
+      });
+      const { token } = await enableWorkflowApiAccess({
+        orgId,
+        workflowId: workflow.id,
+        actor: { userId: null, role: "admin" },
+      });
+
+      const admitted = await admitWorkflowApiRun({
+        workflowId: workflow.id,
+        token,
+        idempotencyKey: "real-postgres-admission-v1",
+        mode: "single",
+        value: { orderId: "1042" },
+        clientFingerprint: `integration-${orgId}`,
+      });
+
+      expect(admitted).toMatchObject({
+        mode: "single",
+        replay: false,
+        status: "queued",
+      });
+      expect(admitted.statusUrl).toContain(admitted.runId);
     });
   });
 

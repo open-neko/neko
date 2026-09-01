@@ -170,6 +170,7 @@ import {
   getWorkflowSchedulerHealth,
   startDurableWorkflowScheduler,
 } from "./workflow-scheduler.js";
+import { startWorkflowApiDispatcher } from "./workflow-api-dispatcher.js";
 import { PackService } from "./packs/service.js";
 import { registerPackActionPreflight } from "./packs/action-preflight.js";
 import { registerMagentoV2Runtime } from "./packs/magento-v2-runtime.js";
@@ -1516,6 +1517,7 @@ if (SCHEDULED_REFRESH_HOURS > 0) {
 // useful for auxiliary maintenance, but cannot be the source of truth for a
 // business schedule that must catch up after downtime.
 const workflowScheduler = await startDurableWorkflowScheduler();
+const workflowApiDispatcher = await startWorkflowApiDispatcher();
 
 const reconcileTimer = setInterval(() => {
   reconcileStaleProcessingJobs({ minAgeMs: RECONCILE_SWEEP_MIN_AGE_MS })
@@ -1560,6 +1562,7 @@ const shutdown = async (signal: string) => {
   console.log(`[worker] received ${signal}; shutting down`);
   clearInterval(reconcileTimer);
   workflowScheduler.stop();
+  workflowApiDispatcher.stop();
   channelInbound.stop();
   unregisterRecordSchemaPreflight();
   unregisterRecordImportPreflight();

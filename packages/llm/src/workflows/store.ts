@@ -14,6 +14,10 @@ import {
   workflow_output_source_observation,
   workflow_run,
 } from "@neko/db";
+import {
+  compileWorkflowApiBatchContract,
+  type WorkflowApiBatchDefinition,
+} from "./api-contract";
 
 export type WorkflowStep = {
   id: string;
@@ -86,6 +90,8 @@ export type SaveWorkflowInput = {
   triggers?: WorkflowTriggers;
   dailyRunBudget?: number | null;
   outputContract?: Record<string, unknown> | null;
+  /** Explicit workflow-native batch shape; null removes batch support. */
+  batch?: WorkflowApiBatchDefinition | null;
   createdByThreadId?: string | null;
   createdByRunId?: string | null;
   /** CV1: omit/'' = org layer. */
@@ -236,6 +242,23 @@ export async function saveWorkflow(
   const cronTimezone = input.triggers?.timezone ?? "UTC";
   const cronEnabled = input.triggers?.enabled ?? true;
 
+  const resolveOutputContract = (
+    existingOutputContract: Record<string, unknown> | null,
+  ): Record<string, unknown> | null => {
+    const base =
+      input.outputContract === undefined
+        ? existingOutputContract
+        : input.outputContract;
+    if (input.batch === undefined) return base;
+    const next = { ...(base ?? {}) };
+    if (input.batch === null) {
+      delete next.apiBatch;
+    } else {
+      next.apiBatch = compileWorkflowApiBatchContract(input.batch);
+    }
+    return Object.keys(next).length > 0 ? next : null;
+  };
+
   if (existing) {
     const [row] = await db()
       .update(workflow_definition)
@@ -252,10 +275,7 @@ export async function saveWorkflow(
           input.dailyRunBudget === undefined
             ? existing.dailyRunBudget
             : input.dailyRunBudget,
-        output_contract:
-          input.outputContract === undefined
-            ? existing.outputContract
-            : input.outputContract,
+        output_contract: resolveOutputContract(existing.outputContract),
         updated_at: new Date(),
       })
       .where(eq(workflow_definition.id, existing.id))
@@ -279,7 +299,7 @@ export async function saveWorkflow(
       cron_timezone: cronTimezone,
       cron_enabled: cronEnabled,
       daily_run_budget: input.dailyRunBudget ?? null,
-      output_contract: input.outputContract ?? null,
+      output_contract: resolveOutputContract(null),
       created_by_thread_id: input.createdByThreadId ?? null,
       created_by_run_id: input.createdByRunId ?? null,
     })
@@ -469,8 +489,10 @@ export type WorkflowRunRecord = {
   workflowId: string;
   threadId: string;
   workRunId: string;
-  triggerKind: "manual" | "cron" | "subscription" | "watcher";
+  triggerKind: "manual" | "cron" | "subscription" | "watcher" | "api";
   triggerPayload: Record<string, unknown>;
+  executionMode: "single" | "batch" | null;
+  triggerInputPreview: Record<string, unknown> | null;
   triggeredBySubscriptionId: string | null;
   triggeredByOutputId: string | null;
   triggeredByObservationId: string | null;
@@ -480,6 +502,13 @@ export type WorkflowRunRecord = {
   finishedAt: Date | null;
   summary: string | null;
   error: string | null;
+  telemetrySummary: Record<string, unknown> | null;
+  terminalResult: Record<string, unknown> | null;
+  resultArtifactPath: string | null;
+  progress: Record<string, unknown>;
+  queueAttempts: number;
+  admittedAt: Date | null;
+  resultExpiresAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -489,8 +518,10 @@ export type CreateWorkflowRunInput = {
   workflowId: string;
   threadId: string;
   workRunId: string;
-  triggerKind: "manual" | "cron" | "subscription" | "watcher";
+  triggerKind: "manual" | "cron" | "subscription" | "watcher" | "api";
   triggerPayload?: Record<string, unknown>;
+  executionMode?: "single" | "batch" | null;
+  triggerInputPreview?: Record<string, unknown> | null;
   chainDepth?: number;
   triggeredBySubscriptionId?: string | null;
   triggeredByOutputId?: string | null;
@@ -508,6 +539,12 @@ function toRunRecord(
     workRunId: row.work_run_id,
     triggerKind: row.trigger_kind as WorkflowRunRecord["triggerKind"],
     triggerPayload: (row.trigger_payload as Record<string, unknown>) ?? {},
+    executionMode:
+      row.execution_mode === "single" || row.execution_mode === "batch"
+        ? row.execution_mode
+        : null,
+    triggerInputPreview:
+      (row.trigger_input_preview as Record<string, unknown> | null) ?? null,
     triggeredBySubscriptionId: row.triggered_by_subscription_id,
     triggeredByOutputId: row.triggered_by_output_id,
     triggeredByObservationId: row.triggered_by_observation_id,
@@ -517,6 +554,15 @@ function toRunRecord(
     finishedAt: row.finished_at,
     summary: row.summary,
     error: row.error,
+    telemetrySummary:
+      (row.telemetry_summary as Record<string, unknown> | null) ?? null,
+    terminalResult:
+      (row.terminal_result as Record<string, unknown> | null) ?? null,
+    resultArtifactPath: row.result_artifact_path,
+    progress: (row.progress as Record<string, unknown>) ?? {},
+    queueAttempts: row.queue_attempts,
+    admittedAt: row.admitted_at,
+    resultExpiresAt: row.result_expires_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -525,6 +571,13 @@ function toRunRecord(
 export async function createWorkflowRun(
   input: CreateWorkflowRunInput,
 ): Promise<WorkflowRunRecord> {
+  const isApiMode = input.executionMode === "single" || input.executionMode === "batch";
+  if ((input.triggerKind === "api") !== isApiMode) {
+    throw new Error(
+      "API workflow runs require an execution mode, and non-API runs must not set one",
+    );
+  }
+
   const [row] = await db()
     .insert(workflow_run)
     .values({
@@ -534,6 +587,8 @@ export async function createWorkflowRun(
       work_run_id: input.workRunId,
       trigger_kind: input.triggerKind,
       trigger_payload: input.triggerPayload ?? {},
+      execution_mode: input.executionMode ?? null,
+      trigger_input_preview: input.triggerInputPreview ?? null,
       triggered_by_subscription_id: input.triggeredBySubscriptionId ?? null,
       triggered_by_output_id: input.triggeredByOutputId ?? null,
       triggered_by_observation_id: input.triggeredByObservationId ?? null,
@@ -543,6 +598,20 @@ export async function createWorkflowRun(
     })
     .returning();
   return toRunRecord(row);
+}
+
+export async function getWorkflowRun(
+  orgId: string,
+  workflowRunId: string,
+): Promise<WorkflowRunRecord | null> {
+  const [row] = await db()
+    .select()
+    .from(workflow_run)
+    .where(
+      and(eq(workflow_run.org_id, orgId), eq(workflow_run.id, workflowRunId)),
+    )
+    .limit(1);
+  return row ? toRunRecord(row) : null;
 }
 
 export async function finishWorkflowRun(args: {

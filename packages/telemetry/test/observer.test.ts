@@ -75,7 +75,11 @@ describe("harness observations", () => {
       operationId: "run-1",
       attributes: { "openneko.backend": "hermes" },
     });
-    await observer.observe({ kind: "model.request", operationId: "model-1" });
+    await observer.observe({
+      kind: "model.request",
+      operationId: "model-1",
+      measurements: { inputBytes: 120, coverage: "unavailable" },
+    });
     await observer.observe({
       kind: "model.response",
       operationId: "model-1",
@@ -83,6 +87,7 @@ describe("harness observations", () => {
         inputTokens: 10,
         outputTokens: 5,
         totalTokens: 15,
+        outputBytes: 48,
         coverage: "complete",
       },
     });
@@ -98,6 +103,7 @@ describe("harness observations", () => {
       backend: "hermes",
       counts: { inference: 1 },
       usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      io: { inputBytes: 120, outputBytes: 48 },
       durations: { wallMs: 42 },
       telemetryComplete: true,
     });

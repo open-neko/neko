@@ -51,6 +51,11 @@ export type ObservationMeasurements = NormalizedUsage & {
   compactedBytes?: number;
   rows?: number;
   attempts?: number;
+  acceptedRows?: number;
+  processedRows?: number;
+  finalRows?: number;
+  chunkCount?: number;
+  artifactBytes?: number;
 };
 
 /**
