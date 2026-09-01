@@ -164,6 +164,24 @@ describe("buildWorkPrompt skill catalog", () => {
     expect(prompt).toContain("When a skill matches, read its SKILL.md");
     expect(prompt).not.toContain("Full PDF skill body");
   });
+
+  it("uses typed mention metadata to distinguish skills from workflows", () => {
+    const prompt = build("hermes", {
+      installedSkills: [
+        { name: "revenue-review", description: "Inspect revenue movement." },
+      ],
+      supportsWorkflowTool: true,
+    });
+
+    expect(prompt).toContain("<selected_mentions>");
+    expect(prompt).toContain("::neko-work-mentions::");
+    expect(prompt).toContain('kind:\"skill\"');
+    expect(prompt).toContain('kind:\"workflow\"');
+    expect(prompt).toContain("explicit kind and id win");
+    expect(prompt).toContain(`${workspace.skillsRoot}/<name>/SKILL.md`);
+    expect(prompt).toContain("::neko-workflow-mentions::");
+    expect(prompt).toContain("Never quote, summarize, or echo");
+  });
 });
 
 describe("buildWorkPrompt action scopes", () => {
