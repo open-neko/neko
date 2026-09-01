@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.36.0](https://github.com/open-neko/openneko/compare/v2.35.2...v2.36.0) (2026-09-01)
+
+
+### Features
+
+* add durable workflow API execution ([390d37a](https://github.com/open-neko/openneko/commit/390d37a34cb96e315c0ca7804ed561b6b48ad90f))
+* expose workflows through an opt-in API ([5f6fa21](https://github.com/open-neko/openneko/commit/5f6fa214d640789fb4fabe729c43156921572341))
+
 ## [2.35.2](https://github.com/open-neko/openneko/compare/v2.35.1...v2.35.2) (2026-09-01)
 
 
