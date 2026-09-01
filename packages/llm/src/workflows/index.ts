@@ -49,6 +49,10 @@ export {
 } from "./save-workflow-with-trigger";
 export * from "./watchers";
 export * from "./audit-chain";
+export * from "./api-contract";
+export * from "./api-access";
+export * from "./api-admission";
+export * from "./api-batch";
 export {
   buildRuleBuilderServer,
   type RuleBuilderContext,
@@ -100,6 +104,7 @@ export {
 } from "./ttl-sweep";
 export {
   prepareWorkflowRun,
+  loadPreparedWorkflowRun,
   runWorkflowTurn,
   WorkflowNeedsInputError,
   type PrepareWorkflowRunOptions,
@@ -123,6 +128,7 @@ export {
   getDataSourceForOrg,
   getObservation,
   getWorkflow,
+  getWorkflowRun,
   getWorkflowByOrgName,
   getWorkflowRunChainDepth,
   hasRecentSourceWriteForWorkflow,

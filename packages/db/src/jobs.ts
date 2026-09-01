@@ -84,7 +84,7 @@ export type ChannelDeliverPayload = {
 export type WorkflowRunFirePayload = {
   orgId: string;
   workflowId: string;
-  triggerKind: "manual" | "cron" | "subscription" | "watcher";
+  triggerKind: "manual" | "cron" | "subscription" | "watcher" | "api";
   /** Durable cron firing ledger id. Cron deliveries use this as their
    * consumer-side idempotency boundary before creating a workflow run. */
   scheduleFiringId?: string;
@@ -95,6 +95,13 @@ export type WorkflowRunFirePayload = {
   triggeredBySubscriptionId?: string;
   triggeredByOutputId?: string;
   triggeredByObservationId?: string;
+  /** External API runs are pre-created transactionally by admission. */
+  apiAdmissionId?: string;
+  workflowRunId?: string;
+  workRunId?: string;
+  executionMode?: "single" | "batch";
+  admittedAt?: string;
+  queueAttempt?: number;
 };
 
 export type ActionExecutePayload = {

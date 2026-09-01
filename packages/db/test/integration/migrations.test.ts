@@ -51,6 +51,7 @@ const M_0064 = join(
 );
 const M_0065 = join(REPO_ROOT, "db", "migrations", "0065_skill_usage.sql");
 const M_0066 = join(REPO_ROOT, "db", "migrations", "0066_skill_learn.sql");
+const M_0067 = join(REPO_ROOT, "db", "migrations", "0067_workflow_api.sql");
 
 function uniqueDbName(): string {
   return `vitest_migrations_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -554,6 +555,109 @@ describeIfDb("schema migrations", () => {
         `select enabled from skill_learn_org where org_id = 'learn-org'`,
       );
       expect(flags.rows[0]?.enabled).toBe(false);
+    });
+  });
+
+  it("0067 creates an idempotent, fail-closed workflow API admission schema", async () => {
+    await withTempDb(async (client) => {
+      await applyFile(client, M_0001);
+      await applyFile(client, M_0006);
+      await applyFile(client, M_0009);
+      await applyFile(client, M_0067);
+      await applyFile(client, M_0067);
+
+      const tables = await client.query<{ table_name: string }>(`
+        select table_name from information_schema.tables
+         where table_schema = 'public'
+           and table_name like 'workflow_api_%'
+         order by table_name
+      `);
+      expect(tables.rows.map((row) => row.table_name)).toEqual([
+        "workflow_api_access",
+        "workflow_api_admission",
+        "workflow_api_rate_bucket",
+      ]);
+
+      await client.query(`
+        insert into organization (id, name) values ('api-org', 'API Org');
+        insert into work_thread (id, org_id, title)
+        values ('00000000-0000-0000-0000-000000000067', 'api-org', 'API Thread');
+        insert into work_run (id, org_id, thread_id, backend, status)
+        values (
+          '10000000-0000-0000-0000-000000000067', 'api-org',
+          '00000000-0000-0000-0000-000000000067', 'hermes', 'queued'
+        );
+        insert into workflow_definition (id, org_id, name, steps)
+        values (
+          '20000000-0000-0000-0000-000000000067', 'api-org',
+          'API workflow', '[]'::jsonb
+        ), (
+          '21000000-0000-0000-0000-000000000067', 'api-org',
+          'Second API workflow', '[]'::jsonb
+        );
+        insert into workflow_run (
+          id, org_id, workflow_id, thread_id, work_run_id,
+          trigger_kind, execution_mode, admitted_at, result_expires_at
+        ) values (
+          '30000000-0000-0000-0000-000000000067', 'api-org',
+          '20000000-0000-0000-0000-000000000067',
+          '00000000-0000-0000-0000-000000000067',
+          '10000000-0000-0000-0000-000000000067',
+          'api', 'single', now(), now() + interval '1 day'
+        );
+        insert into workflow_api_access (
+          workflow_id, org_id, enabled, token_verifier, token_prefix,
+          token_created_at
+        ) values (
+          '20000000-0000-0000-0000-000000000067', 'api-org', true,
+          repeat('a', 64), 'onk_wf_0123456789ab', now()
+        );
+        insert into workflow_api_admission (
+          id, org_id, workflow_id, workflow_run_id, idempotency_hash,
+          payload_hash, execution_mode, request_payload, request_bytes,
+          expires_at
+        ) values (
+          '40000000-0000-0000-0000-000000000067', 'api-org',
+          '20000000-0000-0000-0000-000000000067',
+          '30000000-0000-0000-0000-000000000067', repeat('b', 64),
+          repeat('c', 64), 'single', '{}'::jsonb, 2, now() + interval '1 day'
+        );
+      `);
+
+      await expect(
+        client.query(`
+          update workflow_api_access
+          set batch_max_records = 10, batch_chunk_size = 11
+          where workflow_id = '20000000-0000-0000-0000-000000000067'
+        `),
+      ).rejects.toThrow(/batch_bounds|check constraint/i);
+      await expect(
+        client.query(`
+          insert into workflow_api_access (workflow_id, org_id, enabled)
+          values ('21000000-0000-0000-0000-000000000067', 'api-org', true)
+        `),
+      ).rejects.toThrow(/token_state|check constraint/i);
+      await expect(
+        client.query(`
+          update workflow_run
+          set trigger_kind = 'manual', execution_mode = 'batch'
+          where id = '30000000-0000-0000-0000-000000000067'
+        `),
+      ).rejects.toThrow(/execution_mode|check constraint/i);
+      await expect(
+        client.query(`
+          insert into workflow_api_admission (
+            org_id, workflow_id, workflow_run_id, idempotency_hash,
+            payload_hash, execution_mode, request_payload, request_bytes,
+            expires_at
+          ) values (
+            'api-org', '20000000-0000-0000-0000-000000000067',
+            '30000000-0000-0000-0000-000000000067', repeat('b', 64),
+            repeat('d', 64), 'single', '{}'::jsonb, 2,
+            now() + interval '1 day'
+          )
+        `),
+      ).rejects.toThrow(/unique|duplicate/i);
     });
   });
 

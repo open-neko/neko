@@ -21,6 +21,18 @@ const RECONCILE_AUTH_MODE =
   process.env.ADVENTUREWORKS_RECONCILE_AUTH_MODE === "1";
 const AUTH_MODE = process.env.ADVENTUREWORKS_AUTH_MODE === "jwt" ? "jwt" : "none";
 
+function workflowBatchContract(columns, recordsField = "records") {
+  return {
+    apiBatch: {
+      version: 1,
+      compiled: true,
+      compiler: "workflow",
+      recordsField,
+      columns,
+    },
+  };
+}
+
 function configBase() {
   const xdg = process.env.XDG_CONFIG_HOME?.trim();
   return xdg && xdg.length > 0
@@ -191,48 +203,75 @@ if (wizardRows.rowCount === 0) {
 // Guard on operator/seed workflows only: the worker upserts its own
 // 'OpenNeko operations' system workflow on every boot, and counting it
 // here made a partially-failed first seed permanently skip the trial set.
+const trialWorkflows = [
+  {
+    name: "Daily Revenue Health Check",
+    description: "Snapshot of yesterday's revenue vs trailing 7-day average. Lands on the Briefing each morning.",
+    goal: "Once per day, query AdventureWorks sales data via the connected GraphJin source. Compute (a) yesterday's total revenue across all territories from sales.salesorderheader.subtotal, and (b) the average daily revenue over the prior 7 days. Emit one workflow_output with kind=finding, mood=good if yesterday is within 10% of the avg, mood=watch if yesterday is 10–25% below, mood=act if >25% below. The output title should name yesterday's revenue and the delta; the body should be 1–2 sentences explaining the comparison.",
+    cron: "0 9 * * *",
+    cron_timezone: "UTC",
+    outputContract: workflowBatchContract([
+      { name: "Date", path: "date" },
+      { name: "Revenue", path: "revenue" },
+      { name: "Trailing 7-day average", path: "trailing7DayAverage" },
+      { name: "Delta percent", path: "deltaPercent" },
+      { name: "Mood", path: "mood" },
+    ]),
+  },
+  {
+    name: "Revenue Drop Alert",
+    description: "Hourly territory-level revenue drop check. Surfaces sharp declines.",
+    goal: "Once per hour, query AdventureWorks via GraphJin: for each territoryid in sales.salesorderheader, compute the current trailing-hour revenue and compare it to the same hour-of-week averaged over the prior 4 weeks. Emit a workflow_output with kind=finding, mood=act when any territory's current-hour revenue is below 50% of its baseline, scope=territory:<id>. Skip silently if no territory crosses the threshold. When mood=act, also emit a neko_action_request proposing a send_webhook notification to slack:#revenue-alerts with a one-line summary.",
+    cron: "0 * * * *",
+    cron_timezone: "UTC",
+    outputContract: workflowBatchContract([
+      { name: "Territory ID", path: "territoryId" },
+      { name: "Current-hour revenue", path: "currentHourRevenue" },
+      { name: "Baseline revenue", path: "baselineRevenue" },
+      { name: "Baseline ratio", path: "baselineRatio" },
+      { name: "Alert", path: "alert", default: false },
+    ]),
+  },
+  {
+    name: "Slow-Ship Operations",
+    description: "Daily check for orders stuck in pending status past SLA.",
+    goal: "Once per day, query AdventureWorks via GraphJin to find rows in sales.salesorderheader where status=1 (pending) and orderdate is more than 5 days ago. Emit one workflow_output with kind=finding, mood=watch when the count is between 1 and 10, mood=act when >10. Title: the count of slow-shipping orders. Body: a short list of the oldest 3 orderids with their orderdate.",
+    cron: "30 8 * * *",
+    cron_timezone: "UTC",
+    outputContract: workflowBatchContract([
+      { name: "Order ID", path: "orderId" },
+      { name: "Order date", path: "orderDate" },
+      { name: "Days pending", path: "daysPending" },
+      { name: "Status", path: "status" },
+    ]),
+  },
+  {
+    name: "Stock Reorder Watch",
+    description: "Reacts to inventory rows that drop below the product's reorder point. Subscription-triggered (no cron); fires per low-stock row.",
+    goal: "Triggered by a source_change subscription on production.productinventory when a row's quantity falls below the related product's reorderpoint. The trigger_payload includes table, primary_key={productid,locationid}, and snapshot. Query AdventureWorks via GraphJin to fetch the product name, current quantity, reorderpoint, and listprice. Emit one workflow_output with kind=recommendation, mood=act, scope='inventory', topic='reorder_point' summarizing the gap and recommending a reorder quantity. Do NOT mutate productinventory or productorders here — the responder reads only.",
+    cron: null,
+    cron_timezone: null,
+    outputContract: workflowBatchContract([
+      { name: "Product ID", path: "productId" },
+      { name: "Location ID", path: "locationId" },
+      { name: "Quantity", path: "quantity" },
+      { name: "Reorder point", path: "reorderPoint" },
+      { name: "Recommended reorder", path: "recommendedReorderQuantity" },
+    ]),
+  },
+];
 const wfRows = await client.query(
   "select id from workflow_definition where org_id = $1 and name <> 'OpenNeko operations' limit 1",
   [orgId],
 );
 if (wfRows.rowCount === 0) {
-  const trialWorkflows = [
-    {
-      name: "Daily Revenue Health Check",
-      description: "Snapshot of yesterday's revenue vs trailing 7-day average. Lands on the Briefing each morning.",
-      goal: "Once per day, query AdventureWorks sales data via the connected GraphJin source. Compute (a) yesterday's total revenue across all territories from sales.salesorderheader.subtotal, and (b) the average daily revenue over the prior 7 days. Emit one workflow_output with kind=finding, mood=good if yesterday is within 10% of the avg, mood=watch if yesterday is 10–25% below, mood=act if >25% below. The output title should name yesterday's revenue and the delta; the body should be 1–2 sentences explaining the comparison.",
-      cron: "0 9 * * *",
-      cron_timezone: "UTC",
-    },
-    {
-      name: "Revenue Drop Alert",
-      description: "Hourly territory-level revenue drop check. Surfaces sharp declines.",
-      goal: "Once per hour, query AdventureWorks via GraphJin: for each territoryid in sales.salesorderheader, compute the current trailing-hour revenue and compare it to the same hour-of-week averaged over the prior 4 weeks. Emit a workflow_output with kind=finding, mood=act when any territory's current-hour revenue is below 50% of its baseline, scope=territory:<id>. Skip silently if no territory crosses the threshold. When mood=act, also emit a neko_action_request proposing a send_webhook notification to slack:#revenue-alerts with a one-line summary.",
-      cron: "0 * * * *",
-      cron_timezone: "UTC",
-    },
-    {
-      name: "Slow-Ship Operations",
-      description: "Daily check for orders stuck in pending status past SLA.",
-      goal: "Once per day, query AdventureWorks via GraphJin to find rows in sales.salesorderheader where status=1 (pending) and orderdate is more than 5 days ago. Emit one workflow_output with kind=finding, mood=watch when the count is between 1 and 10, mood=act when >10. Title: the count of slow-shipping orders. Body: a short list of the oldest 3 orderids with their orderdate.",
-      cron: "30 8 * * *",
-      cron_timezone: "UTC",
-    },
-    {
-      name: "Stock Reorder Watch",
-      description: "Reacts to inventory rows that drop below the product's reorder point. Subscription-triggered (no cron); fires per low-stock row.",
-      goal: "Triggered by a source_change subscription on production.productinventory when a row's quantity falls below the related product's reorderpoint. The trigger_payload includes table, primary_key={productid,locationid}, and snapshot. Query AdventureWorks via GraphJin to fetch the product name, current quantity, reorderpoint, and listprice. Emit one workflow_output with kind=recommendation, mood=act, scope='inventory', topic='reorder_point' summarizing the gap and recommending a reorder quantity. Do NOT mutate productinventory or productorders here — the responder reads only.",
-      cron: null,
-      cron_timezone: null,
-    },
-  ];
   for (const wf of trialWorkflows) {
     const hasCron = wf.cron !== null && wf.cron !== undefined;
     await client.query(
       `insert into workflow_definition (
          org_id, name, description, goal, cron, cron_timezone,
-         cron_enabled, enabled, status
-       ) values ($1, $2, $3, $4, $5, $6, $7, true, 'active')
+         cron_enabled, enabled, status, output_contract
+       ) values ($1, $2, $3, $4, $5, $6, $7, true, 'active', $8::jsonb)
        on conflict (org_id, owner_user_id, name) do nothing`,
       [
         orgId,
@@ -242,6 +281,7 @@ if (wfRows.rowCount === 0) {
         wf.cron,
         wf.cron_timezone ?? "UTC",
         hasCron,
+        JSON.stringify(wf.outputContract),
       ],
     );
   }
@@ -249,6 +289,32 @@ if (wfRows.rowCount === 0) {
 } else {
   console.log("[seed-adventureworks] workflows already exist; leaving them unchanged");
 }
+
+// Add the workflow-native batch contract to untouched bundled definitions
+// created by an older seed. Match the exact seeded goal so an operator-edited
+// workflow is never rewritten, preserve every other output contract key, and
+// avoid touching updated_at (the scheduler uses it as part of its cursor).
+let reconciledBatchContracts = 0;
+for (const wf of trialWorkflows) {
+  const reconciled = await client.query(
+    `update workflow_definition
+        set output_contract = jsonb_set(
+          coalesce(output_contract, '{}'::jsonb),
+          '{apiBatch}',
+          $4::jsonb,
+          true
+        )
+      where org_id = $1
+        and name = $2
+        and goal = $3
+        and not (coalesce(output_contract, '{}'::jsonb) ? 'apiBatch')`,
+    [orgId, wf.name, wf.goal, JSON.stringify(wf.outputContract.apiBatch)],
+  );
+  reconciledBatchContracts += reconciled.rowCount ?? 0;
+}
+console.log(
+  `[seed-adventureworks] reconciled ${reconciledBatchContracts} workflow-native batch contracts`,
+);
 
 // Wired outside the workflow guard and self-guarded, so a first run that
 // died between the workflow insert and this point heals on the next run

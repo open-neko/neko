@@ -9,7 +9,7 @@ import {
   createOtlpTelemetryRuntime,
   type OtlpTelemetryRuntime,
 } from "@neko/telemetry/node";
-import { db, eq, processing_job, sql } from "@neko/db";
+import { db, eq, processing_job, sql, workflow_run } from "@neko/db";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
@@ -86,6 +86,23 @@ export async function persistProcessingJobTelemetry(
   } catch {
     // Summary persistence must not affect the product-path outcome.
     console.warn(`[telemetry] failed to persist processing-job summary ${processingJobId}`);
+  }
+}
+
+/** Canonical workflow-run summary used by history, API status, and budgets. */
+export async function persistWorkflowRunTelemetry(
+  workflowRunId: string,
+  summary: HarnessRunSummary,
+): Promise<void> {
+  try {
+    await db()
+      .update(workflow_run)
+      .set({ telemetry_summary: summary, updated_at: new Date() })
+      .where(eq(workflow_run.id, workflowRunId));
+  } catch {
+    console.warn(
+      `[telemetry] failed to persist workflow-run summary ${workflowRunId}`,
+    );
   }
 }
 

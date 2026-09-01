@@ -24,12 +24,23 @@ export type HarnessRunSummary = {
     queueMs?: number;
     firstOutputMs?: number;
   };
+  io?: {
+    inputBytes?: number;
+    outputBytes?: number;
+  };
   counts: {
     inference: number;
     tools: number;
     delegations: number;
     retries: number;
     validations: number;
+  };
+  batch?: {
+    acceptedRows?: number;
+    processedRows?: number;
+    finalRows?: number;
+    chunkCount?: number;
+    artifactBytes?: number;
   };
   usage: NormalizedUsage;
   telemetryComplete: boolean;
@@ -100,6 +111,47 @@ export class HarnessRunSummaryAccumulator implements ObservationSink {
 
     const measurements = observation.measurements;
     if (measurements) {
+      if (
+        measurements.inputBytes !== undefined ||
+        measurements.outputBytes !== undefined
+      ) {
+        this.value.io = {
+          inputBytes: add(
+            this.value.io?.inputBytes,
+            measurements.inputBytes,
+          ),
+          outputBytes: add(
+            this.value.io?.outputBytes,
+            measurements.outputBytes,
+          ),
+        };
+      }
+      if (
+        measurements.acceptedRows !== undefined ||
+        measurements.processedRows !== undefined ||
+        measurements.finalRows !== undefined ||
+        measurements.chunkCount !== undefined ||
+        measurements.artifactBytes !== undefined
+      ) {
+        this.value.batch = {
+          ...(this.value.batch ?? {}),
+          ...(measurements.acceptedRows !== undefined
+            ? { acceptedRows: measurements.acceptedRows }
+            : {}),
+          ...(measurements.processedRows !== undefined
+            ? { processedRows: measurements.processedRows }
+            : {}),
+          ...(measurements.finalRows !== undefined
+            ? { finalRows: measurements.finalRows }
+            : {}),
+          ...(measurements.chunkCount !== undefined
+            ? { chunkCount: measurements.chunkCount }
+            : {}),
+          ...(measurements.artifactBytes !== undefined
+            ? { artifactBytes: measurements.artifactBytes }
+            : {}),
+        };
+      }
       const current = this.value.usage;
       const hasUsageValue = [
         measurements.inputTokens,

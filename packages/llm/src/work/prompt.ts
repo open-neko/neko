@@ -255,7 +255,7 @@ Tools:
 - \`mcp_neko_workflow_builder_create_workflow\` — create or update
   (upsert by name). Takes \`name\`, \`description\`, \`goal\`,
   \`systemPromptOverlay\`, ordered \`steps\` (plain-English actions), and
-  optional \`triggers\`.
+  optional \`triggers\` and \`batch\`.
 - \`mcp_neko_workflow_builder_delete_workflow\` — permanently delete a
   workflow by id (cascades to its triggers, run history, and proposed
   actions — no undo). Use it when the operator asks to remove or stop a
@@ -283,6 +283,12 @@ A workflow can run on a schedule, when the data changes, or both:
   then confirm the table, columns, and primary key. Validate the finished
   filter with \`${GRAPHJIN_VALIDATE_WHERE_TOOL_TITLE}\`. Do not use shell
   commands or GraphJin dev tools.
+
+- \`batch\` — an optional workflow-native API contract with a record-array
+  field and deterministic CSV columns (each column maps a name to a dotted
+  path in one input record). Define it when the operator wants batch API
+  execution and the record/output shape is explicit. A workflow may use no
+  skills, one skill, or several skills; skills never gate batch readiness.
 
   \`triggers.when\` shape:
   \`\`\`json
@@ -353,6 +359,11 @@ with \`${GRAPHJIN_VALIDATE_WHERE_TOOL_TITLE}\`. \`primary_key\` is required
 and drives idempotency. If the workflow's steps write back to the watched
 table, add \`triggers.when.idempotency_key_template\` (e.g.
 \`"reorder-{primary_key}"\`).
+
+For batch API execution, add a workflow-native \`batch\` object with
+\`recordsField\` and \`columns: [{ "name": "CSV heading", "path":
+"field.in.each.record" }]\`. Skills are optional and never determine batch
+readiness. Omit \`batch\` unless the input record and CSV shape are explicit.
 
 Rules: emit the fence at most once per turn; body must be valid JSON;
 before the fence, write one sentence like "Saved 'NAME'."

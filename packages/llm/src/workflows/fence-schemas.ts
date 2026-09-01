@@ -19,6 +19,24 @@ export type SourceChangeTriggerPayload = z.infer<
   typeof SOURCE_CHANGE_TRIGGER_SCHEMA
 >;
 
+export const WORKFLOW_BATCH_DEFINITION_SCHEMA = z.object({
+  recordsField: z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/)
+    .optional(),
+  columns: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(80).refine((value) => !/[\r\n]/.test(value)),
+        path: z.string().trim().min(1).max(256),
+        default: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+      }),
+    )
+    .min(1)
+    .max(64),
+});
+
 export const WORKFLOW_SAVE_SCHEMA = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().max(2000).optional(),
@@ -33,6 +51,9 @@ export const WORKFLOW_SAVE_SCHEMA = z.object({
     )
     .min(1)
     .max(40),
+  // Workflow-native batch projection. A workflow can define this whether it
+  // uses zero, one, or many skills; the trusted save boundary compiles it.
+  batch: WORKFLOW_BATCH_DEFINITION_SCHEMA.nullable().optional(),
   triggers: z
     .object({
       cron: z.string().trim().min(1).max(120).optional(),

@@ -11,7 +11,10 @@ import { formatSavedShort } from "@/lib/hours-saved";
 import { Sparkline } from "@/components/Sparkline";
 import PageHeading from "@/components/PageHeading";
 import { Button, IconButton } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Pill, type PillVariant } from "@/components/ui/Pill";
+import { WorkflowApiAccessPanel } from "./WorkflowApiAccessPanel";
 
 type WorkflowListItem = {
   id: string;
@@ -40,6 +43,19 @@ type RecentRun = {
   id: string;
   status: string;
   triggerKind: string;
+  executionMode: "single" | "batch" | null;
+  queueAttempts: number;
+  progress: Record<string, unknown>;
+  telemetry: {
+    durations?: { queueMs?: number; wallMs?: number };
+    counts?: { inference?: number; tools?: number };
+    usage?: {
+      totalTokens?: number;
+      billedCostUsd?: number;
+      estimatedCostUsd?: number;
+      coverage?: string;
+    };
+  } | null;
   summary: string | null;
   error: string | null;
   startedAt: string | null;
@@ -103,6 +119,27 @@ function formatRelative(iso: string | null): string {
     month: "short",
     day: "numeric",
   });
+}
+
+function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat("en", {
+    notation: value >= 1_000 ? "compact" : "standard",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function recentRunTelemetry(run: RecentRun): string | null {
+  const parts: string[] = [];
+  const tokens = run.telemetry?.usage?.totalTokens;
+  if (typeof tokens === "number") parts.push(`${formatCompactNumber(tokens)} tokens`);
+  const cost =
+    run.telemetry?.usage?.billedCostUsd ??
+    run.telemetry?.usage?.estimatedCostUsd;
+  if (typeof cost === "number") parts.push(`$${cost.toFixed(cost < 0.01 ? 4 : 2)}`);
+  if (run.triggerKind === "api" && run.queueAttempts > 1) {
+    parts.push(`${run.queueAttempts} queue attempts`);
+  }
+  return parts.length ? parts.join(" · ") : null;
 }
 
 function describeSubscription(s: Subscription): string {
@@ -290,9 +327,9 @@ export default function WorkflowsPage() {
         <div className="workflow-page-state is-error" role="alert">
           <strong>Workflows could not be loaded</strong>
           <span>{error}</span>
-          <button data-ui-bespoke-reason="workflow inspector chrome" type="button" onClick={() => void fetchList()}>
+          <Button size="sm" onClick={() => void fetchList()}>
             Retry
-          </button>
+          </Button>
         </div>
       ) : workflows === null ? (
         <div className="workflow-page-state" role="status">
@@ -369,9 +406,10 @@ export default function WorkflowsPage() {
 
           {selectedWorkflow ? (
             <>
-              <button data-ui-bespoke-reason="workflow inspector chrome"
+              <button
                 type="button"
                 className="workflow-inspector-scrim"
+                data-ui-bespoke-reason="Modal sheet scrim dismisses workflow details without presenting a visible control"
                 aria-label="Close workflow details"
                 onClick={() => select(null)}
               />
@@ -422,14 +460,14 @@ export default function WorkflowsPage() {
                       )}
                     </p>
                   </div>
-                  <button data-ui-bespoke-reason="workflow inspector chrome"
-                    type="button"
+                  <IconButton
+                    label="Close workflow controls"
+                    size="icon"
                     className="workflow-inspector-close"
                     onClick={() => select(null)}
-                    aria-label="Close workflow controls"
                   >
                     <X aria-hidden="true" />
-                  </button>
+                  </IconButton>
                 </header>
                 <WorkflowDetail
                   key={selectedWorkflow.id}
@@ -537,9 +575,10 @@ function WorkflowRow({
     >
       <div className={`workflows-row${active ? " is-active" : ""}`}>
         <span className="workflows-route-node" aria-hidden="true" />
-        <button data-ui-bespoke-reason="workflow inspector chrome"
+        <button
           type="button"
           className="workflows-row-main"
+          data-ui-bespoke-reason="Master-detail row selection needs aria-pressed and controls the adjacent workflow inspector"
           onClick={onSelect}
           aria-pressed={active}
           aria-controls={active ? "workflow-inspector" : undefined}
@@ -713,9 +752,9 @@ function WorkflowDetail({
         <div className="workflow-detail-state is-error" role="alert">
           <strong>Details could not be loaded</strong>
           <span>{error}</span>
-          <button data-ui-bespoke-reason="workflow inspector chrome" type="button" onClick={() => void load()}>
+          <Button size="sm" onClick={() => void load()}>
             Retry
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -843,18 +882,18 @@ function WorkflowDetail({
             )}
           </span>
           {workflow.cron && (
-            <label className="inline-flex items-center gap-1.5 text-xs text-text3 cursor-pointer">
-              <input data-ui-bespoke-reason="workflow inspector chrome"
-                type="checkbox"
-                checked={workflow.cronEnabled}
-                onChange={toggleCron}
-                disabled={busy}
-              />
-              <span>{workflow.cronEnabled ? "enabled" : "disabled"}</span>
-            </label>
+            <Checkbox
+              checked={workflow.cronEnabled}
+              onChange={toggleCron}
+              disabled={busy}
+              label={workflow.cronEnabled ? "Enabled" : "Disabled"}
+              className="text-xs text-text3"
+            />
           )}
         </div>
       </Section>
+
+      <WorkflowApiAccessPanel workflowId={workflowId} />
 
       <Section title="Daily budget">
         <div className="workflow-budget">
@@ -888,14 +927,12 @@ function WorkflowDetail({
             {policies.map((p) => (
               <li key={p.id} className="flex min-w-0 items-start gap-2 text-ui-body-sm">
                 <span className="min-w-0 flex-1 font-mono text-ui-caption text-text2 [overflow-wrap:anywhere]">{p.name}</span>
-                <span
-                  className={cn(
-                    "shrink-0 whitespace-nowrap text-ui-label font-bold tracking-[0.13em] uppercase px-1.5 py-0.5 rounded-full ml-auto",
-                    policyModeClass(p.mode),
-                  )}
+                <Pill
+                  variant={policyModeVariant(p.mode)}
+                  className="ml-auto"
                 >
                   {describePolicyMode(p.mode)}
-                </span>
+                </Pill>
               </li>
             ))}
           </ul>
@@ -912,8 +949,9 @@ function WorkflowDetail({
           <ul className="list-none p-0 m-0 flex flex-col gap-1.5">
             {recentRuns.map((r) => (
               <li key={r.id} className="flex items-baseline gap-2 text-ui-body-sm">
-                <button data-ui-bespoke-reason="workflow inspector chrome"
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   className="workflow-drawer-run-link"
                   onClick={() => router.push(`/runs/${r.id}`)}
                 >
@@ -926,13 +964,20 @@ function WorkflowDetail({
                     {statusGlyph(r.status)}
                   </span>
                   <span className="workflow-drawer-run-meta font-mono text-xs text-text2">
-                    {formatRelative(r.createdAt)} · {r.triggerKind} ·{" "}
+                    {formatRelative(r.createdAt)} · {r.triggerKind}
+                    {r.executionMode ? ` ${r.executionMode}` : ""} ·{" "}
                     {formatDuration(r.durationMs)}
+                    {recentRunTelemetry(r) ? ` · ${recentRunTelemetry(r)}` : ""}
                   </span>
+                  {r.executionMode ? (
+                    <Pill variant={r.executionMode === "batch" ? "success" : "muted"}>
+                      {r.executionMode}
+                    </Pill>
+                  ) : null}
                   <span className="workflow-drawer-run-arrow ml-auto text-text3 font-mono text-ui-caption transition-[color,transform] duration-[0.18s]" aria-hidden="true">
                     →
                   </span>
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -953,14 +998,12 @@ function WorkflowDetail({
                       {a.target}
                     </span>
                   )}
-                  <span
-                    className={cn(
-                      "ml-auto shrink-0 whitespace-nowrap text-ui-label font-bold tracking-[0.08em] uppercase px-2 py-0.5 rounded-full",
-                      actionPillClass(a.status),
-                    )}
+                  <Pill
+                    variant={actionPillVariant(a.status)}
+                    className="ml-auto"
                   >
                     {actionStatusLabel(a.status)}
-                  </span>
+                  </Pill>
                 </div>
                 <div className="workflow-action-meta">
                   {formatRelative(a.createdAt)}
@@ -974,18 +1017,20 @@ function WorkflowDetail({
 
       <div className="workflow-detail-foot">
         {workflow.createdByThreadId ? (
-          <button data-ui-bespoke-reason="workflow inspector chrome"
-            type="button"
+          <Button
+            size="sm"
+            variant="ghost"
             className="bg-transparent border-0 text-text3 cursor-pointer text-xs font-semibold py-1 px-0 hover:text-accent hover:underline hover:underline-offset-[3px]"
             onClick={() => router.push(`/work/${workflow.createdByThreadId}`)}
           >
             View conversation
-          </button>
+          </Button>
         ) : (
           <span />
         )}
-        <button data-ui-bespoke-reason="workflow inspector chrome"
-          type="button"
+        <Button
+          size="sm"
+          variant="ghost"
           className="bg-transparent border-0 text-accent cursor-pointer text-xs font-semibold py-1 px-0 hover:underline hover:underline-offset-[3px]"
           onClick={() =>
             router.push(
@@ -996,7 +1041,7 @@ function WorkflowDetail({
           }
         >
           Edit with OpenNeko
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -1017,16 +1062,16 @@ function Section({
   );
 }
 
-function policyModeClass(mode: string): string {
+function policyModeVariant(mode: string): PillVariant {
   switch (mode) {
     case "auto_approve":
-      return "bg-success-soft text-success-mid";
+      return "success";
     case "approval_required":
-      return "bg-watch-soft text-warn-ink";
+      return "watch";
     case "never":
-      return "bg-danger-soft text-danger";
+      return "danger";
     default:
-      return "bg-neutral text-text2";
+      return "muted";
   }
 }
 
@@ -1044,17 +1089,17 @@ function runStatusColor(status: string): string {
   }
 }
 
-function actionPillClass(status: string): string {
+function actionPillVariant(status: string): PillVariant {
   switch (status) {
     case "executed":
-      return "bg-success-soft text-success-mid";
+      return "success";
     case "pending_approval":
-      return "bg-watch-soft text-warn-ink";
+      return "watch";
     case "rejected":
     case "failed":
-      return "bg-danger-soft text-danger";
+      return "danger";
     default:
-      return "bg-neutral text-text2";
+      return "muted";
   }
 }
 
