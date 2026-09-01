@@ -78,7 +78,7 @@ function SignInBody() {
         </div>
       ) : provider ? (
         <form action="/api/auth/begin" method="GET" className="entry-fields">
-          <input type="hidden" name="returnTo" value={returnTo} />
+          <input data-ui-bespoke-reason="sign-in entry fields" type="hidden" name="returnTo" value={returnTo} />
           <label className="entry-field">
             <span>
               Email{" "}
@@ -86,7 +86,7 @@ function SignInBody() {
                 <span className="entry-optional">(optional)</span>
               )}
             </span>
-            <input
+            <input data-ui-bespoke-reason="sign-in entry fields"
               type="email"
               name="loginHint"
               value={loginHint}

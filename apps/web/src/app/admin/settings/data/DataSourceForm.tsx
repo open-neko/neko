@@ -5,6 +5,7 @@ import AppHeader from "@/components/AppHeader";
 import PageHeading from "@/components/PageHeading";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
+import { Field, Input } from "@/components/ui/Field";
 
 type DataSourcePayload = {
   source: "org" | "unset";
@@ -13,12 +14,6 @@ type DataSourcePayload = {
   mcpUrl: string;
   label: string;
 };
-
-const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
-const FIELD_CLS = "flex flex-col gap-2";
-const LABEL_CLS = "text-ui-body font-semibold text-text";
-const HELP_CLS = "text-ui-body-sm text-text3 leading-[1.45]";
 
 const GRAPHQL_SUFFIX = "/api/v1/graphql";
 const MCP_SUFFIX = "/api/v1/mcp";
@@ -98,27 +93,26 @@ export default function DataSourceForm({ initial }: { initial: DataSourcePayload
 
       <section className="settings-card">
         <div className="grid gap-4 mt-4">
-          <label className={FIELD_CLS}>
-            <span className={LABEL_CLS}>GraphJin URL *</span>
-            <input
-              className={INPUT_CLS}
+          <Field
+            label="GraphJin URL *"
+            htmlFor="graphjin-url"
+            hint="Just the base URL. OpenNeko handles the GraphQL and MCP endpoints automatically."
+          >
+            <Input
+              id="graphjin-url"
               value={data.rootUrl}
               placeholder="http://localhost:8080"
               onChange={(e) => setData((p) => ({ ...p, rootUrl: e.target.value }))}
             />
-            <span className={HELP_CLS}>
-              Just the base URL — OpenNeko handles the GraphQL and MCP endpoints automatically.
-            </span>
-          </label>
-          <label className={FIELD_CLS}>
-            <span className={LABEL_CLS}>Label</span>
-            <input
-              className={INPUT_CLS}
+          </Field>
+          <Field label="Label" htmlFor="data-source-label">
+            <Input
+              id="data-source-label"
               value={data.label}
               placeholder="primary"
               onChange={(e) => setData((p) => ({ ...p, label: e.target.value }))}
             />
-          </label>
+          </Field>
         </div>
         <div className="flex justify-end gap-2.5 mt-5 max-[720px]:flex-col max-[720px]:items-stretch [&>button]:max-[720px]:w-full">
           <Button onClick={test} disabled={testing || !data.rootUrl.trim()}>

@@ -26,36 +26,36 @@
 }
 
 @theme {
-  --color-bg: #FAFAF7;
-  --color-card: #FFFFFF;
-  --color-text: #2D2A24;
-  --color-text2: #6F6A60;
-  --color-text3: #756F65;
-  --color-border: #EEEBE4;
-  --color-neutral: #F2EFE8;
-  --color-neutral-soft: #F7F4ED;
-  --color-accent: #6B5CE7;
-  --color-accent-soft: #EDE9FE;
-  --color-success: #6CFF7F;
-  --color-success-ink: #113719;
-  --color-success-soft: #E2FBE6;
-  --color-success-mid: #357A57;
-  --color-watch: #E9A23B;
-  --color-watch-soft: #FFF1D8;
-  --color-warn: #F0D97A;
-  --color-warn-soft: #FFF4CC;
-  --color-warn-ink: #8A6D00;
-  --color-danger: #A53535;
-  --color-danger-soft: #FEECEC;
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-text: var(--text);
+  --color-text2: var(--text2);
+  --color-text3: var(--text3);
+  --color-border: var(--border);
+  --color-neutral: var(--neutral);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-ink: var(--success-ink);
+  --color-success-soft: var(--success-soft);
+  --color-success-mid: var(--success-mid);
+  --color-watch: var(--watch);
+  --color-watch-soft: var(--watch-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-warn-ink: var(--warn-ink);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
 
-  --radius-card: 20px;
-  --radius-inner: 12px;
-  --radius-control: 10px;
-  --radius-2xl: 20px;
+  --radius-card: var(--radius);
+  --radius-inner: var(--radius-inner);
+  --radius-control: var(--radius-control);
+  --radius-2xl: var(--radius);
 
-  --shadow-soft: 0 1px 3px rgba(20,18,12,0.04), 0 4px 16px rgba(20,18,12,0.03);
-  --shadow-hover: 0 2px 8px rgba(20,18,12,0.06), 0 12px 36px -8px rgba(20,18,12,0.07);
-  --shadow-lift: 0 1px 2px rgba(20,18,12,0.04), 0 18px 48px -16px rgba(20,18,12,0.16);
+  --shadow-soft: var(--shadow);
+  --shadow-hover: var(--shadow-h);
+  --shadow-lift: var(--shadow-lift);
 
   /* Semantic utilities for component-local Tailwind. These mirror the
      product scale in _tokens.css instead of exposing one-off pixel values. */

@@ -5,6 +5,7 @@ import { Archive, Pin } from "lucide-react";
 import { confirmDialog } from "@/components/ConfirmModal";
 import PageHeading from "@/components/PageHeading";
 import { Button, IconButton } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 type MemoryRow = {
   id: string;
@@ -250,13 +251,11 @@ export default function MemoryPage() {
               <span />
             </div>
           ) : active.length === 0 ? (
-            <div className="library-empty">
-              <strong>No saved memory</strong>
-              <span>
-                Stable facts and instructions appear here after you ask OpenNeko
-                to remember them.
-              </span>
-            </div>
+            <EmptyState
+              className="library-empty"
+              title="No saved memory"
+              body="Stable facts and instructions appear here after you ask OpenNeko to remember them."
+            />
           ) : (
             <>
               <div className="memory-table-head" aria-hidden="true">

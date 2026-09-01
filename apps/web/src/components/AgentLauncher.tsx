@@ -79,7 +79,7 @@ export default function AgentLauncher() {
         <label className="sr-only" htmlFor="agent-objective">
           Objective for OpenNeko
         </label>
-        <textarea
+        <textarea data-ui-bespoke-reason="ask composer"
           id="agent-objective"
           value={prompt}
           onChange={(event) => {
@@ -90,7 +90,7 @@ export default function AgentLauncher() {
           rows={2}
           disabled={submitting}
         />
-        <button
+        <button data-ui-bespoke-reason="ask composer"
           type="submit"
           className="agent-launcher-submit"
           disabled={!prompt.trim() || submitting}
@@ -108,7 +108,7 @@ export default function AgentLauncher() {
         <span>Start with</span>
         <div className="agent-starters">
           {STARTERS.map((starter) => (
-            <button
+            <button data-ui-bespoke-reason="ask composer"
               key={starter.label}
               type="button"
               onClick={() => setPrompt(starter.prompt)}

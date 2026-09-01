@@ -3,17 +3,13 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
+import { Field, Input } from "@/components/ui/Field";
 
 type SourceSecretSummary = {
   name: string;
   description: string | null;
   updatedAt: string;
 };
-
-const INPUT_CLS =
-  "px-[13px] py-[11px] sm:px-3.5 sm:py-[13px] rounded-xl border-[1.5px] border-border bg-bg text-text text-base sm:text-ui-body-lg font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.08)]";
-const FIELD_CLS = "flex flex-col gap-2";
-const LABEL_CLS = "text-ui-body font-semibold text-text";
 
 export default function SourceSecretsPanel({
   initialSecrets,
@@ -94,34 +90,35 @@ export default function SourceSecretsPanel({
       </div>
 
       <div className="grid gap-3 md:grid-cols-[1fr_1fr_1.2fr_auto]">
-        <label className={FIELD_CLS}>
-          <span className={LABEL_CLS}>Name</span>
-          <input
-            className={INPUT_CLS}
+        <Field label="Name" htmlFor="source-secret-name">
+          <Input
+            id="source-secret-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="WAREHOUSE_DB_PASSWORD"
+            spellCheck={false}
+            autoComplete="off"
           />
-        </label>
-        <label className={FIELD_CLS}>
-          <span className={LABEL_CLS}>Description</span>
-          <input
-            className={INPUT_CLS}
+        </Field>
+        <Field label="Description" htmlFor="source-secret-description">
+          <Input
+            id="source-secret-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Warehouse read user"
           />
-        </label>
-        <label className={FIELD_CLS}>
-          <span className={LABEL_CLS}>Value</span>
-          <input
-            className={INPUT_CLS}
+        </Field>
+        <Field label="Value" htmlFor="source-secret-value">
+          <Input
+            id="source-secret-value"
             type="password"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder="Stored encrypted"
+            autoComplete="off"
+            spellCheck={false}
           />
-        </label>
+        </Field>
         <div className="flex items-end">
           <Button
             type="button"
@@ -152,14 +149,15 @@ export default function SourceSecretsPanel({
               <span className="text-xs text-text3">
                 {formatDate(secret.updatedAt)}
               </span>
-              <button
+              <Button
                 type="button"
-                className="border-0 bg-transparent p-0 text-xs font-semibold text-danger underline disabled:cursor-not-allowed disabled:opacity-50"
+                variant="danger"
+                size="sm"
                 disabled={saving}
                 onClick={() => void deleteSecret(secret.name)}
               >
                 Remove
-              </button>
+              </Button>
             </div>
           ))
         )}

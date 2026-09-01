@@ -820,11 +820,11 @@ export default function Dashboard() {
             </div>
 
             {recentActions && recentActions.receipts.length > 0 && (
-              <details
+              <details data-ui-bespoke-reason="briefing proof expander"
                 className="dash-proof"
                 style={{ animation: "fadeUp 0.5s ease 0.35s both" }}
               >
-                <summary className="dash-proof-summary">
+                <summary data-ui-bespoke-reason="briefing proof expander" className="dash-proof-summary">
                   <span className="font-mono dash-proof-tick" aria-hidden="true">↳</span>
                   <span className="dash-proof-count">
                     {recentActions.receipts.length}

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Textarea } from "@/components/ui/Field";
 import { Pill, type PillVariant } from "@/components/ui/Pill";
 import { cn } from "@/lib/cn";
 import { formatSavedShort } from "@/lib/hours-saved";
@@ -56,9 +57,9 @@ const STATE_PILL_VARIANT: Record<ActCardData["state"], PillVariant> = {
 };
 
 const TONE_DOT: Record<ActRowTone, string> = {
-  good: "bg-[#7bd98a]",
-  watch: "bg-[#f2c35f]",
-  action: "bg-[#e06b6b]",
+  good: "bg-success",
+  watch: "bg-watch",
+  action: "bg-danger",
 };
 
 export default function ActCard({
@@ -203,8 +204,8 @@ export default function ActCard({
                     className="flex flex-col gap-2 mt-2"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <textarea
-                      className="border border-border rounded-[10px] px-3 py-2 text-ui-body-sm text-text bg-card resize-y min-h-[50px] outline-none focus:border-accent"
+                    <Textarea
+                      className="min-h-[50px] text-ui-body-sm"
                       value={rejectReason ?? ""}
                       placeholder="Why are you rejecting this? (optional)"
                       onChange={(e) => onRejectReasonChange?.(e.target.value)}

@@ -7,6 +7,7 @@ import PageHeading from "@/components/PageHeading";
 import { ActionGroup } from "@/components/ui/ActionGroup";
 import { Button } from "@/components/ui/Button";
 import { MenuItem, OverflowMenu } from "@/components/ui/OverflowMenu";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Pill, type PillVariant } from "@/components/ui/Pill";
 
 type DocumentRow = {
@@ -337,7 +338,7 @@ export default function LibraryPage() {
           <span>{formatDate(concept.updatedAt)}</span>
         </div>
         <p>
-          <button
+          <button data-ui-bespoke-reason="library file picker"
             type="button"
             className="library-concept-title"
             onClick={() =>
@@ -462,7 +463,7 @@ export default function LibraryPage() {
               <h2>Your documents</h2>
             </div>
             <ActionGroup className="memory-review-actions">
-              <input
+              <input data-ui-bespoke-reason="library file picker"
                 ref={fileInputRef}
                 type="file"
                 multiple
@@ -486,13 +487,11 @@ export default function LibraryPage() {
               <span />
             </div>
           ) : documents.length === 0 ? (
-            <div className="library-empty">
-              <strong>No documents yet</strong>
-              <span>
-                Upload documents here, or attach them in a conversation — either
-                way they are distilled into concepts the assistant can cite.
-              </span>
-            </div>
+            <EmptyState
+              className="library-empty"
+              title="No documents yet"
+              body="Upload documents here, or attach them in a conversation. Either way they are distilled into concepts the assistant can cite."
+            />
           ) : (
             <ol className="memory-review-list">
               {documents.map((doc, index) => (
@@ -557,13 +556,11 @@ export default function LibraryPage() {
             <strong>{String(personal.length).padStart(2, "0")}</strong>
           </header>
           {personal.length === 0 && !loading ? (
-            <div className="library-empty">
-              <strong>Nothing distilled yet</strong>
-              <span>
-                Concepts distilled from your documents appear here. Only you and
-                your assistant can see them until you share one with the team.
-              </span>
-            </div>
+            <EmptyState
+              className="library-empty"
+              title="Nothing distilled yet"
+              body="Concepts distilled from your documents appear here. Only you and your assistant can see them until you share one with the team."
+            />
           ) : (
             <ol className="memory-review-list">
               {personal.map((concept, index) =>
@@ -605,13 +602,11 @@ export default function LibraryPage() {
             <strong>{String(team.length).padStart(2, "0")}</strong>
           </header>
           {team.length === 0 && !loading ? (
-            <div className="library-empty">
-              <strong>No approved team concepts</strong>
-              <span>
-                Concepts a teammate shares — and an admin approves — become part
-                of the assistant&apos;s knowledge for the whole workspace.
-              </span>
-            </div>
+            <EmptyState
+              className="library-empty"
+              title="No approved team concepts"
+              body="Concepts a teammate shares, and an admin approves, become part of the assistant's knowledge for the whole workspace."
+            />
           ) : (
             <ol className="memory-review-list">
               {team.map((concept, index) =>
@@ -656,7 +651,7 @@ export default function LibraryPage() {
               <Button size="sm" onClick={() => void exportBundle()}>
                 Export OKF bundle
               </Button>
-              <input
+              <input data-ui-bespoke-reason="library file picker"
                 ref={importInputRef}
                 type="file"
                 accept=".json,application/json"

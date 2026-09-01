@@ -9,11 +9,28 @@ import type { ChartDataPoint } from "@/a2ui/catalog";
 export type { ChartDataPoint } from "@/a2ui/catalog";
 import { formatCompact } from "@/lib/format-number";
 
-const axisProps = { tick: { fontSize: "var(--type-label)", fill: "#b0aa9f" }, axisLine: false, tickLine: false } as const;
-const tooltipStyle = { contentStyle: { borderRadius: 10, border: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.08)", fontSize: "var(--type-body-sm)" }, itemStyle: { color: "#7A756A" } };
-const BASELINE_COLOR = "#5C5751";
+const AXIS_FILL = "var(--text3)";
+const GRID_STROKE = "var(--border)";
+const CARD_FILL = "var(--card)";
+const MUTED_FILL = "var(--text2)";
+const BASELINE_STROKE = "var(--text)";
+const DEFAULT_ACCENT = "var(--accent)";
 
-export default function Chart({ type, accent = "#6B5CE7", h = 130, data, centerLabel, valueLabel, baselineLabel }: {
+const axisProps = { tick: { fontSize: "var(--type-label)", fill: AXIS_FILL }, axisLine: false, tickLine: false } as const;
+const tooltipStyle = { contentStyle: { borderRadius: 10, border: "none", boxShadow: "var(--shadow-h)", fontSize: "var(--type-body-sm)" }, itemStyle: { color: MUTED_FILL } };
+
+function donutFills(accent: string) {
+  return [
+    accent,
+    `color-mix(in srgb, ${accent} 78%, white)`,
+    `color-mix(in srgb, ${accent} 62%, white)`,
+    `color-mix(in srgb, ${accent} 50%, var(--text2))`,
+    `color-mix(in srgb, ${accent} 38%, var(--text3))`,
+    `color-mix(in srgb, ${accent} 28%, var(--border))`,
+  ];
+}
+
+export default function Chart({ type, accent = DEFAULT_ACCENT, h = 130, data, centerLabel, valueLabel, baselineLabel }: {
   type: string;
   accent?: string;
   h?: number;
@@ -45,8 +62,7 @@ export default function Chart({ type, accent = "#6B5CE7", h = 130, data, centerL
   }
 
   if (resolvedType === "donut") {
-    // Violet-to-blue analogous ramp — calm, monochromatic, no mood colors.
-    const COLORS = [accent, "#8B7CF0", "#A89AEE", "#818CF8", "#93A4F8", "#A5BEF5"];
+    const colors = donutFills(accent);
     const total = data.reduce((s, d) => s + d.v, 0);
     const donutFormatter = (value: number | string | undefined, name: string | number | undefined) => [
       `${((Number(value ?? 0) / total) * 100).toFixed(0)}%`,
@@ -67,12 +83,12 @@ export default function Chart({ type, accent = "#6B5CE7", h = 130, data, centerL
             strokeWidth={0}
           >
             {data.map((_, i) => (
-              <Cell key={i} fill={COLORS[i % COLORS.length]} />
+              <Cell key={i} fill={colors[i % colors.length]} />
             ))}
           </Pie>
           <Tooltip {...tooltipStyle} formatter={donutFormatter as never} />
           <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle"
-            style={{ fontSize: "var(--type-body-sm)", fill: "#7A756A" }}>
+            style={{ fontSize: "var(--type-body-sm)", fill: MUTED_FILL }}>
             {centerLabel ?? formatCompact(total)}
           </text>
         </PieChart>
@@ -91,7 +107,7 @@ export default function Chart({ type, accent = "#6B5CE7", h = 130, data, centerL
   const yTickFormatter = (v: number) => formatCompact(v);
 
   if (resolvedType === "area") {
-    const gradientId = `g${accent.replace("#", "")}`;
+    const gradientId = "chart-area-fill";
     return (
       <ResponsiveContainer width="100%" height={h}>
         <AreaChart data={data}>
@@ -101,11 +117,11 @@ export default function Chart({ type, accent = "#6B5CE7", h = 130, data, centerL
               <stop offset="100%" stopColor={accent} stopOpacity={0.01} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0eee8" />
+          <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
           <XAxis dataKey="d" {...axisProps} />
           <YAxis {...axisProps} width={32} tickFormatter={yTickFormatter} />
           <Tooltip {...tooltipStyle} formatter={seriesFormatter as never} />
-          <Area type="monotone" dataKey="v" name={valueLabel ?? "Value"} stroke={accent} strokeWidth={2} fill={`url(#${gradientId})`} dot={{ r: 3, fill: "#fff", stroke: accent, strokeWidth: 1.5 }} />
+          <Area type="monotone" dataKey="v" name={valueLabel ?? "Value"} stroke={accent} strokeWidth={2} fill={`url(#${gradientId})`} dot={{ r: 3, fill: CARD_FILL, stroke: accent, strokeWidth: 1.5 }} />
         </AreaChart>
       </ResponsiveContainer>
     );
@@ -115,12 +131,12 @@ export default function Chart({ type, accent = "#6B5CE7", h = 130, data, centerL
     return (
       <ResponsiveContainer width="100%" height={h}>
         <BarChart data={data} barSize={16} barGap={3}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0eee8" />
+          <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
           <XAxis dataKey="d" {...axisProps} />
           <YAxis {...axisProps} width={32} tickFormatter={yTickFormatter} />
           <Tooltip {...tooltipStyle} formatter={seriesFormatter as never} />
           <Bar dataKey="v" name={valueLabel ?? "Value"} fill={accent} radius={[5, 5, 0, 0]} />
-          <Bar dataKey="t" name={baselineLabel ?? "Prior"} fill={accent + "55"} radius={[5, 5, 0, 0]} />
+          <Bar dataKey="t" name={baselineLabel ?? "Prior"} fill={`color-mix(in srgb, ${accent} 33%, transparent)`} radius={[5, 5, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     );
@@ -129,12 +145,12 @@ export default function Chart({ type, accent = "#6B5CE7", h = 130, data, centerL
   return (
     <ResponsiveContainer width="100%" height={h}>
       <LineChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#f0eee8" />
+        <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
         <XAxis dataKey="d" {...axisProps} />
         <YAxis {...axisProps} width={32} tickFormatter={yTickFormatter} />
         <Tooltip {...tooltipStyle} formatter={seriesFormatter as never} />
-        <Line type="monotone" dataKey="v" name={valueLabel ?? "Value"} stroke={accent} strokeWidth={2.5} dot={{ r: 3, fill: "#fff", stroke: accent, strokeWidth: 2 }} />
-        <Line type="monotone" dataKey="t" name={baselineLabel ?? "Prior"} stroke={BASELINE_COLOR} strokeOpacity={0.55} strokeWidth={1.75} strokeDasharray="5 4" dot={false} />
+        <Line type="monotone" dataKey="v" name={valueLabel ?? "Value"} stroke={accent} strokeWidth={2.5} dot={{ r: 3, fill: CARD_FILL, stroke: accent, strokeWidth: 2 }} />
+        <Line type="monotone" dataKey="t" name={baselineLabel ?? "Prior"} stroke={BASELINE_STROKE} strokeOpacity={0.55} strokeWidth={1.75} strokeDasharray="5 4" dot={false} />
       </LineChart>
     </ResponsiveContainer>
   );

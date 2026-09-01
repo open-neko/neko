@@ -153,7 +153,7 @@ export default function CommandDock() {
     <div className="cdock-wrap">
       {openSheet ? (
         <>
-          <button
+          <button data-ui-bespoke-reason="phone command dock"
             type="button"
             className="cdock-scrim"
             aria-label="Close navigation sheet"
@@ -176,7 +176,7 @@ export default function CommandDock() {
                 </h2>
                 <p>Knowledge, connections, and workspace settings.</p>
               </div>
-              <button
+              <button data-ui-bespoke-reason="phone command dock"
                 type="button"
                 className="cdock-sheet-close"
                 aria-label="Close"
@@ -230,7 +230,7 @@ export default function CommandDock() {
                   <DensityToggle />
                 </div>
                 {session.signedIn ? (
-                  <button type="button" className="cdock-sheet-out" onClick={handleSignOut}>
+                  <button data-ui-bespoke-reason="phone command dock" type="button" className="cdock-sheet-out" onClick={handleSignOut}>
                     <LogOut aria-hidden="true" strokeWidth={2} />
                     <span>Sign out</span>
                   </button>
@@ -253,7 +253,7 @@ export default function CommandDock() {
           onNavigate={closeSheet}
         />
 
-        <button
+        <button data-ui-bespoke-reason="phone command dock"
           ref={(node) => {
             if (openSheet === "more") triggerRef.current = node;
           }}

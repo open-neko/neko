@@ -91,13 +91,13 @@ function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[1000] bg-[var(--backdrop)] backdrop-blur-[4px] flex items-center justify-center p-4 animate-[modal-fade_0.15s_ease-out]"
+      className="fixed inset-0 z-[1000] bg-[var(--backdrop)] backdrop-blur-[4px] flex items-center justify-center p-4 overscroll-contain animate-[modal-fade_0.15s_ease-out]"
       onClick={onBackdrop}
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-modal-title"
     >
-      <div className="w-full max-w-[420px] bg-card border border-border rounded-card px-[22px] pt-[22px] pb-[18px] shadow-[0_8px_32px_rgba(20,18,12,0.18),0_24px_60px_rgba(20,18,12,0.10)] animate-[modal-rise_0.18s_cubic-bezier(0.16,1,0.3,1)]">
+      <div className="w-full max-w-[420px] bg-card border border-border rounded-card px-[22px] pt-[22px] pb-[18px] shadow-lift animate-[modal-rise_0.18s_cubic-bezier(0.16,1,0.3,1)]">
         <h2
           id="confirm-modal-title"
           className="font-display text-base font-bold leading-tight text-text m-0"

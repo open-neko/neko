@@ -81,7 +81,7 @@ export default function AskHistoryPanel({
       <div className="ask-history-head">
         <span className="ask-history-title">History</span>
         <span className="ask-history-count font-mono">{threads.length}</span>
-        <button
+        <button data-ui-bespoke-reason="ask history drawer"
           type="button"
           className="ask-history-new"
           onClick={createThread}
@@ -121,7 +121,7 @@ export default function AskHistoryPanel({
                     </span>
                   </span>
                 </Link>
-                <button
+                <button data-ui-bespoke-reason="ask history drawer"
                   type="button"
                   className="ask-history-delete"
                   title="Delete thread"

@@ -11,6 +11,9 @@ import {
   type RecordFilterField,
 } from "./RecordFilterBuilder";
 import { Button } from "@/components/ui/Button";
+import { Checkbox } from "@/components/ui/Checkbox";
+import { Disclosure } from "@/components/ui/Disclosure";
+import { Input, NativeSelect } from "@/components/ui/Field";
 
 function hrefWith(base: string, current: Record<string, string | undefined>, mine: boolean) {
   const params = new URLSearchParams();
@@ -55,14 +58,14 @@ export function RecordViewBar({
     <div className="records-viewbar">
       <form className="records-view-picker" action={base} method="get">
         <label className="sr-only" htmlFor="records-saved-view">Saved view</label>
-        <select id="records-saved-view" name="view" defaultValue={selectedView?.id ?? ""}>
+        <NativeSelect id="records-saved-view" name="view" defaultValue={selectedView?.id ?? ""}>
           <option value="">All {objectLabel.toLowerCase()}</option>
           {views.map((view) => (
             <option value={view.id} key={view.id}>
               {view.label}{view.shared ? " · shared" : ""}
             </option>
           ))}
-        </select>
+        </NativeSelect>
         <Button size="sm" type="submit">Open</Button>
       </form>
       {query.q && (
@@ -90,23 +93,29 @@ export function RecordViewBar({
         </>
       )}
       <RecordFilterBuilder base={base} query={query} fields={fields} />
-      <details className="records-view-save">
-        <summary>Save view</summary>
-        <form action={endpoint} method="post">
-          <label>
+      <Disclosure title="Save view" className="records-view-save">
+        <form action={endpoint} method="post" className="grid gap-3">
+          <label className="grid gap-1.5 font-body text-ui-caption font-bold text-text2">
             Name
-            <input name="label" required maxLength={80} defaultValue={selectedView?.label} />
+            <Input name="label" required maxLength={80} defaultValue={selectedView?.label} />
           </label>
-          <input type="hidden" name="definition" value={JSON.stringify(definition)} />
+          <input
+            type="hidden"
+            name="definition"
+            value={JSON.stringify(definition)}
+            data-ui-bespoke-reason="hidden view definition payload"
+          />
           {canShare && (
-            <label className="records-view-share">
-              <input name="shared" type="checkbox" value="true" defaultChecked={selectedView?.shared} />
-              Share with this organization
-            </label>
+            <Checkbox
+              name="shared"
+              value="true"
+              defaultChecked={selectedView?.shared}
+              label="Share with this organization"
+            />
           )}
           <Button variant="primary" size="sm" type="submit">Save</Button>
         </form>
-      </details>
+      </Disclosure>
       {selectedView && (!selectedView.shared || canShare) && (
         <form action={`${endpoint}/${selectedView.id}`} method="post">
           <Button

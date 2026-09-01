@@ -55,7 +55,7 @@ export default function StatStrip() {
     }
 
     return (
-      <button
+      <button data-ui-bespoke-reason="briefing card interaction"
         type="button"
         onClick={onClick}
         data-ui-stat-link

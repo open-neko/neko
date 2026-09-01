@@ -52,13 +52,13 @@
 }
 
 .app-toast.app-toast-error {
-  --toast-accent: #E05656;
-  --toast-tint: rgba(224, 86, 86, 0.05);
+  --toast-accent: var(--danger);
+  --toast-tint: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
 .app-toast.app-toast-warning {
-  --toast-accent: #C98A2B;
-  --toast-tint: rgba(201, 138, 43, 0.06);
+  --toast-accent: var(--watch);
+  --toast-tint: color-mix(in srgb, var(--watch) 8%, transparent);
 }
 
 .app-toast.app-toast-info {

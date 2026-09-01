@@ -62,6 +62,7 @@
   --page-head-title-size: var(--type-page);
   --page-head-z: 45;
   --page-head-bg: color-mix(in srgb, var(--bg) 96%, var(--card));
+  --focus-ring: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 /* Live inside @layer base so Tailwind utilities (which live in @layer
@@ -69,6 +70,8 @@
    cascade over any layered rule regardless of specificity in v4. */
 @layer base {
   * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { color-scheme: light; }
 
   body {
     font-family: var(--font-body), 'Manrope', sans-serif;

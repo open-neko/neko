@@ -7,7 +7,7 @@ import {
 import { cn } from "@/lib/cn";
 
 const CONTROL_CLASS =
-  "w-full rounded-control border-[1.5px] border-border bg-card px-3.5 py-2.5 font-body text-ui-body text-text outline-none transition-[border-color,box-shadow,background-color] placeholder:text-text3 hover:border-text3 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.10)] disabled:cursor-not-allowed disabled:bg-neutral-soft disabled:opacity-60";
+  "w-full rounded-control border-[1.5px] border-border bg-card px-3.5 py-2.5 font-body text-ui-body text-text outline-none transition-[border-color,box-shadow,background-color] placeholder:text-text3 hover:border-text3 focus-visible:border-accent focus-visible:shadow-[0_0_0_3px_var(--focus-ring)] disabled:cursor-not-allowed disabled:bg-neutral-soft disabled:opacity-60";
 
 type FieldProps = {
   label: ReactNode;

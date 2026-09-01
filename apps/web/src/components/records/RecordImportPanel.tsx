@@ -278,7 +278,7 @@ export function RecordImportPanel({
           </div>
           <label>
             Destination object
-            <select
+            <select data-ui-bespoke-reason="records import mapping"
               name="object"
               value={objectApiName}
               onChange={(event) => {
@@ -295,7 +295,7 @@ export function RecordImportPanel({
           </label>
           <label>
             CSV file
-            <input name="file" type="file" accept=".csv,text/csv" required />
+            <input data-ui-bespoke-reason="records import mapping" name="file" type="file" accept=".csv,text/csv" required />
           </label>
           <Button
             className="records-primary-action"
@@ -345,7 +345,7 @@ export function RecordImportPanel({
                       <td>{plan.sampleRows[0]?.[column.sourceColumn] || <span className="records-null">Empty</span>}</td>
                       <td><span className="records-import-kind">{column.inferredKind}</span></td>
                       <td>
-                        <select
+                        <select data-ui-bespoke-reason="records import mapping"
                           value={mapping[column.sourceColumn] ?? ""}
                           onChange={(event) => changeMapping(column.sourceColumn, event.target.value)}
                           aria-label={`Destination for ${column.sourceColumn}`}
@@ -372,7 +372,7 @@ export function RecordImportPanel({
             <footer className="records-import-review-footer">
               <label>
                 Duplicate key
-                <select value={duplicateKey} onChange={(event) => setDuplicateKey(event.target.value)}>
+                <select data-ui-bespoke-reason="records import mapping" value={duplicateKey} onChange={(event) => setDuplicateKey(event.target.value)}>
                   {duplicateOptions.map((field) => (
                     <option value={field} key={field}>{field === "id" ? "Record ID" : field}</option>
                   ))}
@@ -480,7 +480,7 @@ export function RecordImportPanel({
           <section className="records-import-recent">
             <span className="records-eyebrow">Recent imports</span>
             {recentRuns.map((run) => (
-              <button type="button" onClick={() => openRun(run.id)} key={run.id}>
+              <button data-ui-bespoke-reason="records import mapping" type="button" onClick={() => openRun(run.id)} key={run.id}>
                 <span>{run.sourceName}</span>
                 <small>{run.objectApiName} · {statusLabel(run.status)}</small>
               </button>

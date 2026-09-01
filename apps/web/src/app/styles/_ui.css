@@ -14,6 +14,38 @@
   align-items: center;
 }
 
+.skip-to-main {
+  position: absolute;
+  left: 12px;
+  top: -48px;
+  z-index: 200;
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  background: var(--text);
+  color: var(--bg);
+  font-family: var(--font-body), Manrope, sans-serif;
+  font-size: var(--type-body-sm);
+  font-weight: 700;
+}
+
+.skip-to-main:focus {
+  top: 12px;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where([data-ui-button], .ui-button) {
+    transition-property: color, background-color, border-color, box-shadow, opacity;
+    transform: none;
+  }
+
+  :where([data-ui-button], .ui-button):hover,
+  :where([data-ui-button], .ui-button):active {
+    transform: none;
+  }
+}
+
 @media (max-width: 720px), (pointer: coarse) {
   :where([data-ui-button], .ui-button),
   [data-ui-tab],

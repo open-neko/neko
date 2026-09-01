@@ -45,7 +45,7 @@ export default function WorkHistoryDrawer({
 
   return (
     <div className="work-history-layer">
-      <button
+      <button data-ui-bespoke-reason="ask history drawer"
         type="button"
         className="work-history-scrim"
         aria-label="Close thread history"
@@ -63,7 +63,7 @@ export default function WorkHistoryDrawer({
             <h2 id="work-history-title">Past work</h2>
             <p>Resume one of your threads.</p>
           </div>
-          <button
+          <button data-ui-bespoke-reason="ask history drawer"
             ref={closeRef}
             type="button"
             className="work-history-close"

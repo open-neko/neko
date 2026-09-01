@@ -288,7 +288,7 @@ export default function ActionPage() {
                   <span className="text-text3/70"> · </span>
                   <span>
                     by workflow{" "}
-                    <button
+                    <button data-ui-bespoke-reason="action receipt controls"
                       type="button"
                       className="bg-transparent border-0 cursor-pointer font-inherit p-0 font-semibold text-text underline underline-offset-2 hover:text-accent"
                       onClick={() =>
@@ -360,7 +360,7 @@ export default function ActionPage() {
             </Field>
 
             <Field label="Payload">
-              <button
+              <button data-ui-bespoke-reason="action receipt controls"
                 type="button"
                 className="bg-transparent border-0 p-0 font-inherit text-accent underline underline-offset-2 cursor-pointer"
                 onClick={() => setShowPayload((s) => !s)}
@@ -381,7 +381,7 @@ export default function ActionPage() {
             {workflow && ar.workflowRunId && (
               <p className="m-0 mb-2 text-ui-body text-text2 leading-[1.55]">
                 Proposed by workflow{" "}
-                <button
+                <button data-ui-bespoke-reason="action receipt controls"
                   type="button"
                   className="bg-transparent border-0 cursor-pointer font-inherit p-0 font-semibold text-text underline underline-offset-2 hover:text-accent"
                   onClick={() => router.push(`/runs/${ar.workflowRunId}`)}
@@ -398,7 +398,7 @@ export default function ActionPage() {
                 {upstreamOutput.workflowRunId && (
                   <>
                     {" "}in{" "}
-                    <button
+                    <button data-ui-bespoke-reason="action receipt controls"
                       type="button"
                       className="bg-transparent border-0 cursor-pointer font-inherit p-0 font-semibold text-text underline underline-offset-2 hover:text-accent"
                       onClick={() =>
@@ -421,7 +421,7 @@ export default function ActionPage() {
                 <label className="text-ui-label font-bold tracking-[0.13em] uppercase text-text3">
                   Why are you rejecting this? (optional)
                 </label>
-                <textarea
+                <textarea data-ui-bespoke-reason="action receipt controls"
                   className="border border-border rounded-[10px] px-3 py-2 font-body text-ui-body-sm text-text bg-card resize-y min-h-[50px] outline-none focus:border-accent"
                   value={rejectReason}
                   placeholder="e.g. wrong channel, retry tomorrow…"

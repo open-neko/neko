@@ -62,7 +62,7 @@ export default function PersonaStep({
       <div className="entry-fields">
         <label className="entry-field">
           <span>Your role</span>
-          <input
+          <input data-ui-bespoke-reason="onboarding entry fields"
             className="entry-control"
             value={roleTemplate}
             maxLength={120}
@@ -73,7 +73,7 @@ export default function PersonaStep({
         </label>
         <label className="entry-field">
           <span>What needs your attention? <span className="entry-optional">Optional</span></span>
-          <textarea
+          <textarea data-ui-bespoke-reason="onboarding entry fields"
             className="entry-control"
             rows={5}
             value={focusAreas}

@@ -159,7 +159,7 @@ export default function OnboardingWizard({
           </div>
           <div className="entry-fields">
             <Field label="Company name">
-              <input
+              <input data-ui-bespoke-reason="onboarding entry fields"
                 className="entry-control"
                 type="text"
                 value={companyName}
@@ -172,7 +172,7 @@ export default function OnboardingWizard({
             </Field>
 
             <Field label="What does the company do?">
-              <textarea
+              <textarea data-ui-bespoke-reason="onboarding entry fields"
                 className="entry-control"
                 value={companyNote}
                 onChange={(event) => setCompanyNote(event.target.value)}
@@ -220,7 +220,7 @@ export default function OnboardingWizard({
               {[...SUGGESTED_SEATS, ...seats.filter((seat) => !SUGGESTED_SEATS.includes(seat))].map((seat) => {
                 const selected = seats.includes(seat);
                 return (
-                  <button
+                  <button data-ui-bespoke-reason="onboarding entry fields"
                     key={seat}
                     type="button"
                     onClick={() => toggleSeat(seat)}
@@ -233,7 +233,7 @@ export default function OnboardingWizard({
               })}
             </div>
             <div className="entry-inline">
-              <input
+              <input data-ui-bespoke-reason="onboarding entry fields"
                 className="entry-control"
                 value={customSeat}
                 maxLength={MAX_SEAT_LENGTH}
@@ -282,7 +282,7 @@ export default function OnboardingWizard({
           </div>
           <div className="entry-fields">
             <Field label="What needs attention this quarter?">
-              <textarea
+              <textarea data-ui-bespoke-reason="onboarding entry fields"
                 className="entry-control"
                 value={prioritiesText}
                 onChange={(event) => setPrioritiesText(event.target.value)}

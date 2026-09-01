@@ -29,10 +29,10 @@ const MOOD_LABELS: Record<string, string> = {
 };
 
 const MOOD_CHART_ACCENT: Record<string, string> = {
-  good: "#357A57",
-  watch: "#E9A23B",
-  act: "#A53535",
-  bad: "#A53535",
+  good: "var(--success-mid)",
+  watch: "var(--watch)",
+  act: "var(--danger)",
+  bad: "var(--danger)",
 };
 
 export type BriefingCardState = "ok" | "pending" | "failed";
@@ -152,7 +152,7 @@ export default function BriefingCard({ ins, index, onDismiss, onRetry, onDeepDiv
           ) : null}
         </OverflowMenu>
       </div>
-      <button
+      <button data-ui-bespoke-reason="briefing card interaction"
         type="button"
         className="icard-toggle"
         data-ui-disclosure=""

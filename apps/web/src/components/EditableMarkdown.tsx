@@ -144,7 +144,7 @@ export default function EditableMarkdown({
     return (
       <div
         ref={editRef}
-        className="outline-none whitespace-pre-wrap break-words text-base leading-[1.65] text-text2 caret-accent"
+        className="whitespace-pre-wrap break-words text-base leading-[1.65] text-text2 caret-accent outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded-control"
         contentEditable
         suppressContentEditableWarning
         role="textbox"
@@ -162,7 +162,7 @@ export default function EditableMarkdown({
   const hasContent = value.length > 0;
   return (
     <div
-      className="outline-none cursor-text"
+      className="cursor-text rounded-control focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       onPointerDown={readOnly ? undefined : enterEdit}
       role={readOnly ? undefined : "textbox"}
       aria-label={ariaLabel}

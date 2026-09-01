@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/Button";
 
 export type SelectOption = {
   value: string;
@@ -19,7 +20,7 @@ type Props = {
 };
 
 const TRIGGER_BASE =
-  "min-h-10 px-3.5 py-2.5 rounded-control border-[1.5px] border-border bg-card text-text text-ui-body font-body outline-none transition-all duration-200 focus:border-accent focus:shadow-[0_0_0_3px_rgba(107,92,231,0.10)]";
+  "min-h-10 w-full justify-between gap-2.5 px-3.5 py-2.5 font-normal shadow-none hover:translate-y-0";
 
 export default function Select({
   value,
@@ -109,16 +110,15 @@ export default function Select({
 
   return (
     <div ref={wrapRef} className="relative">
-      <button
+      <Button
         ref={buttonRef}
         id={id}
         type="button"
+        variant="secondary"
         data-ui-field-control=""
         className={cn(
           TRIGGER_BASE,
-          "flex items-center justify-between gap-2.5 w-full text-left cursor-pointer",
           "enabled:hover:border-accent",
-          "disabled:cursor-not-allowed disabled:opacity-55",
         )}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -155,7 +155,7 @@ export default function Select({
             strokeLinejoin="round"
           />
         </svg>
-      </button>
+      </Button>
       {open && (
         <ul
           ref={listRef}

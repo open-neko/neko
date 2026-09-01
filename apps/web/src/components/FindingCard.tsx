@@ -183,7 +183,7 @@ export default function FindingCard({
           </>
         )}
         {data.pinId && onUnpin && (
-          <button
+          <button data-ui-bespoke-reason="briefing card interaction"
             type="button"
             className="bg-transparent border-0 text-text3 font-[inherit] text-ui-caption p-0 cursor-pointer hover:text-danger hover:underline underline-offset-2"
             onClick={(e) => {
@@ -221,7 +221,7 @@ export default function FindingCard({
               Mute <span className="font-mono">{data.scope}</span>
             </div>
             {MUTE_DURATIONS.map((d) => (
-              <button
+              <button data-ui-bespoke-reason="briefing card interaction"
                 key={d}
                 type="button"
                 className="block w-full text-left bg-transparent border-0 px-3 py-1.5 text-ui-body-sm text-text cursor-pointer hover:bg-bg2 font-[inherit]"
