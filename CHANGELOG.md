@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.35.2](https://github.com/open-neko/openneko/compare/v2.35.1...v2.35.2) (2026-09-01)
+
+
+### Bug Fixes
+
+* refresh provider handoff before agent jobs ([5040bed](https://github.com/open-neko/openneko/commit/5040bed18a7b95acb31de3a7f63ba0eb672f20f5))
+* **web:** put product surfaces on the shared design-system floor ([186fa5b](https://github.com/open-neko/openneko/commit/186fa5b0026fa16ab8a018a502cdd6c551c6dbc4))
+
 ## [2.35.1](https://github.com/open-neko/openneko/compare/v2.35.0...v2.35.1) (2026-08-31)
 
 
