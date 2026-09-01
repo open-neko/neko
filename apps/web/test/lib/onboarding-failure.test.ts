@@ -18,6 +18,14 @@ describe("profileBuildFailureMessage", () => {
     ).toContain("agent became unavailable");
   });
 
+  it("classifies missing local Hermes configuration as a worker handoff failure", () => {
+    const message = profileBuildFailureMessage(
+      "Internal error: No LLM provider configured. Run `hermes model` to select a provider, or run `hermes setup` for first-time configuration.",
+    );
+    expect(message).toContain("worker could not load the saved model configuration");
+    expect(message).not.toContain("model provider rejected");
+  });
+
   it("does not expose an unknown persisted error to the browser", () => {
     const internal = "unexpected /private/path containing sensitive context";
     expect(profileBuildFailureMessage(internal)).not.toContain(internal);

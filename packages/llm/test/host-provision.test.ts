@@ -26,7 +26,14 @@ import {
   seedProvider,
   uniqueOrgId,
 } from "@neko/db/test-helpers";
-import { db, eq, data_source, pool } from "@neko/db";
+import {
+  and,
+  data_source,
+  db,
+  eq,
+  llm_provider_config,
+  pool,
+} from "@neko/db";
 import {
   ensureHostConfigProvisioned,
   hermesHomeForOrg,
@@ -605,6 +612,105 @@ describeIfDb("provisionHostConfig", () => {
       "No active gateway",
     );
     expect(ensureOpenShellProviderMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes worker-owned provisioning after first setup, key rotation, and provider switch", async () => {
+    const refreshOrgId = uniqueOrgId("provision-refresh");
+    await createTestOrg(refreshOrgId);
+    try {
+      await seedDataSource(refreshOrgId);
+      await seedProvider(refreshOrgId, {
+        scope: "agent",
+        provider: "hermes",
+        config: { backend: "hermes" },
+      });
+
+      // The worker can become healthy before System Setup creates a primary
+      // provider. That empty pass must not be memoized for the process lifetime.
+      await ensureHostConfigProvisioned(refreshOrgId);
+      expect(ensureOpenShellProviderMock).not.toHaveBeenCalled();
+
+      await seedProvider(refreshOrgId, {
+        scope: "primary",
+        provider: "google-gemini",
+        model: "gemini-pro-latest",
+        secrets: { apiKey: "key-a" },
+      });
+      await ensureHostConfigProvisioned(refreshOrgId);
+      expect(ensureOpenShellProviderMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ apiKey: "key-a" }),
+      );
+
+      await db()
+        .update(llm_provider_config)
+        .set({ secrets: { apiKey: "key-b" }, updated_at: new Date() })
+        .where(
+          and(
+            eq(llm_provider_config.org_id, refreshOrgId),
+            eq(llm_provider_config.scope, "primary"),
+          ),
+        );
+      await ensureHostConfigProvisioned(refreshOrgId);
+      expect(ensureOpenShellProviderMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ apiKey: "key-b" }),
+      );
+      await expect(
+        readFile(join(hermesHomeForOrg(refreshOrgId), ".env"), "utf8"),
+      ).resolves.toContain("GEMINI_API_KEY=key-b");
+
+      await db()
+        .update(llm_provider_config)
+        .set({
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          secrets: { apiKey: "key-c" },
+          updated_at: new Date(),
+        })
+        .where(
+          and(
+            eq(llm_provider_config.org_id, refreshOrgId),
+            eq(llm_provider_config.scope, "primary"),
+          ),
+        );
+      await ensureHostConfigProvisioned(refreshOrgId);
+      expect(ensureOpenShellProviderMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ apiKey: "key-c" }),
+      );
+      expect(process.env.OPENNEKO_AGENT_MODEL_KEY_ENV).toBe("ANTHROPIC_API_KEY");
+
+      // Removing the saved key must not leave the previous gateway provider
+      // attached to future sandboxes in this long-lived worker process.
+      await db()
+        .update(llm_provider_config)
+        .set({ secrets: {}, updated_at: new Date() })
+        .where(
+          and(
+            eq(llm_provider_config.org_id, refreshOrgId),
+            eq(llm_provider_config.scope, "primary"),
+          ),
+        );
+      await ensureHostConfigProvisioned(refreshOrgId);
+      expect(process.env.OPENNEKO_AGENT_MODEL_PROVIDER).toBeUndefined();
+      await expect(
+        readFile(join(hermesHomeForOrg(refreshOrgId), ".env"), "utf8"),
+      ).resolves.toBe("");
+
+      await db()
+        .update(llm_provider_config)
+        .set({ enabled: false, updated_at: new Date() })
+        .where(
+          and(
+            eq(llm_provider_config.org_id, refreshOrgId),
+            eq(llm_provider_config.scope, "primary"),
+          ),
+        );
+      await ensureHostConfigProvisioned(refreshOrgId);
+      await expect(
+        readFile(join(hermesHomeForOrg(refreshOrgId), "config.yaml"), "utf8"),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await deleteTestOrg(refreshOrgId);
+    }
   });
 
   it("retries memoized provisioning after an OpenShell provider sync failure", async () => {

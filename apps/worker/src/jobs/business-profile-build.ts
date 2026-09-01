@@ -11,7 +11,11 @@ import {
 } from "@neko/db";
 import { enqueue, QUEUE } from "@neko/db/jobs";
 import { updateProgress } from "../progress.js";
-import { resolveResearchProviderConfig, runProfiler } from "@neko/llm";
+import {
+  ensureHostConfigProvisioned,
+  resolveResearchProviderConfig,
+  runProfiler,
+} from "@neko/llm";
 
 /**
  * business_profile_build job handler.
@@ -58,6 +62,7 @@ export async function runBusinessProfileBuild(jobId: string, orgId: string) {
   await updateProgress(jobId, "Reading data source");
 
   // 2. Run the profiler through Hermes — the same runtime the metric agent uses.
+  await ensureHostConfigProvisioned(orgId);
   const { businessProfile } = await runProfiler({
     orgId,
     mcpUrl: source.mcp_url,

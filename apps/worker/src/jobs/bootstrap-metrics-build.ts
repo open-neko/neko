@@ -10,7 +10,10 @@ import {
 } from "@neko/db";
 import { enqueue, QUEUE } from "@neko/db/jobs";
 import { updateProgress } from "../progress.js";
-import { runBootstrapMetricsWriter } from "@neko/llm";
+import {
+  ensureHostConfigProvisioned,
+  runBootstrapMetricsWriter,
+} from "@neko/llm";
 
 /**
  * bootstrap_metrics_build job handler.
@@ -96,6 +99,7 @@ export async function runBootstrapMetricsBuild(jobId: string, orgId: string) {
 
   await updateProgress(jobId, "Generating cards");
 
+  await ensureHostConfigProvisioned(orgId);
   const { metrics } = await runBootstrapMetricsWriter({
     orgId,
     orgName,

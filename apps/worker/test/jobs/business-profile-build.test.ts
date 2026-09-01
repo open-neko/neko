@@ -30,7 +30,8 @@ import {
   processing_job,
 } from "@neko/db";
 
-const { mockResolveResearch, mockRunProfiler, mockEnqueue } = vi.hoisted(() => ({
+const { mockEnsureHostConfig, mockResolveResearch, mockRunProfiler, mockEnqueue } = vi.hoisted(() => ({
+  mockEnsureHostConfig: vi.fn(),
   mockResolveResearch: vi.fn(),
   mockRunProfiler: vi.fn(),
   mockEnqueue: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock("@neko/llm", async () => {
   const actual = await vi.importActual<typeof import("@neko/llm")>("@neko/llm");
   return {
     ...actual,
+    ensureHostConfigProvisioned: mockEnsureHostConfig,
     resolveResearchProviderConfig: mockResolveResearch,
     runProfiler: mockRunProfiler,
   };
@@ -95,6 +97,7 @@ describeIfDb("runBusinessProfileBuild", () => {
     mockRunProfiler.mockResolvedValue({
       businessProfile: "Stub business profile content.",
     });
+    mockEnsureHostConfig.mockResolvedValue(undefined);
     mockEnqueue.mockResolvedValue("queue-id-stub");
   });
 
@@ -157,6 +160,10 @@ describeIfDb("runBusinessProfileBuild", () => {
     await runBusinessProfileBuild(jobId, orgId);
 
     expect(mockRunProfiler).toHaveBeenCalledTimes(1);
+    expect(mockEnsureHostConfig).toHaveBeenCalledWith(orgId);
+    expect(mockEnsureHostConfig.mock.invocationCallOrder[0]).toBeLessThan(
+      mockRunProfiler.mock.invocationCallOrder[0],
+    );
     const args = mockRunProfiler.mock.calls[0][0];
     expect(args).toMatchObject({
       orgId,
