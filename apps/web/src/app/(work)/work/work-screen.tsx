@@ -13,7 +13,6 @@ import {
   RefreshCw,
   ShieldCheck,
   Square,
-  Workflow,
   X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -112,10 +111,19 @@ import {
 } from "@/components/RuleChatBubble";
 import { parseBriefingCardMessage } from "@/lib/briefing-card-context";
 import {
-  appendWorkflowMentionBlock,
-  stripWorkflowMentionBlock,
-  type WorkflowMention,
+  activeWorkMentions,
+  appendWorkMentionBlock,
+  filterWorkMentions,
+  inferTextEdit,
+  stripWorkMentionBlock,
+  updateDraftWorkMentions,
+  workMentionKeyAction,
+  type DraftWorkMention,
+  type WorkMention,
 } from "@/lib/workflow-mention";
+import { Pill } from "@/components/ui/Pill";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Input, Textarea } from "@/components/ui/Field";
 import { renderComponent, renderChildren } from "@/a2ui/renderer";
 import { applyMessage, getRootComponent, setDataModelValue } from "@/a2ui/surface";
 import { buildActionFollowUp } from "@/a2ui/action";
@@ -349,16 +357,20 @@ export default function WorkScreen() {
   const [pendingMemories, setPendingMemories] = useState<PendingMemory[]>([]);
   const [draft, setDraft] = useState(() => searchParams?.get("seed") ?? "");
   const [files, setFiles] = useState<File[]>([]);
-  // @mention workflow autocomplete: `mention` is the in-progress "@…" token;
-  // `draftMentions` maps each inserted @name to its workflow id for the send.
-  const [workflowOptions, setWorkflowOptions] = useState<WorkflowMention[]>([]);
+  // Unified skill/workflow autocomplete. Draft selections retain their exact
+  // ranges so colliding @names still serialize the selected kind and id.
+  const [mentionOptions, setMentionOptions] = useState<WorkMention[]>([]);
+  const [mentionSourceState, setMentionSourceState] = useState<{
+    skills: "idle" | "loading" | "ready" | "error";
+    workflows: "idle" | "loading" | "ready" | "error";
+  }>({ skills: "idle", workflows: "idle" });
   const [mention, setMention] = useState<{
     query: string;
     anchor: number;
     activeIndex: number;
   } | null>(null);
-  const [draftMentions, setDraftMentions] = useState<WorkflowMention[]>([]);
-  const workflowOptionsLoadedRef = useRef(false);
+  const [draftMentions, setDraftMentions] = useState<DraftWorkMention[]>([]);
+  const mentionOptionsLoadedRef = useRef(false);
   const [loadingThread, setLoadingThread] = useState(false);
   const [sending, setSending] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
@@ -455,6 +467,8 @@ export default function WorkScreen() {
   useEffect(() => {
     insertComposerRef.current = (q: string) => {
       setDraft(q);
+      setDraftMentions([]);
+      setMention(null);
       requestAnimationFrame(() => {
         const ta = textareaRef.current;
         if (ta) {
@@ -590,36 +604,86 @@ export default function WorkScreen() {
   }
 
   const mentionMatches = useMemo(() => {
-    if (!mention) return [] as WorkflowMention[];
-    const q = mention.query.toLowerCase();
-    return workflowOptions
-      .filter((w) => w.name.toLowerCase().includes(q))
-      .slice(0, 6);
-  }, [mention, workflowOptions]);
-  const mentionOpen = mention !== null && mentionMatches.length > 0;
+    if (!mention) return [] as WorkMention[];
+    return filterWorkMentions(mentionOptions, mention.query);
+  }, [mention, mentionOptions]);
+  const mentionOpen = mention !== null;
   const mentionActiveIndex = mention
     ? Math.min(Math.max(mention.activeIndex, 0), mentionMatches.length - 1)
     : 0;
+  const mentionActiveOption = mentionMatches[mentionActiveIndex] ?? null;
+  const mentionLoading =
+    mentionSourceState.skills === "loading" ||
+    mentionSourceState.workflows === "loading";
+  const mentionErrorCount = [
+    mentionSourceState.skills,
+    mentionSourceState.workflows,
+  ].filter((state) => state === "error").length;
+  const mentionSettled = [
+    mentionSourceState.skills,
+    mentionSourceState.workflows,
+  ].every((state) => state === "ready" || state === "error");
 
-  // Lazily fetch the org's workflows the first time the operator opens an
-  // @mention. Cached for the rest of the session.
-  async function loadWorkflowOptions() {
-    if (workflowOptionsLoadedRef.current) return;
-    workflowOptionsLoadedRef.current = true;
-    try {
-      const res = await fetch("/api/workflows");
-      if (!res.ok) {
-        workflowOptionsLoadedRef.current = false;
-        return;
-      }
-      const data = (await res.json()) as {
-        workflows?: Array<{ id: string; name: string }>;
-      };
-      setWorkflowOptions(
-        (data.workflows ?? []).map((w) => ({ id: w.id, name: w.name })),
-      );
-    } catch {
-      workflowOptionsLoadedRef.current = false; // allow a retry next time
+  // Lazily fetch both catalogs. Promise.allSettled keeps one healthy source
+  // visible when the other endpoint fails.
+  async function loadMentionOptions() {
+    if (mentionOptionsLoadedRef.current) return;
+    mentionOptionsLoadedRef.current = true;
+    setMentionSourceState({ skills: "loading", workflows: "loading" });
+
+    const [workflowResult, skillResult] = await Promise.allSettled([
+      fetch("/api/workflows").then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as {
+          workflows?: Array<{
+            id: string;
+            name: string;
+            description?: string | null;
+            goal?: string | null;
+          }>;
+        };
+        return (data.workflows ?? []).map(
+          (workflow): WorkMention => ({
+            kind: "workflow",
+            id: workflow.id,
+            name: workflow.name,
+            description:
+              workflow.description?.trim() ||
+              workflow.goal?.trim() ||
+              "Saved workflow",
+          }),
+        );
+      }),
+      fetch("/api/work/skills").then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as {
+          skills?: Array<{ name: string; description?: string | null }>;
+        };
+        return (data.skills ?? []).map(
+          (skill): WorkMention => ({
+            kind: "skill",
+            id: skill.name,
+            name: skill.name,
+            description:
+              skill.description?.trim() || "Installed capability instructions",
+          }),
+        );
+      }),
+    ]);
+
+    setMentionOptions([
+      ...(workflowResult.status === "fulfilled" ? workflowResult.value : []),
+      ...(skillResult.status === "fulfilled" ? skillResult.value : []),
+    ]);
+    setMentionSourceState({
+      workflows: workflowResult.status === "fulfilled" ? "ready" : "error",
+      skills: skillResult.status === "fulfilled" ? "ready" : "error",
+    });
+    if (
+      workflowResult.status === "rejected" &&
+      skillResult.status === "rejected"
+    ) {
+      mentionOptionsLoadedRef.current = false;
     }
   }
 
@@ -637,15 +701,19 @@ export default function WorkScreen() {
   }
 
   function handleDraftChange(value: string, caret: number) {
+    const edit = inferTextEdit(draft, value);
     setDraft(value);
+    setDraftMentions((previous) =>
+      updateDraftWorkMentions(previous, edit),
+    );
     const next = detectMention(value, caret);
     setMention(next);
-    if (next) void loadWorkflowOptions();
+    if (next) void loadMentionOptions();
   }
 
-  // Replace the in-progress "@query" with the chosen workflow's "@name" and
-  // remember the id so the sent message can carry it.
-  function insertMention(option: WorkflowMention) {
+  // Replace the in-progress token and retain its exact typed identity. The
+  // visible composer stays plain @name text; metadata is appended only at send.
+  function insertMention(option: WorkMention) {
     const ta = textareaRef.current;
     const caret = ta ? ta.selectionStart : draft.length;
     const anchor = mention?.anchor ?? draft.slice(0, caret).lastIndexOf("@");
@@ -658,9 +726,20 @@ export default function WorkScreen() {
     const nextCaret = before.length + token.length + sep.length;
     setDraft(nextDraft);
     setMention(null);
-    setDraftMentions((prev) =>
-      prev.some((m) => m.id === option.id) ? prev : [...prev, option],
-    );
+    setDraftMentions((previous) => [
+      ...updateDraftWorkMentions(previous, {
+        start: anchor,
+        oldEnd: caret,
+        newEnd: anchor + token.length,
+      }),
+      {
+        kind: option.kind,
+        id: option.id,
+        name: option.name,
+        start: anchor,
+        end: anchor + token.length,
+      },
+    ]);
     requestAnimationFrame(() => {
       const el = textareaRef.current;
       if (el) {
@@ -694,14 +773,10 @@ export default function WorkScreen() {
         return;
       }
     }
-    // Only carry mentions whose @name survives in the final text — the
-    // operator may have deleted one after inserting it.
-    const activeMentions = draftMentions.filter((m) =>
-      trimmed.includes(`@${m.name}`),
-    );
-    const message = appendWorkflowMentionBlock(
+    const selectedMentions = activeWorkMentions(draft, draftMentions);
+    const message = appendWorkMentionBlock(
       joinMessageWithAttachments(trimmed, uploads),
-      activeMentions,
+      selectedMentions,
     );
     const tempMessage: MessageRecord = {
       id: `temp-${Date.now()}`,
@@ -1083,11 +1158,12 @@ export default function WorkScreen() {
         <span className="work-gate-mark" aria-hidden="true" />
         <strong>Workspace unavailable</strong>
         <p>OpenNeko cannot reach the database. No work has been started.</p>
-        <button data-ui-bespoke-reason="work composer and thread chrome"
+        <Button
+          size="sm"
           onClick={() => { setGateError(null); setGateChecked(false); window.location.reload(); }}
         >
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
@@ -1125,8 +1201,9 @@ export default function WorkScreen() {
           })}
         </ol>
         <div className="work-command-actions">
-          <button data-ui-bespoke-reason="work composer and thread chrome"
-            type="button"
+          <Button
+            size="sm"
+            variant="ghost"
             className="work-command-action"
             onClick={() => setHistoryOpen(true)}
             aria-expanded={historyOpen}
@@ -1134,16 +1211,17 @@ export default function WorkScreen() {
           >
             <History aria-hidden="true" strokeWidth={1.9} />
             <span>History</span>
-          </button>
-          <button data-ui-bespoke-reason="work composer and thread chrome"
-            type="button"
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
             className="work-command-action is-primary"
             onClick={() => router.push("/work")}
             disabled={!activeThreadId && !bundle?.messages.length}
           >
             <Plus aria-hidden="true" strokeWidth={2} />
             <span>New work</span>
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -1236,7 +1314,7 @@ export default function WorkScreen() {
                       isPersistedUser
                         ? () =>
                             void copyUserMessage(
-                              stripWorkflowMentionBlock(message.content),
+                              stripWorkMentionBlock(message.content),
                             )
                         : undefined
                     }
@@ -1300,38 +1378,102 @@ export default function WorkScreen() {
         >
           {mentionOpen ? (
             <div
-              className="absolute bottom-full left-0 right-0 mb-2 z-20 max-h-60 overflow-auto rounded-xl border border-border bg-card shadow-soft py-1"
-              role="listbox"
-              aria-label="Workflows"
+              className="work-mention-picker"
+              aria-label="Skills and workflows"
             >
-              {mentionMatches.map((opt, i) => (
-                <button data-ui-bespoke-reason="work composer and thread chrome"
-                  key={opt.id}
-                  type="button"
-                  role="option"
-                  aria-selected={i === mentionActiveIndex}
-                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-ui-body-sm ${
-                    i === mentionActiveIndex
-                      ? "bg-neutral-soft text-text"
-                      : "text-text2"
-                  }`}
-                  onMouseEnter={() =>
-                    setMention((m) => (m ? { ...m, activeIndex: i } : m))
-                  }
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    insertMention(opt);
-                  }}
+              <div className="work-mention-heading" aria-hidden="true">
+                <span>Skills and workflows</span>
+                {mentionMatches.length > 0 ? (
+                  <span className="tabular-nums">{mentionMatches.length}</span>
+                ) : null}
+              </div>
+              <div className="work-mention-layout">
+                <div
+                  id="work-capability-listbox"
+                  className="work-mention-list"
+                  role="listbox"
+                  aria-label="Skills and workflows"
+                  aria-busy={mentionLoading}
                 >
-                  <Workflow
-                    size={13}
-                    strokeWidth={2}
-                    className="shrink-0 text-text3"
-                    aria-hidden
-                  />
-                  <span className="truncate">{opt.name}</span>
-                </button>
-              ))}
+                  {mentionMatches.map((option, index) => (
+                    <button
+                      id={`work-capability-option-${index}`}
+                      key={`${option.kind}:${option.id}`}
+                      type="button"
+                      role="option"
+                      aria-selected={index === mentionActiveIndex}
+                      data-ui-bespoke-reason="Combobox option must keep focus in the Work composer while exposing active-descendant selection"
+                      className="work-mention-option"
+                      onMouseEnter={() =>
+                        setMention((current) =>
+                          current
+                            ? { ...current, activeIndex: index }
+                            : current,
+                        )
+                      }
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        insertMention(option);
+                      }}
+                    >
+                      <span className="work-mention-option-head">
+                        <Pill
+                          className="work-mention-kind"
+                          variant={option.kind === "skill" ? "success" : "muted"}
+                        >
+                          {option.kind === "skill" ? "Skill" : "Workflow"}
+                        </Pill>
+                        <span className="work-mention-name">@{option.name}</span>
+                      </span>
+                      <span className="work-mention-description">
+                        {option.description}
+                      </span>
+                    </button>
+                  ))}
+                  {mentionLoading && mentionMatches.length === 0 ? (
+                    <div className="work-mention-state" role="status">
+                      Loading skills and workflows…
+                    </div>
+                  ) : null}
+                  {mentionSettled && mentionMatches.length === 0 ? (
+                    <div className="work-mention-state" role="status">
+                      {mentionErrorCount === 2
+                        ? "Skills and workflows could not be loaded. Close and reopen the picker to try again."
+                        : mention?.query
+                          ? `No capability matches @${mention.query}.`
+                          : "No skills or workflows are available yet."}
+                    </div>
+                  ) : null}
+                </div>
+                {mentionActiveOption ? (
+                  <aside
+                    id="work-capability-detail"
+                    className="work-mention-detail"
+                    aria-live="polite"
+                  >
+                    <Pill
+                      className="work-mention-kind"
+                      variant={
+                        mentionActiveOption.kind === "skill"
+                          ? "success"
+                          : "muted"
+                      }
+                    >
+                      {mentionActiveOption.kind === "skill"
+                        ? "Skill"
+                        : "Workflow"}
+                    </Pill>
+                    <strong>@{mentionActiveOption.name}</strong>
+                    <p>{mentionActiveOption.description}</p>
+                  </aside>
+                ) : null}
+              </div>
+              {mentionErrorCount === 1 ? (
+                <p className="work-mention-notice" role="status">
+                  One capability source is unavailable. Available results are
+                  still shown.
+                </p>
+              ) : null}
             </div>
           ) : null}
           {files.length > 0 ? (
@@ -1345,22 +1487,38 @@ export default function WorkScreen() {
                   <span className="text-text3 tabular-nums text-ui-label tracking-wide">
                     {Math.max(1, Math.round(file.size / 1024))} KB
                   </span>
-                  <button data-ui-bespoke-reason="work composer and thread chrome"
-                    type="button"
-                    aria-label={`Remove ${file.name}`}
+                  <IconButton
+                    label={`Remove ${file.name}`}
+                    size="icon-sm"
+                    variant="ghost"
                     onClick={() =>
                       setFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))
                     }
                   >
                     <X size={11} strokeWidth={2.25} />
-                  </button>
+                  </IconButton>
                 </div>
               ))}
             </div>
           ) : null}
-          <textarea data-ui-bespoke-reason="work composer and thread chrome"
+          <Textarea
             ref={textareaRef}
-            className="work-input"
+            className="work-input !min-h-0 !resize-none !border-0 !rounded-none !bg-transparent !shadow-none"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            aria-expanded={mentionOpen}
+            aria-controls={mentionOpen ? "work-capability-listbox" : undefined}
+            aria-activedescendant={
+              mentionOpen && mentionActiveOption
+                ? `work-capability-option-${mentionActiveIndex}`
+                : undefined
+            }
+            aria-describedby={
+              mentionOpen && mentionActiveOption
+                ? "work-capability-detail"
+                : undefined
+            }
             placeholder={
               sending
                 ? "OpenNeko is working…"
@@ -1375,41 +1533,28 @@ export default function WorkScreen() {
             }
             onKeyDown={(event) => {
               if (mentionOpen) {
-                if (event.key === "ArrowDown") {
+                const action = workMentionKeyAction(
+                  event.key,
+                  mentionActiveIndex,
+                  mentionMatches.length,
+                );
+                if (action) {
                   event.preventDefault();
-                  setMention((m) =>
-                    m
-                      ? {
-                          ...m,
-                          activeIndex:
-                            (mentionActiveIndex + 1) % mentionMatches.length,
-                        }
-                      : m,
-                  );
+                  if (action.type === "close") setMention(null);
+                  if (action.type === "move") {
+                    setMention((current) =>
+                      current
+                        ? { ...current, activeIndex: action.index }
+                        : current,
+                    );
+                  }
+                  if (action.type === "select") {
+                    insertMention(mentionMatches[action.index]);
+                  }
                   return;
                 }
-                if (event.key === "ArrowUp") {
+                if (event.key === "Enter" && mentionLoading) {
                   event.preventDefault();
-                  setMention((m) =>
-                    m
-                      ? {
-                          ...m,
-                          activeIndex:
-                            (mentionActiveIndex - 1 + mentionMatches.length) %
-                            mentionMatches.length,
-                        }
-                      : m,
-                  );
-                  return;
-                }
-                if (event.key === "Enter" || event.key === "Tab") {
-                  event.preventDefault();
-                  insertMention(mentionMatches[mentionActiveIndex]);
-                  return;
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setMention(null);
                   return;
                 }
               }
@@ -1431,16 +1576,17 @@ export default function WorkScreen() {
           />
           <div className="flex items-center justify-between gap-2.5 px-1.5 py-1 max-[720px]:px-1">
             <div className="inline-flex items-center gap-2 min-w-0">
-              <button data-ui-bespoke-reason="work composer and thread chrome"
+              <IconButton
+                label="Attach a file"
+                size="icon-sm"
+                variant="ghost"
                 className="work-icon-btn"
                 onClick={() => fileInputRef.current?.click()}
                 title="Attach a file"
-                aria-label="Attach a file"
-                type="button"
                 disabled={sending || files.length >= MAX_ATTACHMENTS}
               >
                 <Paperclip size={15} strokeWidth={2} />
-              </button>
+              </IconButton>
               <span className="work-composer-hint" aria-live="polite">
                 {sending ? (
                   <span className="work-composer-pulse">OpenNeko is working</span>
@@ -1452,31 +1598,33 @@ export default function WorkScreen() {
               </span>
             </div>
             {sending ? (
-              <button data-ui-bespoke-reason="work composer and thread chrome"
+              <Button
+                size="sm"
+                variant="danger"
                 className="work-send-btn is-stop"
-                type="button"
                 onClick={() => void cancelRun()}
                 aria-label="Stop"
               >
                 <Square size={13} fill="currentColor" strokeWidth={0} aria-hidden />
                 <span>Stop</span>
-              </button>
+              </Button>
             ) : (
-              <button data-ui-bespoke-reason="work composer and thread chrome"
+              <Button
+                size="sm"
+                variant="primary"
                 className="work-send-btn"
-                type="button"
                 onClick={() => void sendMessage()}
                 disabled={!draft.trim() && files.length === 0}
                 aria-label="Dispatch to OpenNeko"
               >
                 <span>Dispatch</span>
                 <ArrowUp size={14} strokeWidth={2.5} aria-hidden />
-              </button>
+              </Button>
             )}
           </div>
         </div>
 
-        <input data-ui-bespoke-reason="work composer and thread chrome"
+        <Input
           ref={fileInputRef}
           type="file"
           multiple
@@ -1538,9 +1686,10 @@ function EmptyAsk({ onPick }: { onPick: (text: string) => void }) {
       </div>
       <div className="work-empty-prompts" aria-label="Example jobs">
         {EMPTY_PROMPTS.map((prompt, index) => (
-          <button data-ui-bespoke-reason="work composer and thread chrome"
+          <Button
             key={prompt.label}
-            type="button"
+            size="sm"
+            variant="ghost"
             className="work-empty-prompt"
             onClick={() => onPick(prompt.text)}
           >
@@ -1552,7 +1701,7 @@ function EmptyAsk({ onPick }: { onPick: (text: string) => void }) {
               <span>{prompt.text}</span>
             </span>
             <span className="work-empty-prompt-arrow" aria-hidden="true">↗</span>
-          </button>
+          </Button>
         ))}
       </div>
     </div>
@@ -1584,20 +1733,26 @@ function PendingMemoryPanel({
         ) : null}
       </div>
       <div className="inline-flex min-w-0 gap-[7px] flex-wrap justify-end flex-shrink-0 max-[560px]:justify-start [&_button]:h-[30px] [&_button]:max-w-full [&_button]:rounded-[10px] [&_button]:border [&_button]:border-border [&_button]:bg-card [&_button]:text-text2 [&_button]:inline-flex [&_button]:items-center [&_button]:justify-center [&_button]:gap-1 [&_button]:px-2 [&_button]:text-ui-label [&_button]:cursor-pointer [&_button]:transition-[color,border-color,background-color] [&_button]:duration-200 [&_button:hover]:border-accent [&_button:hover]:text-accent">
-        <button data-ui-bespoke-reason="work composer and thread chrome" type="button" onClick={() => onDecide(item.id, "decline")} title="Dismiss">
+        <IconButton
+          label="Dismiss memory suggestion"
+          size="icon-sm"
+          variant="ghost"
+          onClick={() => onDecide(item.id, "decline")}
+          title="Dismiss"
+        >
           <X size={14} />
-        </button>
-        <button data-ui-bespoke-reason="work composer and thread chrome"
-          type="button"
+        </IconButton>
+        <Button
+          size="sm"
           onClick={() => onDecide(item.id, "accept", { scope: "global" })}
           title="Save globally"
         >
           <Check size={14} />
           <span>Global</span>
-        </button>
+        </Button>
         {threadId ? (
-          <button data-ui-bespoke-reason="work composer and thread chrome"
-            type="button"
+          <Button
+            size="sm"
             onClick={() =>
               onDecide(item.id, "accept", { scope: "thread", scopeId: threadId })
             }
@@ -1605,7 +1760,7 @@ function PendingMemoryPanel({
           >
             <Check size={14} />
             <span>Thread</span>
-          </button>
+          </Button>
         ) : null}
       </div>
     </div>
@@ -1625,7 +1780,7 @@ function MessageBubble({
 }) {
   // What the operator sees: the raw content minus the machine-readable
   // workflow-mention block (the agent still reads the full content).
-  const display = stripWorkflowMentionBlock(message.content);
+  const display = stripWorkMentionBlock(message.content);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(display);
   const [copied, setCopied] = useState(false);
@@ -1657,7 +1812,7 @@ function MessageBubble({
     return (
       <div className="work-bubble-row is-user">
         <div className="work-bubble is-user is-editing">
-          <textarea data-ui-bespoke-reason="work composer and thread chrome"
+          <Textarea
             className="work-bubble-edit"
             value={editText}
             onChange={(e) => {
@@ -1686,17 +1841,18 @@ function MessageBubble({
           />
         </div>
         <div className="work-bubble-edit-hint">
-          <button data-ui-bespoke-reason="work composer and thread chrome" type="button" onClick={cancel}>
+          <Button size="sm" variant="ghost" onClick={cancel}>
             Cancel
-          </button>
-          <button data-ui-bespoke-reason="work composer and thread chrome"
-            type="button"
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
             className="is-primary"
             onClick={save}
             disabled={!dirty}
           >
             Send
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -1711,10 +1867,11 @@ function MessageBubble({
       {showActions ? (
         <div className="work-bubble-actions">
           {onCopy ? (
-            <button data-ui-bespoke-reason="work composer and thread chrome"
-              type="button"
+            <IconButton
+              label={copied ? "Copied" : "Copy"}
+              size="icon-sm"
+              variant="ghost"
               title={copied ? "Copied" : "Copy"}
-              aria-label="Copy"
               onClick={() => {
                 onCopy();
                 setCopied(true);
@@ -1722,30 +1879,32 @@ function MessageBubble({
               }}
             >
               {copied ? <Check size={12} /> : <Copy size={12} />}
-            </button>
+            </IconButton>
           ) : null}
           {onRetry ? (
-            <button data-ui-bespoke-reason="work composer and thread chrome"
-              type="button"
+            <IconButton
+              label="Retry"
+              size="icon-sm"
+              variant="ghost"
               title="Retry"
-              aria-label="Retry"
               onClick={onRetry}
             >
               <RefreshCw size={12} />
-            </button>
+            </IconButton>
           ) : null}
           {onEdit ? (
-            <button data-ui-bespoke-reason="work composer and thread chrome"
-              type="button"
+            <IconButton
+              label="Edit"
+              size="icon-sm"
+              variant="ghost"
               title="Edit"
-              aria-label="Edit"
               onClick={() => {
                 setEditText(display);
                 setEditing(true);
               }}
             >
               <Pencil size={12} />
-            </button>
+            </IconButton>
           ) : null}
         </div>
       ) : null}
@@ -2597,25 +2756,26 @@ function NeedsInputNotice({
               {question.options?.length ? (
                 <div className="work-a2ui-chips">
                   {question.options.map((option) => (
-                    <button data-ui-bespoke-reason="work composer and thread chrome"
+                    <Button
                       key={option.label}
-                      type="button"
+                      size="sm"
+                      variant="secondary"
                       className="work-choice-btn"
                       onClick={() => onRespond(`${question.question}\n\n${option.label}`)}
                     >
                       <span>{option.label}</span>
                       <span aria-hidden="true">→</span>
-                    </button>
+                    </Button>
                   ))}
                 </div>
               ) : (
-                <button data-ui-bespoke-reason="work composer and thread chrome"
-                  type="button"
+                <Button
+                  size="sm"
                   className="work-a2ui-button"
                   onClick={() => onRespond(`${question.question}\n\n`)}
                 >
                   Answer in composer
-                </button>
+                </Button>
               )}
             </div>
           ))}
@@ -2664,9 +2824,13 @@ function CapabilityDeniedNotice({
                 Ask OpenNeko to find the right integration. Installation will
                 still require your explicit approval.
               </p>
-              <button data-ui-bespoke-reason="work composer and thread chrome" type="button" onClick={() => onRequest(requestPrompt)}>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => onRequest(requestPrompt)}
+              >
                 Request secure integration
-              </button>
+              </Button>
             </>
           ) : (
             <p>
@@ -2744,14 +2908,15 @@ function AnswerRunFooter({
           <span>Continue</span>
           <div>
             {followups.map((prompt) => (
-              <button data-ui-bespoke-reason="work composer and thread chrome"
+              <Button
                 key={prompt}
-                type="button"
+                size="sm"
+                variant="ghost"
                 onClick={() => onFollowup(prompt)}
               >
                 {prompt}
                 <span aria-hidden="true">↗</span>
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -3008,39 +3173,41 @@ function ActionApprovalRow({
         </span>
         {pending && !rejectMode ? (
           <span className="work-action-row-actions">
-            <button data-ui-bespoke-reason="work composer and thread chrome"
-              type="button"
+            <Button
+              size="sm"
+              variant="primary"
               disabled={busy}
               onClick={() => decide("approve")}
               className="work-action-button is-primary"
             >
               {busy ? "Approving…" : "Approve"}
-            </button>
-            <button data-ui-bespoke-reason="work composer and thread chrome"
-              type="button"
+            </Button>
+            <Button
+              size="sm"
               disabled={busy}
               onClick={() => setRejectMode(true)}
               className="work-action-button"
             >
               Reject
-            </button>
+            </Button>
           </span>
         ) : null}
         {hasDetail ? (
-          <button data-ui-bespoke-reason="work composer and thread chrome"
-            type="button"
+          <Button
+            size="sm"
+            variant="ghost"
             className="work-action-row-detail-toggle"
             onClick={() => setOpen((value) => !value)}
             aria-expanded={open}
           >
             {open ? "Hide details" : "Details"}
-          </button>
+          </Button>
         ) : null}
       </div>
 
       {pending && rejectMode ? (
         <div className="work-action-row-decision">
-          <input data-ui-bespoke-reason="work composer and thread chrome"
+          <Input
             type="text"
             placeholder="Reason (optional, shown to the agent)"
             value={rejectReason}
@@ -3048,16 +3215,17 @@ function ActionApprovalRow({
             disabled={busy}
           />
           <div className="work-action-row-actions">
-            <button data-ui-bespoke-reason="work composer and thread chrome"
-              type="button"
+            <Button
+              size="sm"
+              variant="danger"
               disabled={busy}
               onClick={() => decide("reject")}
               className="work-action-button is-danger"
             >
               {busy ? "Rejecting…" : "Confirm reject"}
-            </button>
-            <button data-ui-bespoke-reason="work composer and thread chrome"
-              type="button"
+            </Button>
+            <Button
+              size="sm"
               disabled={busy}
               onClick={() => {
                 setRejectMode(false);
@@ -3066,7 +3234,7 @@ function ActionApprovalRow({
               className="work-action-button"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}
@@ -3131,8 +3299,9 @@ function ToolGroup({
 
   return (
     <div className="work-tool-group">
-      <button data-ui-bespoke-reason="work composer and thread chrome"
-        type="button"
+      <Button
+        size="sm"
+        variant="ghost"
         className="work-tool-group-head"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
@@ -3151,7 +3320,7 @@ function ToolGroup({
             {failed} failed
           </span>
         ) : null}
-      </button>
+      </Button>
       {open ? (
         <div className="work-tool-group-body">
           {tools.map((tool) => (
@@ -3201,8 +3370,9 @@ function RegularToolRow({ tool }: { tool: ToolItem }) {
 
   return (
     <div className={`work-tool-row work-tool-row-${status}`}>
-      <button data-ui-bespoke-reason="work composer and thread chrome"
-        type="button"
+      <Button
+        size="sm"
+        variant="ghost"
         className="work-tool-row-head"
         onClick={() => hasDetail && setOpen((v) => !v)}
         disabled={!hasDetail}
@@ -3219,7 +3389,7 @@ function RegularToolRow({ tool }: { tool: ToolItem }) {
         </span>
         <span className="work-tool-row-name">{tool.name}</span>
         {subtitle ? <span className="work-tool-row-subtitle">{subtitle}</span> : null}
-      </button>
+      </Button>
       {open ? <ToolDetail tool={tool} /> : null}
     </div>
   );

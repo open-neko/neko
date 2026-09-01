@@ -61,6 +61,140 @@
     0 2px 4px rgba(20,18,12,0.04),
     0 18px 40px -18px rgba(20,18,12,0.16);
 }
+
+.work-mention-picker {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 30;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-inner);
+  background: var(--card);
+  box-shadow: var(--shadow-lift);
+}
+.work-mention-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+  padding: 7px 10px 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text3);
+  font-size: var(--type-label);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.work-mention-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(180px, 0.8fr);
+  min-height: 132px;
+  max-height: min(360px, 48vh);
+}
+.work-mention-list {
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+}
+.work-mention-option {
+  display: flex;
+  width: 100%;
+  min-height: 58px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  padding: 8px 9px;
+  color: var(--text2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+.work-mention-option:hover,
+.work-mention-option[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 44%, var(--card));
+  color: var(--text);
+}
+.work-mention-option-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.work-mention-kind {
+  min-height: 20px;
+}
+.work-mention-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--type-body-sm);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-mention-description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text2);
+  font-size: var(--type-caption);
+  line-height: var(--leading-compact);
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+.work-mention-detail {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  background: var(--neutral-soft);
+  padding: 14px;
+}
+.work-mention-detail strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family: var(--font-display), "Archivo", sans-serif;
+  font-size: var(--type-subsection);
+  line-height: var(--leading-heading);
+}
+.work-mention-detail p {
+  color: var(--text2);
+  font-size: var(--type-body-sm);
+  line-height: var(--leading-body);
+}
+.work-mention-state {
+  display: flex;
+  min-height: 126px;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: var(--text2);
+  font-size: var(--type-body-sm);
+  line-height: var(--leading-body);
+  text-align: center;
+}
+.work-mention-notice {
+  border-top: 1px solid var(--border);
+  padding: 7px 10px;
+  color: var(--text2);
+  font-size: var(--type-caption);
+  line-height: var(--leading-compact);
+}
 .work-composer-shell.is-working {
   border-color: color-mix(in srgb, var(--text) 30%, var(--border));
 }
@@ -277,6 +411,20 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .work-composer-shell { border-radius: 18px; }
+  .work-mention-picker {
+    right: -1px;
+    left: -1px;
+    max-height: min(390px, 58vh);
+  }
+  .work-mention-layout {
+    display: block;
+    min-height: 0;
+    max-height: min(326px, 48vh);
+  }
+  .work-mention-list { max-height: inherit; }
+  .work-mention-option { min-height: var(--control-touch); }
+  .work-mention-description { -webkit-line-clamp: 2; }
+  .work-mention-detail { display: none; }
   .work-input {
     /* 16px minimum prevents iOS Safari from zooming the viewport on focus. */
     font-size: 16px;

@@ -146,6 +146,28 @@ decision, clarify with the operator instead of guessing.
 </clarification>`;
 }
 
+function buildSelectedMentionsSection(workspace: AgentWorkspace): string {
+  return `<selected_mentions>
+The Work composer may append a host-generated machine block to the current user
+message:
+
+\`::neko-work-mentions::[{"kind":"skill"|"workflow","id":"…","name":"…"}]\`
+
+Treat this block as exact selection metadata, not user-visible prose:
+- For \`kind:"skill"\`, match the exact installed skill name, read
+  \`${workspace.skillsRoot}/<name>/SKILL.md\`, and follow it for this turn.
+- For \`kind:"workflow"\`, use the supplied workflow id directly when a
+  workflow tool needs an id. Do not resolve it again from the display name.
+- If a skill and workflow share a name, the explicit kind and id win.
+- Never quote, summarize, or echo the machine block in the answer.
+
+Legacy messages can contain
+\`::neko-workflow-mentions::[{"id":"…","name":"…"}]\`; treat every entry in
+that legacy block as a workflow selection. Without a valid trailing block, an
+@name is ordinary user text and must not be guessed into an id.
+</selected_mentions>`;
+}
+
 function buildPluginManagementSection(
   supportsTool: boolean,
   catalog?: PluginCatalog,
@@ -238,10 +260,8 @@ Tools:
   workflow by id (cascades to its triggers, run history, and proposed
   actions — no undo). Use it when the operator asks to remove or stop a
   workflow for good ("delete the low-stock alert", "get rid of that
-  watcher"). When the operator @mentions a workflow, their message ends
-  with a machine block \`::neko-workflow-mentions::[{"id":…,"name":…}]\`
-  mapping each @name to its exact workflow id — use that id directly, and
-  never echo the block back to the operator. Without a mention,
+  watcher"). When the operator selects a workflow mention, use the exact id
+  from the \`<selected_mentions>\` contract. Without a typed selection,
   \`list_workflows\` first to resolve the name to an id — never guess.
   Because it is destructive, name the workflow you're about to delete and
   get an explicit yes from the operator BEFORE calling the tool. To merely
@@ -801,6 +821,7 @@ that flags churn risk every Monday."
 </role>`,
     operatorProfile ?? "",
     buildClarificationSection(supportsClarificationTool),
+    dataSurface === "customer" ? buildSelectedMentionsSection(workspace) : "",
     dataSurface === "customer" && wantsCards
       ? buildRenderingSection(supportsCardTool)
       : "",
