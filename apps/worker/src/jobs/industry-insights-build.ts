@@ -8,7 +8,7 @@ import {
 } from "@neko/db";
 import { enqueue, QUEUE } from "@neko/db/jobs";
 import { updateProgress } from "../progress.js";
-import { runIndustryResearcher } from "@neko/llm";
+import { ensureHostConfigProvisioned, runIndustryResearcher } from "@neko/llm";
 
 /**
  * industry_insights_build job handler.
@@ -61,6 +61,7 @@ export async function runIndustryInsightsBuild(jobId: string, orgId: string) {
   await updateProgress(jobId, "Loading business profile");
 
   // 2. Run the researcher (mission writer + sonar-deep-research).
+  await ensureHostConfigProvisioned(orgId);
   const { industryInsights, missionCharter } = await runIndustryResearcher({
     orgId,
     orgName,

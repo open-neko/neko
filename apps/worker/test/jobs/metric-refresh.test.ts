@@ -35,7 +35,8 @@ import {
   processing_job,
 } from "@neko/db";
 
-const { mockRunMetricAgent, mockGraphjinQuery } = vi.hoisted(() => ({
+const { mockEnsureHostConfig, mockRunMetricAgent, mockGraphjinQuery } = vi.hoisted(() => ({
+  mockEnsureHostConfig: vi.fn(),
   mockRunMetricAgent: vi.fn(),
   mockGraphjinQuery: vi.fn(),
 }));
@@ -44,6 +45,7 @@ vi.mock("@neko/llm", async () => {
   const actual = await vi.importActual<typeof import("@neko/llm")>("@neko/llm");
   return {
     ...actual,
+    ensureHostConfigProvisioned: mockEnsureHostConfig,
     runMetricAgent: mockRunMetricAgent,
   };
 });
@@ -141,6 +143,7 @@ describeIfDb("runMetricRefresh", () => {
   beforeEach(async () => {
     orgId = uniqueOrgId("job-metric-refresh");
     await createTestOrg(orgId);
+    mockEnsureHostConfig.mockResolvedValue(undefined);
     mockRunMetricAgent.mockResolvedValue(stubResult());
   });
 
@@ -175,6 +178,10 @@ describeIfDb("runMetricRefresh", () => {
           role: "CEO",
           jobId,
         }),
+      );
+      expect(mockEnsureHostConfig).toHaveBeenCalledWith(orgId);
+      expect(mockEnsureHostConfig.mock.invocationCallOrder[0]).toBeLessThan(
+        mockRunMetricAgent.mock.invocationCallOrder[0],
       );
       const [job] = await db()
         .select({ result: processing_job.result })

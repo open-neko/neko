@@ -10,6 +10,7 @@ import {
 } from "@neko/db";
 import { updateProgress } from "../progress.js";
 import {
+  ensureHostConfigProvisioned,
   runMetricAgent,
   type AgentTokenUsage,
   type MetricAgentInput,
@@ -241,6 +242,7 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
         },
       });
     }
+    await ensureHostConfigProvisioned(orgId);
     result = await runMetricAgent({
       ...input,
       jobId,

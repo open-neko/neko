@@ -7,6 +7,9 @@ const TIMEOUT_MESSAGE =
 const PROVIDER_MESSAGE =
   "Setup could not finish because the model provider rejected or interrupted the request. Re-test the model in Admin → Settings → Agent, then try again.";
 
+const MODEL_HANDOFF_MESSAGE =
+  "Setup could not finish because the worker could not load the saved model configuration. Re-save or re-test the model in Admin → Settings → Agent, then try again; if it repeats, inspect `openneko logs` for the configuration handoff error.";
+
 const DATA_MESSAGE =
   "Setup could not finish while reading the configured data source. Re-test the source in Admin → Settings → Data Sources, then try again.";
 
@@ -31,6 +34,13 @@ export function profileBuildFailureMessage(error: string | null): string {
     )
   ) {
     return RUNTIME_MESSAGE;
+  }
+  if (
+    /no llm provider configured|hermes (?:model|setup)|hermes.*config\.yaml|OPENNEKO_AGENT_HERMES_HOME/i.test(
+      error,
+    )
+  ) {
+    return MODEL_HANDOFF_MESSAGE;
   }
   if (
     /provider|gemini http|anthropic http|rate.?limit|quota|api key|authentication/i.test(

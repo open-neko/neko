@@ -1,8 +1,19 @@
-import { mkdir, chmod } from "node:fs/promises";
+import { chmod, mkdir, unlink } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
-import { and, data_source, db, desc, eq, like, llm_provider_config, or } from "@neko/db";
+import {
+  and,
+  data_source,
+  db,
+  desc,
+  eq,
+  inArray,
+  like,
+  llm_provider_config,
+  or,
+} from "@neko/db";
 import { maybeDecryptSecret } from "./secrets";
 import { VENDORED_HERMES_MODEL_BINARY } from "./agent-runtime-contract";
 import { hermesHomeForOrg } from "./hermes-home";
@@ -367,7 +378,14 @@ function hermesDelegationConfigLines(): string[] {
 
 async function provisionHermes(orgId: string): Promise<void> {
   const row = await loadProviderRow(orgId, "primary");
-  if (!row || !row.enabled) return;
+  const hermesHome = hermesHomeForOrg(orgId);
+  if (!row || !row.enabled) {
+    await Promise.all([
+      unlink(join(hermesHome, "config.yaml")).catch(() => undefined),
+      unlink(join(hermesHome, ".env")).catch(() => undefined),
+    ]);
+    return;
+  }
 
   const { provider, keyVar, needsBaseUrl } = mapHermesProvider(row.provider);
   const cfg = (row.config ?? {}) as { url?: string; baseUrl?: string };
@@ -376,7 +394,6 @@ async function provisionHermes(orgId: string): Promise<void> {
   const apiKey = secrets.apiKey;
   const model = row.model ?? "";
 
-  const hermesHome = hermesHomeForOrg(orgId);
   await mkdir(hermesHome, { recursive: true });
 
   const yamlLines = [
@@ -475,10 +492,33 @@ function setAgentEnv(key: string, operator: string, derived: string): void {
 
 async function provisionOpenShellRuntime(orgId: string): Promise<void> {
   const row = await loadProviderRow(orgId, "primary");
-  if (!row || !row.enabled) return;
+  if (!row || !row.enabled) {
+    setAgentEnv(
+      "OPENNEKO_AGENT_MODEL_PROVIDER",
+      OPERATOR_AGENT_ENV.provider,
+      "",
+    );
+    setAgentEnv("OPENNEKO_AGENT_MODEL_HOST", OPERATOR_AGENT_ENV.host, "");
+    setAgentEnv(
+      "OPENNEKO_AGENT_MODEL_KEY_ENV",
+      OPERATOR_AGENT_ENV.keyEnv,
+      "",
+    );
+    setAgentEnv(
+      "OPENNEKO_AGENT_HERMES_HOME",
+      OPERATOR_AGENT_ENV.hermesHome,
+      "",
+    );
+    return;
+  }
 
   const { hosts, keyEnv } = deriveAgentEgress(row);
-  setAgentEnv("OPENNEKO_AGENT_MODEL_PROVIDER", OPERATOR_AGENT_ENV.provider, "openneko-agent");
+  const apiKey = decryptSecrets(row.secrets).apiKey;
+  setAgentEnv(
+    "OPENNEKO_AGENT_MODEL_PROVIDER",
+    OPERATOR_AGENT_ENV.provider,
+    apiKey ? "openneko-agent" : "",
+  );
   setAgentEnv("OPENNEKO_AGENT_MODEL_HOST", OPERATOR_AGENT_ENV.host, hosts.join(","));
   setAgentEnv("OPENNEKO_AGENT_MODEL_KEY_ENV", OPERATOR_AGENT_ENV.keyEnv, keyEnv);
   // hermes reads its model + provider from config.yaml under HERMES_HOME. In the
@@ -492,7 +532,6 @@ async function provisionOpenShellRuntime(orgId: string): Promise<void> {
     hermesHomeForOrg(orgId),
   );
 
-  const apiKey = decryptSecrets(row.secrets).apiKey;
   if (!apiKey) return;
   // The gateway can be restarting exactly while we register the provider
   // (deploys recreate it alongside the worker). A single failed attempt
@@ -543,29 +582,93 @@ export async function verifyAgentRuntimeReady(orgId: string): Promise<void> {
   await provisionOpenShellRuntime(orgId);
 }
 
-const provisionedOrgs = new Map<string, Promise<void>>();
+type HostProvisionState = {
+  appliedRevision?: string;
+  tail: Promise<void>;
+};
+
+const provisionedOrgs = new Map<string, HostProvisionState>();
 
 type ProvisionHostConfigOptions = {
   requireOpenShellSync?: boolean;
+  requireHermesSync?: boolean;
 };
 
+/** Build a content revision without retaining provider secrets in process
+ * state. Every setting that changes the files or sandbox launch contract is
+ * covered, including same-provider key rotation. */
+async function hostConfigRevision(orgId: string): Promise<string> {
+  const [providers, sources] = await Promise.all([
+    db()
+      .select({
+        id: llm_provider_config.id,
+        scope: llm_provider_config.scope,
+        provider: llm_provider_config.provider,
+        model: llm_provider_config.model,
+        enabled: llm_provider_config.enabled,
+        config: llm_provider_config.config,
+        secrets: llm_provider_config.secrets,
+        updatedAt: llm_provider_config.updated_at,
+      })
+      .from(llm_provider_config)
+      .where(
+        and(
+          eq(llm_provider_config.org_id, orgId),
+          inArray(llm_provider_config.scope, ["primary", "agent"]),
+        ),
+      )
+      .orderBy(llm_provider_config.scope),
+    db()
+      .select({
+        id: data_source.id,
+        graphqlUrl: data_source.graphql_url,
+        mcpUrl: data_source.mcp_url,
+        authMode: data_source.auth_mode,
+        enabled: data_source.enabled,
+        isDefault: data_source.is_default,
+        updatedAt: data_source.updated_at,
+      })
+      .from(data_source)
+      .where(eq(data_source.org_id, orgId))
+      .orderBy(desc(data_source.is_default), data_source.created_at),
+  ]);
+
+  return createHash("sha256")
+    .update(JSON.stringify({ providers, sources }))
+    .digest("hex");
+}
+
 /**
- * provisionHostConfig, once per org per process. The worker provisions at
- * boot, but the web process used to derive the agent-sandbox env (model
- * egress, gateway provider, key alias) only on a settings save — so every
- * web restart silently launched sandboxes that couldn't reach the model
- * until someone re-saved settings. Run paths call this instead.
+ * Worker-owned provisioning gate for every agent-backed job.
+ *
+ * A successful pass is reused only while the persisted host configuration is
+ * unchanged. This matters because provider settings are saved by the web
+ * process, whose environment mutations cannot reach an already-running
+ * worker. Calls for one org are serialized so a key rotation or provider
+ * family switch cannot race two writers against the same Hermes files.
  */
-export function ensureHostConfigProvisioned(orgId: string): Promise<void> {
-  let p = provisionedOrgs.get(orgId);
-  if (!p) {
-    p = provisionHostConfig(orgId, { requireOpenShellSync: true }).catch((err) => {
-      provisionedOrgs.delete(orgId);
-      throw err;
-    });
-    provisionedOrgs.set(orgId, p);
+export async function ensureHostConfigProvisioned(orgId: string): Promise<void> {
+  const requestedRevision = await hostConfigRevision(orgId);
+  let state = provisionedOrgs.get(orgId);
+  if (!state) {
+    state = { tail: Promise.resolve() };
+    provisionedOrgs.set(orgId, state);
   }
-  return p;
+  if (state.appliedRevision === requestedRevision) return;
+
+  const run = state.tail.catch(() => undefined).then(async () => {
+    // Re-read after earlier callers finish. A settings save may have landed
+    // while this call was queued, and only the newest revision should win.
+    const currentRevision = await hostConfigRevision(orgId);
+    if (state.appliedRevision === currentRevision) return;
+    await provisionHostConfig(orgId, {
+      requireOpenShellSync: true,
+      requireHermesSync: true,
+    });
+    state.appliedRevision = currentRevision;
+  });
+  state.tail = run;
+  await run;
 }
 
 export async function provisionHostConfig(
@@ -598,9 +701,11 @@ export async function provisionHostConfig(
     );
   }
 
+  let hermesError: unknown;
   try {
     await provisionHermes(orgId);
   } catch (e) {
+    hermesError = e;
     console.warn(
       `[host-provision] hermes write failed: ${e instanceof Error ? e.message : e}`,
     );
@@ -608,5 +713,8 @@ export async function provisionHostConfig(
 
   if (openShellError && options.requireOpenShellSync) {
     throw openShellError;
+  }
+  if (hermesError && options.requireHermesSync) {
+    throw hermesError;
   }
 }
