@@ -1,12 +1,15 @@
-import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { enqueue, QUEUE, type LibraryDistillPayload } from "@neko/db/jobs";
 import { createLibraryDocument } from "@neko/llm/work";
 import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
 import {
+  MAX_LIBRARY_UPLOAD_REQUEST_BYTES,
+  validateLibraryUploadBatch,
+} from "@/lib/library-upload-contract";
+import {
   ALLOWED_UPLOAD_EXTENSIONS,
-  MAX_UPLOAD_SIZE,
+  safeFileName,
   saveLibraryUpload,
 } from "@/lib/work-files";
 
@@ -15,14 +18,24 @@ export const dynamic = "force-dynamic";
 
 /**
  * Direct-to-library upload (no thread). Always catalogs — uploading
- * here IS the request to distill. Files land under
+ * here IS the request to distill. A batch may contain up to 100 MB of files
+ * in total. Files land under content-addressed paths beneath
  * library/uploads/<owner>/ and stay owner-readable only.
  */
 export async function POST(request: Request) {
-  const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (contentLength && contentLength > MAX_UPLOAD_SIZE + 4096) {
+  const contentLength = Number.parseInt(
+    request.headers.get("content-length") ?? "0",
+    10,
+  );
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > MAX_LIBRARY_UPLOAD_REQUEST_BYTES
+  ) {
     return NextResponse.json(
-      { error: `File is over ${Math.round(MAX_UPLOAD_SIZE / (1024 * 1024))} MB.` },
+      {
+        error:
+          "The selected files exceed the 100 MB import limit. Choose fewer or smaller files.",
+      },
       { status: 413 },
     );
   }
@@ -30,44 +43,71 @@ export async function POST(request: Request) {
   if (!form) {
     return NextResponse.json({ error: "Invalid multipart body" }, { status: 400 });
   }
-  const file = form.get("file");
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "file is required" }, { status: 400 });
-  }
-  if (file.size > MAX_UPLOAD_SIZE) {
+  // `files` is the batch contract. Keep accepting the original singular
+  // field so existing API clients continue to work after the UI switches.
+  const files = [...form.getAll("files"), ...form.getAll("file")].filter(
+    (value): value is File => value instanceof File,
+  );
+  const validation = validateLibraryUploadBatch(files);
+  if (!validation.ok) {
     return NextResponse.json(
-      { error: `"${file.name}" is over ${Math.round(MAX_UPLOAD_SIZE / (1024 * 1024))} MB.` },
-      { status: 413 },
+      { error: validation.error },
+      { status: validation.status },
     );
   }
-  const idx = file.name.lastIndexOf(".");
-  const ext = idx > 0 ? file.name.slice(idx).toLowerCase() : "";
-  if (!ALLOWED_UPLOAD_EXTENSIONS.has(ext)) {
-    return NextResponse.json(
-      { error: `Unsupported file type "${ext || "(none)"}".` },
-      { status: 415 },
-    );
+
+  const names = new Set<string>();
+  for (const file of files) {
+    const safeName = safeFileName(file.name);
+    if (names.has(safeName)) {
+      return NextResponse.json(
+        {
+          error: `More than one selected file becomes "${safeName}" after filename cleanup. Rename one and try again.`,
+        },
+        { status: 400 },
+      );
+    }
+    names.add(safeName);
+    const idx = file.name.lastIndexOf(".");
+    const ext = idx > 0 ? file.name.slice(idx).toLowerCase() : "";
+    if (!ALLOWED_UPLOAD_EXTENSIONS.has(ext)) {
+      return NextResponse.json(
+        { error: `Unsupported file type "${ext || "(none)"}".` },
+        { status: 415 },
+      );
+    }
   }
 
   const orgId = await getOrgId();
   const actor = await getCurrentActor();
-  const saved = await saveLibraryUpload(orgId, actor.userId, file);
-  const contentHash = createHash("sha256")
-    .update(Buffer.from(await file.arrayBuffer()))
-    .digest("hex");
-  const { document, created } = await createLibraryDocument({
-    orgId,
-    userId: actor.userId,
-    filename: saved.name,
-    relativePath: saved.relativePath.replace(/\\/g, "/"),
-    contentHash,
-    sizeBytes: saved.size,
-  });
-  if (created || document.status === "failed") {
-    const payload: LibraryDistillPayload = { orgId, documentId: document.id };
-    await enqueue(QUEUE.LIBRARY_DISTILL, payload, {
-      singletonKey: `library-distill:${document.id}`,
+  const documents: Array<{
+    document: Awaited<ReturnType<typeof createLibraryDocument>>["document"];
+    created: boolean;
+  }> = [];
+  for (const file of files) {
+    const saved = await saveLibraryUpload(orgId, actor.userId, file);
+    const { document, created } = await createLibraryDocument({
+      orgId,
+      userId: actor.userId,
+      filename: saved.name,
+      relativePath: saved.relativePath.replace(/\\/g, "/"),
+      contentHash: saved.contentHash,
+      sizeBytes: saved.size,
     });
+    if (created || document.status === "failed") {
+      const payload: LibraryDistillPayload = { orgId, documentId: document.id };
+      await enqueue(QUEUE.LIBRARY_DISTILL, payload, {
+        singletonKey: `library-distill:${document.id}`,
+      });
+    }
+    documents.push({ document, created });
   }
-  return NextResponse.json({ ok: true, document, created });
+
+  // Keep the singular response members for clients that still post `file`.
+  return NextResponse.json({
+    ok: true,
+    documents,
+    document: documents[0]?.document,
+    created: documents[0]?.created,
+  });
 }

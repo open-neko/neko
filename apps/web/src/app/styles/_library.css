@@ -248,14 +248,26 @@
 .library-empty {
   min-height: 138px;
   display: grid;
-  grid-template-columns: minmax(150px, 0.32fr) minmax(240px, 0.68fr);
   align-items: center;
-  gap: 28px;
   padding: 22px 4px;
   border-bottom: 1px solid var(--border);
 }
 
-.library-empty strong {
+section.library-empty {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  justify-items: stretch;
+  text-align: left;
+}
+
+section.library-empty [data-ui-empty-state-copy] {
+  grid-template-columns: minmax(150px, 0.32fr) minmax(240px, 0.68fr);
+  align-items: start;
+  gap: 28px;
+}
+
+section.library-empty [data-ui-empty-state-title] {
   color: var(--text);
   font-family: var(--font-display), "Archivo", sans-serif;
   font-size: var(--type-section);
@@ -263,7 +275,7 @@
   letter-spacing: -0.03em;
 }
 
-.library-empty span {
+section.library-empty [data-ui-empty-state-body] {
   max-width: 62ch;
   color: var(--text2);
   font-size: var(--type-body);
@@ -989,7 +1001,9 @@
 
   .library-empty {
     min-height: 120px;
-    display: grid;
+  }
+
+  section.library-empty [data-ui-empty-state-copy] {
     grid-template-columns: 1fr;
     gap: 8px;
   }
@@ -1278,6 +1292,19 @@
 .document-library .memory-review-meta svg {
   vertical-align: -2px;
   margin-right: 4px;
+}
+
+.document-library .library-upload-limit {
+  display: block;
+  margin-top: 5px;
+  color: var(--text2);
+  font-size: var(--type-caption);
+  font-weight: 500;
+  line-height: var(--leading-compact);
+}
+
+.document-library .library-upload-actions {
+  flex: 0 0 auto;
 }
 
 .document-library .library-concept-title {

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Disclosure } from "@/components/ui/Disclosure";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { FieldInput } from "@/components/ui/Field";
 import { LocalDateTime } from "@/components/ui/LocalDateTime";
 import { Segment, SegmentedControl, Tab, Tabs } from "@/components/ui/Tabs";
@@ -85,6 +86,20 @@ describe("shared UI contracts", () => {
     expect(disclosure).toContain("<details");
     expect(disclosure).toContain("<summary");
     expect(disclosure).toContain('data-ui-disclosure=""');
+  });
+
+  it("exposes stable empty-state slots for surface-specific layouts", () => {
+    const empty = renderToStaticMarkup(
+      createElement(EmptyState, {
+        title: "No concepts",
+        body: "Imported knowledge appears here.",
+      }),
+    );
+
+    expect(empty).toContain('data-ui-empty-state=""');
+    expect(empty).toContain('data-ui-empty-state-copy=""');
+    expect(empty).toContain('data-ui-empty-state-title=""');
+    expect(empty).toContain('data-ui-empty-state-body=""');
   });
 
   it("renders deterministic timestamp fallbacks before client localization", () => {

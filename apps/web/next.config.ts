@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { NextConfig } from "next";
 import pkg from "./package.json";
+import { MAX_LIBRARY_UPLOAD_REQUEST_BYTES } from "./src/lib/library-upload-contract";
 
 const hostWebDev = process.env.OPENNEKO_HOST_WEB_DEV === "1";
 const demoMode =
@@ -34,6 +35,10 @@ const nextConfig: NextConfig = {
     // Turbopack's FS cache (default-on since Next 16.1) was serving stale
     // globals.css after edits in dev. Disabling for dev only.
     turbopackFileSystemCacheForDev: false,
+    // Proxy clones request bodies before API routes read them. Next defaults
+    // that clone to 10 MB, which would truncate valid Library imports before
+    // the route can enforce its own 100 MB aggregate file allowance.
+    proxyClientMaxBodySize: MAX_LIBRARY_UPLOAD_REQUEST_BYTES,
   },
 };
 

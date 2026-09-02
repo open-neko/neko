@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { ensureOrgWorkspace } from "@neko/llm/work";
@@ -74,27 +75,37 @@ export function libraryOwnerSegment(userId: string | null): string {
 
 /**
  * Direct-to-library upload (no thread): stored under
- * library/uploads/<owner>/. Serving is owner-or-admin gated in the
- * files route, unlike thread uploads which gate on thread access.
+ * library/uploads/<owner>/<content-hash>/. Content-addressing keeps a later
+ * upload with the same cleaned filename from overwriting an earlier source.
+ * Serving is owner-or-admin gated in the files route, unlike thread uploads
+ * which gate on thread access.
  */
 export async function saveLibraryUpload(
   orgId: string,
   userId: string | null,
   file: File,
-): Promise<{ relativePath: string; absolutePath: string; name: string; size: number }> {
+): Promise<{
+  relativePath: string;
+  absolutePath: string;
+  name: string;
+  size: number;
+  contentHash: string;
+}> {
   const roots = await ensureOrgWorkspace(orgId);
   const owner = libraryOwnerSegment(userId);
-  const dir = join(roots.orgRoot, "library", "uploads", owner);
-  await mkdir(dir, { recursive: true });
   const safeName = safeFileName(file.name || "upload.bin");
-  const absolutePath = join(dir, safeName);
   const buffer = Buffer.from(await file.arrayBuffer());
+  const contentHash = createHash("sha256").update(buffer).digest("hex");
+  const dir = join(roots.orgRoot, "library", "uploads", owner, contentHash);
+  await mkdir(dir, { recursive: true });
+  const absolutePath = join(dir, safeName);
   await writeFile(absolutePath, buffer);
   return {
-    relativePath: join("library", "uploads", owner, safeName),
+    relativePath: join("library", "uploads", owner, contentHash, safeName),
     absolutePath,
     name: safeName,
     size: buffer.byteLength,
+    contentHash,
   };
 }
 
