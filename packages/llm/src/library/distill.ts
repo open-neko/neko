@@ -37,7 +37,7 @@ async function defaultLlm(orgId: string): Promise<DistillLlm> {
   ]);
   const llm = await buildLlm(orgId);
   const librarian = ax(
-    `librarianPrompt:string "librarian instructions plus one uploaded document" -> libraryOperations:string "a single neko_library fenced code block containing a JSON array of ops"`,
+    `librarianPrompt:string "librarian instructions plus one uploaded document" -> libraryOperations:string "a single neko_library fenced JSON array of flat objects discriminated by op"`,
     {
       description:
         "You are a meticulous librarian. Follow the instructions in the prompt exactly and respond with only the fenced neko_library block.",

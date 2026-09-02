@@ -55,6 +55,14 @@ export function buildDistillPrompt(input: DistillPromptInput): string {
     '  (contract end, policy review date), set `stale_after` (YYYY-MM-DD)',
     "  on the op so the concept is retired automatically. Omit it",
     "  otherwise — never guess a date.",
+    "- Use exactly these JSON object shapes; every object is flat and `op`",
+    "  is the discriminator:",
+    '  Upsert: {"op": "upsert", "path": "policies/refund-policy.md",',
+    '  "type": "Policy", "title": "Refund policy", "description": "...",',
+    '  "tags": ["finance"], "body": "reference markdown",',
+    '  "stale_after": "YYYY-MM-DD"}',
+    '  Skip: {"op": "skip", "reason": "one-off working data"}',
+    "  Do not wrap the fields inside an `upsert` or `skip` object.",
     "",
     "Current catalog:",
     catalog,
@@ -68,7 +76,7 @@ export function buildDistillPrompt(input: DistillPromptInput): string {
     "---END DOCUMENT---",
     "",
     "Respond with a single ```neko_library fence containing a JSON array of",
-    "ops, and nothing else.",
+    "the flat operation objects above, and nothing else.",
   ]
     .filter((line) => line !== "")
     .join("\n");

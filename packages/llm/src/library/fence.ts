@@ -1,15 +1,18 @@
 // Parses distiller-emitted `neko_library` fences into concept operations,
 // mirroring the neko_memory fence pattern in agent-backends/memory-fence.ts.
 //
-// Fence shape:
+// Canonical fence shape:
 //   ```neko_library
 //   [
-//     { "upsert": { "path": "policies/refund-policy.md", "type": "Policy",
-//                   "title": "Refund policy", "description": "...",
-//                   "tags": ["finance"], "body": "..." } },
-//     { "skip": { "reason": "one-off working data, not durable knowledge" } }
+//     { "op": "upsert", "path": "policies/refund-policy.md", "type": "Policy",
+//       "title": "Refund policy", "description": "...",
+//       "tags": ["finance"], "body": "..." },
+//     { "op": "skip", "reason": "one-off working data, not durable knowledge" }
 //   ]
 //   ```
+//
+// The original wrapped shape (`{ "upsert": { ... } }`) remains accepted for
+// compatibility with already-authored fixtures and provider responses.
 //
 // Multiple upserts are allowed (one document can yield several concepts).
 // A `skip` op marks the source document as triaged-out. Anything not
@@ -83,17 +86,25 @@ function parseUpsert(value: unknown): LibraryUpsertOp | null {
   };
 }
 
+function parseSkip(value: unknown): LibrarySkipOp | null {
+  if (!value || typeof value !== "object") return null;
+  const reason = (value as Record<string, unknown>).reason;
+  if (!isStr(reason) || reason.trim().length === 0) return null;
+  return { kind: "skip", reason: reason.trim() };
+}
+
 function parseItem(item: unknown): LibraryOp | null {
   if (!item || typeof item !== "object") return null;
   const o = item as Record<string, unknown>;
+
+  // Canonical model-facing contract: flat objects discriminated by `op`.
+  if (o.op === "upsert") return parseUpsert(o);
+  if (o.op === "skip") return parseSkip(o);
+  if ("op" in o) return null;
+
+  // Backward compatibility for the original wrapped representation.
   if ("upsert" in o) return parseUpsert(o.upsert);
-  if ("skip" in o) {
-    const skip = o.skip;
-    if (skip && typeof skip === "object" && isStr((skip as Record<string, unknown>).reason)) {
-      return { kind: "skip", reason: String((skip as Record<string, unknown>).reason) };
-    }
-    return null;
-  }
+  if ("skip" in o) return parseSkip(o.skip);
   return null;
 }
 

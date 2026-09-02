@@ -42,6 +42,55 @@ describe("extractLibraryFences", () => {
     expect(ops).toEqual([{ kind: "skip", reason: "one-off data" }]);
   });
 
+  it("parses flat discriminator ops emitted by the librarian", () => {
+    const { ops } = extractLibraryFences(
+      fence(
+        JSON.stringify([
+          {
+            op: "upsert",
+            path: "presentations/sales-overview.md",
+            type: "Notes",
+            title: "Sales overview",
+            description: "Positioning and capabilities from the sales deck.",
+            tags: ["sales"],
+            body: "# Sales overview\n\nDurable product positioning.",
+          },
+          { op: "skip", reason: "one-off working data" },
+        ]),
+      ),
+    );
+    expect(ops).toEqual([
+      {
+        kind: "upsert",
+        path: "presentations/sales-overview.md",
+        type: "Notes",
+        title: "Sales overview",
+        description: "Positioning and capabilities from the sales deck.",
+        tags: ["sales"],
+        body: "# Sales overview\n\nDurable product positioning.",
+        stale_after: undefined,
+      },
+      { kind: "skip", reason: "one-off working data" },
+    ]);
+  });
+
+  it("drops unknown flat operation discriminators", () => {
+    const { ops } = extractLibraryFences(
+      fence(
+        JSON.stringify([
+          {
+            op: "delete",
+            path: "presentations/sales-overview.md",
+            type: "Notes",
+            title: "Sales overview",
+            body: "Must not be accepted.",
+          },
+        ]),
+      ),
+    );
+    expect(ops).toEqual([]);
+  });
+
   it("drops upserts with traversal or reserved paths", () => {
     const bad = [
       "../escape.md",
