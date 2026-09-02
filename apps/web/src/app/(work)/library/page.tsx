@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { MenuItem, OverflowMenu } from "@/components/ui/OverflowMenu";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pill, type PillVariant } from "@/components/ui/Pill";
+import { validateLibraryUploadBatch } from "@/lib/library-upload-contract";
 
 type DocumentRow = {
   id: string;
@@ -126,21 +127,28 @@ export default function LibraryPage() {
   const upload = useCallback(
     async (files: FileList | null) => {
       if (!files || files.length === 0) return;
+      const selected = Array.from(files);
+      const validation = validateLibraryUploadBatch(selected);
+      if (!validation.ok) {
+        setError(validation.error);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
       setUploading(true);
       try {
-        for (const file of Array.from(files)) {
-          const body = new FormData();
-          body.append("file", file);
-          const response = await fetch("/api/library/upload", {
-            method: "POST",
-            body,
-          });
-          if (!response.ok) {
-            const payload = (await response.json().catch(() => null)) as
-              | { error?: string }
-              | null;
-            throw new Error(payload?.error ?? `"${file.name}" could not be uploaded.`);
-          }
+        const body = new FormData();
+        for (const file of selected) {
+          body.append("files", file);
+        }
+        const response = await fetch("/api/library/upload", {
+          method: "POST",
+          body,
+        });
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => null)) as
+            | { error?: string }
+            | null;
+          throw new Error(payload?.error ?? "The documents could not be imported.");
         }
         setError(null);
         await refresh();
@@ -461,13 +469,18 @@ export default function LibraryPage() {
             <div>
               <span>Uploads</span>
               <h2>Your documents</h2>
+              <small id="library-upload-limit" className="library-upload-limit">
+                Import up to 100 MB at once, across one or more files.
+              </small>
             </div>
-            <ActionGroup className="memory-review-actions">
-              <input data-ui-bespoke-reason="library file picker"
+            <ActionGroup className="memory-review-actions library-upload-actions">
+              <input
+                data-ui-bespoke-reason="library file picker"
                 ref={fileInputRef}
                 type="file"
                 multiple
                 hidden
+                aria-describedby="library-upload-limit"
                 onChange={(event) => void upload(event.target.files)}
               />
               <Button
@@ -490,7 +503,7 @@ export default function LibraryPage() {
             <EmptyState
               className="library-empty"
               title="No documents yet"
-              body="Upload documents here, or attach them in a conversation. Either way they are distilled into concepts the assistant can cite."
+              body="Upload a document above, or attach one in a conversation. OpenNeko distills durable knowledge into concepts it can cite."
             />
           ) : (
             <ol className="memory-review-list">
@@ -558,8 +571,8 @@ export default function LibraryPage() {
           {personal.length === 0 && !loading ? (
             <EmptyState
               className="library-empty"
-              title="Nothing distilled yet"
-              body="Concepts distilled from your documents appear here. Only you and your assistant can see them until you share one with the team."
+              title="No personal concepts"
+              body="Distilled concepts stay private here until you share them with the team."
             />
           ) : (
             <ol className="memory-review-list">
@@ -604,8 +617,8 @@ export default function LibraryPage() {
           {team.length === 0 && !loading ? (
             <EmptyState
               className="library-empty"
-              title="No approved team concepts"
-              body="Concepts a teammate shares, and an admin approves, become part of the assistant's knowledge for the whole workspace."
+              title="No team concepts"
+              body="Shared concepts appear here after an admin approves them for the workspace."
             />
           ) : (
             <ol className="memory-review-list">

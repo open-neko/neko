@@ -6,6 +6,7 @@ import { ArrowUpRight, FileText, Trash2 } from "lucide-react";
 import { confirmDialog } from "@/components/ConfirmModal";
 import PageHeading from "@/components/PageHeading";
 import { Button, IconButton } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 type SkillSummary = {
   name: string;
@@ -145,13 +146,11 @@ export default function SkillsPage() {
               <span />
             </div>
           ) : skills.length === 0 ? (
-            <div className="library-empty">
-              <strong>No installed skills</strong>
-              <span>
-                Skills appear here when OpenNeko saves a reusable capability or
-                one is installed into the organization workspace.
-              </span>
-            </div>
+            <EmptyState
+              className="library-empty"
+              title="No installed skills"
+              body="Skills appear here when OpenNeko saves a reusable capability or one is installed into the organization workspace."
+            />
           ) : (
             <>
               <div className="skills-table-head" aria-hidden="true">

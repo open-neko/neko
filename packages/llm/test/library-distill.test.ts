@@ -71,14 +71,13 @@ const FENCE_REPLY = [
   "```neko_library",
   JSON.stringify([
     {
-      upsert: {
-        path: "policies/refund-policy.md",
-        type: "Policy",
-        title: "Refund policy",
-        description: "Refund windows and approval limits.",
-        tags: ["finance"],
-        body: "Refunds within 30 days; >$500 needs CFO approval.",
-      },
+      op: "upsert",
+      path: "policies/refund-policy.md",
+      type: "Policy",
+      title: "Refund policy",
+      description: "Refund windows and approval limits.",
+      tags: ["finance"],
+      body: "Refunds within 30 days; >$500 needs CFO approval.",
     },
   ]),
   "```",
@@ -128,6 +127,9 @@ describe("runLibraryDistill", () => {
     const prompt = llm.mock.calls[0][0] as string;
     expect(prompt).toContain("refund-policy.md");
     expect(prompt).toContain("Customers may request refunds");
+    expect(prompt).toContain('"op": "upsert"');
+    expect(prompt).toContain('"op": "skip"');
+    expect(prompt).toContain("Use exactly these JSON object shapes");
   });
 
   it("passes the existing catalog so the librarian updates instead of duplicating", async () => {
@@ -221,4 +223,3 @@ describe("runLibraryDistill", () => {
     expect(llm).not.toHaveBeenCalled();
   });
 });
-
