@@ -37,15 +37,15 @@ async function defaultLlm(orgId: string): Promise<DistillLlm> {
   ]);
   const llm = await buildLlm(orgId);
   const librarian = ax(
-    `prompt:string "librarian instructions plus one uploaded document" -> response:string "a single neko_library fenced code block containing a JSON array of ops"`,
+    `librarianPrompt:string "librarian instructions plus one uploaded document" -> libraryOperations:string "a single neko_library fenced code block containing a JSON array of ops"`,
     {
       description:
         "You are a meticulous librarian. Follow the instructions in the prompt exactly and respond with only the fenced neko_library block.",
     },
   );
   return async (prompt: string) => {
-    const result = await librarian.forward(llm, { prompt });
-    return String(result.response ?? "");
+    const result = await librarian.forward(llm, { librarianPrompt: prompt });
+    return String(result.libraryOperations ?? "");
   };
 }
 

@@ -66,15 +66,15 @@ async function defaultSkillLearnLlm(orgId: string): Promise<SkillLearnLlm> {
   ]);
   const llm = await buildLlm(orgId);
   const generator = ax(
-    `prompt:string "instructions plus skill excerpt and run ids" -> response:string "a JSON object with lesson, rationale, learnedMarkdown, evidenceRunIds"`,
+    `learningPrompt:string "instructions plus skill excerpt and run ids" -> skillLearningProposal:string "a JSON object with lesson, rationale, learnedMarkdown, evidenceRunIds"`,
     {
       description:
         "You propose one additive skill lesson. Reply with JSON only. No tools.",
     },
   );
   return async (prompt: string) => {
-    const result = await generator.forward(llm, { prompt });
-    return String(result.response ?? "");
+    const result = await generator.forward(llm, { learningPrompt: prompt });
+    return String(result.skillLearningProposal ?? "");
   };
 }
 
