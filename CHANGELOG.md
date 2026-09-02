@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.37.0](https://github.com/open-neko/openneko/compare/v2.36.1...v2.37.0) (2026-09-02)
+
+
+### Features
+
+* **library:** harden 100 MB batch imports ([39d8fee](https://github.com/open-neko/openneko/commit/39d8feea9c1fa67e5665d5c4a6c61fce2ff0e550))
+
+
+### Bug Fixes
+
+* **library:** align distillation and support 100 MB imports ([8149ff6](https://github.com/open-neko/openneko/commit/8149ff69d99fd09f18244f3418a78938cf4d432a))
+* **llm:** align librarian output contract ([c1d06a2](https://github.com/open-neko/openneko/commit/c1d06a2f6e9b346c5f4c558ff3e81c2658dc102d))
+
 ## [2.36.1](https://github.com/open-neko/openneko/compare/v2.36.0...v2.36.1) (2026-09-02)
 
 
