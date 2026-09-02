@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.36.1](https://github.com/open-neko/openneko/compare/v2.36.0...v2.36.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* **llm:** use descriptive Ax signature fields ([15daf40](https://github.com/open-neko/openneko/commit/15daf40bfccdffdffefbe76ced08ae48ed2ad9ca))
+* **llm:** use descriptive Ax signature fields ([db4d337](https://github.com/open-neko/openneko/commit/db4d3379460966564b3c0b69a9655f181c0ef460))
+
 ## [2.36.0](https://github.com/open-neko/openneko/compare/v2.35.2...v2.36.0) (2026-09-01)
 
 
