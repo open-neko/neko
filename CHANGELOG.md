@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.38.1](https://github.com/open-neko/openneko/compare/v2.38.0...v2.38.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **agent:** slim Hermes runtime image ([2aa3e4c](https://github.com/open-neko/openneko/commit/2aa3e4c8e3e37beaeb6f07bfa3813996e33446d2))
+* **agent:** slim Hermes runtime image ([4e1609f](https://github.com/open-neko/openneko/commit/4e1609fa6609b981fe432130d0d3be0752e3a16c))
+
 ## [2.38.0](https://github.com/open-neko/openneko/compare/v2.37.0...v2.38.0) (2026-09-03)
 
 
