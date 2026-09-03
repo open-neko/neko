@@ -37,6 +37,31 @@ describe("Hermes install contract", () => {
     expect(installer).toContain("Hermes Anthropic provider SDK missing");
   });
 
+  it("keeps the editable Hermes runtime without shipping its development repository", async () => {
+    const dockerfile = await readFile(`${REPO_ROOT}Dockerfile`, "utf8");
+    const installStart = dockerfile.indexOf(
+      "RUN --mount=type=cache,id=hermes-uv,target=/tmp/uv-cache",
+    );
+    const installEnd = dockerfile.indexOf("# ─── 2c. document toolchain");
+    const installBlock = dockerfile.slice(installStart, installEnd);
+
+    expect(installStart).toBeGreaterThan(-1);
+    expect(installEnd).toBeGreaterThan(installStart);
+    expect(installBlock).toContain(
+      'git -C /usr/local/lib/hermes-agent fetch --depth 1 origin "$HERMES_AGENT_REF"',
+    );
+    expect(installBlock).toContain(
+      "uv sync --locked --no-dev --extra acp --extra mcp --extra anthropic",
+    );
+    expect(installBlock).toContain("/usr/local/lib/hermes-agent/.git");
+    expect(installBlock).toContain("/usr/local/lib/hermes-agent/tests");
+    expect(installBlock).toContain("/usr/local/lib/hermes-agent/apps");
+    expect(installBlock).toContain("/usr/local/lib/hermes-agent/website");
+    expect(installBlock).toContain("/usr/local/lib/hermes-agent/optional-skills");
+    expect(installBlock).toContain("PYTHONDONTWRITEBYTECODE=1 hermes --version");
+    expect(installBlock.match(/\nRUN /g) ?? []).toHaveLength(0);
+  });
+
   it("patches ACP to pass the configured reasoning effort into AIAgent", async () => {
     const [dockerfile, installer, patch, interimPatch, anthropicPatch] = await Promise.all([
       readFile(`${REPO_ROOT}Dockerfile`, "utf8"),
