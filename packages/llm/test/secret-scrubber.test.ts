@@ -4,6 +4,7 @@ import {
   escapeRegex,
   isNoopScrubber,
   REDACTED_PLACEHOLDER,
+  scrubAgentEvent,
   scrubJson,
 } from "../src/work/secret-scrubber";
 
@@ -87,6 +88,27 @@ describe("scrubJson", () => {
     const input = { msg: "xoxb-secret-1" };
     scrubJson(scrub, input);
     expect(input.msg).toBe("xoxb-secret-1");
+  });
+});
+
+describe("scrubAgentEvent", () => {
+  it("scrubs provider progress summaries before persistence", () => {
+    const scrub = createScrubber(["secret-value-123"]);
+    expect(
+      scrubAgentEvent(scrub, {
+        type: "progress",
+        id: "gemini-summary-1",
+        content: "Checking secret-value-123 now",
+        source: "provider_summary",
+        provider: "google-gemini",
+      }),
+    ).toEqual({
+      type: "progress",
+      id: "gemini-summary-1",
+      content: "Checking [REDACTED] now",
+      source: "provider_summary",
+      provider: "google-gemini",
+    });
   });
 });
 

@@ -21,8 +21,10 @@ import {
   pool,
   processing_job,
   work_run,
+  work_run_event,
   work_thread,
 } from "@neko/db";
+import { finishWorkRun } from "@neko/llm/work";
 
 const { mockGetOrgId, mockEnqueue, mockResolveBackend } = vi.hoisted(() => ({
   mockGetOrgId: vi.fn(),
@@ -74,6 +76,18 @@ async function callRunsPost(
     parsed = text;
   }
   return { status: res.status, body: parsed };
+}
+
+async function callCancelPost(
+  POST: typeof import("@/app/api/work/runs/[runId]/cancel/route").POST,
+  runId: string,
+): Promise<{ status: number; body: unknown }> {
+  const res = await POST(new Request("http://localhost:3000/test", {
+    method: "POST",
+  }), {
+    params: Promise.resolve({ runId }),
+  });
+  return { status: res.status, body: await res.json() };
 }
 
 describeIfDb("/api/work/threads/[threadId]/runs POST", () => {
@@ -163,4 +177,51 @@ describeIfDb("/api/work/threads/[threadId]/runs POST", () => {
   // throws" removed: there's no enqueue path on this route anymore.
   // Backend failures inside the fire-and-forget runChatTurn are exercised
   // by the worker-side run-chat-turn integration tests instead.
+
+  it("recovers a running run whose in-process controller was lost", async () => {
+    const [{ id: runId }] = await db()
+      .insert(work_run)
+      .values({
+        org_id: orgId,
+        thread_id: threadId,
+        backend: "hermes",
+        status: "running",
+      })
+      .returning({ id: work_run.id });
+    const { POST: cancel } = await import(
+      "@/app/api/work/runs/[runId]/cancel/route"
+    );
+
+    const res = await callCancelPost(cancel, runId);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, recovered: true });
+    const [stored] = await db()
+      .select({
+        status: work_run.status,
+        error: work_run.error,
+        finishedAt: work_run.finished_at,
+      })
+      .from(work_run)
+      .where(eq(work_run.id, runId));
+    expect(stored?.status).toBe("cancelled");
+    expect(stored?.error).toContain("process running the agent is no longer available");
+    expect(stored?.finishedAt).toBeInstanceOf(Date);
+
+    const events = await db()
+      .select({ kind: work_run_event.kind, payload: work_run_event.payload })
+      .from(work_run_event)
+      .where(eq(work_run_event.run_id, runId));
+    expect(events).toEqual([
+      { kind: "done", payload: { type: "done", result: { status: "cancelled" } } },
+    ]);
+
+    // A detached completion cannot revive a run after cancellation.
+    await finishWorkRun(runId, "completed", null);
+    const [afterLateFinish] = await db()
+      .select({ status: work_run.status })
+      .from(work_run)
+      .where(eq(work_run.id, runId));
+    expect(afterLateFinish?.status).toBe("cancelled");
+  });
 });

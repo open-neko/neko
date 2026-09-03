@@ -10,6 +10,7 @@ import {
 } from "./config";
 import { maybeDecryptSecret } from "./secrets";
 import { GoogleAuth } from "google-auth-library";
+import { vertexOpenAiBaseUrl } from "./provider-runtime";
 
 type ProviderSource = "org" | "env" | "default" | "draft";
 
@@ -211,9 +212,7 @@ export async function getGoogleToken(): Promise<string> {
 }
 
 function buildVertexApiUrl(config: ResolvedPrimaryProviderConfig): string {
-  const projectId = String(config.config.projectId ?? "").trim();
-  const region = String(config.config.region ?? "global").trim() || "global";
-  return `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/endpoints/openapi`;
+  return vertexOpenAiBaseUrl(config.config);
 }
 
 function toAxProviderName(provider: PrimaryProviderId): string {

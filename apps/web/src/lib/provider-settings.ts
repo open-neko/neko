@@ -25,6 +25,7 @@ import {
   maybeDecryptSecret,
   maybeEncryptSecret,
 } from "@neko/llm/secrets";
+import { resolveHermesProviderRuntime } from "@neko/llm/provider-runtime";
 
 export type PublicProviderConfig =
   | {
@@ -210,6 +211,18 @@ function validateConfig(config: EditableProviderConfig): string[] {
     }
   }
 
+  if (errors.length === 0 && config.scope === "primary") {
+    try {
+      resolveHermesProviderRuntime({
+        provider: config.provider,
+        model: config.model,
+        config: config.config,
+      });
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : "Invalid provider configuration.");
+    }
+  }
+
   return errors;
 }
 
@@ -311,7 +324,11 @@ function mergeDraft(
     return {
       scope: "primary",
       provider,
-      model: draft.model?.trim() || existing.model || getDefaultPrimaryModel(provider),
+      model:
+        draft.model?.trim() ||
+        (providerChanged
+          ? getDefaultPrimaryModel(provider)
+          : existing.model || getDefaultPrimaryModel(provider)),
       label: draft.label ?? existing.label ?? null,
       enabled: draft.enabled ?? existing.enabled,
       config: providerChanged ? { ...(draft.config ?? {}) } : { ...existing.config, ...(draft.config ?? {}) },
@@ -334,7 +351,11 @@ function mergeDraft(
   return {
     scope: "research",
     provider,
-    model: draft.model?.trim() || existing.model || getDefaultResearchModel(provider),
+    model:
+      draft.model?.trim() ||
+      (providerChanged
+        ? getDefaultResearchModel(provider)
+        : existing.model || getDefaultResearchModel(provider)),
     label: draft.label ?? existing.label ?? null,
     enabled: draft.enabled ?? existing.enabled,
     config: providerChanged ? { ...(draft.config ?? {}) } : { ...existing.config, ...(draft.config ?? {}) },

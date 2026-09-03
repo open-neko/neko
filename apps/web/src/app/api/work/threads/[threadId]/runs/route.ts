@@ -4,7 +4,7 @@ import {
   ensureHostConfigProvisioned,
 } from "@neko/llm";
 import {
-  agentRuntimeDepsFromEnv,
+  agentRuntimeDepsFromConfig,
   createWorkRun,
   ensureAgentBroker,
   finishWorkRun,
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   // Derive the agent-sandbox env (model egress, gateway provider, key alias)
   // before creating the run. If gateway sync is temporarily unavailable, the
   // memoized provision attempt is cleared and the caller can retry cleanly.
-  await ensureHostConfigProvisioned(orgId);
+  const agentRuntime = await ensureHostConfigProvisioned(orgId);
 
   const run = await createWorkRun(orgId, threadId, backend.id, actor);
   const runTelemetry = createWebHarnessObserver(run.id);
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       pluginActions,
       observer: runTelemetry.observer,
     },
-    agentRuntimeDepsFromEnv(broker),
+    agentRuntimeDepsFromConfig(agentRuntime, broker),
   )
     .then(async (result) => {
       await observeSafely(runTelemetry.observer, {

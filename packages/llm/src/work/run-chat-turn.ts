@@ -110,7 +110,7 @@ export type RunChatTurnDeps = {
   listInstalledSkills: typeof defaultListInstalledSkills;
   /**
    * Runs the agent loop. Production hosts inject the OpenShell sandbox
-   * impl (agentRuntimeDepsFromEnv) — SEC9: the only runtime. The default
+   * impl (agentRuntimeDepsFromConfig) — SEC9: the only runtime. The default
    * (runAgentBackend in-process) exists for tests, which exercise the
    * core without a sandbox. The DB-bound prologue/epilogue stay host-side.
    */

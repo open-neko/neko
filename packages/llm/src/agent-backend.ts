@@ -70,12 +70,27 @@ export type AgentEvent =
   // structured-output payloads (a2ui fences, tool-call JSON, etc.) here — use
   // the `surface` event for cards.
   | { type: "message"; role: "user" | "assistant"; content: string }
+  /** Hermes ACP's provider-neutral, model-authored mid-turn commentary. */
+  | { type: "interim"; id: string; content: string; source: "hermes_interim_assistant" }
   | { type: "tool_start"; id: string; name: string; input?: unknown }
   | { type: "tool_delta"; id: string; delta: unknown }
   | { type: "tool_end"; id: string; result?: unknown; error?: string }
   | { type: "surface"; messages: AgentSurfaceMessage[] }
   | { type: "artifact"; artifact: AgentArtifact }
   | { type: "status"; message: string }
+  | {
+      /**
+       * A provider-authored, user-visible summary of the current model step.
+       * This is never raw hidden reasoning and never comes from a second
+       * inference. Backends must emit it only when the provider explicitly
+       * labels the stream as a thought summary.
+       */
+      type: "progress";
+      id: string;
+      content: string;
+      source: "provider_summary";
+      provider: "google-gemini" | "anthropic";
+    }
   | {
       type: "usage";
       source: "outer" | "inner";

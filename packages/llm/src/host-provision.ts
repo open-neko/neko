@@ -16,10 +16,18 @@ import {
 } from "@neko/db";
 import { maybeDecryptSecret } from "./secrets";
 import { VENDORED_HERMES_MODEL_BINARY } from "./agent-runtime-contract";
+import { isPrimaryProvider } from "./config";
 import { hermesHomeForOrg } from "./hermes-home";
+import { getGoogleToken } from "./llm";
+import {
+  resolveHermesProviderRuntime,
+  type HermesProviderRuntime,
+  type ProviderEndpoint,
+} from "./provider-runtime";
 import {
   ensureOpenShellProvider,
   verifyOpenShellGateway,
+  type AgentRuntimeLaunchConfig,
 } from "./work/sandbox-launcher";
 
 const HERMES_DEFAULT_MAX_TURNS = 25;
@@ -270,40 +278,6 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
   }
 }
 
-function mapHermesProvider(neko: string): {
-  provider: string;
-  keyVar: string;
-  needsBaseUrl: boolean;
-} {
-  switch (neko) {
-    case "anthropic":
-      return { provider: "anthropic", keyVar: "ANTHROPIC_API_KEY", needsBaseUrl: false };
-    case "openai":
-      return { provider: "openai", keyVar: "OPENAI_API_KEY", needsBaseUrl: false };
-    case "openrouter":
-      return { provider: "openrouter", keyVar: "OPENROUTER_API_KEY", needsBaseUrl: false };
-    case "google-gemini":
-      return { provider: "gemini", keyVar: "GEMINI_API_KEY", needsBaseUrl: false };
-    case "vertex":
-      return { provider: "custom", keyVar: "OPENAI_API_KEY", needsBaseUrl: true };
-    case "x-grok":
-      return { provider: "openrouter", keyVar: "OPENROUTER_API_KEY", needsBaseUrl: false };
-    case "ollama":
-    case "azure-openai":
-      return {
-        provider: "custom",
-        keyVar: `${neko.toUpperCase().replace(/-/g, "_")}_API_KEY`,
-        needsBaseUrl: true,
-      };
-    default:
-      return {
-        provider: neko,
-        keyVar: `${neko.toUpperCase().replace(/-/g, "_")}_API_KEY`,
-        needsBaseUrl: false,
-      };
-  }
-}
-
 function decryptSecrets(secrets: Record<string, unknown> | null): Record<string, string> {
   if (!secrets) return {};
   const out: Record<string, string> = {};
@@ -376,6 +350,30 @@ function hermesDelegationConfigLines(): string[] {
   ];
 }
 
+export function hermesNativeReasoningConfigLines(nekoProvider: string): string[] {
+  if (nekoProvider === "anthropic" || nekoProvider === "google-gemini") {
+    // Keep native provider summaries consistently enabled during tool-heavy
+    // runs. Lower effort can let a model skip thinking on individual steps,
+    // which makes otherwise active runs appear silent.
+    return ['  reasoning_effort: "high"'];
+  }
+  return [];
+}
+
+export function hermesModelConfigLines(runtime: HermesProviderRuntime): string[] {
+  const lines = [
+    "model:",
+    `  default: "${escapeYamlString(runtime.model)}"`,
+    `  provider: "${runtime.provider}"`,
+    `  base_url: "${escapeYamlString(runtime.baseUrl)}"`,
+  ];
+  if (runtime.apiMode) lines.push(`  api_mode: "${runtime.apiMode}"`);
+  if (runtime.provider === "custom" && runtime.keyEnv) {
+    lines.push(`  api_key: "\${${runtime.keyEnv}}"`);
+  }
+  return lines;
+}
+
 async function provisionHermes(orgId: string): Promise<void> {
   const row = await loadProviderRow(orgId, "primary");
   const hermesHome = hermesHomeForOrg(orgId);
@@ -387,36 +385,35 @@ async function provisionHermes(orgId: string): Promise<void> {
     return;
   }
 
-  const { provider, keyVar, needsBaseUrl } = mapHermesProvider(row.provider);
-  const cfg = (row.config ?? {}) as { url?: string; baseUrl?: string };
-  const baseUrl = cfg.baseUrl || cfg.url;
+  if (!isPrimaryProvider(row.provider)) {
+    throw new Error(`Unsupported primary provider: ${row.provider}`);
+  }
+  const runtime = resolveHermesProviderRuntime({
+    provider: row.provider,
+    model: row.model ?? "",
+    config: row.config,
+  });
   const secrets = decryptSecrets(row.secrets);
   const apiKey = secrets.apiKey;
-  const model = row.model ?? "";
 
   await mkdir(hermesHome, { recursive: true });
 
-  const yamlLines = [
-    "model:",
-    `  default: "${escapeYamlString(model)}"`,
-    `  provider: "${provider}"`,
-  ];
-  if (baseUrl) yamlLines.push(`  base_url: "${escapeYamlString(baseUrl)}"`);
-  if (provider === "custom" && needsBaseUrl && !baseUrl) {
-    console.warn(
-      `[host-provision] hermes: provider=custom but no base_url for ${row.provider}; user must add it in /admin/settings/agent`,
-    );
-  }
+  const yamlLines = hermesModelConfigLines(runtime);
   yamlLines.push("");
   yamlLines.push("agent:");
   yamlLines.push(`  max_turns: ${HERMES_DEFAULT_MAX_TURNS}`);
+  // Hermes translates this into the provider's native thinking controls on
+  // the same request. Gemini receives includeThoughts=true; Anthropic receives
+  // thinking.display="summarized". Neither path makes a second model call or
+  // asks the model to narrate progress in the prompt.
+  yamlLines.push(...hermesNativeReasoningConfigLines(row.provider));
   yamlLines.push("");
   yamlLines.push(...hermesDelegationConfigLines());
   yamlLines.push("");
 
   await atomicWriteFile(join(hermesHome, "config.yaml"), yamlLines.join("\n"));
 
-  const envContent = apiKey ? `${keyVar}=${apiKey}\n` : "";
+  const envContent = apiKey && runtime.keyEnv ? `${runtime.keyEnv}=${apiKey}\n` : "";
   await atomicWriteFile(join(hermesHome, ".env"), envContent, { mode: 0o600 });
   await chmod(join(hermesHome, ".env"), 0o600);
 }
@@ -424,17 +421,6 @@ async function provisionHermes(orgId: string): Promise<void> {
 function escapeYamlString(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
-
-// API host per neko model-provider when there's no explicit base_url. A handful
-// of providers (NOT the 300 model variants) — derived from the org's config,
-// never hand-set per deployment.
-const PROVIDER_API_HOSTS: Record<string, string> = {
-  "google-gemini": "generativelanguage.googleapis.com",
-  anthropic: "api.anthropic.com",
-  openai: "api.openai.com",
-  openrouter: "openrouter.ai",
-  "x-grok": "openrouter.ai",
-};
 
 /**
  * Derive the agent-sandbox egress from the org's model config: the API host
@@ -444,21 +430,18 @@ const PROVIDER_API_HOSTS: Record<string, string> = {
  */
 function deriveAgentEgress(
   row: StoredRow,
-): { hosts: string[]; keyEnv: string } {
-  const cfg = (row.config ?? {}) as { url?: string; baseUrl?: string };
-  const baseUrl = cfg.baseUrl || cfg.url;
-  let host: string | undefined;
-  if (baseUrl) {
-    try {
-      host = new URL(baseUrl).host;
-    } catch {
-      /* fall through to the provider default */
-    }
+): { endpoints: ProviderEndpoint[]; runtime: HermesProviderRuntime } {
+  if (!isPrimaryProvider(row.provider)) {
+    throw new Error(`Unsupported primary provider: ${row.provider}`);
   }
-  host ??= PROVIDER_API_HOSTS[row.provider];
+  const runtime = resolveHermesProviderRuntime({
+    provider: row.provider,
+    model: row.model ?? "",
+    config: row.config,
+  });
   return {
-    hosts: [...(host ? [host] : []), "models.dev"],
-    keyEnv: mapHermesProvider(row.provider).keyVar,
+    endpoints: [runtime.endpoint, { host: "models.dev" }],
+    runtime,
   };
 }
 
@@ -470,13 +453,10 @@ function deriveAgentEgress(
  * provider create` + hand-set egress env.
  */
 // Operator-supplied provider/host/key/home values win permanently; empty or
-// unset means "derive from the org's provider config". The model executable is
-// intentionally absent: it is a vendored runtime contract, never an operator
-// setting. Values here are snapshotted at module load,
-// BEFORE any provisioning pass mutates process.env — the previous `||=`
-// writes made the FIRST pass's derived values permanent, so a provider
-// switch left the sandbox egress allowlist and key env var pinned to the old
-// provider until the process restarted.
+// unset means "derive from the org's provider config". These values are
+// read-only. Persisted provider settings must never be copied into process.env:
+// Next.js can evaluate route bundles at different times, causing one bundle to
+// mistake another bundle's derived values for operator overrides.
 const OPERATOR_AGENT_ENV = {
   provider: process.env.OPENNEKO_AGENT_MODEL_PROVIDER || "",
   host: process.env.OPENNEKO_AGENT_MODEL_HOST || "",
@@ -484,55 +464,90 @@ const OPERATOR_AGENT_ENV = {
   hermesHome: process.env.OPENNEKO_AGENT_HERMES_HOME || "",
 };
 
-function setAgentEnv(key: string, operator: string, derived: string): void {
-  const value = operator || derived;
-  if (value) process.env[key] = value;
-  else delete process.env[key];
+function modelHosts(value: string): ProviderEndpoint[] {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      if (entry.includes("://")) {
+        const url = new URL(entry);
+        return {
+          host: url.hostname,
+          ...(url.port
+            ? { port: Number(url.port) }
+            : url.protocol === "http:"
+              ? { port: 80 }
+              : {}),
+        };
+      }
+      const hostPort = /^(.*):(\d+)$/.exec(entry);
+      return hostPort
+        ? { host: hostPort[1]!, port: Number(hostPort[2]) }
+        : { host: entry };
+    });
 }
 
-async function provisionOpenShellRuntime(orgId: string): Promise<void> {
+function serializeModelEndpoint(endpoint: ProviderEndpoint): string {
+  return endpoint.port ? `${endpoint.host}:${endpoint.port}` : endpoint.host;
+}
+
+export function gatewayProviderName(orgId: string): string {
+  return `openneko-agent-${createHash("sha256").update(orgId).digest("hex").slice(0, 16)}`;
+}
+
+function agentRuntimeLaunchConfig(args: {
+  orgId: string;
+  derivedEndpoints?: ProviderEndpoint[];
+  derivedKeyEnv?: string;
+  hasApiKey: boolean;
+}): AgentRuntimeLaunchConfig {
+  const derivedEndpoints = args.derivedEndpoints ?? [];
+  const keyEnv = OPERATOR_AGENT_ENV.keyEnv || args.derivedKeyEnv || "";
+  const credentialName =
+    process.env.OPENNEKO_AGENT_MODEL_CREDENTIAL || "api_key";
+  const modelProvider =
+    OPERATOR_AGENT_ENV.provider ||
+    (args.hasApiKey ? gatewayProviderName(args.orgId) : "");
+  const hermesHome =
+    OPERATOR_AGENT_ENV.hermesHome ||
+    (derivedEndpoints.length > 0 ? hermesHomeForOrg(args.orgId) : "");
+
+  return {
+    ...(modelProvider ? { modelProvider } : {}),
+    modelHosts: OPERATOR_AGENT_ENV.host
+      ? modelHosts(OPERATOR_AGENT_ENV.host)
+      : derivedEndpoints,
+    ...(keyEnv
+      ? { keyAliases: [{ from: credentialName, to: keyEnv }] }
+      : {}),
+    ...(hermesHome ? { hermesHomeHostPath: hermesHome } : {}),
+  };
+}
+
+async function provisionOpenShellRuntime(
+  orgId: string,
+): Promise<AgentRuntimeLaunchConfig> {
   const row = await loadProviderRow(orgId, "primary");
   if (!row || !row.enabled) {
-    setAgentEnv(
-      "OPENNEKO_AGENT_MODEL_PROVIDER",
-      OPERATOR_AGENT_ENV.provider,
-      "",
-    );
-    setAgentEnv("OPENNEKO_AGENT_MODEL_HOST", OPERATOR_AGENT_ENV.host, "");
-    setAgentEnv(
-      "OPENNEKO_AGENT_MODEL_KEY_ENV",
-      OPERATOR_AGENT_ENV.keyEnv,
-      "",
-    );
-    setAgentEnv(
-      "OPENNEKO_AGENT_HERMES_HOME",
-      OPERATOR_AGENT_ENV.hermesHome,
-      "",
-    );
-    return;
+    return agentRuntimeLaunchConfig({ orgId, hasApiKey: false });
   }
 
-  const { hosts, keyEnv } = deriveAgentEgress(row);
-  const apiKey = decryptSecrets(row.secrets).apiKey;
-  setAgentEnv(
-    "OPENNEKO_AGENT_MODEL_PROVIDER",
-    OPERATOR_AGENT_ENV.provider,
-    apiKey ? "openneko-agent" : "",
-  );
-  setAgentEnv("OPENNEKO_AGENT_MODEL_HOST", OPERATOR_AGENT_ENV.host, hosts.join(","));
-  setAgentEnv("OPENNEKO_AGENT_MODEL_KEY_ENV", OPERATOR_AGENT_ENV.keyEnv, keyEnv);
-  // hermes reads its model + provider from config.yaml under HERMES_HOME. In the
-  // sandbox that config must be MIRRORED in — the launcher does so when
-  // OPENNEKO_AGENT_HERMES_HOME points at the host home provisionHermes writes.
-  // Without it, in-box hermes finds no config and silently falls back to a
-  // default model that 404s.
-  setAgentEnv(
-    "OPENNEKO_AGENT_HERMES_HOME",
-    OPERATOR_AGENT_ENV.hermesHome,
-    hermesHomeForOrg(orgId),
-  );
+  const { endpoints, runtime } = deriveAgentEgress(row);
+  const apiKey =
+    runtime.credentialSource === "google-adc"
+      ? await getGoogleToken()
+      : runtime.credentialSource === "stored-api-key"
+        ? decryptSecrets(row.secrets).apiKey
+        : undefined;
+  const launchConfig = agentRuntimeLaunchConfig({
+    orgId,
+    derivedEndpoints: endpoints,
+    derivedKeyEnv: runtime.keyEnv,
+    hasApiKey: Boolean(apiKey),
+  });
 
-  if (!apiKey) return;
+  if (!apiKey) return launchConfig;
   // The gateway can be restarting exactly while we register the provider
   // (deploys recreate it alongside the worker). A single failed attempt
   // used to be swallowed upstream, leaving a healthy worker with no
@@ -541,7 +556,7 @@ async function provisionOpenShellRuntime(orgId: string): Promise<void> {
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       await ensureOpenShellProvider({
-        providerName: process.env.OPENNEKO_AGENT_MODEL_PROVIDER ?? "openneko-agent",
+        providerName: launchConfig.modelProvider ?? "openneko-agent",
         apiKey,
         gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
         gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
@@ -561,8 +576,9 @@ async function provisionOpenShellRuntime(orgId: string): Promise<void> {
   }
   if (lastError !== undefined) throw lastError;
   console.log(
-    `[host-provision] OpenShell agent runtime self-configured: provider="${process.env.OPENNEKO_AGENT_MODEL_PROVIDER}" egress="${hosts.join(",")}" binary="${VENDORED_HERMES_MODEL_BINARY}" keyEnv=${keyEnv}`,
+    `[host-provision] OpenShell agent runtime self-configured: provider="${launchConfig.modelProvider ?? ""}" egress="${launchConfig.modelHosts?.map(serializeModelEndpoint).join(",") ?? ""}" binary="${VENDORED_HERMES_MODEL_BINARY}" keyEnv=${launchConfig.keyAliases?.[0]?.to ?? ""}`,
   );
+  return launchConfig;
 }
 
 /**
@@ -584,7 +600,8 @@ export async function verifyAgentRuntimeReady(orgId: string): Promise<void> {
 
 type HostProvisionState = {
   appliedRevision?: string;
-  tail: Promise<void>;
+  launchConfig?: AgentRuntimeLaunchConfig;
+  tail: Promise<AgentRuntimeLaunchConfig>;
 };
 
 const provisionedOrgs = new Map<string, HostProvisionState>();
@@ -597,7 +614,9 @@ type ProvisionHostConfigOptions = {
 /** Build a content revision without retaining provider secrets in process
  * state. Every setting that changes the files or sandbox launch contract is
  * covered, including same-provider key rotation. */
-async function hostConfigRevision(orgId: string): Promise<string> {
+async function hostConfigRevision(
+  orgId: string,
+): Promise<{ revision: string; refreshCredential: boolean }> {
   const [providers, sources] = await Promise.all([
     db()
       .select({
@@ -633,9 +652,17 @@ async function hostConfigRevision(orgId: string): Promise<string> {
       .orderBy(desc(data_source.is_default), data_source.created_at),
   ]);
 
-  return createHash("sha256")
-    .update(JSON.stringify({ providers, sources }))
-    .digest("hex");
+  return {
+    revision: createHash("sha256")
+      .update(JSON.stringify({ providers, sources }))
+      .digest("hex"),
+    // Vertex access tokens are short-lived. Re-mint and replace the
+    // gateway-side credential for every run instead of memoizing it like a
+    // static API key. The token remains outside the sandbox.
+    refreshCredential: providers.some(
+      (provider) => provider.scope === "primary" && provider.provider === "vertex",
+    ),
+  };
 }
 
 /**
@@ -647,34 +674,57 @@ async function hostConfigRevision(orgId: string): Promise<string> {
  * worker. Calls for one org are serialized so a key rotation or provider
  * family switch cannot race two writers against the same Hermes files.
  */
-export async function ensureHostConfigProvisioned(orgId: string): Promise<void> {
-  const requestedRevision = await hostConfigRevision(orgId);
+export async function ensureHostConfigProvisioned(
+  orgId: string,
+): Promise<AgentRuntimeLaunchConfig> {
+  const requested = await hostConfigRevision(orgId);
   let state = provisionedOrgs.get(orgId);
   if (!state) {
-    state = { tail: Promise.resolve() };
+    state = {
+      tail: Promise.resolve(
+        agentRuntimeLaunchConfig({ orgId, hasApiKey: false }),
+      ),
+    };
     provisionedOrgs.set(orgId, state);
   }
-  if (state.appliedRevision === requestedRevision) return;
+  if (
+    state.appliedRevision === requested.revision &&
+    state.launchConfig &&
+    !requested.refreshCredential
+  ) {
+    return state.launchConfig;
+  }
 
-  const run = state.tail.catch(() => undefined).then(async () => {
+  const provisionState = state;
+  const run = provisionState.tail.catch(() =>
+    agentRuntimeLaunchConfig({ orgId, hasApiKey: false }),
+  ).then(async () => {
     // Re-read after earlier callers finish. A settings save may have landed
     // while this call was queued, and only the newest revision should win.
-    const currentRevision = await hostConfigRevision(orgId);
-    if (state.appliedRevision === currentRevision) return;
-    await provisionHostConfig(orgId, {
+    const current = await hostConfigRevision(orgId);
+    if (
+      provisionState.appliedRevision === current.revision &&
+      provisionState.launchConfig &&
+      !current.refreshCredential
+    ) {
+      return provisionState.launchConfig;
+    }
+    const launchConfig = await provisionHostConfig(orgId, {
       requireOpenShellSync: true,
       requireHermesSync: true,
     });
-    state.appliedRevision = currentRevision;
+    provisionState.appliedRevision = current.revision;
+    provisionState.launchConfig = launchConfig;
+    return launchConfig;
   });
-  state.tail = run;
-  await run;
+  provisionState.tail = run;
+  return run;
 }
 
 export async function provisionHostConfig(
   orgId: string,
   options: ProvisionHostConfigOptions = {},
-): Promise<void> {
+): Promise<AgentRuntimeLaunchConfig> {
   try {
     await provisionGraphJin(orgId);
   } catch (e) {
@@ -692,8 +742,9 @@ export async function provisionHostConfig(
   }
 
   let openShellError: unknown;
+  let launchConfig = agentRuntimeLaunchConfig({ orgId, hasApiKey: false });
   try {
-    await provisionOpenShellRuntime(orgId);
+    launchConfig = await provisionOpenShellRuntime(orgId);
   } catch (e) {
     openShellError = e;
     console.warn(
@@ -717,4 +768,5 @@ export async function provisionHostConfig(
   if (hermesError && options.requireHermesSync) {
     throw hermesError;
   }
+  return launchConfig;
 }

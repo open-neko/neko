@@ -1,9 +1,14 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   chunkNotification,
   createMockSpawn,
+  interimNotification,
   makeController,
   NO_RESPONSE,
+  thoughtNotification,
   toolCallNotification,
   toolCallUpdateNotification,
 } from "./helpers/fake-acp-process";
@@ -25,8 +30,24 @@ beforeEach(() => {
   controller.setScript({});
 });
 
-afterEach(() => {
+const temporaryHermesHomes: string[] = [];
+
+async function useHermesConfig(yaml: string): Promise<string> {
+  const home = await mkdtemp(join(tmpdir(), "openneko-hermes-test-"));
+  temporaryHermesHomes.push(home);
+  await writeFile(join(home, "config.yaml"), yaml, "utf8");
+  vi.stubEnv("HERMES_HOME", home);
+  return home;
+}
+
+afterEach(async () => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  await Promise.all(
+    temporaryHermesHomes.splice(0).map((home) =>
+      rm(home, { recursive: true, force: true }),
+    ),
+  );
 });
 
 const { HermesBackend } = await import("../src/agent-backends/hermes");
@@ -136,6 +157,225 @@ describe("HermesBackend ACP behavior", () => {
       .map((e) => e.content);
     expect(messageContents).toEqual(["a", "b", "c"]);
     expect(result.finalText).toBe("abc");
+  });
+
+  it("keeps Hermes interim commentary separate from the final answer", async () => {
+    const sessionId = "sess-interim";
+    controller.setScript({
+      responders: {
+        "session/new": () => ({ sessionId }),
+        "session/prompt": (_p, ctx) => {
+          ctx.emitNotification(
+            interimNotification(sessionId, "I’ll inspect the sales records first."),
+          );
+          ctx.emitNotification(
+            toolCallNotification(sessionId, "tc-sales", {
+              kind: "read",
+              title: "Inspect sales data",
+            }),
+          );
+          ctx.emitNotification(
+            toolCallUpdateNotification(sessionId, "tc-sales", {
+              status: "completed",
+              rawOutput: "ok",
+            }),
+          );
+          ctx.emitNotification(
+            chunkNotification(sessionId, "Revenue increased over the period."),
+          );
+          return { stopReason: "end_turn" };
+        },
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+
+    const result = await new HermesBackend().run({
+      prompt: "p",
+      workspace: FAKE_WORKSPACE,
+      onEvent: (event) => events.push(event as unknown as Record<string, unknown>),
+    });
+
+    expect(events.map((event) => event.type)).toEqual([
+      "interim",
+      "tool_start",
+      "tool_end",
+      "message",
+    ]);
+    expect(events[0]).toMatchObject({
+      type: "interim",
+      content: "I’ll inspect the sales records first.",
+      source: "hermes_interim_assistant",
+    });
+    expect(result.finalText).toBe("Revenue increased over the period.");
+  });
+
+  it("emits Gemini thought summaries as same-call progress before tools and prose", async () => {
+    await useHermesConfig([
+      "model:",
+      '  default: "gemini-3.6-flash"',
+      '  provider: "gemini"',
+      "agent:",
+      '  reasoning_effort: "medium"',
+      "",
+    ].join("\n"));
+    const sessionId = "sess-gemini-summaries";
+    let promptCalls = 0;
+    controller.setScript({
+      responders: {
+        "session/new": () => ({ sessionId }),
+        "session/prompt": (_p, ctx) => {
+          promptCalls += 1;
+          ctx.emitNotification(thoughtNotification(sessionId, "I’m checking "));
+          ctx.emitNotification(thoughtNotification(sessionId, "the sales records."));
+          ctx.emitNotification(
+            toolCallNotification(sessionId, "tc-sales", {
+              kind: "read",
+              title: "Inspect sales data",
+            }),
+          );
+          ctx.emitNotification(
+            toolCallUpdateNotification(sessionId, "tc-sales", {
+              status: "completed",
+              rawOutput: "ok",
+            }),
+          );
+          ctx.emitNotification(
+            thoughtNotification(sessionId, "I found the top performers."),
+          );
+          ctx.emitNotification(chunkNotification(sessionId, "Here are the results."));
+          return { stopReason: "end_turn" };
+        },
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+
+    await new HermesBackend().run({
+      prompt: "p",
+      workspace: FAKE_WORKSPACE,
+      onEvent: (event) => events.push(event as unknown as Record<string, unknown>),
+    });
+
+    expect(promptCalls).toBe(1);
+    expect(events.map((event) => event.type)).toEqual([
+      "progress",
+      "tool_start",
+      "tool_end",
+      "progress",
+      "message",
+    ]);
+    expect(events.filter((event) => event.type === "progress")).toEqual([
+      {
+        type: "progress",
+        id: "google-gemini-summary-sess-gemini-summaries-1",
+        content: "I’m checking the sales records.",
+        source: "provider_summary",
+        provider: "google-gemini",
+      },
+      {
+        type: "progress",
+        id: "google-gemini-summary-sess-gemini-summaries-2",
+        content: "I found the top performers.",
+        source: "provider_summary",
+        provider: "google-gemini",
+      },
+    ]);
+  });
+
+  it("emits Anthropic summarized thinking as same-call progress", async () => {
+    await useHermesConfig([
+      "model:",
+      '  default: "claude-sonnet-5"',
+      '  provider: "anthropic"',
+      "agent:",
+      '  reasoning_effort: "medium"',
+      "",
+    ].join("\n"));
+    const sessionId = "sess-anthropic-summaries";
+    controller.setScript({
+      responders: {
+        "session/new": () => ({ sessionId }),
+        "session/prompt": (_p, ctx) => {
+          ctx.emitNotification(thoughtNotification(sessionId, "Checking the quarterly totals."));
+          ctx.emitNotification(
+            toolCallNotification(sessionId, "tc-revenue", {
+              kind: "read",
+              title: "Query revenue",
+            }),
+          );
+          ctx.emitNotification(
+            toolCallUpdateNotification(sessionId, "tc-revenue", {
+              status: "completed",
+              rawOutput: "ok",
+            }),
+          );
+          ctx.emitNotification(thoughtNotification(sessionId, "Comparing quarter-over-quarter changes."));
+          ctx.emitNotification(chunkNotification(sessionId, "Public answer"));
+          return { stopReason: "end_turn" };
+        },
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+
+    await new HermesBackend().run({
+      prompt: "p",
+      workspace: FAKE_WORKSPACE,
+      onEvent: (event) => events.push(event as unknown as Record<string, unknown>),
+    });
+
+    expect(events.map((event) => event.type)).toEqual([
+      "progress",
+      "tool_start",
+      "tool_end",
+      "progress",
+      "message",
+    ]);
+    expect(events.filter((event) => event.type === "progress")).toEqual([
+      {
+        type: "progress",
+        id: "anthropic-summary-sess-anthropic-summaries-1",
+        content: "Checking the quarterly totals.",
+        source: "provider_summary",
+        provider: "anthropic",
+      },
+      {
+        type: "progress",
+        id: "anthropic-summary-sess-anthropic-summaries-2",
+        content: "Comparing quarter-over-quarter changes.",
+        source: "provider_summary",
+        provider: "anthropic",
+      },
+    ]);
+  });
+
+  it("does not expose generic ACP reasoning streams from other providers", async () => {
+    await useHermesConfig([
+      "model:",
+      '  default: "gpt-5.4"',
+      '  provider: "openai"',
+      "agent:",
+      '  reasoning_effort: "medium"',
+      "",
+    ].join("\n"));
+    const sessionId = "sess-private-reasoning";
+    controller.setScript({
+      responders: {
+        "session/new": () => ({ sessionId }),
+        "session/prompt": (_p, ctx) => {
+          ctx.emitNotification(thoughtNotification(sessionId, "private reasoning"));
+          ctx.emitNotification(chunkNotification(sessionId, "Public answer"));
+          return { stopReason: "end_turn" };
+        },
+      },
+    });
+    const events: Array<{ type: string }> = [];
+
+    await new HermesBackend().run({
+      prompt: "p",
+      workspace: FAKE_WORKSPACE,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(events.map((event) => event.type)).toEqual(["message"]);
   });
 
   it("retries a content-free end_turn, then fails instead of completing empty", async () => {

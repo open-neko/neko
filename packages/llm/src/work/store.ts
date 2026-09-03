@@ -5,6 +5,7 @@ import {
   desc,
   eq,
   gte,
+  inArray,
   isNull,
   sql,
   work_message,
@@ -350,7 +351,15 @@ export async function finishWorkRun(
       updated_at: new Date(),
       finished_at: new Date(),
     })
-    .where(eq(work_run.id, runId))
+    // A terminal state is final. This also prevents a detached agent process
+    // from overwriting a cancellation if it returns after the control plane
+    // has already recovered the run.
+    .where(
+      and(
+        eq(work_run.id, runId),
+        inArray(work_run.status, ["queued", "running"]),
+      ),
+    )
     .returning({ orgId: work_run.org_id });
   if (rows[0]) {
     const { recordAuditEvent } = await import("../workflows/audit-chain");
@@ -362,6 +371,44 @@ export async function finishWorkRun(
       payload: { status, error },
     });
   }
+}
+
+/**
+ * Terminalize a queued/running run whose in-process owner is gone.
+ * Returns true only when this call won the terminal-state transition.
+ */
+export async function cancelWorkRunIfActive(
+  runId: string,
+  error: string | null,
+): Promise<boolean> {
+  const now = new Date();
+  const rows = await db()
+    .update(work_run)
+    .set({
+      status: "cancelled",
+      error,
+      updated_at: now,
+      finished_at: now,
+    })
+    .where(
+      and(
+        eq(work_run.id, runId),
+        inArray(work_run.status, ["queued", "running"]),
+      ),
+    )
+    .returning({ orgId: work_run.org_id });
+
+  if (!rows[0]) return false;
+
+  const { recordAuditEvent } = await import("../workflows/audit-chain");
+  await recordAuditEvent({
+    orgId: rows[0].orgId,
+    entityKind: "work_run",
+    entityId: runId,
+    event: "run:cancelled",
+    payload: { status: "cancelled", error },
+  });
+  return true;
 }
 
 // Persist a run's agent-estimated analysis value (server-clamped minutes +

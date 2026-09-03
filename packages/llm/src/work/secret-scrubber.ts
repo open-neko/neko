@@ -98,6 +98,7 @@ export function scrubAgentEvent<T>(scrubber: Scrubber, event: T): T {
   const e = event as Record<string, unknown>;
   switch (e.type) {
     case "message":
+    case "interim":
       return {
         ...e,
         content: typeof e.content === "string" ? scrubber(e.content) : e.content,
@@ -129,10 +130,16 @@ export function scrubAgentEvent<T>(scrubber: Scrubber, event: T): T {
         artifact: scrubJson(scrubber, e.artifact),
       } as T;
     case "status":
+    case "progress":
     case "error":
       return {
         ...e,
-        message: typeof e.message === "string" ? scrubber(e.message) : e.message,
+        ...(typeof e.message === "string"
+          ? { message: scrubber(e.message) }
+          : {}),
+        ...(typeof e.content === "string"
+          ? { content: scrubber(e.content) }
+          : {}),
       } as T;
     case "done":
       return {

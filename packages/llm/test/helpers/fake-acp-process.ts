@@ -237,6 +237,40 @@ export function chunkNotification(sessionId: string, text: string) {
   };
 }
 
+export function interimNotification(sessionId: string, text: string) {
+  return {
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
+        _meta: {
+          hermes: {
+            interim: true,
+            already_streamed: false,
+          },
+        },
+      },
+    },
+  };
+}
+
+export function thoughtNotification(sessionId: string, text: string) {
+  return {
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId,
+      update: {
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text },
+      },
+    },
+  };
+}
+
 export function toolCallNotification(sessionId: string, toolCallId: string, opts: { kind?: string; title?: string; locations?: Array<{ path: string }> } = {}) {
   return {
     jsonrpc: "2.0",

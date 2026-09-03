@@ -124,12 +124,14 @@ import {
 import { Pill } from "@/components/ui/Pill";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Field";
+import { Disclosure } from "@/components/ui/Disclosure";
 import { renderComponent, renderChildren } from "@/a2ui/renderer";
 import { applyMessage, getRootComponent, setDataModelValue } from "@/a2ui/surface";
 import { buildActionFollowUp } from "@/a2ui/action";
 import type { SurfaceState, A2UIMessage } from "@/a2ui/types";
 import { useWorkShell } from "../work-shell-context";
 import { formatSavedShort } from "@/lib/hours-saved";
+import { presentWorkFailure } from "@/lib/work-failure";
 
 type AnswerVital = {
   label: string;
@@ -166,12 +168,20 @@ export type WorkEvent =
   // reconstructs the full assistant text. Mirrors `AgentEvent.message` in
   // packages/llm/src/agent-backend.ts.
   | { type: "message"; role: "user" | "assistant"; content: string }
+  | { type: "interim"; id: string; content: string; source: "hermes_interim_assistant" }
   | { type: "tool_start"; id: string; name: string; input?: unknown }
   | { type: "tool_delta"; id: string; delta: unknown }
   | { type: "tool_end"; id: string; result?: unknown; error?: string }
   | { type: "surface"; messages: A2UIMessage[] }
   | { type: "artifact"; artifact: { path: string; label: string; mimeType?: string } }
   | { type: "status"; message: string }
+  | {
+      type: "progress";
+      id: string;
+      content: string;
+      source: "provider_summary";
+      provider: "google-gemini" | "anthropic";
+    }
   | { type: "error"; message: string }
   | {
       type: "capability_denied";
@@ -985,6 +995,7 @@ export default function WorkScreen() {
     if (activeThreadIdRef.current !== threadId) return;
 
     setSending(false);
+    setStreamError(null);
     updateActiveRunId(null);
     await loadThread(threadId);
     window.setTimeout(() => {
@@ -1356,9 +1367,7 @@ export default function WorkScreen() {
           })
         ) : null}
 
-        {streamError ? (
-          <div className="work-stream-error" role="alert">{streamError}</div>
-        ) : null}
+        {streamError ? <WorkFailureNotice message={streamError} /> : null}
         <div ref={endRef} />
       </div>
 
@@ -1934,6 +1943,8 @@ type ApprovalItem = {
 
 type TimelineItem =
   | { kind: "text"; content: string }
+  | { kind: "interim"; id: string; content: string }
+  | { kind: "progress"; id: string; content: string }
   | { kind: "tools"; tools: ToolItem[] }
   | { kind: "surface"; messages: A2UIMessage[] }
   | {
@@ -1979,6 +1990,13 @@ function surfaceIdOf(messages: A2UIMessage[]): string | null {
   return null;
 }
 
+function canonicalAnswerCreateId(message: A2UIMessage): string | null {
+  if (!("createSurface" in message)) return null;
+  return isCanonicalAnswerSurface([message])
+    ? message.createSurface.surfaceId
+    : null;
+}
+
 function isCanonicalAnswerSurface(messages: A2UIMessage[]): boolean {
   const components = surfaceComponents(messages);
   const hasAnswer = [...components.values()].some(
@@ -1990,20 +2008,6 @@ function isCanonicalAnswerSurface(messages: A2UIMessage[]): boolean {
     ),
   );
   return hasAnswer && carriesAnswer;
-}
-
-function canonicalSurfaceContainsNarrative(messages: A2UIMessage[]): boolean {
-  return [...surfaceComponents(messages).values()].some((component) =>
-    [
-      "Markdown",
-      "Table",
-      "Callout",
-      "Text",
-      "Confirmation",
-      "Choice",
-      "ChoicePicker",
-    ].includes(String(component.component)),
-  );
 }
 
 function withVitalProvenance(
@@ -2294,8 +2298,14 @@ export function buildRunTimeline(events: WorkEvent[], runId: string): {
 } {
   const items: TimelineItem[] = [];
   const toolsById = new Map<string, ToolItem>();
+  const progressById = new Map<
+    string,
+    Extract<TimelineItem, { kind: "progress" }>
+  >();
   const approvalToolByRequest = new Map<string, ToolItem>();
   let surfaceItem: Extract<TimelineItem, { kind: "surface" }> | null = null;
+  let canonicalAnswerSurfaceId: string | null = null;
+  const supersededAnswerSurfaceIds = new Set<string>();
   const denialKeys = new Set<string>();
   const sources = new Set<string>();
   const artifacts: RunArtifact[] = [];
@@ -2317,6 +2327,27 @@ export function buildRunTimeline(events: WorkEvent[], runId: string): {
       case "message": {
         if (event.role !== "assistant") break;
         pendingText += event.content;
+        break;
+      }
+      case "interim": {
+        flushTextSegment();
+        items.push({ kind: "interim", id: event.id, content: event.content });
+        break;
+      }
+      case "progress": {
+        flushTextSegment();
+        const existing = progressById.get(event.id);
+        if (existing) {
+          existing.content += event.content;
+          break;
+        }
+        const item: Extract<TimelineItem, { kind: "progress" }> = {
+          kind: "progress",
+          id: event.id,
+          content: event.content,
+        };
+        progressById.set(event.id, item);
+        items.push(item);
         break;
       }
       case "tool_start": {
@@ -2395,7 +2426,44 @@ export function buildRunTimeline(events: WorkEvent[], runId: string): {
           surfaceItem = { kind: "surface", messages: [] };
           items.push(surfaceItem);
         }
-        surfaceItem.messages.push(...event.messages);
+        for (const message of event.messages) {
+          const nextAnswerSurfaceId = canonicalAnswerCreateId(message);
+          if (
+            nextAnswerSurfaceId &&
+            canonicalAnswerSurfaceId &&
+            nextAnswerSurfaceId !== canonicalAnswerSurfaceId
+          ) {
+            // A Work run owns one canonical answer. If the agent retries that
+            // answer with a fresh surface id, treat the later create as a
+            // revision instead of replaying both reports. Other A2UI surfaces
+            // (forms, confirmations, and protocol updates) remain independent.
+            supersededAnswerSurfaceIds.add(canonicalAnswerSurfaceId);
+            surfaceItem.messages = surfaceItem.messages.filter(
+              (existing) =>
+                surfaceIdOf([existing]) !== canonicalAnswerSurfaceId,
+            );
+          }
+          if (nextAnswerSurfaceId) {
+            canonicalAnswerSurfaceId = nextAnswerSurfaceId;
+            supersededAnswerSurfaceIds.delete(nextAnswerSurfaceId);
+          }
+
+          const targetSurfaceId = surfaceIdOf([message]);
+          if (
+            targetSurfaceId &&
+            supersededAnswerSurfaceIds.has(targetSurfaceId)
+          ) {
+            continue;
+          }
+          surfaceItem.messages.push(message);
+
+          if (
+            "deleteSurface" in message &&
+            message.deleteSurface.surfaceId === canonicalAnswerSurfaceId
+          ) {
+            canonicalAnswerSurfaceId = null;
+          }
+        }
         break;
       }
       case "capability_denied": {
@@ -2501,38 +2569,18 @@ export function buildRunTimeline(events: WorkEvent[], runId: string): {
       sourceList,
       deniedNetwork,
     );
-    if (
-      isCanonicalAnswerSurface(surfaceItem.messages) &&
-      canonicalSurfaceContainsNarrative(surfaceItem.messages)
-    ) {
-      // The surface is the complete answer. Tool rows retain the work trace;
-      // model prose anywhere around the surface is duplicate delivery.
-      for (let index = items.length - 1; index >= 0; index -= 1) {
-        if (items[index]?.kind === "text") items.splice(index, 1);
-      }
-    }
   } else if (isDone) {
-    let finalTextStart = items.length;
-    while (finalTextStart > 0 && items[finalTextStart - 1]?.kind === "text") {
-      finalTextStart -= 1;
-    }
-    const finalText = items
-      .slice(finalTextStart)
-      .filter(
-        (item): item is Extract<TimelineItem, { kind: "text" }> =>
-          item.kind === "text",
-      )
-      .map((item) => item.content)
-      .join("");
+    // Plain assistant prose remains conversation. Vitals are additive evidence,
+    // never a replacement surface that turns every answer into a report.
     const fallback = fallbackAnswerSurface(
       runId,
-      finalText,
+      "",
       vitals,
       sourceList,
       deniedNetwork,
     );
     if (fallback.length > 0) {
-      items.splice(finalTextStart, items.length - finalTextStart, {
+      items.push({
         kind: "surface",
         messages: fallback,
       });
@@ -2605,6 +2653,132 @@ function FenceAwareBubble({
   );
 }
 
+function ProviderProgress({
+  content,
+  live,
+}: {
+  content: string;
+  live: boolean;
+}) {
+  const sections = splitProgressSections(content);
+  const inlineSummary = sections.length === 1 && sections[0]?.heading === "Details"
+    ? sections[0].detail
+    : null;
+  return (
+    <div
+      className="work-progress-summary"
+      {...(live ? { role: "status", "aria-live": "polite" as const } : {})}
+    >
+      <span className="work-progress-summary-mark" aria-hidden="true" />
+      <div className="work-progress-summary-copy">
+        <span className="work-progress-summary-label">Progress</span>
+        {inlineSummary ? (
+          <div className="work-markdown">
+            <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
+              {linkifyWorkspacePaths(inlineSummary)}
+            </ReactMarkdown>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {sections.map((section, index) => (
+              <Disclosure
+                key={`${section.heading}-${index}`}
+                title={section.heading}
+                className="work-progress-disclosure"
+              >
+                {section.detail ? (
+                  <div className="work-markdown">
+                    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
+                      {linkifyWorkspacePaths(section.detail)}
+                    </ReactMarkdown>
+                  </div>
+                ) : null}
+              </Disclosure>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type ProgressSection = { heading: string; detail: string };
+
+function markdownHeading(block: string[]): string | null {
+  if (block.length !== 1) return null;
+  const candidate = block[0].trim();
+  if (candidate.startsWith("#")) {
+    let markerLength = 0;
+    while (markerLength < candidate.length && candidate[markerLength] === "#") {
+      markerLength += 1;
+    }
+    if (markerLength <= 6 && candidate[markerLength] === " ") {
+      return candidate.slice(markerLength + 1).trim() || null;
+    }
+  }
+  for (const marker of ["**", "__"]) {
+    if (
+      candidate.length > marker.length * 2 &&
+      candidate.startsWith(marker) &&
+      candidate.endsWith(marker)
+    ) {
+      return candidate.slice(marker.length, -marker.length).trim() || null;
+    }
+  }
+  return null;
+}
+
+function plainProgressHeading(block: string[], hasFollowingBlock: boolean): string | null {
+  if (block.length !== 1 || !hasFollowingBlock) return null;
+  const candidate = block[0].trim();
+  if (!candidate || candidate.length > 80) return null;
+  if ([".", "?", "!", ":", ";", ","].some((mark) => candidate.endsWith(mark))) {
+    return null;
+  }
+  if (["{", "[", "`", "-", "*", ">"].some((mark) => candidate.startsWith(mark))) {
+    return null;
+  }
+  const words = candidate.split(" ").filter(Boolean);
+  return words.length >= 2 && words.length <= 10 ? candidate : null;
+}
+
+export function splitProgressSections(content: string): ProgressSection[] {
+  const lines = content.split("\n").map((line) =>
+    line.endsWith("\r") ? line.slice(0, -1) : line,
+  );
+  const blocks: string[][] = [];
+  let pending: string[] = [];
+  for (const line of lines) {
+    if (line.trim()) {
+      pending.push(line);
+    } else if (pending.length) {
+      blocks.push(pending);
+      pending = [];
+    }
+  }
+  if (pending.length) blocks.push(pending);
+  if (!blocks.length) return [{ heading: "Details", detail: "" }];
+
+  const sections: ProgressSection[] = [];
+  let current: ProgressSection | null = null;
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    const heading = markdownHeading(block) ??
+      plainProgressHeading(block, index + 1 < blocks.length);
+    if (heading) {
+      if (current) sections.push(current);
+      current = { heading, detail: "" };
+      continue;
+    }
+    const text = block.join("\n");
+    if (!current) current = { heading: "Details", detail: text };
+    else current.detail = current.detail ? `${current.detail}\n\n${text}` : text;
+  }
+  if (current) sections.push(current);
+
+  return sections;
+}
+
 function RunTimeline({
   threadId,
   run,
@@ -2624,19 +2798,30 @@ function RunTimeline({
     [events, run?.id],
   );
   const hasSurface = presentation.items.some((item) => item.kind === "surface");
-  const persistedSurface = useMemo(
+  const hasText = presentation.items.some((item) => item.kind === "text");
+  const hasError = presentation.items.some((item) => item.kind === "error");
+  const fallbackFailure = presentWorkFailure(fallbackContent);
+  const fallbackIsTechnicalFailure =
+    !pending && !hasText && !run?.error && fallbackFailure.technical;
+  const persistedText =
+    !pending &&
+    !hasText &&
+    !fallbackIsTechnicalFailure &&
+    fallbackContent.trim()
+      ? fallbackContent
+      : "";
+  const persistedVitals = useMemo(
     () =>
-      !pending && !hasSurface && fallbackContent.trim()
+      !pending && !hasSurface
         ? fallbackAnswerSurface(
             run?.id ?? "persisted",
-            fallbackContent,
+            "",
             presentation.vitals,
             presentation.sources,
             presentation.items.some((item) => item.kind === "capability"),
           )
         : [],
     [
-      fallbackContent,
       hasSurface,
       pending,
       presentation.items,
@@ -2646,17 +2831,46 @@ function RunTimeline({
     ],
   );
   const hasContent =
-    presentation.items.length > 0 || persistedSurface.length > 0;
+    presentation.items.length > 0 ||
+    Boolean(persistedText) ||
+    persistedVitals.length > 0;
 
   return (
     <div className="work-timeline flex flex-col gap-2.5 mt-1">
       {presentation.items.map((item, index) => {
         if (item.kind === "text") {
+          const failure = presentWorkFailure(item.content);
+          if (failure.technical) {
+            return (
+              <WorkFailureNotice
+                key={`text-error-${index}`}
+                message={item.content}
+              />
+            );
+          }
           return (
             <FenceAwareBubble
               key={`text-${index}`}
               keyPrefix={`text-${index}`}
               raw={item.content}
+            />
+          );
+        }
+        if (item.kind === "interim") {
+          return (
+            <FenceAwareBubble
+              key={`interim-${item.id}-${index}`}
+              keyPrefix={`interim-${item.id}-${index}`}
+              raw={item.content}
+            />
+          );
+        }
+        if (item.kind === "progress") {
+          return (
+            <ProviderProgress
+              key={`progress-${item.id}-${index}`}
+              content={item.content}
+              live={pending}
             />
           );
         }
@@ -2692,15 +2906,22 @@ function RunTimeline({
             />
           );
         }
-        return (
-          <div key={`error-${index}`} className="border border-warn/40 bg-warn-soft text-warn-ink rounded-2xl px-3 py-2.5 text-ui-body-sm">
-            {item.message}
-          </div>
-        );
+        return <WorkFailureNotice key={`error-${index}`} message={item.message} />;
       })}
 
-      {persistedSurface.length > 0 ? (
-        <SurfaceBlock messages={persistedSurface} />
+      {fallbackIsTechnicalFailure ? (
+        <WorkFailureNotice message={fallbackContent} />
+      ) : null}
+
+      {persistedText ? (
+        <FenceAwareBubble
+          keyPrefix="persisted-answer"
+          raw={persistedText}
+        />
+      ) : null}
+
+      {persistedVitals.length > 0 ? (
+        <SurfaceBlock messages={persistedVitals} />
       ) : null}
 
       {pending ? (
@@ -2709,7 +2930,9 @@ function RunTimeline({
           <span>{presentation.lastStatus ?? "Running…"}</span>
         </div>
       ) : null}
-      {!pending && run?.error ? <div className="border border-warn/40 bg-warn-soft text-warn-ink rounded-2xl px-3 py-2.5 text-ui-body-sm">{run.error}</div> : null}
+      {!pending && run?.error && !hasError ? (
+        <WorkFailureNotice message={run.error} />
+      ) : null}
       {!pending && hasContent ? (
         <AnswerRunFooter
           run={run}
@@ -2719,6 +2942,26 @@ function RunTimeline({
           onFollowup={(prompt) => insertComposerRef.current?.(prompt)}
         />
       ) : null}
+    </div>
+  );
+}
+
+function WorkFailureNotice({ message }: { message: string }) {
+  const failure = presentWorkFailure(message);
+  return (
+    <div
+      className="rounded-2xl border border-warn/40 bg-warn-soft px-3 py-2.5 text-ui-body-sm text-warn-ink"
+      role="alert"
+    >
+      <p className="font-semibold">{failure.summary}</p>
+      <Disclosure
+        title="Technical details"
+        className="mt-2 border-warn/40 bg-card/70"
+      >
+        <p className="break-words font-mono text-ui-caption text-text2">
+          {failure.detail}
+        </p>
+      </Disclosure>
     </div>
   );
 }

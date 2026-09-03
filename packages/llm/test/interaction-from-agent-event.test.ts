@@ -13,16 +13,24 @@ describe("toInteractionEvents", () => {
     ]);
   });
 
-  it("maps tool + status to progress", () => {
+  it("maps tool, runtime status, and provider summary to progress", () => {
     const events: AgentEvent[] = [
       { type: "tool_start", id: "t1", name: "graphjin_query" },
       { type: "tool_end", id: "t1" },
       { type: "status", message: "Thinking" },
+      {
+        type: "progress",
+        id: "summary-1",
+        content: "Checking the sales totals.",
+        source: "provider_summary",
+        provider: "google-gemini",
+      },
     ];
     expect(toInteractionEvents(events)).toEqual([
       { kind: "progress", id: "t1", label: "graphjin_query", phase: "start" },
       { kind: "progress", id: "t1", label: "t1", phase: "end" },
       { kind: "progress", id: "ie-1", label: "Thinking", phase: "start" },
+      { kind: "progress", id: "summary-1", label: "Checking the sales totals.", phase: "start" },
     ]);
   });
 

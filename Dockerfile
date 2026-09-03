@@ -156,31 +156,47 @@ COPY --from=graphjin-bin /usr/local/bin/graphjin /usr/local/bin/graphjin
 
 # ─── 2b. agent runtime: Hermes (sandbox only) ──────────────────────────
 FROM npm-runtime AS agent-base
-ARG HERMES_AGENT_REF=a91a57fa5a13d516c38b07a141a9ce8a3daabeb0
+ARG HERMES_AGENT_REF=29112bef099274229cadff79cdff7bf7b99c4b77
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git python3 python3-pip \
+      git patch python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
 # Hermes uses Debian's system Python instead of downloading a second Python
-# distribution. It remains pinned while its Gemini/MCP compatibility patches
-# are required.
+# distribution. Hermes 0.21 intentionally blocks wheel builds, so install its
+# exact source revision into an isolated editable environment (the supported
+# upstream layout) and keep the checkout immutable inside the image.
 RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv/install.sh \
-      | env UV_INSTALL_DIR=/usr/local/bin sh -s -- --no-modify-path \
-    && UV_TOOL_DIR=/usr/local/uv/tools \
-       UV_TOOL_BIN_DIR=/usr/local/bin \
+      | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh \
+    && mkdir -p /usr/local/lib/hermes-agent \
+    && git -C /usr/local/lib/hermes-agent init \
+    && git -C /usr/local/lib/hermes-agent remote add origin https://github.com/NousResearch/hermes-agent.git \
+    && git -C /usr/local/lib/hermes-agent fetch --depth 1 origin "$HERMES_AGENT_REF" \
+    && git -C /usr/local/lib/hermes-agent checkout --detach FETCH_HEAD \
+    && test "$(git -C /usr/local/lib/hermes-agent rev-parse HEAD)" = "$HERMES_AGENT_REF" \
+    && rm -rf /usr/local/lib/hermes-agent/.git
+COPY scripts/patches/hermes-acp-reasoning-config.patch /tmp/hermes-acp-reasoning-config.patch
+COPY scripts/patches/hermes-acp-interim-messages.patch /tmp/hermes-acp-interim-messages.patch
+COPY scripts/patches/hermes-acp-anthropic-reasoning.patch /tmp/hermes-acp-anthropic-reasoning.patch
+RUN --mount=type=cache,id=hermes-uv,target=/tmp/uv-cache \
+    patch --batch --forward --fuzz=0 -d /usr/local/lib/hermes-agent -p1 < /tmp/hermes-acp-reasoning-config.patch \
+    && patch --batch --forward --fuzz=0 -d /usr/local/lib/hermes-agent -p1 < /tmp/hermes-acp-interim-messages.patch \
+    && patch --batch --forward --fuzz=0 -d /usr/local/lib/hermes-agent -p1 < /tmp/hermes-acp-anthropic-reasoning.patch \
+    && rm /tmp/hermes-acp-reasoning-config.patch /tmp/hermes-acp-interim-messages.patch /tmp/hermes-acp-anthropic-reasoning.patch \
+    && cd /usr/local/lib/hermes-agent \
+    && UV_PROJECT_ENVIRONMENT=/usr/local/uv/tools/hermes-agent \
        UV_CACHE_DIR=/tmp/uv-cache \
-       uv tool install --python /usr/bin/python3 \
-         --with mcp --with websockets \
-         "hermes-agent[acp] @ git+https://github.com/NousResearch/hermes-agent.git@${HERMES_AGENT_REF}" \
-    && rm -rf /tmp/uv-cache /root/.cache/uv \
-    && sed -i 's/result\.isError/result.is_error/g' \
-         /usr/local/uv/tools/hermes-agent/lib/python3.11/site-packages/tools/mcp_tool.py \
-    && ! grep -q 'result\.isError' \
-         /usr/local/uv/tools/hermes-agent/lib/python3.11/site-packages/tools/mcp_tool.py \
+       uv sync --locked --no-dev --extra acp --extra mcp --extra anthropic \
+    && ln -sf /usr/local/uv/tools/hermes-agent/bin/hermes /usr/local/bin/hermes \
+    && rm -rf /root/.cache/uv \
     && hermes --version \
-    && /usr/local/uv/tools/hermes-agent/bin/python -c "import hermes_cli; assert hermes_cli.__version__ == '0.14.0'" \
+    && /usr/local/uv/tools/hermes-agent/bin/python -c "import hermes_cli; assert hermes_cli.__version__ == '0.21.0'" \
+    && /usr/local/uv/tools/hermes-agent/bin/python -c "import openai; assert openai.__version__, 'Hermes OpenAI provider SDK missing'" \
+    && /usr/local/uv/tools/hermes-agent/bin/python -c "import anthropic; assert anthropic.__version__, 'Hermes Anthropic provider SDK missing'" \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from mcp.types import CallToolResult; import websockets; result = CallToolResult(content=[]); assert hasattr(result, 'is_error')" \
+    && /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.session import SessionManager; import inspect; source = inspect.getsource(SessionManager._make_agent); assert 'reasoning_config' in source and 'resolve_reasoning_config' in source, 'Hermes ACP must pass configured reasoning into AIAgent'" \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.server import HermesACPAgent; import inspect; source = inspect.getsource(HermesACPAgent.prompt); assert 'usage=usage' in source, 'Hermes ACP prompt response must expose exact turn usage'" \
-    && echo "hermes v0.14 ACP/MCP runtime present"
+    && /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.events import make_interim_message_cb; from acp_adapter.server import HermesACPAgent; import inspect; source = inspect.getsource(HermesACPAgent.prompt); assert 'interim_assistant_callback' in source and 'pending_streamed_message.append(text)' in source and 'raw_interim_cb(text, already_streamed=False)' in source and 'not streamed_message' not in source; assert callable(make_interim_message_cb), 'Hermes ACP buffered interim callback missing'" \
+    && /usr/local/uv/tools/hermes-agent/bin/python -c "from agent import chat_completion_helpers; from pathlib import Path; source = Path(chat_completion_helpers.__file__).read_text(); assert '_emit_unstreamed_anthropic_reasoning' in source and 'reasoning_was_streamed' in source, 'Hermes ACP Anthropic reasoning fallback missing'" \
+    && echo "hermes v0.21 ACP/MCP runtime present"
 
 # ─── 2c. document toolchain (agent image only) ─────────────────────────
 # Bundled skills (xlsx / pptx / docx / pdf / document-extraction) shell out to

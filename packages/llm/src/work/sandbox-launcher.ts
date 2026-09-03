@@ -53,7 +53,7 @@ export interface SandboxLauncherOptions {
    * `openshell:resolve:env:…` placeholder) to the env var the backend reads —
    * e.g. {from:"api_key", to:"GEMINI_API_KEY"} for hermes-gemini. The proxy
    * still substitutes the real key on egress, so the box only sees the
-   * placeholder. `to` comes from the hermes provider→key map (mapHermesProvider).
+   * placeholder. `to` comes from the exhaustive Admin-provider runtime contract.
    */
   keyAliases?: ReadonlyArray<{ from: string; to: string }>;
   /**
@@ -72,6 +72,17 @@ export interface SandboxLauncherOptions {
   execTimeoutMs?: number;
   onLog?: (line: string) => void;
 }
+
+/**
+ * Per-org model routing captured from the persisted provider row immediately
+ * before a sandbox run. Keep this separate from process.env: the web and
+ * worker hosts are long-lived, and Next.js may evaluate route bundles at
+ * different times inside the same process.
+ */
+export type AgentRuntimeLaunchConfig = Pick<
+  SandboxLauncherOptions,
+  "modelProvider" | "modelHosts" | "keyAliases" | "hermesHomeHostPath"
+>;
 
 type RunCore = (input: RunAgentBackendInput) => Promise<AgentRunResult>;
 type RunWorkflowCore = (input: RunWorkflowAgentBackendInput) => Promise<AgentRunResult>;
@@ -372,7 +383,16 @@ export async function sandboxAgentBackendForJob(opts: {
   if (needsBroker && !broker) {
     throw new Error("agent job capabilities require the OpenNeko broker");
   }
-  const runCore = makeSandboxJobRunCore(sandboxLauncherOptionsFromEnv(broker));
+  // Resolve the org's persisted provider into an immutable launch snapshot.
+  // Import lazily because host-provision owns the gateway sync and itself
+  // imports this module's OpenShell helpers.
+  const launchConfig = await import("../host-provision").then(
+    ({ ensureHostConfigProvisioned }) =>
+      ensureHostConfigProvisioned(opts.orgId),
+  );
+  const runCore = makeSandboxJobRunCore(
+    sandboxLauncherOptionsFromConfig(launchConfig, broker),
+  );
 
   return {
     id: opts.backend.id,
@@ -635,7 +655,7 @@ function makeSandboxCore(
         `agent sandbox ready: ${name} (backend=${input.backend.id}, kind=${kind}, ` +
           `graphjin=brokered, skill_overrides=${staged.skillOverrides.length})`,
       );
-      await input.emit({ type: "status", message: "Launching agent…" });
+      await input.emit({ type: "status", message: "Agent is working…" });
       return await execAndStream(
         cli,
         gatewayArgs,
@@ -760,11 +780,47 @@ export function agentRuntimeDepsFromEnv(
   };
 }
 
+export function agentRuntimeDepsFromConfig(
+  config: AgentRuntimeLaunchConfig,
+  broker?: SandboxBrokerHandle,
+): Pick<Partial<RunChatTurnDeps>, "runCore"> {
+  return {
+    runCore: makeSandboxRunCore(sandboxLauncherOptionsFromConfig(config, broker)),
+  };
+}
+
 export function workflowRuntimeDepsFromEnv(
   broker?: SandboxBrokerHandle,
 ): Pick<Partial<RunWorkflowTurnDeps>, "runCore"> {
   return {
     runCore: makeSandboxWorkflowRunCore(sandboxLauncherOptionsFromEnv(broker)),
+  };
+}
+
+export function workflowRuntimeDepsFromConfig(
+  config: AgentRuntimeLaunchConfig,
+  broker?: SandboxBrokerHandle,
+): Pick<Partial<RunWorkflowTurnDeps>, "runCore"> {
+  return {
+    runCore: makeSandboxWorkflowRunCore(
+      sandboxLauncherOptionsFromConfig(config, broker),
+    ),
+  };
+}
+
+export function sandboxLauncherOptionsFromConfig(
+  config: AgentRuntimeLaunchConfig,
+  broker?: SandboxBrokerHandle,
+): SandboxLauncherOptions {
+  return {
+    agentImage:
+      process.env.OPENNEKO_AGENT_IMAGE ?? "ghcr.io/open-neko/agent:latest",
+    gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
+    gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
+    ...config,
+    brokerUrl: broker?.url,
+    brokerTokenFor: broker?.tokenFor,
+    brokerRelease: broker?.release,
   };
 }
 
@@ -783,18 +839,12 @@ export function sandboxLauncherOptionsFromEnv(
   // egress, so the box only ever holds the placeholder.
   const keyEnv = process.env.OPENNEKO_AGENT_MODEL_KEY_ENV;
   const credName = process.env.OPENNEKO_AGENT_MODEL_CREDENTIAL || "api_key";
-  return {
-    agentImage: process.env.OPENNEKO_AGENT_IMAGE ?? "ghcr.io/open-neko/agent:latest",
-    gatewayName: process.env.OPENSHELL_GATEWAY || undefined,
-    gatewayEndpoint: process.env.OPENSHELL_GATEWAY_ENDPOINT || undefined,
+  return sandboxLauncherOptionsFromConfig({
     modelProvider: process.env.OPENNEKO_AGENT_MODEL_PROVIDER || undefined,
     modelHosts: hosts.map((host) => ({ host })),
     keyAliases: keyEnv ? [{ from: credName, to: keyEnv }] : undefined,
     hermesHomeHostPath: process.env.OPENNEKO_AGENT_HERMES_HOME || undefined,
-    brokerUrl: broker?.url,
-    brokerTokenFor: broker?.tokenFor,
-    brokerRelease: broker?.release,
-  };
+  }, broker);
 }
 
 // Generic provider profile: holds just the model credential. The proxy

@@ -39,8 +39,23 @@ export default async function WorkThreadPage({
 }: {
   params: Promise<{ threadId: string }>;
 }) {
-  const [{ threadId }, orgId] = await Promise.all([params, getOrgId()]);
-  const thread = await getAuthorizedWorkThread(orgId, threadId);
+  let threadId: string;
+  let thread: Awaited<ReturnType<typeof getAuthorizedWorkThread>>;
+  try {
+    const resolved = await params;
+    threadId = resolved.threadId;
+    const orgId = await getOrgId();
+    thread = await getAuthorizedWorkThread(orgId, threadId);
+  } catch (error) {
+    // WorkScreen owns the operator-facing availability gate. Let it render
+    // that stable state instead of replacing the page with a raw Next.js RSC
+    // or HTML error response when this redirect lookup cannot reach storage.
+    console.error(
+      "[work/thread-page] redirect lookup failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    return null;
+  }
   if (!thread) return null;
   const state = thread.backend_state && typeof thread.backend_state === "object"
     && !Array.isArray(thread.backend_state)

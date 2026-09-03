@@ -36,7 +36,9 @@ import {
 } from "@neko/db";
 import {
   ensureHostConfigProvisioned,
+  gatewayProviderName,
   hermesHomeForOrg,
+  hermesNativeReasoningConfigLines,
   patchGraphjinSourcesJwtSecret,
   provisionHostConfig,
   shouldReconcileDemoSourceAuthMode,
@@ -190,6 +192,29 @@ describe("shouldReconcileDemoSourceAuthMode", () => {
   });
 });
 
+describe("hermesNativeReasoningConfigLines", () => {
+  it("enables provider-native summaries for Gemini and Anthropic only", () => {
+    expect(hermesNativeReasoningConfigLines("google-gemini")).toEqual([
+      '  reasoning_effort: "high"',
+    ]);
+    expect(hermesNativeReasoningConfigLines("anthropic")).toEqual([
+      '  reasoning_effort: "high"',
+    ]);
+    expect(hermesNativeReasoningConfigLines("openai")).toEqual([]);
+  });
+});
+
+describe("gatewayProviderName", () => {
+  it("isolates gateway credentials by organization without exposing the org id", () => {
+    const first = gatewayProviderName("customer-a");
+    const second = gatewayProviderName("customer-b");
+    expect(first).toMatch(/^openneko-agent-[a-f0-9]{16}$/);
+    expect(second).toMatch(/^openneko-agent-[a-f0-9]{16}$/);
+    expect(first).not.toBe(second);
+    expect(first).not.toContain("customer-a");
+  });
+});
+
 describeIfDb("provisionHostConfig", () => {
   let orgId: string;
   let tempHome: string;
@@ -292,6 +317,7 @@ describeIfDb("provisionHostConfig", () => {
     expect(yaml).toContain('default: "gemini-pro-latest"');
     expect(yaml).toContain('provider: "gemini"');
     expect(yaml).toContain("max_turns:");
+    expect(yaml).toContain('reasoning_effort: "high"');
     expect(yaml).toContain("delegation:");
     expect(yaml).toContain("max_iterations: 50");
     expect(yaml).toContain("max_concurrent_children: 3");
@@ -354,6 +380,7 @@ describeIfDb("provisionHostConfig", () => {
 
     const yaml = await readFile(join(hermesHome, "config.yaml"), "utf8");
     expect(yaml).toContain('provider: "anthropic"');
+    expect(yaml).toContain('reasoning_effort: "high"');
     const env = await readFile(join(hermesHome, ".env"), "utf8");
     expect(env).toContain("ANTHROPIC_API_KEY=sk-ant-test");
   });
@@ -392,12 +419,16 @@ describeIfDb("provisionHostConfig", () => {
       provider: "hermes",
       config: { backend: "hermes" },
     });
-    await expect(provisionHostConfig(orgId)).resolves.toBeUndefined();
+    await expect(provisionHostConfig(orgId)).resolves.toEqual({
+      modelHosts: [],
+    });
     await readFile(graphjinPath(tempHome), "utf8");
   });
 
   it("does not throw when no data source exists (graphjin write skipped)", async () => {
-    await expect(provisionHostConfig(orgId)).resolves.toBeUndefined();
+    await expect(provisionHostConfig(orgId)).resolves.toEqual({
+      modelHosts: [],
+    });
   });
 
   it("repairs an existing packaged-demo AdventureWorks source deterministically", async () => {
@@ -535,9 +566,15 @@ describeIfDb("provisionHostConfig", () => {
       model: "gemini-pro-latest",
       secrets: { apiKey: "key-a" },
     });
-    await provisionHostConfig(orgId);
-    const firstHost = process.env.OPENNEKO_AGENT_MODEL_HOST;
-    expect(firstHost).toBeTruthy();
+    const firstLaunch = await provisionHostConfig(orgId);
+    expect(firstLaunch).toMatchObject({
+      modelProvider: expect.stringMatching(/^openneko-agent-[a-f0-9]{16}$/),
+      modelHosts: [
+        { host: "generativelanguage.googleapis.com" },
+        { host: "models.dev" },
+      ],
+      keyAliases: [{ from: "api_key", to: "GEMINI_API_KEY" }],
+    });
 
     // Operator switches provider; the old `||=` writes pinned the first
     // pass's derived values for the process lifetime, leaving the egress
@@ -549,10 +586,22 @@ describeIfDb("provisionHostConfig", () => {
       model: "claude-opus-4-7",
       secrets: { apiKey: "key-b" },
     });
-    await provisionHostConfig(orgId);
-    expect(process.env.OPENNEKO_AGENT_MODEL_HOST).toBeTruthy();
-    expect(process.env.OPENNEKO_AGENT_MODEL_HOST).not.toBe(firstHost);
-    expect(process.env.OPENNEKO_AGENT_MODEL_KEY_ENV).toContain("ANTHROPIC");
+    const secondLaunch = await provisionHostConfig(orgId);
+    expect(secondLaunch).toMatchObject({
+      modelProvider: expect.stringMatching(/^openneko-agent-[a-f0-9]{16}$/),
+      modelHosts: [
+        { host: "api.anthropic.com" },
+        { host: "models.dev" },
+      ],
+      keyAliases: [{ from: "api_key", to: "ANTHROPIC_API_KEY" }],
+      hermesHomeHostPath: hermesHomeForOrg(orgId),
+    });
+
+    // Persisted org configuration is returned as a run-local snapshot. It
+    // must not contaminate process.env, where a separately bundled Next.js
+    // route could later mistake it for an operator override.
+    expect(process.env.OPENNEKO_AGENT_MODEL_HOST).toBeUndefined();
+    expect(process.env.OPENNEKO_AGENT_MODEL_KEY_ENV).toBeUndefined();
   });
 
   it("keeps direct provisioning best-effort when OpenShell provider sync fails", async () => {
@@ -573,7 +622,9 @@ describeIfDb("provisionHostConfig", () => {
       secrets: { apiKey: "test-gemini-key" },
     });
 
-    await expect(provisionHostConfig(orgId)).resolves.toBeUndefined();
+    await expect(provisionHostConfig(orgId)).resolves.toEqual({
+      modelHosts: [],
+    });
     expect(ensureOpenShellProviderMock).toHaveBeenCalledTimes(3);
 
     const yaml = await readFile(join(hermesHome, "config.yaml"), "utf8");
@@ -672,11 +723,17 @@ describeIfDb("provisionHostConfig", () => {
             eq(llm_provider_config.scope, "primary"),
           ),
         );
-      await ensureHostConfigProvisioned(refreshOrgId);
+      const anthropicLaunch = await ensureHostConfigProvisioned(refreshOrgId);
       expect(ensureOpenShellProviderMock).toHaveBeenLastCalledWith(
         expect.objectContaining({ apiKey: "key-c" }),
       );
-      expect(process.env.OPENNEKO_AGENT_MODEL_KEY_ENV).toBe("ANTHROPIC_API_KEY");
+      expect(anthropicLaunch).toMatchObject({
+        modelHosts: [
+          { host: "api.anthropic.com" },
+          { host: "models.dev" },
+        ],
+        keyAliases: [{ from: "api_key", to: "ANTHROPIC_API_KEY" }],
+      });
 
       // Removing the saved key must not leave the previous gateway provider
       // attached to future sandboxes in this long-lived worker process.
@@ -689,8 +746,8 @@ describeIfDb("provisionHostConfig", () => {
             eq(llm_provider_config.scope, "primary"),
           ),
         );
-      await ensureHostConfigProvisioned(refreshOrgId);
-      expect(process.env.OPENNEKO_AGENT_MODEL_PROVIDER).toBeUndefined();
+      const keylessLaunch = await ensureHostConfigProvisioned(refreshOrgId);
+      expect(keylessLaunch.modelProvider).toBeUndefined();
       await expect(
         readFile(join(hermesHomeForOrg(refreshOrgId), ".env"), "utf8"),
       ).resolves.toBe("");
@@ -739,7 +796,10 @@ describeIfDb("provisionHostConfig", () => {
       expect(ensureOpenShellProviderMock).toHaveBeenCalledTimes(3);
 
       ensureOpenShellProviderMock.mockResolvedValue(undefined);
-      await expect(ensureHostConfigProvisioned(retryOrgId)).resolves.toBeUndefined();
+      await expect(ensureHostConfigProvisioned(retryOrgId)).resolves.toMatchObject({
+        modelProvider: expect.stringMatching(/^openneko-agent-[a-f0-9]{16}$/),
+        keyAliases: [{ from: "api_key", to: "GEMINI_API_KEY" }],
+      });
       expect(ensureOpenShellProviderMock).toHaveBeenCalledTimes(4);
       delete process.env.OPENNEKO_PROVISION_RETRY_BASE_MS;
     } finally {

@@ -15,10 +15,14 @@ export type AcpSessionUpdate =
   | {
       sessionUpdate: "agent_message_chunk";
       content: { type: "text"; text: string };
+      fieldMeta?: unknown;
+      _meta?: unknown;
     }
   | {
       sessionUpdate: "agent_thought_chunk";
       content: { type: "text"; text: string };
+      fieldMeta?: unknown;
+      _meta?: unknown;
     }
   | {
       sessionUpdate: "user_message_chunk";

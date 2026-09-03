@@ -31,6 +31,38 @@ describe("brokered neko_ui render MCP server", () => {
     });
   });
 
+  it("rejects an Answer whose result components are not attached to the root", async () => {
+    await withRenderServer(async (client, emit) => {
+      const result = await client.callTool({
+        name: "render_cards",
+        arguments: {
+          messages: [
+            {
+              version: "v1.0",
+              createSurface: {
+                surfaceId: "sales-report-01",
+                catalogId: "urn:openneko:catalog:work:v2",
+                components: [
+                  { id: "root", component: "Answer", title: "Sales performance" },
+                  { id: "table", component: "Table", rows: [] },
+                ],
+              },
+            },
+          ],
+        },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toEqual([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("unattached_answer_components"),
+        }),
+      ]);
+      expect(emit).not.toHaveBeenCalled();
+    });
+  });
+
   it("emits a valid A2UI v1.0 surface from the one canonical server", async () => {
     const messages = [
       {

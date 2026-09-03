@@ -2,7 +2,7 @@ import { ensureHostConfigProvisioned, type AgentEvent } from "@neko/llm";
 import { enqueue, QUEUE } from "@neko/db/jobs";
 import { db, eq, skill_usage } from "@neko/db";
 import {
-  agentRuntimeDepsFromEnv,
+  agentRuntimeDepsFromConfig,
   appendWorkRunEvent,
   ensureAgentBroker,
   getWorkRun,
@@ -91,7 +91,7 @@ export async function runWorkRun(
   // race with a gateway restart, this is the retry — memoized on success, so
   // the healthy path costs nothing. Without it, channel-triggered runs
   // stayed broken until a settings save or a worker restart.
-  await ensureHostConfigProvisioned(orgId);
+  const agentRuntime = await ensureHostConfigProvisioned(orgId);
 
   const broker = await ensureAgentBroker();
   const unregisterBrokerEvents = registerAgentBrokerEventSink(runId, emit);
@@ -108,7 +108,7 @@ export async function runWorkRun(
         pluginActions,
         observer: runTelemetry.observer,
       },
-      agentRuntimeDepsFromEnv(broker),
+      agentRuntimeDepsFromConfig(agentRuntime, broker),
     );
   } catch (cause) {
     await observeSafely(runTelemetry.observer, {

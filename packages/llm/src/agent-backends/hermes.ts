@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import {
   agentTurnTimeoutMs,
   type AgentBackend,
@@ -26,10 +27,60 @@ import {
   createAcpClient,
   type AcpClient,
   type AcpNotification,
+  type AcpSessionUpdate,
 } from "./hermes-acp-client";
 import { extractSurfaceMessages } from "./surface";
 
 export { extractSurfaceMessages } from "./surface";
+
+export type ProviderSummarySource = "google-gemini" | "anthropic";
+
+/**
+ * ACP calls every provider reasoning stream an `agent_thought_chunk`, so the
+ * generated per-org config is the trust boundary. Only providers whose native
+ * API explicitly defines these parts as user-visible summaries are exposed:
+ * Gemini includeThoughts and Anthropic thinking.display="summarized".
+ */
+export function providerThoughtSummarySource(
+  hermesHome: string | undefined,
+): ProviderSummarySource | null {
+  if (!hermesHome) return null;
+  try {
+    const config = parseYaml(
+      readFileSync(join(hermesHome, "config.yaml"), "utf8"),
+    ) as {
+      model?: { default?: unknown; provider?: unknown };
+      agent?: { reasoning_effort?: unknown };
+    } | null;
+    const provider = String(config?.model?.provider ?? "").trim().toLowerCase();
+    const model = String(config?.model?.default ?? "").trim().toLowerCase();
+    const effort = config?.agent?.reasoning_effort;
+    const disabled =
+      effort === false ||
+      ["none", "off", "false", "no", "0"].includes(
+        String(effort ?? "").trim().toLowerCase(),
+      );
+    if (
+      provider === "gemini" &&
+      model.startsWith("gemini") &&
+      effort !== undefined &&
+      !disabled
+    ) {
+      return "google-gemini";
+    }
+    if (
+      provider === "anthropic" &&
+      model.startsWith("claude-") &&
+      effort !== undefined &&
+      !disabled
+    ) {
+      return "anthropic";
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /** Last error-ish lines of hermes' own agent.log — the file dies with the
  *  sandbox, so a mid-turn death must read it NOW or never. */
@@ -213,10 +264,6 @@ export class HermesBackend implements AgentBackend {
       ? `${prompt}\n\nCurrent user message:\n${userMessage}`
       : prompt;
 
-    if (onEvent) {
-      await onEvent({ type: "status", message: "Hermes is working…" });
-    }
-
     // Streaming turns normally cannot be retried because replaying tool and
     // message events would duplicate visible work. A completely empty ACP
     // turn is the exception: runOnce marks it retryable only when Hermes
@@ -356,6 +403,9 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
   if (orgId) {
     env.HERMES_HOME = hermesHomeForOrg(orgId);
   }
+  const providerSummarySource = providerThoughtSummarySource(
+    env.HERMES_HOME,
+  );
   // A hard native crash (SIGSEGV/SIGABRT in compiled deps) dies without a
   // Python traceback — faulthandler makes it dump one to stderr, which the
   // mid-turn death message below surfaces.
@@ -498,6 +548,8 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
     let surfaceEmittedDuringStream = false;
     let toolActivityObserved = false;
     const pendingValidRenderToolCalls = new Map<string, unknown>();
+    let pendingProviderSummary = "";
+    let providerSummarySequence = 0;
     let eventQueue = Promise.resolve();
     let eventError: Error | undefined;
     const emitQueued = (event: AgentEvent): void => {
@@ -510,6 +562,28 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
         }
       });
     };
+    const flushProviderSummary = (): void => {
+      const content = pendingProviderSummary.trim();
+      pendingProviderSummary = "";
+      if (!content || !onEvent) return;
+      providerSummarySequence += 1;
+      emitQueued({
+        type: "progress",
+        id: `${providerSummarySource}-summary-${sessionId}-${providerSummarySequence}`,
+        content,
+        source: "provider_summary",
+        provider: providerSummarySource!,
+      });
+    };
+    let interimSequence = 0;
+    const interimMeta = (update: AcpSessionUpdate): { alreadyStreamed: boolean } | null => {
+      if (update.sessionUpdate !== "agent_message_chunk") return null;
+      const meta = (update.fieldMeta ?? update._meta) as { hermes?: { interim?: unknown; already_streamed?: unknown } } | undefined;
+      const marker = meta?.hermes;
+      return marker?.interim === true
+        ? { alreadyStreamed: marker.already_streamed === true }
+        : null;
+    };
 
     client.onNotification((notif) => {
       const update = notif.update;
@@ -517,6 +591,20 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
         case "agent_message_chunk": {
           const text = update.content?.text ?? "";
           if (!text) return;
+          const interim = interimMeta(update);
+          if (interim) {
+            if (!interim.alreadyStreamed && onEvent) {
+              interimSequence += 1;
+              emitQueued({
+                type: "interim",
+                id: `hermes-interim-${sessionId}-${interimSequence}`,
+                content: text,
+                source: "hermes_interim_assistant",
+              });
+            }
+            return;
+          }
+          flushProviderSummary();
           accumulatedText += text;
           if (onEvent) {
             const outside = outsideFenceText(accumulatedText);
@@ -529,11 +617,20 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
           return;
         }
         case "agent_thought_chunk": {
-          if (debug) emitQueued({ type: "status", message: "Thinking…" });
+          if (providerSummarySource) {
+            const remaining = 6_000 - pendingProviderSummary.length;
+            if (remaining > 0) {
+              pendingProviderSummary += (update.content?.text ?? "").slice(
+                0,
+                remaining,
+              );
+            }
+          }
           return;
         }
         case "tool_call": {
           toolActivityObserved = true;
+          flushProviderSummary();
           if (!onEvent) return;
           // The brokered neko_ui server is the sole surface emitter. Suppress
           // a successful render's tool pill, but preserve the exact rejected
@@ -631,6 +728,7 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
       });
       promptStopReason = promptResponse.stopReason;
       promptUsage = normalizeHermesUsage(promptResponse.usage);
+      flushProviderSummary();
     } catch (e) {
       if (e instanceof AcpProtocolError) {
         promptError = `hermes: ${e.message}`;
