@@ -121,7 +121,8 @@ export function getPrimaryProviderFields(provider: PrimaryProviderId): SettingsF
           label: "Base URL",
           kind: "url",
           required: true,
-          placeholder: "http://localhost:11434",
+          placeholder: "http://host.docker.internal:11434/v1",
+          help: "Use host.docker.internal for Ollama running on the OpenNeko host, or a remote OpenAI-compatible URL.",
         },
       ];
     case "azure-openai":
@@ -156,7 +157,7 @@ export function getPrimaryProviderFields(provider: PrimaryProviderId): SettingsF
           kind: "text",
           required: true,
           placeholder: "my-gcp-project",
-          help: "Uses Google Application Default Credentials from gcloud or GOOGLE_APPLICATION_CREDENTIALS.",
+          help: "OpenNeko uses host-side Google Application Default Credentials to mint a short-lived token; the agent sandbox never receives the credential.",
         },
         {
           key: "region",

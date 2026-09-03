@@ -107,10 +107,42 @@ export type RenderInputValidation =
       issues: Array<{ path: string; code: string; message: string }>;
     };
 
+function generatedSurfaceGraphIssues(
+  messages: RenderCardsArgs["messages"],
+): Array<{ path: string; code: string; message: string }> {
+  const issues: Array<{ path: string; code: string; message: string }> = [];
+  messages.forEach((message, index) => {
+    if (!("createSurface" in message)) return;
+    const components = message.createSurface.components;
+    if (!components) return;
+    const root = components.find((component) => component.id === "root");
+    if (!root) {
+      issues.push({
+        path: `messages.${index}.createSurface.components`,
+        code: "missing_root",
+        message: 'A generated surface must contain a component with id "root".',
+      });
+      return;
+    }
+    if (root.component !== "Answer" || components.length === 1) return;
+    if (!Array.isArray(root.children) || root.children.length === 0) {
+      issues.push({
+        path: `messages.${index}.createSurface.components.root.children`,
+        code: "unattached_answer_components",
+        message:
+          "An Answer surface with additional components must attach them through root.children.",
+      });
+    }
+  });
+  return issues;
+}
+
 /** Validate the complete tool argument object. Invalid messages reject the call. */
 export function validateRenderCardsInput(value: unknown): RenderInputValidation {
   const parsed = renderCardsArgsSchema.safeParse(value);
   if (parsed.success) {
+    const issues = generatedSurfaceGraphIssues(parsed.data.messages);
+    if (issues.length > 0) return { success: false, issues };
     return {
       success: true,
       messages: parsed.data.messages as AgentSurfaceMessage[],

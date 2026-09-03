@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  ensureHostConfigProvisioned: vi.fn(async () => undefined),
+  ensureHostConfigProvisioned: vi.fn(async () => ({ modelHosts: [] })),
   claim: vi.fn(async () => true),
   complete: vi.fn(async () => undefined),
   link: vi.fn(async () => undefined),
@@ -28,7 +28,7 @@ vi.mock("@neko/llm/work", () => ({
   ensureAgentBroker: vi.fn(async () => ({})),
   registerAgentBrokerEventSink: vi.fn(() => () => undefined),
   scrubAgentEvent: vi.fn((_scrubber, event) => event),
-  workflowRuntimeDepsFromEnv: vi.fn(() => ({})),
+  workflowRuntimeDepsFromConfig: vi.fn(() => ({})),
 }));
 
 vi.mock("@neko/llm/workflows", () => ({

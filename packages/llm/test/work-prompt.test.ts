@@ -151,6 +151,20 @@ describe("buildWorkPrompt clarification contract", () => {
   });
 });
 
+describe("buildWorkPrompt conversation contract", () => {
+  it("keeps prose conversational without prompting the model for progress", () => {
+    const prompt = build("hermes", {
+      wantsCards: true,
+      supportsCardTool: true,
+    });
+    expect(prompt).toContain("ongoing working conversation");
+    expect(prompt).toContain("surface supports the conversation");
+    expect(prompt).toContain("concise direct answer");
+    expect(prompt).not.toMatch(/emit (?:an )?(?:interim|progress) update/i);
+    expect(prompt).not.toMatch(/before (?:each|every) tool/i);
+  });
+});
+
 describe("buildWorkPrompt skill catalog", () => {
   it("includes compact discovery metadata and a path for on-demand instructions", () => {
     const prompt = build("hermes", {

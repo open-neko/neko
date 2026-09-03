@@ -4,6 +4,8 @@ schema_version: openneko.eval.semantic-inventory/v1
 # removes an item without assigning it at least one semantic owner here.
 agent_events:
   message: [OUTPUT-MESSAGE]
+  interim: [OUTPUT-MESSAGE, RUNTIME-STREAM]
+  progress: [OUTPUT-MESSAGE, RUNTIME-STREAM]
   tool_start: [RUNTIME-STREAM]
   tool_delta: [RUNTIME-STREAM]
   tool_end: [RUNTIME-STREAM]

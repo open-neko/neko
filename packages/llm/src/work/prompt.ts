@@ -103,15 +103,24 @@ comparison, a table, findings, a decision, a form, or an error-recovery path.
 Its description carries the available components and protocol. Compose an
 interface that fits the current request, using the smallest useful combination
 of narrative, data, layout, inputs, and actions.
-The surface is the canonical answer: after rendering it, do not repeat the
-same prose or figures in the final message. Every claim and figure in the
-surface must come from a successful tool result in this turn or content the
-operator supplied. A failed tool is an error state, not a data source. A short
-prose-only answer may skip the tool. Check the render tool result: if it rejects
-the surface, correct the envelope and retry. Never say a surface was rendered
-unless the tool accepted it.
+The surface supports the conversation; it does not replace your assistant
+message. Give the operator a concise direct answer, interpretation, or focused
+question in natural prose. Do not recite every table row or figure again.
+Every claim and figure in the surface must come from a successful tool result
+in this turn or content the operator supplied. A failed tool is an error state,
+not a data source. A short prose-only answer may skip the tool. Check the render
+tool result: if it rejects the surface, correct the envelope and retry. Never
+say a surface was rendered unless the tool accepted it.
 </rendering>`;
 }
+
+const CONVERSATION_SECTION = `<conversation>
+Treat this as an ongoing working conversation, not a report generator. Respond
+to the operator's actual wording and prior turns, lead with what matters now,
+and use natural prose even when a structured surface carries supporting data.
+When a material choice belongs to the operator, ask a focused question instead
+of silently choosing for them.
+</conversation>`;
 
 function buildClarificationSection(supportsClarificationTool: boolean): string {
   if (!supportsClarificationTool) {
@@ -831,6 +840,7 @@ everything, from "what was last week's revenue?" to "set up a workflow
 that flags churn risk every Monday."
 </role>`,
     operatorProfile ?? "",
+    CONVERSATION_SECTION,
     buildClarificationSection(supportsClarificationTool),
     dataSurface === "customer" ? buildSelectedMentionsSection(workspace) : "",
     dataSurface === "customer" && wantsCards

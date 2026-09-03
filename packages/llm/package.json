@@ -10,6 +10,7 @@
     "./agent-runtime": "./src/agent-runtime.ts",
     "./sandbox-runtime": "./src/sandbox-runtime.ts",
     "./config": "./src/config.ts",
+    "./provider-runtime": "./src/provider-runtime.ts",
     "./secrets": "./src/secrets.ts",
     "./work": "./src/work/index.ts",
     "./config-vcs": "./src/config-vcs/public.ts",

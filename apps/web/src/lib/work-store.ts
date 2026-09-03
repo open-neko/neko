@@ -15,6 +15,7 @@ export {
   createWorkRun,
   markWorkRunRunning,
   finishWorkRun,
+  cancelWorkRunIfActive,
   createWorkMessage,
   saveAssistantWorkMessage,
   appendWorkRunEvent,

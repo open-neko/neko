@@ -245,6 +245,43 @@
   animation: spin 1s linear infinite;
   color: var(--accent);
 }
+.work-progress-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: min(780px, 86%);
+  padding: 5px 4px;
+  color: var(--text2);
+  text-align: left;
+}
+.work-progress-summary-mark {
+  width: 7px;
+  height: 7px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  flex-shrink: 0;
+}
+.work-progress-summary-copy {
+  min-width: 0;
+}
+.work-progress-summary-label {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text3);
+  font-size: var(--type-label);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.work-progress-summary .work-markdown {
+  font-size: var(--type-body-sm);
+  line-height: var(--leading-body);
+}
+.work-progress-summary .work-markdown > * + * {
+  margin-top: 5px;
+}
 
 /* Host-authored capability denial. This is deliberately architectural rather
    than alarm-card chrome: a hard rule, the exact blocked endpoint, and a
@@ -434,6 +471,7 @@
 .work-tool-group-head {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   width: auto;
   align-self: flex-start;
@@ -518,6 +556,7 @@
 .work-tool-row-head {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px;
   width: 100%;
   background: transparent;

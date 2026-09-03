@@ -9,7 +9,7 @@ import {
   ensureAgentBroker,
   registerAgentBrokerEventSink,
   scrubAgentEvent,
-  workflowRuntimeDepsFromEnv,
+  workflowRuntimeDepsFromConfig,
 } from "@neko/llm/work";
 import {
   boundedWorkflowApiResult,
@@ -396,7 +396,7 @@ export async function runWorkflowRunFire(
         observer: telemetry.observer,
       });
     } else {
-      await ensureHostConfigProvisioned(payload.orgId);
+      const agentRuntime = await ensureHostConfigProvisioned(payload.orgId);
       const pluginActions = includeRecordActionDescriptors(
         getPluginRegistryInstance()?.getRegisteredActionDescriptors() ?? [],
       );
@@ -437,7 +437,7 @@ export async function runWorkflowRunFire(
             pluginActions,
             observer: telemetry.observer,
           },
-          workflowRuntimeDepsFromEnv(broker),
+          workflowRuntimeDepsFromConfig(agentRuntime, broker),
         );
         const ceilingFailure = ceilingGuard?.failure();
         if (ceilingFailure) throw ceilingFailure;

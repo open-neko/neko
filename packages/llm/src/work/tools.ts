@@ -6,7 +6,7 @@ import {
 import { z } from "zod";
 import { writeWorkSkillFiles } from "./skill-files";
 import { RENDER_CARDS_DESCRIPTION } from "./render-catalog";
-import type { AgentEvent, AgentSurfaceMessage } from "../agent-backend";
+import type { AgentEvent } from "../agent-backend";
 import { WORK_MEMORY_KINDS, type WorkMemoryContext } from "./memory-types";
 import type { RiskLevel } from "../workflows";
 import type { AgentControlPlane } from "./control-plane";
@@ -15,6 +15,7 @@ import {
   A2UI_RENDER_TOOL_NAME,
   RENDER_CARDS_INPUT_SHAPE,
   type RenderCardsArgs,
+  validateRenderCardsInput,
 } from "./a2ui-contract";
 import { OPENNEKO_GRAPHJIN_MCP_SERVER_NAME } from "../graphjin/mcp-names";
 
@@ -35,9 +36,25 @@ export function buildRenderCardsServer(
     RENDER_CARDS_DESCRIPTION,
     RENDER_CARDS_INPUT_SHAPE,
     async (args: RenderCardsArgs) => {
+      const validated = validateRenderCardsInput(args);
+      if (!validated.success) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                ok: false,
+                error: "Invalid A2UI surface graph",
+                issues: validated.issues,
+              }),
+            },
+          ],
+        };
+      }
       await emit({
         type: "surface",
-        messages: args.messages as AgentSurfaceMessage[],
+        messages: validated.messages,
       });
       return {
         content: [
@@ -45,7 +62,7 @@ export function buildRenderCardsServer(
             type: "text" as const,
             text: JSON.stringify({
               ok: true,
-              accepted: args.messages.length,
+              accepted: validated.messages.length,
             }),
           },
         ],

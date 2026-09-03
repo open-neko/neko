@@ -86,6 +86,7 @@ vi.mock("node:child_process", () => ({ spawn: h.spawn }));
 const jobCapture = vi.hoisted(() => ({
   jobs: [] as Array<Record<string, unknown>>,
   policies: [] as Array<ReturnType<typeof JSON.parse>>,
+  hermesEnvs: [] as string[],
 }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -106,6 +107,12 @@ vi.mock("node:fs/promises", async (importOriginal) => {
           /* ignore non-JSON writes */
         }
       }
+      if (
+        typeof p === "string" &&
+        p.endsWith("hermes-home/.env")
+      ) {
+        jobCapture.hermesEnvs.push(String(data));
+      }
       return (actual.writeFile as (...a: unknown[]) => Promise<void>)(p, data, ...rest);
     },
   };
@@ -119,6 +126,7 @@ const {
   buildSandboxPolicy,
   buildScopedEgressArgs,
   ensureOpenShellProvider,
+  sandboxLauncherOptionsFromConfig,
   sandboxLauncherOptionsFromEnv,
   stageSandboxWorkspace,
   verifyOpenShellGateway,
@@ -138,6 +146,41 @@ describe("sandboxLauncherOptionsFromEnv", () => {
         { host: "models.dev" },
       ]);
       expect(options).not.toHaveProperty("modelEgress");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("sandboxLauncherOptionsFromConfig", () => {
+  it("uses the run-local provider snapshot instead of stale process globals", () => {
+    vi.stubEnv(
+      "OPENNEKO_AGENT_MODEL_HOST",
+      "generativelanguage.googleapis.com,models.dev",
+    );
+    vi.stubEnv("OPENNEKO_AGENT_MODEL_KEY_ENV", "GEMINI_API_KEY");
+    vi.stubEnv("OPENNEKO_AGENT_MODEL_PROVIDER", "stale-gemini-provider");
+    vi.stubEnv("OPENNEKO_AGENT_HERMES_HOME", "/tmp/stale-gemini-home");
+    try {
+      const options = sandboxLauncherOptionsFromConfig({
+        modelProvider: "openneko-agent",
+        modelHosts: [
+          { host: "api.anthropic.com" },
+          { host: "models.dev" },
+        ],
+        keyAliases: [{ from: "api_key", to: "ANTHROPIC_API_KEY" }],
+        hermesHomeHostPath: "/tmp/current-anthropic-home",
+      });
+
+      expect(options).toMatchObject({
+        modelProvider: "openneko-agent",
+        modelHosts: [
+          { host: "api.anthropic.com" },
+          { host: "models.dev" },
+        ],
+        keyAliases: [{ from: "api_key", to: "ANTHROPIC_API_KEY" }],
+        hermesHomeHostPath: "/tmp/current-anthropic-home",
+      });
     } finally {
       vi.unstubAllEnvs();
     }
@@ -395,6 +438,7 @@ describe("makeSandboxRunCore", () => {
     h.state.execLines = undefined;
     jobCapture.jobs.length = 0;
     jobCapture.policies.length = 0;
+    jobCapture.hermesEnvs.length = 0;
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -443,6 +487,10 @@ describe("makeSandboxRunCore", () => {
     expect(events.filter((event) => event.type === "message")).toEqual([
       expect.objectContaining({ type: "message", content: "hi" }),
     ]);
+    expect(events.filter((event) => event.type === "status").at(-1)).toEqual({
+      type: "status",
+      message: "Agent is working…",
+    });
     // result parsed from the RESULT line:
     expect(result).toEqual({ status: "completed", finalText: "hi there", backendState: { t: 1 } });
     // create used the agent image; preflight and exec ran the deployed
@@ -808,6 +856,14 @@ describe("makeSandboxRunCore", () => {
     expect(execCall?.args.join(" ")).toContain(
       "HERMES_HOME='/sandbox/org-1/runs/run-1/.openneko/hermes-home'",
     );
+    expect(jobCapture.hermesEnvs).toEqual([""]);
+    expect(
+      JSON.stringify({
+        calls: h.calls,
+        jobs: jobCapture.jobs,
+        policies: jobCapture.policies,
+      }),
+    ).not.toContain("REAL_SECRET");
   });
 });
 

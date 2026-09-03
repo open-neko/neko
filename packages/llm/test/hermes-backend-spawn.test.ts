@@ -108,7 +108,7 @@ describe("HermesBackend spawn invariants", () => {
     expect(controller.spawnCalls[0].options.detached).toBe(true);
   });
 
-  it("emits status + message events when onEvent is provided", async () => {
+  it("emits assistant messages without synthetic status when onEvent is provided", async () => {
     controller.setScript({
       notificationsByMethod: {
         "session/prompt": [
@@ -136,8 +136,8 @@ describe("HermesBackend spawn invariants", () => {
       },
     });
     expect(result.status).toBe("completed");
-    expect(events.find((e) => e.type === "status")).toBeDefined();
     expect(events.find((e) => e.type === "message")).toBeDefined();
+    expect(events.find((e) => e.type === "status")).toBeUndefined();
   });
 
   it("returns AgentRunResult (no thrown error) on completed run", async () => {

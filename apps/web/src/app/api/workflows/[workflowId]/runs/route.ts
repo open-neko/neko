@@ -6,7 +6,7 @@ import {
   finishWorkRun,
   getWorkRun,
   registerAgentBrokerEventSink,
-  workflowRuntimeDepsFromEnv,
+  workflowRuntimeDepsFromConfig,
 } from "@neko/llm/work";
 import {
   finishWorkflowRun,
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     typeof body.userMessage === "string" ? body.userMessage.trim() : undefined;
 
   const orgId = await getOrgId();
-  await ensureHostConfigProvisioned(orgId);
+  const agentRuntime = await ensureHostConfigProvisioned(orgId);
 
   let prepared;
   try {
@@ -107,7 +107,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           pluginActions,
           observer: runTelemetry.observer,
         },
-        workflowRuntimeDepsFromEnv(broker),
+        workflowRuntimeDepsFromConfig(agentRuntime, broker),
       );
       await observeSafely(runTelemetry.observer, {
         kind: "output.contract",
