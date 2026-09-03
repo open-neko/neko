@@ -163,8 +163,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Hermes uses Debian's system Python instead of downloading a second Python
 # distribution. Hermes 0.21 intentionally blocks wheel builds, so install its
 # exact source revision into an isolated editable environment (the supported
-# upstream layout) and keep the checkout immutable inside the image.
-RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv/install.sh \
+# upstream layout). Keep checkout, patching, dependency installation, and
+# pruning in one layer: deleting upstream development assets in a later layer
+# would leave their bytes in the compressed image. OpenNeko supplies
+# HERMES_HOME/skills for every run, so the upstream development, desktop, web,
+# evaluation, and optional-catalog trees are outside the curated ACP runtime.
+COPY scripts/patches/hermes-acp-reasoning-config.patch /tmp/hermes-acp-reasoning-config.patch
+COPY scripts/patches/hermes-acp-interim-messages.patch /tmp/hermes-acp-interim-messages.patch
+COPY scripts/patches/hermes-acp-anthropic-reasoning.patch /tmp/hermes-acp-anthropic-reasoning.patch
+RUN --mount=type=cache,id=hermes-uv,target=/tmp/uv-cache \
+    curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv/install.sh \
       | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh \
     && mkdir -p /usr/local/lib/hermes-agent \
     && git -C /usr/local/lib/hermes-agent init \
@@ -172,12 +180,7 @@ RUN curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv
     && git -C /usr/local/lib/hermes-agent fetch --depth 1 origin "$HERMES_AGENT_REF" \
     && git -C /usr/local/lib/hermes-agent checkout --detach FETCH_HEAD \
     && test "$(git -C /usr/local/lib/hermes-agent rev-parse HEAD)" = "$HERMES_AGENT_REF" \
-    && rm -rf /usr/local/lib/hermes-agent/.git
-COPY scripts/patches/hermes-acp-reasoning-config.patch /tmp/hermes-acp-reasoning-config.patch
-COPY scripts/patches/hermes-acp-interim-messages.patch /tmp/hermes-acp-interim-messages.patch
-COPY scripts/patches/hermes-acp-anthropic-reasoning.patch /tmp/hermes-acp-anthropic-reasoning.patch
-RUN --mount=type=cache,id=hermes-uv,target=/tmp/uv-cache \
-    patch --batch --forward --fuzz=0 -d /usr/local/lib/hermes-agent -p1 < /tmp/hermes-acp-reasoning-config.patch \
+    && patch --batch --forward --fuzz=0 -d /usr/local/lib/hermes-agent -p1 < /tmp/hermes-acp-reasoning-config.patch \
     && patch --batch --forward --fuzz=0 -d /usr/local/lib/hermes-agent -p1 < /tmp/hermes-acp-interim-messages.patch \
     && patch --batch --forward --fuzz=0 -d /usr/local/lib/hermes-agent -p1 < /tmp/hermes-acp-anthropic-reasoning.patch \
     && rm /tmp/hermes-acp-reasoning-config.patch /tmp/hermes-acp-interim-messages.patch /tmp/hermes-acp-anthropic-reasoning.patch \
@@ -196,6 +199,28 @@ RUN --mount=type=cache,id=hermes-uv,target=/tmp/uv-cache \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.server import HermesACPAgent; import inspect; source = inspect.getsource(HermesACPAgent.prompt); assert 'usage=usage' in source, 'Hermes ACP prompt response must expose exact turn usage'" \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.events import make_interim_message_cb; from acp_adapter.server import HermesACPAgent; import inspect; source = inspect.getsource(HermesACPAgent.prompt); assert 'interim_assistant_callback' in source and 'pending_streamed_message.append(text)' in source and 'raw_interim_cb(text, already_streamed=False)' in source and 'not streamed_message' not in source; assert callable(make_interim_message_cb), 'Hermes ACP buffered interim callback missing'" \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from agent import chat_completion_helpers; from pathlib import Path; source = Path(chat_completion_helpers.__file__).read_text(); assert '_emit_unstreamed_anthropic_reasoning' in source and 'reasoning_was_streamed' in source, 'Hermes ACP Anthropic reasoning fallback missing'" \
+    && rm -rf \
+      /usr/local/lib/hermes-agent/.git \
+      /usr/local/lib/hermes-agent/.github \
+      /usr/local/lib/hermes-agent/apps \
+      /usr/local/lib/hermes-agent/contributors \
+      /usr/local/lib/hermes-agent/docs \
+      /usr/local/lib/hermes-agent/evals \
+      /usr/local/lib/hermes-agent/native \
+      /usr/local/lib/hermes-agent/nix \
+      /usr/local/lib/hermes-agent/optional-skills \
+      /usr/local/lib/hermes-agent/scripts \
+      /usr/local/lib/hermes-agent/tests \
+      /usr/local/lib/hermes-agent/ui-tui \
+      /usr/local/lib/hermes-agent/web \
+      /usr/local/lib/hermes-agent/website \
+    && find /usr/local/lib/hermes-agent /usr/local/uv/tools/hermes-agent \
+      -type d -name __pycache__ -prune -exec rm -rf '{}' + \
+    && test ! -e /usr/local/lib/hermes-agent/tests \
+    && test ! -e /usr/local/lib/hermes-agent/apps \
+    && test ! -e /usr/local/lib/hermes-agent/website \
+    && PYTHONDONTWRITEBYTECODE=1 hermes --version \
+    && PYTHONDONTWRITEBYTECODE=1 /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.server import HermesACPAgent; import toolsets; assert HermesACPAgent and toolsets" \
     && echo "hermes v0.21 ACP/MCP runtime present"
 
 # ─── 2c. document toolchain (agent image only) ─────────────────────────
