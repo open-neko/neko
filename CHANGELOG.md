@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.38.0](https://github.com/open-neko/openneko/compare/v2.37.0...v2.38.0) (2026-09-03)
+
+
+### Features
+
+* **work:** stream native provider progress ([1957bf2](https://github.com/open-neko/openneko/commit/1957bf21d27c01f70816330125a556d182641d5d))
+* **work:** stream native provider progress ([066c3f3](https://github.com/open-neko/openneko/commit/066c3f34f5274dddc98e8450a3c09121d4dba23a))
+
 ## [2.37.0](https://github.com/open-neko/openneko/compare/v2.36.1...v2.37.0) (2026-09-02)
 
 
