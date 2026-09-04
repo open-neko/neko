@@ -1,4 +1,5 @@
 export * from "./okf";
+export * from "./chunk";
 export * from "./fence";
 export * from "./tree";
 export * from "./triage";

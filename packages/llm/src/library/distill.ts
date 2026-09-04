@@ -14,8 +14,9 @@ import {
 } from "../work/library";
 import { getOrgAgentRoot } from "../work/workspace";
 import { extractDocumentText, type ExtractOutcome } from "./extract";
+import { planDocumentChunks } from "./chunk";
 import { extractLibraryFences, type LibraryUpsertOp } from "./fence";
-import { buildDistillPrompt, DISTILL_CONTENT_LIMIT } from "./prompts";
+import { buildDistillPrompt } from "./prompts";
 import { triageUpload } from "./triage";
 
 export type DistillLlm = (prompt: string) => Promise<string>;
@@ -114,31 +115,48 @@ export async function runLibraryDistill(input: {
     }
 
     const catalog = await listLibraryConcepts({ orgId, userId: document.userId });
-    const truncated = content.length > DISTILL_CONTENT_LIMIT;
-    const prompt = buildDistillPrompt({
-      filename: document.filename,
-      content: truncated ? content.slice(0, DISTILL_CONTENT_LIMIT) : content,
-      catalog: catalog.map((c) => ({
-        path: c.path,
-        title: c.title,
-        description: c.description ?? undefined,
-      })),
-      truncated,
-    });
+    const catalogForPrompt = catalog.map((c) => ({
+      path: c.path,
+      title: c.title,
+      description: c.description ?? undefined,
+    }));
 
+    // Map: distill each chunk. Reduce: merge upsert ops by path across chunks
+    // so a concept spanning parts is combined, not clobbered. Each chunk is
+    // shown the concepts already emitted from this document so the model
+    // reuses their paths (update-not-append, extended across parts).
+    const chunks = planDocumentChunks(content, outcome.structure.sections);
     const llm = input.llm ?? (await defaultLlm(orgId));
-    const raw = await llm(prompt);
-    const { ops } = extractLibraryFences(raw);
-    if (ops.length === 0) {
+    const merged = new Map<string, LibraryUpsertOp>();
+    let skipReason: string | null = null;
+    for (const chunk of chunks) {
+      const prompt = buildDistillPrompt({
+        filename: document.filename,
+        content: chunk.text,
+        catalog: catalogForPrompt,
+        chunk: { index: chunk.index, total: chunk.total, headingPath: chunk.headingPath },
+        priorConcepts: [...merged.values()].map((op) => ({ path: op.path, title: op.title })),
+      });
+      const raw = await llm(prompt);
+      const { ops } = extractLibraryFences(raw);
+      const upserts = ops.filter((op): op is LibraryUpsertOp => op.kind === "upsert");
+      const skipOp = ops.find((op) => op.kind === "skip");
+      if (upserts.length === 0 && skipOp) skipReason ??= skipOp.reason;
+      for (const op of upserts) {
+        const existing = merged.get(op.path);
+        merged.set(op.path, existing ? mergeUpsertOps(existing, op) : op);
+      }
+    }
+
+    if (merged.size === 0) {
+      if (skipReason) return await skip(skipReason);
       return await fail("librarian returned no parseable neko_library ops");
     }
-    const skipOp = ops.find((op) => op.kind === "skip");
-    const upserts = ops.filter((op): op is LibraryUpsertOp => op.kind === "upsert");
-    if (upserts.length === 0 && skipOp) return await skip(skipOp.reason);
 
     const concepts: LibraryConcept[] = [];
     const now = new Date().toISOString();
-    for (const op of upserts) {
+    const generatedBy = await producerActor();
+    for (const op of merged.values()) {
       const { concept } = await upsertLibraryConcept({
         orgId,
         userId: document.userId,
@@ -149,7 +167,7 @@ export async function runLibraryDistill(input: {
         tags: op.tags ?? [],
         body: op.body,
         sources: [{ resource: `/${document.relativePath}`, last_modified: now }],
-        generatedBy: await producerActor(),
+        generatedBy,
         sourceDocumentId: document.id,
         ...(op.stale_after ? { staleAfter: op.stale_after } : {}),
       });
@@ -161,6 +179,35 @@ export async function runLibraryDistill(input: {
     const message = err instanceof Error ? err.message : String(err);
     return await fail(message);
   }
+}
+
+/**
+ * Reduce step: combine two upsert ops for the same concept path emitted by
+ * different chunks. Bodies are concatenated (skipping an exact duplicate),
+ * tags unioned, and the more conservative (earlier) expiry kept. The
+ * first-seen title/type win — the earliest chunk usually carries the
+ * concept's primary framing.
+ */
+export function mergeUpsertOps(a: LibraryUpsertOp, b: LibraryUpsertOp): LibraryUpsertOp {
+  const bodyA = a.body.trim();
+  const bodyB = b.body.trim();
+  return {
+    kind: "upsert",
+    path: a.path,
+    type: a.type,
+    title: a.title,
+    description: a.description ?? b.description,
+    tags: Array.from(new Set([...(a.tags ?? []), ...(b.tags ?? [])])),
+    body: bodyA.includes(bodyB) ? bodyA : `${bodyA}\n\n${bodyB}`,
+    stale_after: earlierDate(a.stale_after, b.stale_after),
+  };
+}
+
+// ISO YYYY-MM-DD strings compare correctly lexicographically.
+function earlierDate(a?: string, b?: string): string | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return a <= b ? a : b;
 }
 
 // OKF actor convention: "<producer>/<version>".

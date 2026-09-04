@@ -35,7 +35,9 @@ vi.mock("../src/work/workspace", () => ({
   getOrgAgentRoot: vi.fn(() => workspaceRoot),
 }));
 
-import { runLibraryDistill, type DistillExtract } from "../src/library/distill";
+import { mergeUpsertOps, runLibraryDistill, type DistillExtract } from "../src/library/distill";
+import { sliceMarkdownSections } from "../src/library/extract";
+import type { LibraryUpsertOp } from "../src/library/fence";
 
 // Stand-in for the librarian service: read the workspace file directly so the
 // distiller's orchestration is testable without the extraction service. Tests
@@ -75,10 +77,12 @@ const POLICY_TEXT = [
   "Refunds above five hundred dollars require CFO approval.",
 ].join("\n");
 
+const fence = (ops: unknown[]): string =>
+  ["```neko_library", JSON.stringify(ops), "```"].join("\n");
+
 const FENCE_REPLY = [
   "Cataloged.",
-  "```neko_library",
-  JSON.stringify([
+  fence([
     {
       op: "upsert",
       path: "policies/refund-policy.md",
@@ -89,7 +93,6 @@ const FENCE_REPLY = [
       body: "Refunds within 30 days; >$500 needs CFO approval.",
     },
   ]),
-  "```",
 ].join("\n");
 
 beforeEach(async () => {
@@ -231,5 +234,94 @@ describe("runLibraryDistill", () => {
     expect(result.status).toBe("cataloged");
     expect(state.statuses).toHaveLength(0);
     expect(llm).not.toHaveBeenCalled();
+  });
+
+  it("chunks a large document and merges concepts across parts by path", async () => {
+    const bigText = `# Alpha\n${"a".repeat(30_000)}\n# Beta\n${"b".repeat(30_000)}`;
+    const bigExtract: DistillExtract = async () => ({
+      ok: true,
+      text: bigText,
+      structure: { format: "markdown", sections: sliceMarkdownSections(bigText) },
+    });
+    const llm = vi
+      .fn()
+      .mockResolvedValueOnce(
+        fence([
+          {
+            op: "upsert",
+            path: "policies/alpha.md",
+            type: "Policy",
+            title: "Alpha",
+            tags: ["x"],
+            body: "Alpha part one.",
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        fence([
+          {
+            op: "upsert",
+            path: "policies/alpha.md",
+            type: "Policy",
+            title: "Alpha",
+            tags: ["y"],
+            body: "Alpha part two.",
+          },
+          {
+            op: "upsert",
+            path: "policies/beta.md",
+            type: "Policy",
+            title: "Beta",
+            body: "Beta stuff.",
+          },
+        ]),
+      );
+
+    const result = await runLibraryDistill({
+      orgId: ORG,
+      documentId: "doc-1",
+      llm,
+      extract: bigExtract,
+    });
+
+    expect(result.status).toBe("cataloged");
+    expect(llm).toHaveBeenCalledTimes(2);
+    // Reduce-by-path: alpha (seen twice) merged into one, plus beta.
+    expect(state.upserts).toHaveLength(2);
+    const alpha = state.upserts.find((u) => u.path === "policies/alpha.md");
+    expect(alpha?.body).toContain("Alpha part one.");
+    expect(alpha?.body).toContain("Alpha part two.");
+    expect(alpha?.tags).toEqual(expect.arrayContaining(["x", "y"]));
+    // Part 2 is told about the concept already extracted in part 1.
+    expect(llm.mock.calls[0][0] as string).toContain("part 1 of 2");
+    const secondPrompt = llm.mock.calls[1][0] as string;
+    expect(secondPrompt).toContain("part 2 of 2");
+    expect(secondPrompt).toContain("policies/alpha.md");
+  });
+});
+
+describe("mergeUpsertOps", () => {
+  const base = (over: Partial<LibraryUpsertOp>): LibraryUpsertOp => ({
+    kind: "upsert",
+    path: "policies/p.md",
+    type: "Policy",
+    title: "P",
+    body: "body",
+    ...over,
+  });
+
+  it("unions tags, concatenates bodies, and keeps the earlier expiry", () => {
+    const merged = mergeUpsertOps(
+      base({ title: "First", body: "one", tags: ["x"], stale_after: "2027-01-01" }),
+      base({ title: "Second", body: "two", tags: ["y"], stale_after: "2026-06-01" }),
+    );
+    expect(merged.body).toBe("one\n\ntwo");
+    expect(merged.tags).toEqual(["x", "y"]);
+    expect(merged.title).toBe("First");
+    expect(merged.stale_after).toBe("2026-06-01");
+  });
+
+  it("does not duplicate an identical body", () => {
+    expect(mergeUpsertOps(base({ body: "same" }), base({ body: "same" })).body).toBe("same");
   });
 });

@@ -6,14 +6,20 @@
 
 export type DistillPromptInput = {
   filename: string;
-  /** Extracted text of the uploaded document (may be truncated). */
+  /** Extracted text of the document (or of one part, when chunked). */
   content: string;
   /** Existing concept paths with titles/descriptions, for update-not-append. */
   catalog: Array<{ path: string; title: string; description?: string }>;
-  truncated: boolean;
+  /**
+   * Set when a large document is distilled in parts. `total > 1` switches the
+   * prompt into chunk mode: the model is told this is one part, given the
+   * part's heading context, and shown the concepts already extracted from
+   * earlier parts so it reuses their paths instead of duplicating.
+   */
+  chunk?: { index: number; total: number; headingPath?: string[] };
+  /** Concepts already extracted from earlier parts of THIS document. */
+  priorConcepts?: Array<{ path: string; title: string }>;
 };
-
-export const DISTILL_CONTENT_LIMIT = 60_000;
 
 export function buildDistillPrompt(input: DistillPromptInput): string {
   const catalog =
@@ -26,6 +32,30 @@ export function buildDistillPrompt(input: DistillPromptInput): string {
           )
           .join("\n");
 
+  const isChunk = (input.chunk?.total ?? 1) > 1;
+  const partRule = isChunk
+    ? "- This is ONE PART of a larger document. Extract concepts from THIS part" +
+      " only, and reuse a path from the catalog or the earlier-parts list when" +
+      " this part continues or revises the same topic, so a concept spanning" +
+      " parts is merged rather than duplicated."
+    : "";
+  const priorList =
+    isChunk && input.priorConcepts && input.priorConcepts.length > 0
+      ? [
+          "Concepts already extracted from earlier parts of this document",
+          "(reuse these exact paths to continue them):",
+          ...input.priorConcepts.map((c) => `- ${c.path} — ${c.title}`),
+          "",
+        ].join("\n")
+      : "";
+  const headingContext =
+    isChunk && input.chunk?.headingPath && input.chunk.headingPath.length > 0
+      ? `This part appears under: ${input.chunk.headingPath.join(" > ")}`
+      : "";
+  const documentHeader = isChunk
+    ? `Uploaded document (part ${input.chunk?.index} of ${input.chunk?.total}): ${input.filename}`
+    : `Uploaded document: ${input.filename}`;
+
   return [
     "You are the librarian for a business knowledge library. You are given",
     "one uploaded document. Decide whether it contains durable business",
@@ -33,6 +63,7 @@ export function buildDistillPrompt(input: DistillPromptInput): string {
     "org facts) or one-off working data, then catalog it.",
     "",
     "Rules:",
+    partRule,
     "- Durable knowledge → emit one `upsert` per distinct topic. Write the",
     "  concept body as concise reference markdown: what the document",
     "  establishes, key numbers/dates/obligations, and anything a teammate",
@@ -67,10 +98,9 @@ export function buildDistillPrompt(input: DistillPromptInput): string {
     "Current catalog:",
     catalog,
     "",
-    `Uploaded document: ${input.filename}`,
-    input.truncated
-      ? "(content truncated to the first part of the document)"
-      : "",
+    priorList,
+    documentHeader,
+    headingContext,
     "---BEGIN DOCUMENT---",
     input.content,
     "---END DOCUMENT---",
