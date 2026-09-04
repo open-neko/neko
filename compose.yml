@@ -574,6 +574,40 @@ services:
       timeout: 3s
       retries: 5
 
+  librarian:
+    # High-fidelity document extraction for the library, via Docling's official
+    # serving image. Deliberately its own container: the Torch + layout/OCR
+    # model stack and its CPU/RAM spikes have no place in the worker process
+    # that also runs watchers, actions, channels, and the sandbox broker. The
+    # worker calls it over HTTP (NEKO_LIBRARIAN_URL) and falls back to its
+    # builtin extractor when it is unreachable — so a minimal install can drop
+    # this one service (and unset NEKO_LIBRARIAN_URL) to shed the image without
+    # breaking uploads. First-boot pulls layout/OCR models to the cache volume.
+    image: quay.io/docling-project/docling-serve-cpu:v1.32.0
+    restart: unless-stopped
+    environment:
+      # Persist downloaded models on a volume so cold starts and air-gapped
+      # hosts don't re-fetch from Hugging Face every boot.
+      HF_HOME: /models
+      DOCLING_SERVE_ENABLE_UI: "false"
+    volumes:
+      - librarian-models:/models
+    expose:
+      - "5001"
+    healthcheck:
+      # FastAPI always serves /openapi.json; a 200 there is an honest readiness
+      # signal without assuming a bespoke /health route. python3 ships in the
+      # docling image, so no curl dependency.
+      test:
+        - "CMD"
+        - "python3"
+        - "-c"
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5001/openapi.json', timeout=5).status==200 else 1)"
+      interval: 15s
+      timeout: 8s
+      retries: 10
+      start_period: 60s
+
   web:
     build:
       context: .
@@ -656,6 +690,10 @@ services:
       # /config so secrets land at /config/openneko/secrets.json.
       OPENNEKO_PLUGINS_MANIFEST_PATH: /config/openneko/plugins.json
       OPENNEKO_PLUGIN_INSTALL_DIR: /var/lib/openneko/plugins
+      # High-fidelity document extraction (Docling) for the library distiller.
+      # Best-effort: extraction falls back to the builtin extractor if this is
+      # unreachable, so removing the `librarian` service degrades gracefully.
+      NEKO_LIBRARIAN_URL: http://librarian:5001
     expose:
       - "4100"
     volumes:
@@ -684,3 +722,4 @@ volumes:
   openneko-agent-home:
   openneko-agent-tmp:
   openneko-plugins:
+  librarian-models:

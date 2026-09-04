@@ -3,11 +3,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decodeText,
-  doclingExtractionEnabled,
   extractDocumentText,
+  extractViaLibrarian,
+  librarianServiceUrl,
   sliceMarkdownSections,
   stripMarkup,
 } from "../src/library/extract";
@@ -122,19 +123,77 @@ describe("sliceMarkdownSections", () => {
   });
 });
 
-describe("doclingExtractionEnabled", () => {
-  const saved = process.env.NEKO_DOCLING_EXTRACTION;
+describe("librarianServiceUrl", () => {
+  const saved = process.env.NEKO_LIBRARIAN_URL;
   afterEach(() => {
-    if (saved === undefined) delete process.env.NEKO_DOCLING_EXTRACTION;
-    else process.env.NEKO_DOCLING_EXTRACTION = saved;
+    if (saved === undefined) delete process.env.NEKO_LIBRARIAN_URL;
+    else process.env.NEKO_LIBRARIAN_URL = saved;
   });
-  it("is off unless the flag is exactly 'true'", () => {
-    delete process.env.NEKO_DOCLING_EXTRACTION;
-    expect(doclingExtractionEnabled()).toBe(false);
-    process.env.NEKO_DOCLING_EXTRACTION = "1";
-    expect(doclingExtractionEnabled()).toBe(false);
-    process.env.NEKO_DOCLING_EXTRACTION = "true";
-    expect(doclingExtractionEnabled()).toBe(true);
+  it("is null when unset, and trims a trailing slash when set", () => {
+    delete process.env.NEKO_LIBRARIAN_URL;
+    expect(librarianServiceUrl()).toBeNull();
+    process.env.NEKO_LIBRARIAN_URL = "http://librarian:5001/";
+    expect(librarianServiceUrl()).toBe("http://librarian:5001");
+  });
+});
+
+describe("extractViaLibrarian", () => {
+  let file: string;
+  beforeEach(async () => {
+    file = join(dir, "doc.pdf");
+    await writeFile(file, "%PDF-1.4 minimal", "utf8");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns Markdown and sections from a successful conversion", async () => {
+    const md = "# Refund policy\n\nRefunds within 30 days.";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ document: { md_content: md }, status: "success" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const outcome = await extractViaLibrarian({
+      absolutePath: file,
+      filename: "doc.pdf",
+      baseUrl: "http://librarian:5001",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://librarian:5001/v1/convert/file",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.text).toBe(md);
+      expect(outcome.structure?.sections[0].headingPath).toEqual(["Refund policy"]);
+    }
+  });
+
+  it("fails (for fallback) on a non-2xx response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("boom", { status: 500 }));
+    const outcome = await extractViaLibrarian({
+      absolutePath: file,
+      filename: "doc.pdf",
+      baseUrl: "http://librarian:5001",
+    });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.reason).toContain("500");
+  });
+
+  it("fails (for fallback) when the conversion status is failure", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ document: { md_content: "" }, status: "failure" }), {
+        status: 200,
+      }),
+    );
+    const outcome = await extractViaLibrarian({
+      absolutePath: file,
+      filename: "doc.pdf",
+      baseUrl: "http://librarian:5001",
+    });
+    expect(outcome.ok).toBe(false);
   });
 });
 
@@ -206,7 +265,7 @@ describeIfPython("extractDocumentText (bundled script)", () => {
     }
   });
 
-  it("falls back to the builtin extractor when docling is enabled but unavailable", async () => {
+  it("falls back to the builtin extractor when the librarian service is unreachable", async () => {
     const file = join(dir, "policy.docx");
     await execFileAsync("python3", [
       "-c",
@@ -219,18 +278,20 @@ describeIfPython("extractDocumentText (bundled script)", () => {
       ].join("\n"),
       file,
     ]);
-    const saved = process.env.NEKO_DOCLING_EXTRACTION;
-    process.env.NEKO_DOCLING_EXTRACTION = "true";
+    const saved = process.env.NEKO_LIBRARIAN_URL;
+    // Point at a closed port so the fetch fails fast and the extractor must
+    // degrade to the builtin path (which carries no `structure`).
+    process.env.NEKO_LIBRARIAN_URL = "http://127.0.0.1:1";
     try {
       const outcome = await extractDocumentText({ absolutePath: file, filename: "policy.docx" });
-      // Docling is not installed in CI, so this must still succeed via the
-      // builtin path (and carry no structure). If a dev machine *does* have
-      // docling, the content assertion still holds.
       expect(outcome.ok).toBe(true);
-      if (outcome.ok) expect(outcome.text).toContain("Fallback works: 20 days.");
+      if (outcome.ok) {
+        expect(outcome.text).toContain("Fallback works: 20 days.");
+        expect(outcome.structure).toBeUndefined();
+      }
     } finally {
-      if (saved === undefined) delete process.env.NEKO_DOCLING_EXTRACTION;
-      else process.env.NEKO_DOCLING_EXTRACTION = saved;
+      if (saved === undefined) delete process.env.NEKO_LIBRARIAN_URL;
+      else process.env.NEKO_LIBRARIAN_URL = saved;
     }
   });
 

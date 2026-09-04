@@ -5,13 +5,15 @@
 // which degrades from best-available library to CLI tools to
 // stdlib-only parsing (see the skill's SKILL.md and skill-deps.ts).
 //
-// A high-fidelity extractor (Docling) is available as an OPT-IN profile,
-// gated by NEKO_DOCLING_EXTRACTION=true. When enabled it returns structured
-// Markdown plus heading-based section boundaries (see ExtractOutcome.structure)
-// so the distiller can chunk large documents on natural boundaries instead of
-// raw offsets. It falls back to the bundled extractor on any failure — a
-// missing `docling` install never fails an upload — which keeps the default
-// slim images unchanged (Docling is not baked in; operators opt in).
+// High-fidelity extraction is delegated to the librarian service (Docling's
+// docling-serve, a separate container) so the Torch + layout/OCR model stack
+// stays out of the worker process. When NEKO_LIBRARIAN_URL is configured the
+// worker POSTs the document to that service and gets back structured Markdown
+// plus heading-based section boundaries (see ExtractOutcome.structure), which
+// lets the distiller chunk large documents on natural boundaries instead of
+// raw offsets. The service is called best-effort: any failure (unreachable,
+// timeout, conversion error) falls back to the builtin extractor below, so an
+// upload is never blocked by the service being down.
 
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -34,17 +36,6 @@ export const EXTRACTION_SCRIPT_PATH = resolve(
   "extract_text.py",
 );
 
-export const DOCLING_SCRIPT_PATH = resolve(
-  HERE,
-  "..",
-  "..",
-  "assets",
-  "builtin-skills",
-  "document-extraction",
-  "scripts",
-  "extract_docling.py",
-);
-
 const TEXT_EXTENSIONS = new Set([
   ".md",
   ".txt",
@@ -62,10 +53,10 @@ const SCRIPT_EXTENSIONS = new Set([".pdf", ".docx", ".pptx", ".xlsx"]);
 const SCRIPT_TIMEOUT_MS = 5 * 60 * 1000;
 const SCRIPT_MAX_CHARS = 400_000;
 
-// Formats Docling handles well. .html is included even though the builtin
-// path reads it in-process — Docling's structure output is richer, and the
-// fallback covers it either way.
-const DOCLING_EXTENSIONS = new Set([
+// Formats the librarian (Docling) service handles well. .html is included
+// even though the builtin path reads it in-process — Docling's structure
+// output is richer, and the fallback covers it either way.
+const LIBRARIAN_EXTENSIONS = new Set([
   ".pdf",
   ".docx",
   ".pptx",
@@ -73,13 +64,10 @@ const DOCLING_EXTENSIONS = new Set([
   ".html",
   ".htm",
 ]);
-// Docling can be slow on large scanned PDFs; give it more headroom than the
-// builtin script. Large documents are the whole reason this path exists.
-const DOCLING_TIMEOUT_MS = 10 * 60 * 1000;
-// Unlike the builtin path's 400k prefix truncation, Docling is meant to
-// return the whole document — downstream chunking is the size control. This
-// is only a safety ceiling against a pathological conversion.
-const DOCLING_MAX_CHARS = 5_000_000;
+// The service can be slow on large scanned PDFs (layout + OCR); give it far
+// more headroom than the builtin script. Large documents are the whole
+// reason this path exists.
+const LIBRARIAN_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** One heading-delimited region of an extracted Markdown document. */
 export type ExtractedSection = {
@@ -108,9 +96,13 @@ export type ExtractOutcome =
     }
   | { ok: false; reason: string };
 
-/** Opt-in flag: route supported formats through the Docling extractor. */
-export function doclingExtractionEnabled(): boolean {
-  return process.env.NEKO_DOCLING_EXTRACTION === "true";
+/**
+ * Base URL of the librarian extraction service (docling-serve), or null when
+ * it isn't configured — in which case extraction uses the builtin path only.
+ */
+export function librarianServiceUrl(): string | null {
+  const raw = process.env.NEKO_LIBRARIAN_URL?.trim();
+  return raw ? raw.replace(/\/+$/, "") : null;
 }
 
 export async function extractDocumentText(input: {
@@ -118,14 +110,15 @@ export async function extractDocumentText(input: {
   filename: string;
 }): Promise<ExtractOutcome> {
   const ext = extensionOf(input.filename);
-  if (doclingExtractionEnabled() && DOCLING_EXTENSIONS.has(ext)) {
-    const docling = await extractWithDocling(input);
-    if (docling.ok) return docling;
-    // Degrade to the builtin extractor rather than failing the upload — a
-    // missing docling install or a single-document conversion error should
-    // never block cataloging.
+  const librarian = librarianServiceUrl();
+  if (librarian && LIBRARIAN_EXTENSIONS.has(ext)) {
+    const result = await extractViaLibrarian({ ...input, baseUrl: librarian });
+    if (result.ok) return result;
+    // Degrade to the builtin extractor rather than failing the upload — the
+    // service being down or erroring on one document should never block
+    // cataloging.
     console.warn(
-      `[library] docling extraction failed for "${input.filename}" (${docling.reason}); falling back to the builtin extractor`,
+      `[library] librarian extraction failed for "${input.filename}" (${result.reason}); falling back to the builtin extractor`,
     );
   }
   if (TEXT_EXTENSIONS.has(ext)) {
@@ -174,29 +167,45 @@ export async function extractDocumentText(input: {
   }
 }
 
+type DoclingConvertResponse = {
+  document?: { md_content?: string | null };
+  status?: string;
+  errors?: unknown[];
+};
+
 /**
- * High-fidelity extraction via the Docling script: one document in,
- * structured Markdown out, with heading boundaries computed on this side so
- * the Python stays single-purpose and the slicing stays unit-testable
- * without a docling install.
+ * High-fidelity extraction via the librarian service (docling-serve): POST
+ * the document to /v1/convert/file, get structured Markdown back, and compute
+ * heading boundaries on this side so the slicing stays unit-testable without
+ * the service running. Any transport/conversion failure is returned as
+ * ok:false so the caller can fall back to the builtin extractor.
  */
-export async function extractWithDocling(input: {
+export async function extractViaLibrarian(input: {
   absolutePath: string;
   filename: string;
+  baseUrl: string;
 }): Promise<ExtractOutcome> {
   try {
-    const { stdout } = await execFileAsync(
-      "python3",
-      [DOCLING_SCRIPT_PATH, input.absolutePath, `--max-chars=${DOCLING_MAX_CHARS}`],
-      {
-        timeout: DOCLING_TIMEOUT_MS,
-        maxBuffer: 128 * 1024 * 1024,
-        encoding: "utf8",
-      },
-    );
-    const markdown = stdout;
-    if (!markdown.trim()) {
-      return { ok: false, reason: "docling returned no text" };
+    const bytes = await readFile(input.absolutePath);
+    const form = new FormData();
+    // docling-serve infers the source format from the uploaded filename.
+    form.append("files", new Blob([new Uint8Array(bytes)]), input.filename);
+    form.append("to_formats", "md");
+    const res = await fetch(`${input.baseUrl}/v1/convert/file`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(LIBRARIAN_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      return { ok: false, reason: `librarian service returned HTTP ${res.status}` };
+    }
+    const data = (await res.json()) as DoclingConvertResponse;
+    const markdown = data.document?.md_content ?? "";
+    if (data.status === "failure" || !markdown.trim()) {
+      return {
+        ok: false,
+        reason: `librarian conversion ${data.status ?? "returned no text"}`,
+      };
     }
     return {
       ok: true,
@@ -204,17 +213,9 @@ export async function extractWithDocling(input: {
       structure: { format: "markdown", sections: sliceMarkdownSections(markdown) },
     };
   } catch (err) {
-    const e = err as NodeJS.ErrnoException & { stderr?: string; killed?: boolean };
-    if (e.code === "ENOENT") {
-      return { ok: false, reason: "python3 is not installed on the worker" };
-    }
-    if (e.killed) {
-      return { ok: false, reason: "docling extraction timed out" };
-    }
-    const stderr = (e.stderr ?? "").trim().split("\n").at(-1) ?? "";
     return {
       ok: false,
-      reason: stderr || `docling extraction failed for "${input.filename}"`,
+      reason: err instanceof Error ? err.message : String(err),
     };
   }
 }
