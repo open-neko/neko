@@ -157,6 +157,18 @@ export const KNOWN_SKILL_DEPS: Record<string, SkillDeps> = {
   },
 };
 
+// Opt-in high-fidelity extractor for the library distiller (extract.ts,
+// gated by NEKO_DOCLING_EXTRACTION=true). Deliberately NOT part of
+// KNOWN_SKILL_DEPS — Docling pulls in a large ML stack, so baking it into the
+// default images would break the slim-image contract. Operators who enable
+// the profile install this into the worker image (`pip install docling`); the
+// extractor degrades to the builtin script when it is absent, so the flag is
+// safe to set before the dep is present.
+export const DOCLING_EXTRACTION_DEPS: Pick<SkillDeps, "python" | "pip"> = {
+  python: ["docling"],
+  pip: ["docling"],
+};
+
 // Union of all pip / apt / brew deps across the manifest. Used by the
 // Dockerfile-time installer to bake everything into the image, and by the
 // dev-side doctor script to print fresh-machine setup commands.

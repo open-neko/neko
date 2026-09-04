@@ -39,6 +39,32 @@ Exit 0 with text on stdout on success; non-zero with a reason on stderr
 when a format genuinely can't be handled (e.g. PDF with no extraction
 tool installed).
 
+## High-fidelity profile (Docling, opt-in)
+
+For large or complex documents (multi-hundred-page PDFs, contracts with
+tables), an optional [Docling](https://github.com/docling-project/docling)
+extractor produces **structured Markdown** — headings, tables, and reading
+order preserved — instead of a flat text dump. That structure lets the
+library distiller chunk on natural boundaries rather than raw character
+offsets.
+
+It is **off by default** to keep the standard images slim (Docling pulls in a
+sizeable ML stack). To enable it on the worker:
+
+```bash
+pip install docling            # into the worker image / host
+export NEKO_DOCLING_EXTRACTION=true
+```
+
+```bash
+python3 scripts/extract_docling.py FILE [--max-chars=N]   # Markdown to stdout
+```
+
+When the flag is set, supported formats (`.pdf .docx .pptx .xlsx .html`) route
+through Docling; on any failure — including `docling` not being installed —
+extraction **falls back** to `extract_text.py`, so enabling the flag before
+installing the dependency never blocks an upload.
+
 ## Usage notes
 
 - **Encoding**: never assume ASCII. The script already tries utf-8 then
