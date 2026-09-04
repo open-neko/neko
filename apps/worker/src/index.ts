@@ -12,6 +12,7 @@ import {
   QUEUE,
   type ActionExecutePayload,
   type ChannelDeliverPayload,
+  type LibraryExtractPayload,
   type LibraryDistillPayload,
   type SkillLearnPayload,
   type ProcessingJobPayload,
@@ -110,6 +111,9 @@ import { runWorkflowRunFire } from "./jobs/workflow-run-fire.js";
 import { runWorkflowOutputTtlSweep } from "./jobs/workflow-output-ttl-sweep.js";
 import { runActionExecute } from "./jobs/action-execute.js";
 import { runRecordsImport } from "./jobs/records-import.js";
+import { sweepExpiredLibraryTransientState } from "./jobs/library-cleanup.js";
+import { runLibraryExtractJob } from "./jobs/library-extract.js";
+import { recoverUnqueuedLibraryUploads } from "./jobs/library-recovery.js";
 import { runLibraryDistillJob } from "./jobs/library-distill.js";
 import { runSkillLearnJob } from "./jobs/skill-learn.js";
 import { runRecordsIdentityLink } from "./jobs/records-identity-link.js";
@@ -1174,6 +1178,16 @@ await b.work(
 );
 
 await b.work(
+  QUEUE.LIBRARY_EXTRACT,
+  { batchSize: 1, pollingIntervalSeconds: 1 },
+  async (jobs: PgBossLib.Job<LibraryExtractPayload>[]) => {
+    for (const job of jobs) {
+      await runLibraryExtractJob(job.data);
+    }
+  },
+);
+
+await b.work(
   QUEUE.LIBRARY_DISTILL,
   { batchSize: 1, pollingIntervalSeconds: 1 },
   async (jobs: PgBossLib.Job<LibraryDistillPayload>[]) => {
@@ -1550,6 +1564,40 @@ const reconcileTimer = setInterval(() => {
 }, RECONCILE_SWEEP_INTERVAL_MS);
 reconcileTimer.unref();
 
+const libraryCleanup = () => {
+  sweepExpiredLibraryTransientState()
+    .then((count) => {
+      if (count > 0) {
+        console.log(`[library-cleanup] removed ${count} expired transient state(s)`);
+      }
+    })
+    .catch((error) => {
+      console.warn(
+        `[library-cleanup] sweep failed: ${error instanceof Error ? error.message : error}`,
+      );
+    });
+};
+libraryCleanup();
+const libraryCleanupTimer = setInterval(libraryCleanup, 6 * 60 * 60 * 1_000);
+libraryCleanupTimer.unref();
+
+const libraryRecovery = () => {
+  recoverUnqueuedLibraryUploads()
+    .then((count) => {
+      if (count > 0) {
+        console.log(`[library-recovery] enqueued ${count} stranded upload(s)`);
+      }
+    })
+    .catch((error) => {
+      console.warn(
+        `[library-recovery] sweep failed: ${error instanceof Error ? error.message : error}`,
+      );
+    });
+};
+libraryRecovery();
+const libraryRecoveryTimer = setInterval(libraryRecovery, 60_000);
+libraryRecoveryTimer.unref();
+
 server.listen(PORT, () => {
   console.log(
     `[worker] pg-boss running; /health on http://localhost:${PORT}`,
@@ -1561,6 +1609,8 @@ const channelInbound = startChannelInbound(ADMIN_ORG_ID);
 const shutdown = async (signal: string) => {
   console.log(`[worker] received ${signal}; shutting down`);
   clearInterval(reconcileTimer);
+  clearInterval(libraryCleanupTimer);
+  clearInterval(libraryRecoveryTimer);
   workflowScheduler.stop();
   workflowApiDispatcher.stop();
   channelInbound.stop();

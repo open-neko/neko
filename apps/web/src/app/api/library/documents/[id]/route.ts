@@ -1,7 +1,10 @@
 import { rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
 import { NextRequest, NextResponse } from "next/server";
-import { getOrgAgentRoot, removeLibraryDocument } from "@neko/llm/work";
+import {
+  removeLibraryDerivedMarkdown,
+  removeLibraryDocument,
+  resolveLibrarySourcePath,
+} from "@neko/llm";
 import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
 
@@ -27,14 +30,17 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
       id,
       userId: actor.userId,
     });
+    await removeLibraryDerivedMarkdown(
+      orgId,
+      document.extractedRelativePath,
+    ).catch(() => {
+      // Missing derived state is fine after row removal.
+    });
     if (document.relativePath.startsWith("library/uploads/")) {
-      const orgRoot = getOrgAgentRoot(orgId);
-      const absolute = resolve(join(orgRoot, document.relativePath));
-      if (absolute.startsWith(resolve(orgRoot))) {
-        await rm(absolute, { force: true }).catch(() => {
-          // Missing file is fine — the row removal is what matters.
-        });
-      }
+      const absolute = resolveLibrarySourcePath(orgId, document.relativePath);
+      await rm(absolute, { force: true }).catch(() => {
+        // Missing file is fine — the row removal is what matters.
+      });
     }
     return NextResponse.json({ ok: true });
   } catch {

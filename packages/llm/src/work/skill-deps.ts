@@ -157,12 +157,11 @@ export const KNOWN_SKILL_DEPS: Record<string, SkillDeps> = {
   },
 };
 
-// Note: the library distiller extracts documents ONLY through the librarian
-// service container (the `librarian` service in compose.yml, using
-// docling-serve), reached over HTTP (NEKO_LIBRARIAN_URL) — there is no
-// in-worker fallback. The bundled document-extraction skill below stays for
-// the AGENT's own in-sandbox use; it is a separate consumer, not a library
-// fallback. Docling is therefore not a Python dependency in this manifest.
+// Note: the Library sends digital PDF/Office/CSV inputs only to the owned
+// `librarian` service over NEKO_LIBRARIAN_URL; Markdown/text are decoded by the
+// worker. The bundled document-extraction skill below stays for the AGENT's
+// own in-sandbox use and is not a Library fallback. Docling is therefore not a
+// Python dependency in this manifest.
 
 // Union of all pip / apt / brew deps across the manifest. Used by the
 // Dockerfile-time installer to bake everything into the image, and by the

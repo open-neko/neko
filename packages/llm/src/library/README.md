@@ -1,113 +1,72 @@
-# The document library: extraction & distillation
+# Document extraction and distillation
 
-This package turns an uploaded document into durable, searchable **concepts**
-in the knowledge library. This note explains *why* the pipeline is shaped the
-way it is — the intent behind the moving parts — so the code reads as a set of
-deliberate decisions rather than accidents.
+The Library turns accepted uploads into durable, searchable concepts.
 
-## The pipeline
+## Accepted inputs
 
-```
+- Digital-text PDF, DOCX, PPTX, XLSX and CSV go through the owned librarian
+  image.
+- Markdown and plain text are decoded deterministically in the worker because
+  agents can generate these files for OpenNeko to consume.
+- JSON, HTML, TSV, images, legacy Office files, scanned documents and
+  handwritten documents are outside the current product contract.
+
+OCR is disabled. The librarian image contains only the Docling format support
+and layout/table models required by this contract. Its dependency lock and
+models are copied into the final image during release; model resolution is
+forced offline and never downloads a model on first use. Release CI publishes
+the owned multi-architecture image by digest and embeds the release manifest
+digest in the OpenNeko CLI, which supplies Compose with a
+`:<release>@sha256:...` ref.
+
+## Durable pipeline
+
+```text
 upload
-  → librarian service (Docling)        extract.ts   → structured Markdown + heading sections
-  → outline-then-zoom                  outline.ts   → pick knowledge-bearing sections
-  → chunk on headings                  chunk.ts     → windows under a per-chunk budget
-  → map: distill each chunk            distill.ts   → neko_library ops (threaded with prior concepts)
-  → reduce: merge ops by path          distill.ts   → one concept per path, bodies combined
-  → upsert concepts                    work/library.ts
-        ↑ checkpointed after every chunk (resumable on retry)
+  -> library_extract pg-boss job
+     -> direct text, or submit/poll the librarian async API
+     -> hash and atomically store temporary normalized Markdown
+  -> library_distill pg-boss job
+     -> chunk all extracted text on headings
+     -> map every chunk to validated neko_library upserts
+     -> reduce repeated concept paths
+     -> upsert concepts
 ```
 
-## Intent, decision by decision
+The extraction task ID is checkpointed in Postgres. A worker restart resumes
+polling; a librarian restart returns `404`, which makes the worker resubmit the
+same immutable source. The temporary Markdown is content-addressed beneath the
+org workspace at `library/derived/<document>/<extractor>/<content>.md`.
 
-### Extraction is a dedicated service, not in the worker
+Every distillation chunk must return at least one valid upsert. Empty,
+malformed, or skip-only output fails the chunk. Multi-chunk checkpoints bind
+the cursor and accumulated operations to the source hash, extractor
+fingerprint, extracted-content hash and chunk-plan hash, so a retry resumes
+without accepting stale state or rebilling completed chunks.
 
-High-fidelity extraction (Docling) carries a heavy stack — Torch plus layout
-and OCR models — and its memory/CPU cost is spiky (a 300-page scanned PDF is a
-very different load than a one-page memo). The worker already runs watchers,
-actions, channels, and the sandbox broker; that stack has no business sharing
-its process. So extraction runs as its own container — Docling's official
-`docling-serve` image, the `librarian` service in `compose.yml` — and the
-worker calls it over HTTP (`NEKO_LIBRARIAN_URL`), exactly as it calls GraphJin.
-The heavy dependency is isolated, scaled, and crash-contained on its own.
+Derived Markdown and checkpoints are deleted after successful cataloging.
+The row keeps its artifact pointer until the deletion completes, so a worker
+restart can finish cleanup instead of leaking an untracked file.
+Failures retain them for diagnosis and retry for seven days; the worker sweep
+then removes them. Compact extraction hashes and the extractor fingerprint
+remain on the document row as provenance.
 
-This mirrors how the codebase already isolates OpenShell and the GraphJin agent
-as separate containers rather than worker responsibilities.
+## Storage lifecycle
 
-### There is exactly one extractor — no fallback
-
-The librarian service is the **only** extractor. There is no in-process
-"slim" extractor to fall back to. If the service is unreachable or a
-conversion fails, extraction fails with a clear reason, the document row is
-marked failed, and it is retryable from `/library`. We never silently degrade
-to lower-fidelity text and catalog a worse version of the document — a quiet
-downgrade is worse than a loud failure a human can retry.
-
-(The bundled `document-extraction` skill / `extract_text.py` still exists, but
-only as the *agent's* in-sandbox tool — a separate consumer with no network
-path to the service. It is not a library fallback.)
-
-### Structured Markdown, so chunking is meaningful
-
-Docling returns Markdown with headings, tables, and reading order preserved,
-and `extract.ts` derives a **section map** (`ExtractedSection[]`) from it. That
-structure is the enabling detail for everything downstream: the distiller can
-split a document on *natural* boundaries (headings) instead of raw character
-offsets, and record provenance per section.
-
-### Distill the whole document, in a map-reduce
-
-The old distiller truncated to the first 60k characters — a hundred-page
-contract was cataloged from its first ~25 pages. Now the whole document is
-distilled:
-
-- **Map** — each chunk is distilled independently, but is shown the concepts
-  already extracted from *earlier chunks of the same document*. That is what
-  makes "update, don't duplicate" work **across** parts, not just across
-  re-uploads: a concept that spans a chunk boundary is continued, not
-  duplicated.
-- **Reduce** — ops are merged **by concept path** before writing. Two chunks
-  that both touch `contracts/acme-msa.md` are combined (bodies concatenated,
-  tags unioned, earliest expiry kept) into a single upsert. This is the
-  critical correctness point: `upsertLibraryConcept` *replaces* a concept in
-  place, so a naive per-chunk upsert would have the last chunk clobber the
-  first. Reduce-by-path is what prevents that.
-
-### Outline-then-zoom keeps cost proportional to signal
-
-A large document is mostly not knowledge — tables of contents, raw-data
-appendices, exhibits, signature blocks. Distilling every chunk of it in full
-is wasteful. So for multi-chunk documents, one cheap pass over the section
-outline (heading + size + a lead snippet) selects the knowledge-bearing
-sections, and only those are distilled in full.
-
-The selection can only **narrow**. If the outline reply is unparseable or
-empty, the pipeline distills everything. Outlining is a cost optimization that
-can never drop content — only skip spending on sections that carry none.
-
-### Per-chunk checkpointing makes large jobs resumable
-
-A sixty-chunk document that dies on chunk forty should not re-bill forty LLM
-calls on retry. After each chunk, the distiller persists a checkpoint
-(`library_document.distill_checkpoint`): the outline selection, the chunk
-count, the cursor, and the merged ops so far. A retry validates the checkpoint
-against the current extraction (a drifted plan is discarded and restarted) and
-**resumes from the next chunk**.
-
-The checkpoint is kept on failure and cleared on success or skip. It is honored
-even under `force` — the operator retry route forces to bypass triage, but
-there is no reason for that to re-bill chunks a checkpoint already covers;
-`force` re-catalogs and skips the outline pass, not the resume.
-
-## What is not yet done
-
-- **Live verification.** The Docling round-trip and the `0068` migration are
-  exercised in unit tests against mocks; they still need one real
-  `docker compose up librarian` and a migration run to confirm end to end.
-- **A truly-fresh forced redo.** `force` resumes a checkpoint rather than
-  discarding it; there is no "start this document over from scratch" action
-  distinct from retry. The plan-drift guard covers a re-extracted document,
-  but a deliberate full redo is not exposed.
-- **Outline cost tuning.** The outline pass currently runs for any multi-chunk
-  document; a size threshold could skip it when the whole document is small
-  enough that one extra call is not worth it.
+- The original upload is durable because concept citations point to it.
+  Direct Library imports live at
+  `library/uploads/<owner>/<source-hash>/<filename>` until the owner removes
+  the Library document. Work attachments live at `uploads/<thread>/<filename>`
+  and follow the thread lifecycle.
+- The librarian's input copy and normalized result live only in its bounded
+  `/tmp` tmpfs. One converter and one pending-task slot provide backpressure.
+  The input is removed before the result is spooled; the result is removed when
+  the worker retrieves it, with a 15-minute expiry as a fallback.
+- Normalized Markdown needed across worker restarts lives temporarily at
+  `library/derived/<document>/<extractor>/<content>.md` in the org workspace.
+  The matching extraction and distillation checkpoints live on the
+  `library_document` row in Postgres.
+- Successful jobs remove that Markdown and both checkpoints immediately.
+  Failed jobs retain retry state for seven days, after which the periodic and
+  boot-time sweeper removes it. Source/extraction hashes, the extractor
+  fingerprint and completion timestamps remain as compact provenance.

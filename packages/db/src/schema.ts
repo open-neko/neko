@@ -1334,9 +1334,17 @@ export const library_document = pgTable(
     status: text("status").notNull().default("uploaded"),
     skip_reason: text("skip_reason"),
     error: text("error"),
-    // Resumable-distillation checkpoint written by the librarian:
-    // { v, selectedIndices, chunkTotal, cursor, ops, skipReason }. NULL when
-    // idle or complete; kept on failure so a retry resumes mid-document.
+    // Extraction is a durable async stage. The task/checkpoint is temporary;
+    // the small hashes and extractor fingerprint remain as provenance after
+    // the normalized Markdown artifact has been removed.
+    extract_checkpoint: jsonb("extract_checkpoint"),
+    extracted_relative_path: text("extracted_relative_path"),
+    extracted_content_hash: text("extracted_content_hash"),
+    extractor_fingerprint: text("extractor_fingerprint"),
+    extracted_at: ts("extracted_at"),
+    // Resumable-distillation checkpoint written by the librarian. It binds the
+    // chunk cursor and accumulated ops to source/extraction/plan hashes. NULL
+    // when idle or complete; kept on failure so a retry resumes mid-document.
     distill_checkpoint: jsonb("distill_checkpoint"),
     distilled_at: ts("distilled_at"),
     created_at: ts("created_at").notNull().defaultNow(),
@@ -1355,6 +1363,10 @@ export const library_document = pgTable(
     org_hash_idx: index("library_document_org_hash_idx").on(
       t.org_id,
       t.content_hash,
+    ),
+    async_recovery_idx: index("library_document_async_recovery_idx").on(
+      t.status,
+      t.updated_at,
     ),
   }),
 );

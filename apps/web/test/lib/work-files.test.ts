@@ -99,13 +99,31 @@ describe("upload constants", () => {
   });
 
   it("allows the standard document extensions", () => {
-    for (const ext of [".csv", ".pdf", ".md", ".txt", ".docx", ".xlsx", ".pptx", ".json", ".tsv", ".html"]) {
+    for (const ext of [
+      ".csv",
+      ".pdf",
+      ".md",
+      ".markdown",
+      ".txt",
+      ".docx",
+      ".xlsx",
+      ".pptx",
+    ]) {
       expect(ALLOWED_UPLOAD_EXTENSIONS.has(ext)).toBe(true);
     }
   });
 
   it("rejects images and other unsupported types", () => {
-    for (const ext of [".png", ".jpg", ".gif", ".exe", ".zip"]) {
+    for (const ext of [
+      ".png",
+      ".jpg",
+      ".gif",
+      ".exe",
+      ".zip",
+      ".json",
+      ".tsv",
+      ".html",
+    ]) {
       expect(ALLOWED_UPLOAD_EXTENSIONS.has(ext)).toBe(false);
     }
   });

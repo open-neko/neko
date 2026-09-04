@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { enqueue, QUEUE, type LibraryDistillPayload } from "@neko/db/jobs";
+import { enqueue, QUEUE, type LibraryExtractPayload } from "@neko/db/jobs";
 import { createLibraryDocument } from "@neko/llm/work";
 import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
@@ -55,10 +55,9 @@ export async function POST(request: Request) {
 
   // Auto-add to the uploader's personal library: create the tracking row
   // and queue the librarian. Best-effort — a library hiccup must never
-  // fail the upload itself. Triage inside the distill job decides whether
-  // the file is durable knowledge or one-off working data. Callers can
-  // opt an upload out entirely with catalog=false (no library record at
-  // all — the file stays thread-only).
+  // fail the upload itself. All accepted content is extracted and distilled.
+  // Callers can opt an upload out entirely with catalog=false (no library
+  // record at all — the file stays thread-only).
   const catalog = String(form.get("catalog") ?? "true") !== "false";
   if (!catalog) {
     return NextResponse.json({
@@ -84,14 +83,23 @@ export async function POST(request: Request) {
       contentHash,
       sizeBytes: saved.size,
     });
-    // Distill new documents, and retry a previously failed one on
+    // Extract and distill new documents, and retry a previously failed one on
     // re-upload of the identical file (the environment may have been
-    // fixed since). Skipped stays skipped — triage's verdict stands —
-    // and cataloged/in-flight documents are left alone.
-    if (created || document.status === "failed") {
-      const payload: LibraryDistillPayload = { orgId, documentId: document.id };
-      await enqueue(QUEUE.LIBRARY_DISTILL, payload, {
-        singletonKey: `library-distill:${document.id}`,
+    // fixed since). Cataloged/skipped/in-flight documents are left alone.
+    // `uploaded` also covers recovery from the narrow insert-before-enqueue
+    // failure window: an identical re-upload must be able to restore the job.
+    if (created || document.status === "uploaded" || document.status === "failed") {
+      const payload: LibraryExtractPayload = {
+        orgId,
+        documentId: document.id,
+        runId: randomUUID(),
+        sequence: 0,
+      };
+      await enqueue(QUEUE.LIBRARY_EXTRACT, payload, {
+        retryLimit: 8,
+        retryDelay: 15,
+        retryBackoff: true,
+        singletonKey: `library-extract:${document.id}`,
       });
     }
   } catch (error) {

@@ -3,10 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  extractDocumentText,
-  extractViaLibrarian,
+  extractDirectText,
+  fetchLibrarianExtraction,
   librarianServiceUrl,
+  pollLibrarianExtraction,
+  RetryableLibraryExtractionError,
   sliceMarkdownSections,
+  submitLibrarianExtraction,
+  TerminalLibraryExtractionError,
 } from "../src/library/extract";
 
 let dir: string;
@@ -35,40 +39,21 @@ describe("sliceMarkdownSections", () => {
     ]);
   });
 
-  it("captures a preamble before the first heading", () => {
-    const md = "Intro line.\n\n# Title\n\nBody.";
-    const sections = sliceMarkdownSections(md);
-    expect(sections[0]).toEqual({ headingPath: [], start: 0, end: md.indexOf("# Title") });
-    expect(sections[1].headingPath).toEqual(["Title"]);
-    expect(sections[1].end).toBe(md.length);
-  });
-
-  it("builds an ancestor trail from nested headings", () => {
-    const md = ["# A", "text", "## B", "more", "### C", "deep", "## D", "end"].join("\n");
-    const paths = sliceMarkdownSections(md).map((s) => s.headingPath);
-    expect(paths).toEqual([["A"], ["A", "B"], ["A", "B", "C"], ["A", "D"]]);
-  });
-
-  it("gives contiguous, non-overlapping offset ranges", () => {
-    const md = ["# One", "aaa", "# Two", "bbb"].join("\n");
-    const sections = sliceMarkdownSections(md);
-    expect(sections[0].start).toBe(0);
-    expect(sections[0].end).toBe(sections[1].start);
-    expect(sections[1].end).toBe(md.length);
-    expect(md.slice(sections[1].start).startsWith("# Two")).toBe(true);
-  });
-
-  it("ignores '#' lines inside fenced code blocks", () => {
-    const md = ["# Real", "```", "# not a heading", "```", "## Also real"].join("\n");
-    expect(sliceMarkdownSections(md).map((s) => s.headingPath)).toEqual([
-      ["Real"],
-      ["Real", "Also real"],
-    ]);
-  });
-
-  it("strips trailing closing hashes from ATX headings", () => {
-    expect(sliceMarkdownSections("## Payment ##\nbody")[0].headingPath).toEqual([
-      "Payment",
+  it("captures nested headings while ignoring headings inside code fences", () => {
+    const md = [
+      "Intro",
+      "# A",
+      "text",
+      "```",
+      "# not a heading",
+      "```",
+      "## B ##",
+      "more",
+    ].join("\n");
+    expect(sliceMarkdownSections(md).map((section) => section.headingPath)).toEqual([
+      [],
+      ["A"],
+      ["A", "B"],
     ]);
   });
 });
@@ -79,7 +64,8 @@ describe("librarianServiceUrl", () => {
     if (saved === undefined) delete process.env.NEKO_LIBRARIAN_URL;
     else process.env.NEKO_LIBRARIAN_URL = saved;
   });
-  it("is null when unset, and trims a trailing slash when set", () => {
+
+  it("is null when unset and trims trailing slashes", () => {
     delete process.env.NEKO_LIBRARIAN_URL;
     expect(librarianServiceUrl()).toBeNull();
     process.env.NEKO_LIBRARIAN_URL = "http://librarian:5001/";
@@ -87,94 +73,112 @@ describe("librarianServiceUrl", () => {
   });
 });
 
-describe("extractViaLibrarian", () => {
+describe("asynchronous librarian API", () => {
   let file: string;
+
   beforeEach(async () => {
     file = join(dir, "doc.pdf");
-    await writeFile(file, "%PDF-1.4 minimal", "utf8");
+    await writeFile(file, "%PDF-1.4 digital", "utf8");
   });
 
-  it("returns Markdown and sections from a successful conversion", async () => {
-    const md = "# Refund policy\n\nRefunds within 30 days.";
+  it("submits exact format with OCR and image enrichment disabled", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(jsonResponse({ document: { md_content: md }, status: "success" }));
-    const outcome = await extractViaLibrarian({
-      absolutePath: file,
-      filename: "doc.pdf",
-      baseUrl: "http://librarian:5001",
+      .mockResolvedValue(jsonResponse({ task_id: "task-1", task_status: "pending" }));
+    await expect(
+      submitLibrarianExtraction({
+        absolutePath: file,
+        filename: "doc.pdf",
+        baseUrl: "http://librarian:5001",
+      }),
+    ).resolves.toBe("task-1");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://librarian:5001/v1/convert/file/async");
+    const form = init?.body as FormData;
+    expect(form.get("from_formats")).toBe("pdf");
+    expect(form.get("do_ocr")).toBe("false");
+    expect(form.get("force_ocr")).toBe("false");
+    expect(form.get("do_picture_description")).toBe("false");
+    expect(form.get("include_images")).toBe("false");
+  });
+
+  it("polls state and treats a missing task as retryable resubmission", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({ task_id: "task-1", task_status: "started" }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ detail: "not found" }, 404));
+    await expect(
+      pollLibrarianExtraction("http://librarian:5001", "task-1"),
+    ).resolves.toMatchObject({ state: "started" });
+    await expect(
+      pollLibrarianExtraction("http://librarian:5001", "gone"),
+    ).rejects.toMatchObject({
+      name: "RetryableLibraryExtractionError",
+      taskMissing: true,
     });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://librarian:5001/v1/convert/file",
-      expect.objectContaining({ method: "POST" }),
+  });
+
+  it("returns structured Markdown only for a non-empty successful result", async () => {
+    const md = "# Refund policy\n\nRefunds within 30 days.";
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({ document: { md_content: md }, status: "success" }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ document: { md_content: "" }, status: "success" }),
+      );
+    const outcome = await fetchLibrarianExtraction(
+      "http://librarian:5001",
+      "task-1",
     );
-    expect(outcome.ok).toBe(true);
-    if (outcome.ok) {
-      expect(outcome.text).toBe(md);
-      expect(outcome.structure.sections[0].headingPath).toEqual(["Refund policy"]);
-    }
+    expect(outcome.ok && outcome.text).toBe(md);
+    await expect(
+      fetchLibrarianExtraction("http://librarian:5001", "task-2"),
+    ).rejects.toThrow(/Scanned and handwritten documents are not supported/);
   });
 
-  it("fails on a non-2xx response", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("boom", { status: 500 }));
-    const outcome = await extractViaLibrarian({
-      absolutePath: file,
-      filename: "doc.pdf",
-      baseUrl: "http://librarian:5001",
-    });
-    expect(outcome.ok).toBe(false);
-    if (!outcome.ok) expect(outcome.reason).toContain("500");
-  });
-
-  it("fails when the conversion status is failure", async () => {
+  it("resubmits when a completed task disappears before result retrieval", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      jsonResponse({ document: { md_content: "" }, status: "failure" }),
+      jsonResponse({ detail: "not found" }, 404),
     );
-    const outcome = await extractViaLibrarian({
-      absolutePath: file,
-      filename: "doc.pdf",
-      baseUrl: "http://librarian:5001",
+
+    await expect(
+      fetchLibrarianExtraction("http://librarian:5001", "gone"),
+    ).rejects.toMatchObject({
+      name: "RetryableLibraryExtractionError",
+      taskMissing: true,
     });
-    expect(outcome.ok).toBe(false);
+  });
+
+  it("classifies service outages as retryable and rejected inputs as terminal", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("down", { status: 503 }))
+      .mockResolvedValueOnce(new Response("bad", { status: 415 }));
+    await expect(
+      pollLibrarianExtraction("http://librarian:5001", "task-1"),
+    ).rejects.toBeInstanceOf(RetryableLibraryExtractionError);
+    await expect(
+      pollLibrarianExtraction("http://librarian:5001", "task-1"),
+    ).rejects.toBeInstanceOf(TerminalLibraryExtractionError);
   });
 });
 
-describe("extractDocumentText (librarian-only, no fallback)", () => {
-  const saved = process.env.NEKO_LIBRARIAN_URL;
-  let file: string;
-  beforeEach(async () => {
-    file = join(dir, "policy.docx");
-    await writeFile(file, "binary-docx-bytes", "utf8");
-    process.env.NEKO_LIBRARIAN_URL = "http://librarian:5001";
-  });
-  afterEach(() => {
-    if (saved === undefined) delete process.env.NEKO_LIBRARIAN_URL;
-    else process.env.NEKO_LIBRARIAN_URL = saved;
+describe("direct Markdown and text extraction", () => {
+  it("reads UTF-8 text without a service and preserves all content", async () => {
+    const file = join(dir, "agent-note.md");
+    const text = "# Generated note\n\nKeep all of this.";
+    await writeFile(file, text, "utf8");
+    const outcome = await extractDirectText(file);
+    expect(outcome.ok && outcome.text).toBe(text);
   });
 
-  it("fails when the service is not configured", async () => {
-    delete process.env.NEKO_LIBRARIAN_URL;
-    const outcome = await extractDocumentText({ absolutePath: file, filename: "policy.docx" });
-    expect(outcome.ok).toBe(false);
-    if (!outcome.ok) expect(outcome.reason).toContain("NEKO_LIBRARIAN_URL");
-  });
-
-  it("routes the document through the service and returns structured Markdown", async () => {
-    const md = "# Vacation policy\n\n20 days, carry-over max 5.";
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      jsonResponse({ document: { md_content: md }, status: "success" }),
-    );
-    const outcome = await extractDocumentText({ absolutePath: file, filename: "policy.docx" });
-    expect(outcome.ok).toBe(true);
-    if (outcome.ok) {
-      expect(outcome.text).toBe(md);
-      expect(outcome.structure.sections[0].headingPath).toEqual(["Vacation policy"]);
-    }
-  });
-
-  it("does NOT fall back — a service error fails the extraction outright", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("down", { status: 502 }));
-    const outcome = await extractDocumentText({ absolutePath: file, filename: "policy.docx" });
-    expect(outcome.ok).toBe(false);
+  it("rejects empty and binary-looking text", async () => {
+    const empty = join(dir, "empty.txt");
+    const binary = join(dir, "binary.txt");
+    await writeFile(empty, "   ", "utf8");
+    await writeFile(binary, Buffer.from([65, 0, 66]));
+    await expect(extractDirectText(empty)).rejects.toThrow(/empty/);
+    await expect(extractDirectText(binary)).rejects.toThrow(/binary/);
   });
 });

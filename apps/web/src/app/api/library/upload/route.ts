@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { enqueue, QUEUE, type LibraryDistillPayload } from "@neko/db/jobs";
+import { enqueue, QUEUE, type LibraryExtractPayload } from "@neko/db/jobs";
 import { createLibraryDocument } from "@neko/llm/work";
 import { getCurrentActor } from "@/lib/actor";
 import { getOrgId } from "@/lib/db";
@@ -94,10 +95,20 @@ export async function POST(request: Request) {
       contentHash: saved.contentHash,
       sizeBytes: saved.size,
     });
-    if (created || document.status === "failed") {
-      const payload: LibraryDistillPayload = { orgId, documentId: document.id };
-      await enqueue(QUEUE.LIBRARY_DISTILL, payload, {
-        singletonKey: `library-distill:${document.id}`,
+    // `uploaded` also covers recovery from the narrow insert-before-enqueue
+    // failure window: an identical re-upload must be able to restore the job.
+    if (created || document.status === "uploaded" || document.status === "failed") {
+      const payload: LibraryExtractPayload = {
+        orgId,
+        documentId: document.id,
+        runId: randomUUID(),
+        sequence: 0,
+      };
+      await enqueue(QUEUE.LIBRARY_EXTRACT, payload, {
+        retryLimit: 8,
+        retryDelay: 15,
+        retryBackoff: true,
+        singletonKey: `library-extract:${document.id}`,
       });
     }
     documents.push({ document, created });
