@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.39.1](https://github.com/open-neko/openneko/compare/v2.39.0...v2.39.1) (2026-09-04)
+
+
+### Bug Fixes
+
+* adapt librarian CPU cap to host capacity ([d113d12](https://github.com/open-neko/openneko/commit/d113d127b70685423b35a51b12e0cdc233ef7a45))
+* adapt librarian CPU cap to host capacity ([b02b35f](https://github.com/open-neko/openneko/commit/b02b35fc7e817b99cec4b9b8da1d9372834364b9))
+
 ## [2.39.0](https://github.com/open-neko/openneko/compare/v2.38.1...v2.39.0) (2026-09-04)
 
 
