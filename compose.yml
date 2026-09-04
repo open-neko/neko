@@ -575,14 +575,14 @@ services:
       retries: 5
 
   librarian:
-    # High-fidelity document extraction for the library, via Docling's official
-    # serving image. Deliberately its own container: the Torch + layout/OCR
-    # model stack and its CPU/RAM spikes have no place in the worker process
-    # that also runs watchers, actions, channels, and the sandbox broker. The
-    # worker calls it over HTTP (NEKO_LIBRARIAN_URL) and falls back to its
-    # builtin extractor when it is unreachable — so a minimal install can drop
-    # this one service (and unset NEKO_LIBRARIAN_URL) to shed the image without
-    # breaking uploads. First-boot pulls layout/OCR models to the cache volume.
+    # The library's document extractor, via Docling's official serving image.
+    # Deliberately its own container: the Torch + layout/OCR model stack and its
+    # CPU/RAM spikes have no place in the worker process that also runs watchers,
+    # actions, channels, and the sandbox broker. It is the ONLY extractor — the
+    # worker has no in-process fallback, so if this service is down, document
+    # distillation fails and is retried, rather than silently cataloging
+    # lower-fidelity text. A required part of the stack for the library feature.
+    # First-boot pulls layout/OCR models to the cache volume.
     image: quay.io/docling-project/docling-serve-cpu:v1.32.0
     restart: unless-stopped
     environment:
@@ -690,9 +690,9 @@ services:
       # /config so secrets land at /config/openneko/secrets.json.
       OPENNEKO_PLUGINS_MANIFEST_PATH: /config/openneko/plugins.json
       OPENNEKO_PLUGIN_INSTALL_DIR: /var/lib/openneko/plugins
-      # High-fidelity document extraction (Docling) for the library distiller.
-      # Best-effort: extraction falls back to the builtin extractor if this is
-      # unreachable, so removing the `librarian` service degrades gracefully.
+      # The library distiller's sole document extractor (Docling). Required:
+      # if the librarian service is unreachable, extraction fails and the
+      # document is retried — there is no in-worker fallback.
       NEKO_LIBRARIAN_URL: http://librarian:5001
     expose:
       - "4100"

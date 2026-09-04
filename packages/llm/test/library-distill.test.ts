@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -35,7 +35,16 @@ vi.mock("../src/work/workspace", () => ({
   getOrgAgentRoot: vi.fn(() => workspaceRoot),
 }));
 
-import { runLibraryDistill } from "../src/library/distill";
+import { runLibraryDistill, type DistillExtract } from "../src/library/distill";
+
+// Stand-in for the librarian service: read the workspace file directly so the
+// distiller's orchestration is testable without the extraction service. Tests
+// that exercise extraction failure inject their own stub instead.
+const readExtract: DistillExtract = async ({ absolutePath }) => ({
+  ok: true,
+  text: await readFile(absolutePath, "utf8"),
+  structure: { format: "markdown", sections: [] },
+});
 
 const ORG = "org-1";
 
@@ -105,7 +114,7 @@ afterEach(async () => {
 describe("runLibraryDistill", () => {
   it("catalogs a knowledge document onto the uploader's personal layer", async () => {
     const llm = vi.fn(async () => FENCE_REPLY);
-    const result = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm });
+    const result = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm, extract: readExtract });
 
     expect(result.status).toBe("cataloged");
     expect(result.concepts).toHaveLength(1);
@@ -141,7 +150,7 @@ describe("runLibraryDistill", () => {
       } as LibraryConcept,
     ];
     const llm = vi.fn(async () => FENCE_REPLY);
-    await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm });
+    await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm, extract: readExtract });
     const prompt = llm.mock.calls[0][0] as string;
     expect(prompt).toContain("- policies/refund-policy.md — Refund policy: Old summary");
   });
@@ -152,7 +161,7 @@ describe("runLibraryDistill", () => {
         JSON.stringify([{ skip: { reason: "one-off working data" } }]) +
         "\n```",
     );
-    const result = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm });
+    const result = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm, extract: readExtract });
     expect(result.status).toBe("skipped");
     expect(state.statuses.at(-1)).toMatchObject({
       status: "skipped",
@@ -173,7 +182,7 @@ describe("runLibraryDistill", () => {
       "utf8",
     );
     const llm = vi.fn(async () => FENCE_REPLY);
-    const result = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm });
+    const result = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm, extract: readExtract });
     expect(result.status).toBe("skipped");
     expect(llm).not.toHaveBeenCalled();
   });
@@ -198,6 +207,7 @@ describe("runLibraryDistill", () => {
       orgId: ORG,
       documentId: "doc-1",
       llm: vi.fn(async () => "I could not process this."),
+      extract: readExtract,
     });
     expect(result.status).toBe("failed");
     expect(state.statuses.at(-1)?.error).toContain("no parseable");
@@ -217,7 +227,7 @@ describe("runLibraryDistill", () => {
   it("is idempotent for already-cataloged documents", async () => {
     state.document = document({ status: "cataloged" });
     const llm = vi.fn(async () => FENCE_REPLY);
-    const result = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm });
+    const result = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm, extract: readExtract });
     expect(result.status).toBe("cataloged");
     expect(state.statuses).toHaveLength(0);
     expect(llm).not.toHaveBeenCalled();

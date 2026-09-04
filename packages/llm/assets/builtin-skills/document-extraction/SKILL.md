@@ -39,28 +39,6 @@ Exit 0 with text on stdout on success; non-zero with a reason on stderr
 when a format genuinely can't be handled (e.g. PDF with no extraction
 tool installed).
 
-## High-fidelity extraction (the librarian service)
-
-For large or complex documents (multi-hundred-page PDFs, contracts with
-tables), the worker delegates extraction to the **librarian service** — the
-official [docling-serve](https://github.com/docling-project/docling-serve)
-container defined as the `librarian` service in `compose.yml`. It returns
-**structured Markdown** (headings, tables, and reading order preserved)
-instead of a flat text dump, so the library distiller can chunk on natural
-boundaries rather than raw character offsets.
-
-It runs as its own container on purpose: Docling's Torch + layout/OCR model
-stack has no place in the worker process. The worker reaches it over HTTP via
-`NEKO_LIBRARIAN_URL` (default `http://librarian:5001`), posting the document
-to `POST /v1/convert/file` with `to_formats=md`.
-
-The call is **best-effort**: for supported formats (`.pdf .docx .pptx .xlsx
-.html`) the worker tries the service first and, on any failure — service
-unreachable, timeout, or a conversion error — **falls back** to
-`extract_text.py` below. A minimal install can therefore drop the `librarian`
-service (and unset `NEKO_LIBRARIAN_URL`) to shed the image without breaking
-uploads; extraction just reverts to the builtin path.
-
 ## Usage notes
 
 - **Encoding**: never assume ASCII. The script already tries utf-8 then
