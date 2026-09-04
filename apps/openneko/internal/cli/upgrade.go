@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -124,6 +125,9 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command, opts upgradeOptions) er
 		}
 	}()
 	if err := configurePinnedLibrarianImage(target); err != nil {
+		return err
+	}
+	if err := configureLibrarianCPULimit(runtime.NumCPU()); err != nil {
 		return err
 	}
 
