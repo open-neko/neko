@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -114,6 +115,9 @@ func bringUpStack(ctx context.Context, cmd *cobra.Command, mode compose.Mode, op
 		_ = os.Setenv("OPENNEKO_VERSION", imageVersion)
 	}
 	if err := configurePinnedLibrarianImage(os.Getenv("OPENNEKO_VERSION")); err != nil {
+		return err
+	}
+	if err := configureLibrarianCPULimit(runtime.NumCPU()); err != nil {
 		return err
 	}
 
@@ -251,6 +255,24 @@ func configurePinnedLibrarianImage(imageVersion string) error {
 		}
 	}
 	return os.Setenv("OPENNEKO_LIBRARIAN_IMAGE", pinned)
+}
+
+const librarianCPULimitEnv = "OPENNEKO_LIBRARIAN_CPUS"
+
+// configureLibrarianCPULimit keeps the extractor bounded without requiring
+// more CPUs than Docker can allocate on the current host. Operators can still
+// provide an explicit fractional or lower limit through the environment.
+func configureLibrarianCPULimit(hostCPUs int) error {
+	if strings.TrimSpace(os.Getenv(librarianCPULimitEnv)) != "" {
+		return nil
+	}
+	if hostCPUs < 1 {
+		hostCPUs = 1
+	}
+	if hostCPUs > 4 {
+		hostCPUs = 4
+	}
+	return os.Setenv(librarianCPULimitEnv, strconv.Itoa(hostCPUs))
 }
 
 // agentImageRef resolves the agent sandbox image: an explicit override wins,

@@ -23,7 +23,7 @@ type composeParityService struct {
 	Entrypoint  []string                           `yaml:"entrypoint"`
 	Restart     string                             `yaml:"restart"`
 	ReadOnly    bool                               `yaml:"read_only"`
-	CPUs        float64                            `yaml:"cpus"`
+	CPUs        string                             `yaml:"cpus"`
 	MemLimit    string                             `yaml:"mem_limit"`
 	PidsLimit   int                                `yaml:"pids_limit"`
 	CapDrop     []string                           `yaml:"cap_drop"`
@@ -56,7 +56,7 @@ func TestLibrarianIsVendoredBoundedAndRequired(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s compose is missing librarian", label)
 		}
-		if !librarian.ReadOnly || librarian.CPUs != 4 || librarian.MemLimit != "4g" || librarian.PidsLimit != 256 {
+		if !librarian.ReadOnly || librarian.CPUs != "${OPENNEKO_LIBRARIAN_CPUS:-1.0}" || librarian.MemLimit != "4g" || librarian.PidsLimit != 256 {
 			t.Fatalf("%s librarian limits are incomplete: %+v", label, librarian)
 		}
 		if !reflect.DeepEqual(librarian.CapDrop, []string{"ALL"}) {

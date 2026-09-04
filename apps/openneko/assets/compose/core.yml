@@ -515,7 +515,9 @@ services:
       TRANSFORMERS_OFFLINE: "1"
       DOCLING_ARTIFACTS_PATH: /opt/docling/models
     read_only: true
-    cpus: 4.0
+    # The CLI sets this to min(host CPUs, 4). The one-CPU fallback keeps raw
+    # Compose use portable when the supervisor is not involved.
+    cpus: ${OPENNEKO_LIBRARIAN_CPUS:-1.0}
     mem_limit: 4g
     pids_limit: 256
     cap_drop:

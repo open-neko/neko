@@ -68,6 +68,40 @@ func TestConfigurePinnedLibrarianImagePreservesOverride(t *testing.T) {
 	}
 }
 
+func TestConfigureLibrarianCPULimitTracksHostCapacity(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		hostCPUs int
+		want     string
+	}{
+		{name: "invalid host count", hostCPUs: 0, want: "1"},
+		{name: "single CPU host", hostCPUs: 1, want: "1"},
+		{name: "production VM", hostCPUs: 2, want: "2"},
+		{name: "maximum", hostCPUs: 4, want: "4"},
+		{name: "larger host", hostCPUs: 16, want: "4"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(librarianCPULimitEnv, "")
+			if err := configureLibrarianCPULimit(tc.hostCPUs); err != nil {
+				t.Fatal(err)
+			}
+			if got := os.Getenv(librarianCPULimitEnv); got != tc.want {
+				t.Fatalf("%s = %q, want %q", librarianCPULimitEnv, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfigureLibrarianCPULimitPreservesOverride(t *testing.T) {
+	t.Setenv(librarianCPULimitEnv, "1.5")
+	if err := configureLibrarianCPULimit(8); err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv(librarianCPULimitEnv); got != "1.5" {
+		t.Fatalf("%s override changed: %q", librarianCPULimitEnv, got)
+	}
+}
+
 func TestOpenShellStateDirOverride(t *testing.T) {
 	// macOS with nothing set → under $HOME (OrbStack maps only $HOME into its VM).
 	if got := openShellStateDirOverride("darwin", "/Users/x", ""); got != "/Users/x/.openneko/openshell" {
