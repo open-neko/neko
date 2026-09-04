@@ -6,16 +6,24 @@
 
 import { join, resolve } from "node:path";
 import {
+  clearLibraryDistillCheckpoint,
+  getLibraryDistillCheckpoint,
   getLibraryDocument,
   listLibraryConcepts,
   markLibraryDocumentStatus,
+  saveLibraryDistillCheckpoint,
   upsertLibraryConcept,
   type LibraryConcept,
 } from "../work/library";
 import { getOrgAgentRoot } from "../work/workspace";
-import { extractDocumentText, type ExtractOutcome } from "./extract";
+import {
+  extractDocumentText,
+  type ExtractOutcome,
+  type ExtractedSection,
+} from "./extract";
 import { planDocumentChunks } from "./chunk";
 import { extractLibraryFences, type LibraryUpsertOp } from "./fence";
+import { buildOutline, buildOutlinePrompt, parseOutlineSelection } from "./outline";
 import { buildDistillPrompt } from "./prompts";
 import { triageUpload } from "./triage";
 
@@ -121,15 +129,54 @@ export async function runLibraryDistill(input: {
       description: c.description ?? undefined,
     }));
 
+    const sections = outcome.structure.sections;
+    const llm = input.llm ?? (await defaultLlm(orgId));
+
+    // Resume from a saved checkpoint when one is valid for this extraction —
+    // a retry of a large document that failed partway skips the chunks it
+    // already billed. This is honored even under `force` (the operator retry
+    // route forces to bypass triage): `force` re-catalogs and skips the
+    // outline pass, but there is no reason to re-bill chunks a checkpoint
+    // already covers. A plan that no longer matches is discarded below.
+    const resume = parseCheckpoint(
+      await getLibraryDistillCheckpoint(orgId, documentId),
+      sections.length,
+    );
+
+    // Choose which sections to distill. A resume reuses its recorded selection
+    // (so the plan is identical without re-running the outline). Otherwise, a
+    // multi-chunk document gets an outline-then-zoom pass that prunes
+    // non-knowledge sections; small or forced documents distill in full.
+    let selectedIndices: number[];
+    if (resume) {
+      selectedIndices = resume.selectedIndices;
+    } else if (!input.force && planDocumentChunks(content, sections).length > 1) {
+      selectedIndices = await selectSectionsViaOutline(document.filename, content, sections, llm);
+    } else {
+      selectedIndices = sections.map((_, i) => i);
+    }
+    const selectedSections = selectedIndices.map((i) => sections[i]);
+    const chunks = planDocumentChunks(content, selectedSections);
+
     // Map: distill each chunk. Reduce: merge upsert ops by path across chunks
     // so a concept spanning parts is combined, not clobbered. Each chunk is
     // shown the concepts already emitted from this document so the model
     // reuses their paths (update-not-append, extended across parts).
-    const chunks = planDocumentChunks(content, outcome.structure.sections);
-    const llm = input.llm ?? (await defaultLlm(orgId));
     const merged = new Map<string, LibraryUpsertOp>();
     let skipReason: string | null = null;
-    for (const chunk of chunks) {
+    let startAt = 0;
+    if (resume && resume.chunkTotal === chunks.length) {
+      startAt = resume.cursor;
+      skipReason = resume.skipReason;
+      for (const op of resume.ops) merged.set(op.path, op);
+    } else if (resume) {
+      // The plan drifted since the checkpoint (re-extracted differently): drop
+      // it and start over rather than resume against a mismatched cursor.
+      await clearLibraryDistillCheckpoint(orgId, documentId);
+    }
+
+    for (let i = startAt; i < chunks.length; i++) {
+      const chunk = chunks[i];
       const prompt = buildDistillPrompt({
         filename: document.filename,
         content: chunk.text,
@@ -146,9 +193,22 @@ export async function runLibraryDistill(input: {
         const existing = merged.get(op.path);
         merged.set(op.path, existing ? mergeUpsertOps(existing, op) : op);
       }
+      // Checkpoint after each chunk of a multi-chunk document so a failure on
+      // a later chunk resumes here instead of re-billing this one.
+      if (chunks.length > 1) {
+        await saveLibraryDistillCheckpoint(orgId, documentId, {
+          v: 1,
+          selectedIndices,
+          chunkTotal: chunks.length,
+          cursor: i + 1,
+          ops: [...merged.values()],
+          skipReason,
+        });
+      }
     }
 
     if (merged.size === 0) {
+      await clearLibraryDistillCheckpoint(orgId, documentId);
       if (skipReason) return await skip(skipReason);
       return await fail("librarian returned no parseable neko_library ops");
     }
@@ -173,11 +233,78 @@ export async function runLibraryDistill(input: {
       });
       concepts.push(concept);
     }
+    await clearLibraryDistillCheckpoint(orgId, documentId);
     await markLibraryDocumentStatus({ orgId, id: documentId, status: "cataloged" });
     return { status: "cataloged", concepts };
   } catch (err) {
+    // The checkpoint is intentionally NOT cleared here: a mid-document failure
+    // leaves it in place so the retry resumes from the next chunk.
     const message = err instanceof Error ? err.message : String(err);
     return await fail(message);
+  }
+}
+
+type DistillCheckpoint = {
+  v: 1;
+  /** Section indices selected by the outline pass, as recorded. */
+  selectedIndices: number[];
+  /** Number of chunks the recorded plan produced. */
+  chunkTotal: number;
+  /** Chunks already completed (resume starts here). */
+  cursor: number;
+  /** Merged upsert ops accumulated so far. */
+  ops: LibraryUpsertOp[];
+  skipReason: string | null;
+};
+
+/**
+ * Validate a stored checkpoint against the current extraction. Returns null
+ * (start fresh) when it's missing, the wrong version, or references sections
+ * that no longer exist — i.e. the document was re-extracted differently.
+ */
+function parseCheckpoint(
+  raw: Record<string, unknown> | null,
+  sectionCount: number,
+): DistillCheckpoint | null {
+  if (!raw || raw.v !== 1) return null;
+  if (!Array.isArray(raw.selectedIndices) || !Array.isArray(raw.ops)) return null;
+  if (typeof raw.chunkTotal !== "number" || typeof raw.cursor !== "number") return null;
+  const inRange = raw.selectedIndices.every(
+    (n) => Number.isInteger(n) && (n as number) >= 0 && (n as number) < sectionCount,
+  );
+  if (!inRange) return null;
+  return {
+    v: 1,
+    selectedIndices: raw.selectedIndices as number[],
+    chunkTotal: raw.chunkTotal,
+    cursor: raw.cursor,
+    ops: raw.ops as LibraryUpsertOp[],
+    skipReason: typeof raw.skipReason === "string" ? raw.skipReason : null,
+  };
+}
+
+/**
+ * Outline-then-zoom section selection. Runs one cheap pass over the document's
+ * section outline to pick knowledge-bearing sections; falls back to all
+ * sections when the pass fails or selects nothing, so it only ever saves cost,
+ * never drops content.
+ */
+async function selectSectionsViaOutline(
+  filename: string,
+  content: string,
+  sections: ExtractedSection[],
+  llm: DistillLlm,
+): Promise<number[]> {
+  const all = sections.map((_, i) => i);
+  try {
+    const raw = await llm(buildOutlinePrompt(filename, buildOutline(content, sections)));
+    const selected = parseOutlineSelection(raw, sections.length);
+    return selected && selected.length > 0 ? selected : all;
+  } catch (err) {
+    console.warn(
+      `[library] outline pass failed; distilling all sections: ${err instanceof Error ? err.message : err}`,
+    );
+    return all;
   }
 }
 

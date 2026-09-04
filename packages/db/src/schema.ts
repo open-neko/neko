@@ -1334,6 +1334,10 @@ export const library_document = pgTable(
     status: text("status").notNull().default("uploaded"),
     skip_reason: text("skip_reason"),
     error: text("error"),
+    // Resumable-distillation checkpoint written by the librarian:
+    // { v, selectedIndices, chunkTotal, cursor, ops, skipReason }. NULL when
+    // idle or complete; kept on failure so a retry resumes mid-document.
+    distill_checkpoint: jsonb("distill_checkpoint"),
     distilled_at: ts("distilled_at"),
     created_at: ts("created_at").notNull().defaultNow(),
     updated_at: ts("updated_at").notNull().defaultNow(),

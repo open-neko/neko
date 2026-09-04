@@ -192,6 +192,46 @@ export async function markLibraryDocumentStatus(input: {
 }
 
 /**
+ * Resumable-distillation checkpoint: an opaque blob the librarian writes after
+ * each chunk of a large document and reads back on a retry to resume from the
+ * next chunk. Typed by the distiller (packages/llm/src/library/distill.ts);
+ * stored here as jsonb.
+ */
+export async function getLibraryDistillCheckpoint(
+  orgId: string,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  const rows = await db()
+    .select({ checkpoint: library_document.distill_checkpoint })
+    .from(library_document)
+    .where(and(eq(library_document.org_id, orgId), eq(library_document.id, id)))
+    .limit(1);
+  const cp = rows[0]?.checkpoint;
+  return cp && typeof cp === "object" ? (cp as Record<string, unknown>) : null;
+}
+
+export async function saveLibraryDistillCheckpoint(
+  orgId: string,
+  id: string,
+  checkpoint: Record<string, unknown>,
+): Promise<void> {
+  await db()
+    .update(library_document)
+    .set({ distill_checkpoint: checkpoint, updated_at: new Date() })
+    .where(and(eq(library_document.org_id, orgId), eq(library_document.id, id)));
+}
+
+export async function clearLibraryDistillCheckpoint(
+  orgId: string,
+  id: string,
+): Promise<void> {
+  await db()
+    .update(library_document)
+    .set({ distill_checkpoint: null, updated_at: new Date() })
+    .where(and(eq(library_document.org_id, orgId), eq(library_document.id, id)));
+}
+
+/**
  * Insert or revise a concept at (org, layer, path). Updates keep the
  * row's status — a personal draft stays draft; a stable team concept
  * revised through share flows is downgraded explicitly by the caller,

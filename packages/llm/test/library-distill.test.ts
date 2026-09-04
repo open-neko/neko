@@ -11,7 +11,8 @@ const state: {
   statuses: Array<{ status: string; skipReason?: string | null; error?: string | null }>;
   upserts: Array<Record<string, unknown>>;
   catalog: LibraryConcept[];
-} = { document: null, statuses: [], upserts: [], catalog: [] };
+  checkpoint: Record<string, unknown> | null;
+} = { document: null, statuses: [], upserts: [], catalog: [], checkpoint: null };
 
 let workspaceRoot = "";
 
@@ -28,6 +29,15 @@ vi.mock("../src/work/library", () => ({
   upsertLibraryConcept: vi.fn(async (input: Record<string, unknown>) => {
     state.upserts.push(input);
     return { concept: { id: `c-${state.upserts.length}`, ...input }, created: true };
+  }),
+  getLibraryDistillCheckpoint: vi.fn(async () => state.checkpoint),
+  saveLibraryDistillCheckpoint: vi.fn(
+    async (_org: string, _id: string, cp: Record<string, unknown>) => {
+      state.checkpoint = cp;
+    },
+  ),
+  clearLibraryDistillCheckpoint: vi.fn(async () => {
+    state.checkpoint = null;
   }),
 }));
 
@@ -80,6 +90,9 @@ const POLICY_TEXT = [
 const fence = (ops: unknown[]): string =>
   ["```neko_library", JSON.stringify(ops), "```"].join("\n");
 
+const outlineFence = (distill: number[]): string =>
+  ["```neko_outline", JSON.stringify({ distill }), "```"].join("\n");
+
 const FENCE_REPLY = [
   "Cataloged.",
   fence([
@@ -101,6 +114,7 @@ beforeEach(async () => {
   state.statuses = [];
   state.upserts = [];
   state.catalog = [];
+  state.checkpoint = null;
   await mkdir(join(workspaceRoot, "uploads", "thread-1"), { recursive: true });
   await writeFile(
     join(workspaceRoot, "uploads", "thread-1", "refund-policy.md"),
@@ -245,6 +259,8 @@ describe("runLibraryDistill", () => {
     });
     const llm = vi
       .fn()
+      // Call 1: the outline pass selects both sections.
+      .mockResolvedValueOnce(outlineFence([0, 1]))
       .mockResolvedValueOnce(
         fence([
           {
@@ -285,7 +301,9 @@ describe("runLibraryDistill", () => {
     });
 
     expect(result.status).toBe("cataloged");
-    expect(llm).toHaveBeenCalledTimes(2);
+    // Outline pass + two chunk passes.
+    expect(llm).toHaveBeenCalledTimes(3);
+    expect(llm.mock.calls[0][0] as string).toContain("Select the sections");
     // Reduce-by-path: alpha (seen twice) merged into one, plus beta.
     expect(state.upserts).toHaveLength(2);
     const alpha = state.upserts.find((u) => u.path === "policies/alpha.md");
@@ -293,10 +311,63 @@ describe("runLibraryDistill", () => {
     expect(alpha?.body).toContain("Alpha part two.");
     expect(alpha?.tags).toEqual(expect.arrayContaining(["x", "y"]));
     // Part 2 is told about the concept already extracted in part 1.
-    expect(llm.mock.calls[0][0] as string).toContain("part 1 of 2");
-    const secondPrompt = llm.mock.calls[1][0] as string;
+    expect(llm.mock.calls[1][0] as string).toContain("part 1 of 2");
+    const secondPrompt = llm.mock.calls[2][0] as string;
     expect(secondPrompt).toContain("part 2 of 2");
     expect(secondPrompt).toContain("policies/alpha.md");
+    // Checkpoint is cleared once the document is fully cataloged.
+    expect(state.checkpoint).toBeNull();
+  });
+
+  it("resumes from a checkpoint after a mid-document failure, skipping billed chunks", async () => {
+    const bigText = `# Alpha\n${"a".repeat(30_000)}\n# Beta\n${"b".repeat(30_000)}`;
+    const bigExtract: DistillExtract = async () => ({
+      ok: true,
+      text: bigText,
+      structure: { format: "markdown", sections: sliceMarkdownSections(bigText) },
+    });
+
+    // Run 1: outline selects both, part 1 catalogs alpha, part 2 throws.
+    const llm1 = vi
+      .fn()
+      .mockResolvedValueOnce(outlineFence([0, 1]))
+      .mockResolvedValueOnce(
+        fence([
+          { op: "upsert", path: "policies/alpha.md", type: "Policy", title: "Alpha", body: "Alpha one." },
+        ]),
+      )
+      .mockRejectedValueOnce(new Error("provider blew up"));
+    const first = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm: llm1, extract: bigExtract });
+    expect(first.status).toBe("failed");
+    // Checkpoint persisted after part 1 (one chunk done), nothing cataloged.
+    expect(state.checkpoint).not.toBeNull();
+    expect(state.checkpoint?.cursor).toBe(1);
+    expect(state.upserts).toHaveLength(0);
+
+    // Run 2 (the retry): the checkpoint short-circuits the outline pass and
+    // part 1, so only part 2 is distilled.
+    const llm2 = vi.fn().mockResolvedValueOnce(
+      fence([
+        { op: "upsert", path: "policies/alpha.md", type: "Policy", title: "Alpha", body: "Alpha two." },
+        { op: "upsert", path: "policies/beta.md", type: "Policy", title: "Beta", body: "Beta." },
+      ]),
+    );
+    // The operator retry route forces (to bypass triage); force must still
+    // honor the checkpoint rather than re-billing part 1.
+    const second = await runLibraryDistill({
+      orgId: ORG,
+      documentId: "doc-1",
+      llm: llm2,
+      extract: bigExtract,
+      force: true,
+    });
+    expect(second.status).toBe("cataloged");
+    expect(llm2).toHaveBeenCalledTimes(1); // no outline, no part-1 re-run
+    expect(state.checkpoint).toBeNull(); // cleared on success
+    expect(state.upserts).toHaveLength(2);
+    const alpha = state.upserts.find((u) => u.path === "policies/alpha.md");
+    expect(alpha?.body).toContain("Alpha one.");
+    expect(alpha?.body).toContain("Alpha two.");
   });
 });
 
