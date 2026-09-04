@@ -33,6 +33,7 @@ export const QUEUE = {
   RECORDS_WATCH_EVALUATE: "records_watch_evaluate",
   RECORDS_WATCH_SWEEP: "records_watch_sweep",
   CHANNEL_DELIVER: "channel_deliver",
+  LIBRARY_EXTRACT: "library_extract",
   LIBRARY_DISTILL: "library_distill",
   SKILL_LEARN: "skill_learn",
 } as const;
@@ -115,13 +116,21 @@ export type RecordsImportPayload = {
   actorUserId: string;
 };
 
-export type LibraryDistillPayload = {
+export type LibraryExtractPayload = {
   orgId: string;
-  /** library_document.id to distill into OKF concepts. */
+  /** library_document.id to extract into normalized Markdown. */
   documentId: string;
-  /** Operator retry: bypass triage and the cataloged/skipped guard. */
+  /** One operator/upload run across its durable extraction follow-ups. */
+  runId: string;
+  /** Monotonic follow-up number, used in the pg-boss singleton key. */
+  sequence: number;
+  /** Consecutive transient failures. Pending polls do not increment it. */
+  attempt?: number;
+  /** Operator retry: process a historically skipped/failed document. */
   force?: boolean;
 };
+
+export type LibraryDistillPayload = LibraryExtractPayload;
 
 export type SkillLearnPayload = {
   orgId: string;

@@ -11,10 +11,13 @@ import {
   db,
   desc,
   eq,
+  inArray,
   isNull,
+  lt,
   library_concept,
   library_document,
   library_event,
+  or,
   sql,
   work_run,
   work_thread,
@@ -24,6 +27,8 @@ import type { OkfActorStamp, OkfSource } from "../library/okf";
 
 export const LIBRARY_DOCUMENT_STATUSES = [
   "uploaded",
+  "extracting",
+  "extracted",
   "distilling",
   "cataloged",
   "skipped",
@@ -46,6 +51,11 @@ export type LibraryDocument = {
   status: LibraryDocumentStatus;
   skipReason: string | null;
   error: string | null;
+  extractCheckpoint: Record<string, unknown> | null;
+  extractedRelativePath: string | null;
+  extractedContentHash: string | null;
+  extractorFingerprint: string | null;
+  extractedAt: string | null;
   distilledAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -157,6 +167,28 @@ export async function listLibraryDocuments(input: {
   return rows.map(rowToDocument);
 }
 
+/**
+ * Safety net for the database-insert → queue-send boundary in HTTP uploads.
+ * A row that is still `uploaded` after the grace period has no worker-owned
+ * progress and can be enqueued again safely.
+ */
+export async function listStaleUploadedLibraryDocuments(
+  before: Date,
+): Promise<Array<{ orgId: string; documentId: string }>> {
+  return db()
+    .select({
+      orgId: library_document.org_id,
+      documentId: library_document.id,
+    })
+    .from(library_document)
+    .where(
+      and(
+        eq(library_document.status, "uploaded"),
+        lt(library_document.updated_at, before),
+      ),
+    );
+}
+
 export async function markLibraryDocumentStatus(input: {
   orgId: string;
   id: string;
@@ -178,7 +210,12 @@ export async function markLibraryDocumentStatus(input: {
     .where(
       and(eq(library_document.org_id, input.orgId), eq(library_document.id, input.id)),
     );
-  if (input.status !== "distilling" && input.status !== "uploaded") {
+  if (
+    input.status !== "distilling" &&
+    input.status !== "extracting" &&
+    input.status !== "extracted" &&
+    input.status !== "uploaded"
+  ) {
     await insertLibraryEvent({
       orgId: input.orgId,
       documentId: input.id,
@@ -189,6 +226,174 @@ export async function markLibraryDocumentStatus(input: {
       },
     });
   }
+}
+
+/** Small durable state for one in-flight asynchronous extraction task. */
+export async function getLibraryExtractCheckpoint(
+  orgId: string,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  const rows = await db()
+    .select({ checkpoint: library_document.extract_checkpoint })
+    .from(library_document)
+    .where(and(eq(library_document.org_id, orgId), eq(library_document.id, id)))
+    .limit(1);
+  const checkpoint = rows[0]?.checkpoint;
+  return checkpoint && typeof checkpoint === "object"
+    ? (checkpoint as Record<string, unknown>)
+    : null;
+}
+
+export async function saveLibraryExtractCheckpoint(
+  orgId: string,
+  id: string,
+  checkpoint: Record<string, unknown>,
+): Promise<void> {
+  await db()
+    .update(library_document)
+    .set({
+      status: "extracting",
+      extract_checkpoint: checkpoint,
+      error: null,
+      updated_at: new Date(),
+    })
+    .where(and(eq(library_document.org_id, orgId), eq(library_document.id, id)));
+}
+
+/** Commit a normalized Markdown artifact before queueing distillation. */
+export async function completeLibraryExtraction(input: {
+  orgId: string;
+  id: string;
+  relativePath: string;
+  contentHash: string;
+  extractorFingerprint: string;
+}): Promise<void> {
+  const now = new Date();
+  await db()
+    .update(library_document)
+    .set({
+      status: "extracted",
+      error: null,
+      extract_checkpoint: null,
+      extracted_relative_path: input.relativePath,
+      extracted_content_hash: input.contentHash,
+      extractor_fingerprint: input.extractorFingerprint,
+      extracted_at: now,
+      updated_at: now,
+    })
+    .where(
+      and(eq(library_document.org_id, input.orgId), eq(library_document.id, input.id)),
+    );
+}
+
+/**
+ * Clear task/cursor state and the derived-artifact pointer after the caller has
+ * removed the temporary file. Compact provenance hashes remain on the row.
+ */
+export async function clearLibraryTransientState(
+  orgId: string,
+  id: string,
+): Promise<void> {
+  await db()
+    .update(library_document)
+    .set({
+      extract_checkpoint: null,
+      extracted_relative_path: null,
+      distill_checkpoint: null,
+      updated_at: new Date(),
+    })
+    .where(and(eq(library_document.org_id, orgId), eq(library_document.id, id)));
+}
+
+export type LibraryTransientCleanupCandidate = {
+  orgId: string;
+  documentId: string;
+  extractedRelativePath: string | null;
+};
+
+/**
+ * Completed rows are eligible immediately; failed processing state is kept
+ * for seven days before becoming eligible. Retaining the artifact pointer
+ * until deletion lets the boot sweep finish cleanup after a process crash.
+ */
+export async function listLibraryTransientCleanupCandidates(
+  before: Date,
+): Promise<LibraryTransientCleanupCandidate[]> {
+  return db()
+    .select({
+      orgId: library_document.org_id,
+      documentId: library_document.id,
+      extractedRelativePath: library_document.extracted_relative_path,
+    })
+    .from(library_document)
+    .where(
+      and(
+        sql`(${library_document.extract_checkpoint} IS NOT NULL OR ${library_document.distill_checkpoint} IS NOT NULL OR ${library_document.extracted_relative_path} IS NOT NULL)`,
+        or(
+          and(
+            eq(library_document.status, "failed"),
+            lt(library_document.updated_at, before),
+          ),
+          inArray(library_document.status, ["cataloged", "skipped"]),
+        ),
+      ),
+    );
+}
+
+export async function clearLibraryTransientCleanupCandidates(
+  entries: readonly LibraryTransientCleanupCandidate[],
+): Promise<void> {
+  const ids = entries.map((entry) => entry.documentId);
+  if (ids.length === 0) return;
+  await db()
+    .update(library_document)
+    .set({
+      extract_checkpoint: null,
+      extracted_relative_path: null,
+      distill_checkpoint: null,
+      updated_at: new Date(),
+    })
+    .where(inArray(library_document.id, ids));
+}
+
+/**
+ * Resumable-distillation checkpoint: an opaque blob the librarian writes after
+ * each chunk of a large document and reads back on a retry to resume from the
+ * next chunk. Typed by the distiller (packages/llm/src/library/distill.ts);
+ * stored here as jsonb.
+ */
+export async function getLibraryDistillCheckpoint(
+  orgId: string,
+  id: string,
+): Promise<Record<string, unknown> | null> {
+  const rows = await db()
+    .select({ checkpoint: library_document.distill_checkpoint })
+    .from(library_document)
+    .where(and(eq(library_document.org_id, orgId), eq(library_document.id, id)))
+    .limit(1);
+  const cp = rows[0]?.checkpoint;
+  return cp && typeof cp === "object" ? (cp as Record<string, unknown>) : null;
+}
+
+export async function saveLibraryDistillCheckpoint(
+  orgId: string,
+  id: string,
+  checkpoint: Record<string, unknown>,
+): Promise<void> {
+  await db()
+    .update(library_document)
+    .set({ distill_checkpoint: checkpoint, updated_at: new Date() })
+    .where(and(eq(library_document.org_id, orgId), eq(library_document.id, id)));
+}
+
+export async function clearLibraryDistillCheckpoint(
+  orgId: string,
+  id: string,
+): Promise<void> {
+  await db()
+    .update(library_document)
+    .set({ distill_checkpoint: null, updated_at: new Date() })
+    .where(and(eq(library_document.org_id, orgId), eq(library_document.id, id)));
 }
 
 /**
@@ -716,6 +921,14 @@ function rowToDocument(row: DocumentRow): LibraryDocument {
     status: row.status as LibraryDocumentStatus,
     skipReason: row.skip_reason,
     error: row.error,
+    extractCheckpoint:
+      row.extract_checkpoint && typeof row.extract_checkpoint === "object"
+        ? (row.extract_checkpoint as Record<string, unknown>)
+        : null,
+    extractedRelativePath: row.extracted_relative_path,
+    extractedContentHash: row.extracted_content_hash,
+    extractorFingerprint: row.extractor_fingerprint,
+    extractedAt: row.extracted_at ? row.extracted_at.toISOString() : null,
     distilledAt: row.distilled_at ? row.distilled_at.toISOString() : null,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),

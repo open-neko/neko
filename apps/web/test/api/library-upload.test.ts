@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/actor", () => ({ getCurrentActor: mocks.actor }));
 vi.mock("@/lib/db", () => ({ getOrgId: mocks.orgId }));
 vi.mock("@neko/db/jobs", () => ({
-  QUEUE: { LIBRARY_DISTILL: "library_distill" },
+  QUEUE: { LIBRARY_EXTRACT: "library_extract" },
   enqueue: mocks.enqueue,
 }));
 vi.mock("@neko/llm/work", () => ({
@@ -91,6 +91,16 @@ describe("/api/library/upload", () => {
     expect(mocks.save).toHaveBeenCalledOnce();
     expect(mocks.createDocument).toHaveBeenCalledOnce();
     expect(mocks.enqueue).toHaveBeenCalledOnce();
+    expect(mocks.enqueue).toHaveBeenCalledWith(
+      "library_extract",
+      expect.objectContaining({
+        orgId: "org-1",
+        documentId: "document-1",
+        sequence: 0,
+        runId: expect.any(String),
+      }),
+      expect.objectContaining({ singletonKey: "library-extract:document-1" }),
+    );
     await expect(response.json()).resolves.toMatchObject({
       ok: true,
       documents: [{ document: { id: "document-1" }, created: true }],
@@ -174,6 +184,34 @@ describe("/api/library/upload", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.save).toHaveBeenCalledOnce();
+  });
+
+  it("repairs an uploaded document whose first enqueue was interrupted", async () => {
+    mocks.createDocument.mockResolvedValue({
+      document: { id: "document-existing", status: "uploaded" },
+      created: false,
+    });
+
+    const response = await POST(request([sizedFile("policy.pdf", 10)]));
+
+    expect(response.status).toBe(200);
+    expect(mocks.enqueue).toHaveBeenCalledWith(
+      "library_extract",
+      expect.objectContaining({ documentId: "document-existing" }),
+      expect.any(Object),
+    );
+  });
+
+  it("does not duplicate work for a document already being processed", async () => {
+    mocks.createDocument.mockResolvedValue({
+      document: { id: "document-existing", status: "extracting" },
+      created: false,
+    });
+
+    const response = await POST(request([sizedFile("policy.pdf", 10)]));
+
+    expect(response.status).toBe(200);
+    expect(mocks.enqueue).not.toHaveBeenCalled();
   });
 
   it("rejects a declared multipart request beyond the bounded allowance", async () => {

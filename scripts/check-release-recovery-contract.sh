@@ -10,8 +10,10 @@ budgets="scripts/image-size-budgets.json"
 
 jq -e '
   .agent == 800
-  and .uniqueStack == 1650
+  and ."neko-librarian" == 850
+  and .uniqueStack == 2500
   and (.agent | type) == "number"
+  and (."neko-librarian" | type) == "number"
   and (.uniqueStack | type) == "number"
 ' "$budgets" >/dev/null
 

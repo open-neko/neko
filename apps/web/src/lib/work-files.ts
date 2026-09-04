@@ -4,35 +4,23 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { ensureOrgWorkspace } from "@neko/llm/work";
+import { LIBRARY_SUPPORTED_EXTENSIONS } from "@neko/llm/library/formats";
 
 export const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
 
-export const ALLOWED_UPLOAD_EXTENSIONS = new Set<string>([
-  ".csv",
-  ".docx",
-  ".html",
-  ".json",
-  ".md",
-  ".pdf",
-  ".pptx",
-  ".tsv",
-  ".txt",
-  ".xlsx",
-]);
+export const ALLOWED_UPLOAD_EXTENSIONS = new Set<string>(LIBRARY_SUPPORTED_EXTENSIONS);
 
 const MIME_BY_EXT: Record<string, string> = {
   ".csv": "text/csv; charset=utf-8",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ".html": "text/html; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
+  ".markdown": "text/markdown; charset=utf-8",
   ".pdf": "application/pdf",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   ".txt": "text/plain; charset=utf-8",
-  ".tsv": "text/tab-separated-values; charset=utf-8",
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
 

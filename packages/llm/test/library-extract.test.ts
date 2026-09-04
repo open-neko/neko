@@ -1,45 +1,17 @@
-import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  decodeText,
-  extractDocumentText,
-  stripMarkup,
+  extractDirectText,
+  fetchLibrarianExtraction,
+  librarianServiceUrl,
+  pollLibrarianExtraction,
+  RetryableLibraryExtractionError,
+  sliceMarkdownSections,
+  submitLibrarianExtraction,
+  TerminalLibraryExtractionError,
 } from "../src/library/extract";
-
-const execFileAsync = promisify(execFile);
-
-async function pythonAvailable(): Promise<boolean> {
-  try {
-    await execFileAsync("python3", ["--version"]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function pdfToolAvailable(): Promise<boolean> {
-  try {
-    await execFileAsync("python3", ["-c", "import pypdf"]);
-    return true;
-  } catch {
-    try {
-      await execFileAsync("pdftotext", ["-v"]);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-
-const hasPython = await pythonAvailable();
-const describeIfPython = hasPython ? describe : describe.skip;
-if (!hasPython) {
-  console.warn("[library-extract] skipping script paths: python3 unavailable.");
-}
 
 let dir: string;
 
@@ -49,129 +21,164 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
+  vi.restoreAllMocks();
 });
 
-describe("decodeText", () => {
-  it("strips a UTF-8 BOM", () => {
-    expect(decodeText(Buffer.from("﻿hello", "utf8"))).toBe("hello");
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
   });
-  it("rescues latin-1 bytes", () => {
-    expect(decodeText(Buffer.from("caf\xe9 cr\xe8me", "latin1"))).toBe("café crème");
-  });
-  it("keeps valid utf-8 as-is", () => {
-    expect(decodeText(Buffer.from("café", "utf8"))).toBe("café");
-  });
-});
+}
 
-describe("stripMarkup", () => {
-  it("removes tags, scripts, and styles", () => {
-    expect(
-      stripMarkup(
-        "<html><style>b{}</style><script>x()</script><h1>Policy</h1><p>Refunds in 30 days.</p></html>",
-      ),
-    ).toBe("Policy Refunds in 30 days.");
-  });
-});
-
-describe("extractDocumentText (in-process text formats)", () => {
-  it("reads markdown directly", async () => {
-    const file = join(dir, "notes.md");
-    await writeFile(file, "# Notes\n\nRefunds in 30 days.", "utf8");
-    const outcome = await extractDocumentText({ absolutePath: file, filename: "notes.md" });
-    expect(outcome).toEqual({ ok: true, text: "# Notes\n\nRefunds in 30 days." });
-  });
-
-  it("strips html", async () => {
-    const file = join(dir, "page.html");
-    await writeFile(file, "<h1>Policy</h1><p>Refunds in 30 days.</p>", "utf8");
-    const outcome = await extractDocumentText({ absolutePath: file, filename: "page.html" });
-    expect(outcome).toEqual({ ok: true, text: "Policy Refunds in 30 days." });
-  });
-
-  it("rejects unsupported extensions", async () => {
-    const outcome = await extractDocumentText({
-      absolutePath: join(dir, "x.zip"),
-      filename: "x.zip",
-    });
-    expect(outcome.ok).toBe(false);
-  });
-});
-
-describeIfPython("extractDocumentText (bundled script)", () => {
-  it("extracts docx built with stdlib zipfile", async () => {
-    const file = join(dir, "policy.docx");
-    await execFileAsync("python3", [
-      "-c",
-      [
-        "import zipfile, sys",
-        `z = zipfile.ZipFile(sys.argv[1], 'w')`,
-        `z.writestr('[Content_Types].xml', '<Types/>')`,
-        `z.writestr('word/document.xml', '<w:document><w:body><w:p><w:r><w:t>Vacation policy: 20 days.</w:t></w:r></w:p><w:p><w:r><w:t>Carry-over max 5 days.</w:t></w:r></w:p></w:body></w:document>')`,
-        "z.close()",
-      ].join("\n"),
-      file,
+describe("sliceMarkdownSections", () => {
+  it("returns one section spanning the whole doc when there are no headings", () => {
+    const md = "Just some prose.\nNo headings here.";
+    expect(sliceMarkdownSections(md)).toEqual([
+      { headingPath: [], start: 0, end: md.length },
     ]);
-    const outcome = await extractDocumentText({ absolutePath: file, filename: "policy.docx" });
-    expect(outcome.ok).toBe(true);
-    if (outcome.ok) {
-      expect(outcome.text).toContain("Vacation policy: 20 days.");
-      expect(outcome.text).toContain("Carry-over max 5 days.");
-    }
   });
 
-  it("extracts xlsx cells including shared strings", async () => {
-    const file = join(dir, "rates.xlsx");
-    await execFileAsync("python3", [
-      "-c",
-      [
-        "import zipfile, sys",
-        `z = zipfile.ZipFile(sys.argv[1], 'w')`,
-        `z.writestr('[Content_Types].xml', '<Types/>')`,
-        `z.writestr('xl/sharedStrings.xml', '<sst><si><t>region</t></si><si><t>EU</t></si></sst>')`,
-        `z.writestr('xl/worksheets/sheet1.xml', '<worksheet><sheetData><row><c t="s"><v>0</v></c></row><row><c t="s"><v>1</v></c><c><v>0.21</v></c></row></sheetData></worksheet>')`,
-        "z.close()",
-      ].join("\n"),
-      file,
-    ]);
-    const outcome = await extractDocumentText({ absolutePath: file, filename: "rates.xlsx" });
-    expect(outcome.ok).toBe(true);
-    if (outcome.ok) {
-      expect(outcome.text).toContain("region");
-      expect(outcome.text).toContain("EU\t0.21");
-    }
-  });
-
-  it("reports a reason when the file is missing", async () => {
-    const outcome = await extractDocumentText({
-      absolutePath: join(dir, "missing.docx"),
-      filename: "missing.docx",
-    });
-    expect(outcome.ok).toBe(false);
-    if (!outcome.ok) expect(outcome.reason.length).toBeGreaterThan(0);
-  });
-
-  it("extracts pdf text when a pdf tool is available", async () => {
-    if (!(await pdfToolAvailable())) {
-      console.warn("[library-extract] skipping pdf case: no pypdf/pdftotext.");
-      return;
-    }
-    // Minimal single-page PDF with a text object, no libraries needed.
-    const pdf = [
-      "%PDF-1.4",
-      "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
-      "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
-      "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj",
-      "4 0 obj << /Length 60 >> stream",
-      "BT /F1 12 Tf 72 720 Td (Refunds over 500 need approval) Tj ET",
-      "endstream endobj",
-      "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj",
-      "trailer << /Root 1 0 R >>",
-      "%%EOF",
+  it("captures nested headings while ignoring headings inside code fences", () => {
+    const md = [
+      "Intro",
+      "# A",
+      "text",
+      "```",
+      "# not a heading",
+      "```",
+      "## B ##",
+      "more",
     ].join("\n");
-    const file = join(dir, "policy.pdf");
-    await writeFile(file, pdf, "latin1");
-    const outcome = await extractDocumentText({ absolutePath: file, filename: "policy.pdf" });
-    expect(outcome.ok).toBe(true);
-    if (outcome.ok) expect(outcome.text).toContain("Refunds over 500 need approval");
+    expect(sliceMarkdownSections(md).map((section) => section.headingPath)).toEqual([
+      [],
+      ["A"],
+      ["A", "B"],
+    ]);
+  });
+});
+
+describe("librarianServiceUrl", () => {
+  const saved = process.env.NEKO_LIBRARIAN_URL;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.NEKO_LIBRARIAN_URL;
+    else process.env.NEKO_LIBRARIAN_URL = saved;
+  });
+
+  it("is null when unset and trims trailing slashes", () => {
+    delete process.env.NEKO_LIBRARIAN_URL;
+    expect(librarianServiceUrl()).toBeNull();
+    process.env.NEKO_LIBRARIAN_URL = "http://librarian:5001/";
+    expect(librarianServiceUrl()).toBe("http://librarian:5001");
+  });
+});
+
+describe("asynchronous librarian API", () => {
+  let file: string;
+
+  beforeEach(async () => {
+    file = join(dir, "doc.pdf");
+    await writeFile(file, "%PDF-1.4 digital", "utf8");
+  });
+
+  it("submits exact format with OCR and image enrichment disabled", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonResponse({ task_id: "task-1", task_status: "pending" }));
+    await expect(
+      submitLibrarianExtraction({
+        absolutePath: file,
+        filename: "doc.pdf",
+        baseUrl: "http://librarian:5001",
+      }),
+    ).resolves.toBe("task-1");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://librarian:5001/v1/convert/file/async");
+    const form = init?.body as FormData;
+    expect(form.get("from_formats")).toBe("pdf");
+    expect(form.get("do_ocr")).toBe("false");
+    expect(form.get("force_ocr")).toBe("false");
+    expect(form.get("do_picture_description")).toBe("false");
+    expect(form.get("include_images")).toBe("false");
+  });
+
+  it("polls state and treats a missing task as retryable resubmission", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({ task_id: "task-1", task_status: "started" }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ detail: "not found" }, 404));
+    await expect(
+      pollLibrarianExtraction("http://librarian:5001", "task-1"),
+    ).resolves.toMatchObject({ state: "started" });
+    await expect(
+      pollLibrarianExtraction("http://librarian:5001", "gone"),
+    ).rejects.toMatchObject({
+      name: "RetryableLibraryExtractionError",
+      taskMissing: true,
+    });
+  });
+
+  it("returns structured Markdown only for a non-empty successful result", async () => {
+    const md = "# Refund policy\n\nRefunds within 30 days.";
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        jsonResponse({ document: { md_content: md }, status: "success" }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ document: { md_content: "" }, status: "success" }),
+      );
+    const outcome = await fetchLibrarianExtraction(
+      "http://librarian:5001",
+      "task-1",
+    );
+    expect(outcome.ok && outcome.text).toBe(md);
+    await expect(
+      fetchLibrarianExtraction("http://librarian:5001", "task-2"),
+    ).rejects.toThrow(/Scanned and handwritten documents are not supported/);
+  });
+
+  it("resubmits when a completed task disappears before result retrieval", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse({ detail: "not found" }, 404),
+    );
+
+    await expect(
+      fetchLibrarianExtraction("http://librarian:5001", "gone"),
+    ).rejects.toMatchObject({
+      name: "RetryableLibraryExtractionError",
+      taskMissing: true,
+    });
+  });
+
+  it("classifies service outages as retryable and rejected inputs as terminal", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("down", { status: 503 }))
+      .mockResolvedValueOnce(new Response("bad", { status: 415 }));
+    await expect(
+      pollLibrarianExtraction("http://librarian:5001", "task-1"),
+    ).rejects.toBeInstanceOf(RetryableLibraryExtractionError);
+    await expect(
+      pollLibrarianExtraction("http://librarian:5001", "task-1"),
+    ).rejects.toBeInstanceOf(TerminalLibraryExtractionError);
+  });
+});
+
+describe("direct Markdown and text extraction", () => {
+  it("reads UTF-8 text without a service and preserves all content", async () => {
+    const file = join(dir, "agent-note.md");
+    const text = "# Generated note\n\nKeep all of this.";
+    await writeFile(file, text, "utf8");
+    const outcome = await extractDirectText(file);
+    expect(outcome.ok && outcome.text).toBe(text);
+  });
+
+  it("rejects empty and binary-looking text", async () => {
+    const empty = join(dir, "empty.txt");
+    const binary = join(dir, "binary.txt");
+    await writeFile(empty, "   ", "utf8");
+    await writeFile(binary, Buffer.from([65, 0, 66]));
+    await expect(extractDirectText(empty)).rejects.toThrow(/empty/);
+    await expect(extractDirectText(binary)).rejects.toThrow(/binary/);
   });
 });

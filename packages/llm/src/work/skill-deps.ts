@@ -157,6 +157,12 @@ export const KNOWN_SKILL_DEPS: Record<string, SkillDeps> = {
   },
 };
 
+// Note: the Library sends digital PDF/Office/CSV inputs only to the owned
+// `librarian` service over NEKO_LIBRARIAN_URL; Markdown/text are decoded by the
+// worker. The bundled document-extraction skill below stays for the AGENT's
+// own in-sandbox use and is not a Library fallback. Docling is therefore not a
+// Python dependency in this manifest.
+
 // Union of all pip / apt / brew deps across the manifest. Used by the
 // Dockerfile-time installer to bake everything into the image, and by the
 // dev-side doctor script to print fresh-machine setup commands.

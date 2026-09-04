@@ -10,6 +10,7 @@ import { MenuItem, OverflowMenu } from "@/components/ui/OverflowMenu";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pill, type PillVariant } from "@/components/ui/Pill";
 import { validateLibraryUploadBatch } from "@/lib/library-upload-contract";
+import { LIBRARY_UPLOAD_ACCEPT } from "@neko/llm/library/formats";
 
 type DocumentRow = {
   id: string;
@@ -70,7 +71,16 @@ function statusVariant(status: string): PillVariant {
   if (["failed", "declined", "deprecated"].includes(status)) {
     return "danger";
   }
-  if (["pending", "processing", "review"].includes(status)) {
+  if (
+    [
+      "pending",
+      "processing",
+      "review",
+      "extracting",
+      "extracted",
+      "distilling",
+    ].includes(status)
+  ) {
     return "watch";
   }
   return "muted";
@@ -123,6 +133,42 @@ export default function LibraryPage() {
       });
     return () => controller.abort();
   }, []);
+
+  const hasActiveDocuments = data.documents.some((document) =>
+    ["uploaded", "extracting", "extracted", "distilling"].includes(
+      document.status,
+    ),
+  );
+
+  useEffect(() => {
+    if (!hasActiveDocuments) return;
+    const controller = new AbortController();
+    let timer: number;
+    const tick = async () => {
+      try {
+        const loaded = await fetchLibraryData(controller.signal);
+        setData(loaded);
+        setError(null);
+      } catch (cause) {
+        if (!controller.signal.aborted) {
+          setError(
+            cause instanceof Error
+              ? cause.message
+              : "Library could not be loaded.",
+          );
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          timer = window.setTimeout(() => void tick(), 3_000);
+        }
+      }
+    };
+    timer = window.setTimeout(() => void tick(), 3_000);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [hasActiveDocuments]);
 
   const upload = useCallback(
     async (files: FileList | null) => {
@@ -346,7 +392,8 @@ export default function LibraryPage() {
           <span>{formatDate(concept.updatedAt)}</span>
         </div>
         <p>
-          <button data-ui-bespoke-reason="library file picker"
+          <button
+            data-ui-bespoke-reason="inline concept detail toggle"
             type="button"
             className="library-concept-title"
             onClick={() =>
@@ -470,7 +517,8 @@ export default function LibraryPage() {
               <span>Uploads</span>
               <h2>Your documents</h2>
               <small id="library-upload-limit" className="library-upload-limit">
-                Import up to 100 MB at once, across one or more files.
+                Digital PDF, Word, PowerPoint, Excel, CSV, Markdown, or text;
+                up to 100 MB at once.
               </small>
             </div>
             <ActionGroup className="memory-review-actions library-upload-actions">
@@ -479,6 +527,7 @@ export default function LibraryPage() {
                 ref={fileInputRef}
                 type="file"
                 multiple
+                accept={LIBRARY_UPLOAD_ACCEPT}
                 hidden
                 aria-describedby="library-upload-limit"
                 onChange={(event) => void upload(event.target.files)}
@@ -537,7 +586,7 @@ export default function LibraryPage() {
                         size="sm"
                         disabled={busyId === doc.id}
                         onClick={() => void retryDocument(doc.id)}
-                        title="Distill this document (bypasses triage)"
+                        title="Retry extracting and distilling this document"
                       >
                         <RefreshCw aria-hidden="true" strokeWidth={2} />
                         Retry

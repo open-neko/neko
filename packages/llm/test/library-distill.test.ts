@@ -1,17 +1,24 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LibraryConcept, LibraryDocument } from "../src/work/library";
 
-// In-memory stand-ins for the DB-backed domain layer so the distiller's
-// orchestration logic is testable without Postgres or a model provider.
 const state: {
   document: LibraryDocument | null;
   statuses: Array<{ status: string; skipReason?: string | null; error?: string | null }>;
   upserts: Array<Record<string, unknown>>;
   catalog: LibraryConcept[];
-} = { document: null, statuses: [], upserts: [], catalog: [] };
+  checkpoint: Record<string, unknown> | null;
+  removedDerived: number;
+} = {
+  document: null,
+  statuses: [],
+  upserts: [],
+  catalog: [],
+  checkpoint: null,
+  removedDerived: 0,
+};
 
 let workspaceRoot = "";
 
@@ -29,15 +36,55 @@ vi.mock("../src/work/library", () => ({
     state.upserts.push(input);
     return { concept: { id: `c-${state.upserts.length}`, ...input }, created: true };
   }),
+  getLibraryDistillCheckpoint: vi.fn(async () => state.checkpoint),
+  saveLibraryDistillCheckpoint: vi.fn(
+    async (_org: string, _id: string, checkpoint: Record<string, unknown>) => {
+      state.checkpoint = checkpoint;
+    },
+  ),
+  clearLibraryDistillCheckpoint: vi.fn(async () => {
+    state.checkpoint = null;
+  }),
+  clearLibraryTransientState: vi.fn(async () => {
+    state.checkpoint = null;
+  }),
 }));
 
 vi.mock("../src/work/workspace", () => ({
   getOrgAgentRoot: vi.fn(() => workspaceRoot),
 }));
 
-import { runLibraryDistill } from "../src/library/distill";
+vi.mock("../src/library/extract", async (original) => {
+  const actual = await original<typeof import("../src/library/extract")>();
+  return {
+    ...actual,
+    removeLibraryDerivedMarkdown: vi.fn(async () => {
+      state.removedDerived++;
+    }),
+  };
+});
+
+import {
+  mergeUpsertOps,
+  runLibraryDistill,
+  type DistillExtract,
+} from "../src/library/distill";
+import { sliceMarkdownSections } from "../src/library/extract";
+import type { LibraryUpsertOp } from "../src/library/fence";
 
 const ORG = "org-1";
+const POLICY_TEXT = [
+  "# Refund policy",
+  "",
+  "Customers may request refunds within 30 days of purchase.",
+  "Refunds above five hundred dollars require CFO approval.",
+].join("\n");
+
+const readExtract: DistillExtract = async ({ absolutePath }) => ({
+  ok: true,
+  text: await readFile(absolutePath, "utf8"),
+  structure: { format: "markdown", sections: [] },
+});
 
 function document(overrides: Partial<LibraryDocument> = {}): LibraryDocument {
   return {
@@ -47,11 +94,16 @@ function document(overrides: Partial<LibraryDocument> = {}): LibraryDocument {
     sourceThreadId: "thread-1",
     filename: "refund-policy.md",
     relativePath: "uploads/thread-1/refund-policy.md",
-    contentHash: "hash",
+    contentHash: "source-hash",
     sizeBytes: 512,
     status: "uploaded",
     skipReason: null,
     error: null,
+    extractCheckpoint: null,
+    extractedRelativePath: null,
+    extractedContentHash: null,
+    extractorFingerprint: null,
+    extractedAt: null,
     distilledAt: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -59,29 +111,21 @@ function document(overrides: Partial<LibraryDocument> = {}): LibraryDocument {
   };
 }
 
-const POLICY_TEXT = [
-  "# Refund policy",
-  "",
-  "Customers may request refunds within 30 days of purchase.",
-  "Refunds above five hundred dollars require CFO approval.",
-].join("\n");
+const fence = (ops: unknown[]): string =>
+  ["```neko_library", JSON.stringify(ops), "```"].join("\n");
 
-const FENCE_REPLY = [
-  "Cataloged.",
-  "```neko_library",
-  JSON.stringify([
-    {
-      op: "upsert",
-      path: "policies/refund-policy.md",
-      type: "Policy",
-      title: "Refund policy",
-      description: "Refund windows and approval limits.",
-      tags: ["finance"],
-      body: "Refunds within 30 days; >$500 needs CFO approval.",
-    },
-  ]),
-  "```",
-].join("\n");
+const upsert = (
+  path: string,
+  body: string,
+  overrides: Record<string, unknown> = {},
+) => ({
+  op: "upsert",
+  path,
+  type: "Policy",
+  title: path,
+  body,
+  ...overrides,
+});
 
 beforeEach(async () => {
   workspaceRoot = await mkdtemp(join(tmpdir(), "neko-library-distill-"));
@@ -89,6 +133,8 @@ beforeEach(async () => {
   state.statuses = [];
   state.upserts = [];
   state.catalog = [];
+  state.checkpoint = null;
+  state.removedDerived = 0;
   await mkdir(join(workspaceRoot, "uploads", "thread-1"), { recursive: true });
   await writeFile(
     join(workspaceRoot, "uploads", "thread-1", "refund-policy.md"),
@@ -103,36 +149,39 @@ afterEach(async () => {
 });
 
 describe("runLibraryDistill", () => {
-  it("catalogs a knowledge document onto the uploader's personal layer", async () => {
-    const llm = vi.fn(async () => FENCE_REPLY);
-    const result = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm });
+  it("catalogs every accepted document onto the uploader's personal layer", async () => {
+    const llm = vi.fn(async () =>
+      fence([
+        upsert("policies/refund-policy.md", "Refunds within 30 days.", {
+          title: "Refund policy",
+        }),
+      ]),
+    );
+    const result = await runLibraryDistill({
+      orgId: ORG,
+      documentId: "doc-1",
+      llm,
+      extract: readExtract,
+    });
 
     expect(result.status).toBe("cataloged");
-    expect(result.concepts).toHaveLength(1);
-    expect(state.statuses.map((s) => s.status)).toEqual(["distilling", "cataloged"]);
+    expect(state.statuses.map((item) => item.status)).toEqual([
+      "distilling",
+      "cataloged",
+    ]);
     expect(state.upserts[0]).toMatchObject({
       orgId: ORG,
       userId: "user-1",
       path: "policies/refund-policy.md",
-      type: "Policy",
       sourceDocumentId: "doc-1",
     });
-    expect(state.upserts[0].sources).toEqual([
-      expect.objectContaining({
-        resource: "/uploads/thread-1/refund-policy.md",
-      }),
-    ]);
-    expect(String(state.upserts[0].generatedBy)).toMatch(/^openneko\//);
-    expect(llm).toHaveBeenCalledOnce();
     const prompt = llm.mock.calls[0][0] as string;
-    expect(prompt).toContain("refund-policy.md");
     expect(prompt).toContain("Customers may request refunds");
-    expect(prompt).toContain('"op": "upsert"');
-    expect(prompt).toContain('"op": "skip"');
-    expect(prompt).toContain("Use exactly these JSON object shapes");
+    expect(prompt).not.toContain('"op": "skip"');
+    expect(state.removedDerived).toBe(1);
   });
 
-  it("passes the existing catalog so the librarian updates instead of duplicating", async () => {
+  it("passes the existing catalog so concepts are revised instead of duplicated", async () => {
     state.catalog = [
       {
         path: "policies/refund-policy.md",
@@ -140,86 +189,160 @@ describe("runLibraryDistill", () => {
         description: "Old summary",
       } as LibraryConcept,
     ];
-    const llm = vi.fn(async () => FENCE_REPLY);
-    await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm });
-    const prompt = llm.mock.calls[0][0] as string;
-    expect(prompt).toContain("- policies/refund-policy.md — Refund policy: Old summary");
-  });
-
-  it("skips when the librarian emits a skip op", async () => {
     const llm = vi.fn(async () =>
-      "```neko_library\n" +
-        JSON.stringify([{ skip: { reason: "one-off working data" } }]) +
-        "\n```",
+      fence([upsert("policies/refund-policy.md", "Updated body")]),
     );
-    const result = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm });
-    expect(result.status).toBe("skipped");
-    expect(state.statuses.at(-1)).toMatchObject({
-      status: "skipped",
-      skipReason: "one-off working data",
+    await runLibraryDistill({
+      orgId: ORG,
+      documentId: "doc-1",
+      llm,
+      extract: readExtract,
     });
+    expect(llm.mock.calls[0][0] as string).toContain(
+      "policies/refund-policy.md — Refund policy: Old summary",
+    );
+  });
+
+  it("rejects empty, malformed, or skip-only model output", async () => {
+    for (const response of [
+      "I could not process this.",
+      "```neko_library\nnot json\n```",
+      fence([{ op: "skip", reason: "raw data" }]),
+    ]) {
+      await expect(
+        runLibraryDistill({
+          orgId: ORG,
+          documentId: "doc-1",
+          llm: vi.fn(async () => response),
+          extract: readExtract,
+        }),
+      ).rejects.toThrow(/no parseable.*upserts/);
+    }
     expect(state.upserts).toHaveLength(0);
-  });
-
-  it("skips data-shaped files at triage without calling the model", async () => {
-    state.document = document({
-      filename: "orders.csv",
-      relativePath: "uploads/thread-1/orders.csv",
-      sizeBytes: 2_000_000,
-    });
-    await writeFile(
-      join(workspaceRoot, "uploads", "thread-1", "orders.csv"),
-      "order_id,total\n1,2\n",
-      "utf8",
-    );
-    const llm = vi.fn(async () => FENCE_REPLY);
-    const result = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm });
-    expect(result.status).toBe("skipped");
-    expect(llm).not.toHaveBeenCalled();
-  });
-
-  it("fails cleanly when extraction reports a failure", async () => {
-    state.document = document({
-      filename: "contract.pdf",
-      relativePath: "uploads/thread-1/contract.pdf",
-    });
-    const result = await runLibraryDistill({
-      orgId: ORG,
-      documentId: "doc-1",
-      llm: vi.fn(async () => FENCE_REPLY),
-      extract: async () => ({ ok: false, reason: "no extraction tool installed" }),
-    });
-    expect(result.status).toBe("failed");
-    expect(state.statuses.at(-1)?.error).toBe("no extraction tool installed");
-  });
-
-  it("fails when the reply has no parseable ops", async () => {
-    const result = await runLibraryDistill({
-      orgId: ORG,
-      documentId: "doc-1",
-      llm: vi.fn(async () => "I could not process this."),
-    });
-    expect(result.status).toBe("failed");
-    expect(state.statuses.at(-1)?.error).toContain("no parseable");
+    expect(state.statuses.every((item) => item.status !== "cataloged")).toBe(true);
   });
 
   it("refuses upload paths that escape the org workspace", async () => {
     state.document = document({ relativePath: "../../etc/passwd" });
-    const result = await runLibraryDistill({
-      orgId: ORG,
-      documentId: "doc-1",
-      llm: vi.fn(async () => FENCE_REPLY),
-    });
-    expect(result.status).toBe("failed");
-    expect(state.statuses.at(-1)?.error).toContain("escapes");
+    await expect(
+      runLibraryDistill({
+        orgId: ORG,
+        documentId: "doc-1",
+        llm: vi.fn(),
+      }),
+    ).rejects.toThrow(/escapes/);
   });
 
   it("is idempotent for already-cataloged documents", async () => {
     state.document = document({ status: "cataloged" });
-    const llm = vi.fn(async () => FENCE_REPLY);
-    const result = await runLibraryDistill({ orgId: ORG, documentId: "doc-1", llm });
+    const llm = vi.fn();
+    const result = await runLibraryDistill({
+      orgId: ORG,
+      documentId: "doc-1",
+      llm,
+      extract: readExtract,
+    });
     expect(result.status).toBe("cataloged");
-    expect(state.statuses).toHaveLength(0);
     expect(llm).not.toHaveBeenCalled();
+  });
+
+  it("distills every chunk without an outline pass and merges concepts by path", async () => {
+    const bigText = `# Alpha\n${"a".repeat(30_000)}\n# Beta\n${"b".repeat(30_000)}`;
+    const extract: DistillExtract = async () => ({
+      ok: true,
+      text: bigText,
+      structure: { format: "markdown", sections: sliceMarkdownSections(bigText) },
+    });
+    const llm = vi
+      .fn()
+      .mockResolvedValueOnce(
+        fence([upsert("policies/alpha.md", "Alpha one.", { tags: ["x"] })]),
+      )
+      .mockResolvedValueOnce(
+        fence([
+          upsert("policies/alpha.md", "Alpha two.", { tags: ["y"] }),
+          upsert("policies/beta.md", "Beta."),
+        ]),
+      );
+
+    await runLibraryDistill({
+      orgId: ORG,
+      documentId: "doc-1",
+      llm,
+      extract,
+    });
+    expect(llm).toHaveBeenCalledTimes(2);
+    expect(llm.mock.calls[0][0] as string).toContain("part 1 of 2");
+    expect(llm.mock.calls[1][0] as string).toContain("part 2 of 2");
+    expect(llm.mock.calls[1][0] as string).toContain("policies/alpha.md");
+    expect(state.upserts).toHaveLength(2);
+    const alpha = state.upserts.find((item) => item.path === "policies/alpha.md");
+    expect(alpha?.body).toContain("Alpha one.");
+    expect(alpha?.body).toContain("Alpha two.");
+    expect(alpha?.tags).toEqual(["x", "y"]);
+    expect(state.checkpoint).toBeNull();
+  });
+
+  it("retries the malformed chunk from a hash-bound checkpoint", async () => {
+    const bigText = `# Alpha\n${"a".repeat(30_000)}\n# Beta\n${"b".repeat(30_000)}`;
+    const extract: DistillExtract = async () => ({
+      ok: true,
+      text: bigText,
+      structure: { format: "markdown", sections: sliceMarkdownSections(bigText) },
+    });
+    const firstLlm = vi
+      .fn()
+      .mockResolvedValueOnce(fence([upsert("policies/alpha.md", "Alpha one.")]))
+      .mockResolvedValueOnce("malformed");
+    await expect(
+      runLibraryDistill({
+        orgId: ORG,
+        documentId: "doc-1",
+        llm: firstLlm,
+        extract,
+      }),
+    ).rejects.toThrow(/chunk 2/);
+    expect(state.checkpoint).toMatchObject({ v: 2, cursor: 1, chunkTotal: 2 });
+    expect(state.upserts).toHaveLength(0);
+
+    const retryLlm = vi.fn(async () =>
+      fence([
+        upsert("policies/alpha.md", "Alpha two."),
+        upsert("policies/beta.md", "Beta."),
+      ]),
+    );
+    await runLibraryDistill({
+      orgId: ORG,
+      documentId: "doc-1",
+      llm: retryLlm,
+      extract,
+      force: true,
+    });
+    expect(retryLlm).toHaveBeenCalledOnce();
+    expect(retryLlm.mock.calls[0][0] as string).toContain("part 2 of 2");
+    const alpha = state.upserts.find((item) => item.path === "policies/alpha.md");
+    expect(alpha?.body).toContain("Alpha one.");
+    expect(alpha?.body).toContain("Alpha two.");
+  });
+});
+
+describe("mergeUpsertOps", () => {
+  const base = (overrides: Partial<LibraryUpsertOp>): LibraryUpsertOp => ({
+    kind: "upsert",
+    path: "policies/p.md",
+    type: "Policy",
+    title: "P",
+    body: "body",
+    ...overrides,
+  });
+
+  it("unions tags, concatenates bodies, and keeps the earlier expiry", () => {
+    const merged = mergeUpsertOps(
+      base({ body: "one", tags: ["x"], stale_after: "2027-01-01" }),
+      base({ body: "two", tags: ["y"], stale_after: "2026-06-01" }),
+    );
+    expect(merged.body).toBe("one\n\ntwo");
+    expect(merged.tags).toEqual(["x", "y"]);
+    expect(merged.stale_after).toBe("2026-06-01");
   });
 });

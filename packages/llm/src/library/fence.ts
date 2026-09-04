@@ -6,8 +6,7 @@
 //   [
 //     { "op": "upsert", "path": "policies/refund-policy.md", "type": "Policy",
 //       "title": "Refund policy", "description": "...",
-//       "tags": ["finance"], "body": "..." },
-//     { "op": "skip", "reason": "one-off working data, not durable knowledge" }
+//       "tags": ["finance"], "body": "..." }
 //   ]
 //   ```
 //
@@ -15,8 +14,9 @@
 // compatibility with already-authored fixtures and provider responses.
 //
 // Multiple upserts are allowed (one document can yield several concepts).
-// A `skip` op marks the source document as triaged-out. Anything not
-// matching the spec is silently dropped.
+// Legacy `skip` objects remain parseable for old fixtures/provider responses,
+// but distillation requires an upsert for every chunk and never checkpoints a
+// skip-only response. Anything not matching the spec is silently dropped.
 
 const NEKO_LIBRARY_FENCE_RE = /```neko_library\s*([\s\S]*?)```/gi;
 
@@ -84,6 +84,11 @@ function parseUpsert(value: unknown): LibraryUpsertOp | null {
         ? o.stale_after
         : undefined,
   };
+}
+
+/** Validate one persisted checkpoint operation with the model-facing contract. */
+export function parseLibraryUpsert(value: unknown): LibraryUpsertOp | null {
+  return parseUpsert(value);
 }
 
 function parseSkip(value: unknown): LibrarySkipOp | null {

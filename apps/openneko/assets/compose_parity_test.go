@@ -22,6 +22,12 @@ type composeParityService struct {
 	Image       string                             `yaml:"image"`
 	Entrypoint  []string                           `yaml:"entrypoint"`
 	Restart     string                             `yaml:"restart"`
+	ReadOnly    bool                               `yaml:"read_only"`
+	CPUs        float64                            `yaml:"cpus"`
+	MemLimit    string                             `yaml:"mem_limit"`
+	PidsLimit   int                                `yaml:"pids_limit"`
+	CapDrop     []string                           `yaml:"cap_drop"`
+	Tmpfs       []string                           `yaml:"tmpfs"`
 	Profiles    []string                           `yaml:"profiles"`
 	DependsOn   map[string]composeParityDependency `yaml:"depends_on"`
 	Environment map[string]any                     `yaml:"environment"`
@@ -29,6 +35,53 @@ type composeParityService struct {
 	Ports       []string                           `yaml:"ports"`
 	Command     []string                           `yaml:"command"`
 	Healthcheck map[string]any                     `yaml:"healthcheck"`
+}
+
+func TestLibrarianIsVendoredBoundedAndRequired(t *testing.T) {
+	root := repoRootForTest(t)
+	sourceRaw, err := os.ReadFile(filepath.Join(root, "compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	packagedRaw, err := ComposeFS.ReadFile("compose/core.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for label, document := range map[string]composeParityDocument{
+		"source":   loadComposeParityDocument(t, sourceRaw),
+		"packaged": loadComposeParityDocument(t, packagedRaw),
+	} {
+		librarian, ok := document.Services["librarian"]
+		if !ok {
+			t.Fatalf("%s compose is missing librarian", label)
+		}
+		if !librarian.ReadOnly || librarian.CPUs != 4 || librarian.MemLimit != "4g" || librarian.PidsLimit != 256 {
+			t.Fatalf("%s librarian limits are incomplete: %+v", label, librarian)
+		}
+		if !reflect.DeepEqual(librarian.CapDrop, []string{"ALL"}) {
+			t.Fatalf("%s librarian capability drop = %v", label, librarian.CapDrop)
+		}
+		if len(librarian.Tmpfs) != 1 || !strings.Contains(librarian.Tmpfs[0], "/tmp:size=512m") {
+			t.Fatalf("%s librarian tmpfs = %v", label, librarian.Tmpfs)
+		}
+		for _, variable := range []string{"HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "DOCLING_ARTIFACTS_PATH"} {
+			if _, ok := librarian.Environment[variable]; !ok {
+				t.Fatalf("%s librarian is missing %s", label, variable)
+			}
+		}
+		if dependency := document.Services["worker"].DependsOn["librarian"]; dependency.Condition != "service_healthy" {
+			t.Fatalf("%s worker librarian dependency = %+v", label, dependency)
+		}
+		if !strings.Contains(fmt.Sprint(librarian.Healthcheck["test"]), "/health/ready") {
+			t.Fatalf("%s librarian healthcheck does not use readiness", label)
+		}
+	}
+
+	packaged := loadComposeParityDocument(t, packagedRaw).Services["librarian"]
+	if !strings.Contains(packaged.Image, "ghcr.io/open-neko/neko-librarian:") {
+		t.Fatalf("packaged librarian image = %q", packaged.Image)
+	}
 }
 
 func TestPackagedGraphJinReusesReleasedRuntime(t *testing.T) {
@@ -232,6 +285,7 @@ func TestPostReleaseSmokeGatesRetainedDemoUpgrades(t *testing.T) {
 	workflow := string(raw)
 	for _, required := range []string{
 		"openneko start --mode demo --detach --pull never",
+		"librarian_pdf_async=ok",
 		"rm -f /config/.openneko-graphjin-supervisor.sh",
 		"openneko upgrade --stack-only --mode demo",
 		"test -x /config/.openneko-graphjin-supervisor.sh",

@@ -1,6 +1,7 @@
 {
   "neko-web": 225,
   "neko-worker": 270,
+  "neko-librarian": 850,
   "neko-graphjin": 60,
   "records-graphjin": 60,
   "neko-cli": 10,
@@ -9,5 +10,5 @@
   "neko-backup": 190,
   "agent": 800,
   "plugin-base": 100,
-  "uniqueStack": 1650
+  "uniqueStack": 2500
 }

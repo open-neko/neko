@@ -4,7 +4,7 @@
 // real Postgres exercises the Drizzle column types and SQL.
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { app_user, db, pool } from "@neko/db";
+import { app_user, db, eq, library_document, pool } from "@neko/db";
 import {
   createTestOrg,
   dbReachable,
@@ -32,8 +32,12 @@ vi.mock("../../src/embedding", async () => {
 
 import {
   createLibraryDocument,
+  completeLibraryExtraction,
   decideLibraryConcept,
+  listLibraryTransientCleanupCandidates,
   listLibraryConcepts,
+  listStaleUploadedLibraryDocuments,
+  markLibraryDocumentStatus,
   searchLibraryByContext,
   shareLibraryConceptToTeam,
   sweepStaleLibraryConcepts,
@@ -69,6 +73,73 @@ describeIfDb("library layering and search", () => {
 
   const alice = () => `${orgId}-${ALICE}`;
   const bob = () => `${orgId}-${BOB}`;
+
+  it("cleans completed transient state immediately but retains recent failures", async () => {
+    try {
+      const makeDocument = async (suffix: string) => {
+        const created = await createLibraryDocument({
+          orgId,
+          userId: alice(),
+          filename: `${suffix}.pdf`,
+          relativePath: `library/uploads/${alice()}/${suffix}.pdf`,
+          contentHash: `hash-${suffix}`,
+          sizeBytes: 100,
+        });
+        await completeLibraryExtraction({
+          orgId,
+          id: created.document.id,
+          relativePath: `library/derived/${created.document.id}/fingerprint/hash.md`,
+          contentHash: `extracted-${suffix}`,
+          extractorFingerprint: "test-extractor",
+        });
+        return created.document.id;
+      };
+      const completedId = await makeDocument("completed");
+      const recentFailureId = await makeDocument("recent-failure");
+      const oldFailureId = await makeDocument("old-failure");
+      await markLibraryDocumentStatus({ orgId, id: completedId, status: "cataloged" });
+      await markLibraryDocumentStatus({ orgId, id: recentFailureId, status: "failed" });
+      await markLibraryDocumentStatus({ orgId, id: oldFailureId, status: "failed" });
+      await db()
+        .update(library_document)
+        .set({ updated_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1_000) })
+        .where(eq(library_document.id, oldFailureId));
+
+      const candidates = await listLibraryTransientCleanupCandidates(
+        new Date(Date.now() - 7 * 24 * 60 * 60 * 1_000),
+      );
+      const ids = candidates.map((candidate) => candidate.documentId);
+      expect(ids).toContain(completedId);
+      expect(ids).toContain(oldFailureId);
+      expect(ids).not.toContain(recentFailureId);
+    } finally {
+      await deleteTestOrg(orgId);
+    }
+  });
+
+  it("finds uploaded rows stranded before queue admission", async () => {
+    try {
+      const { document } = await createLibraryDocument({
+        orgId,
+        userId: alice(),
+        filename: "stranded.md",
+        relativePath: `library/uploads/${alice()}/stranded.md`,
+        contentHash: "hash-stranded-upload",
+        sizeBytes: 100,
+      });
+      await db()
+        .update(library_document)
+        .set({ updated_at: new Date(Date.now() - 6 * 60 * 1_000) })
+        .where(eq(library_document.id, document.id));
+
+      const stale = await listStaleUploadedLibraryDocuments(
+        new Date(Date.now() - 5 * 60 * 1_000),
+      );
+      expect(stale).toContainEqual({ orgId, documentId: document.id });
+    } finally {
+      await deleteTestOrg(orgId);
+    }
+  });
 
   it("keeps personal concepts invisible to other members and to the team layer", async () => {
     try {
