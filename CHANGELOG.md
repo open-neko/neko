@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.39.0](https://github.com/open-neko/openneko/compare/v2.38.1...v2.39.0) (2026-09-04)
+
+
+### Features
+
+* **library:** add durable vendored document pipeline ([6b76c24](https://github.com/open-neko/openneko/commit/6b76c24b9d1938d7ef87539bda271ab78940c916))
+* **library:** add durable vendored document pipeline ([a2706f6](https://github.com/open-neko/openneko/commit/a2706f6623569f2a9a1ab570919a870c83e6ffea))
+* **library:** distill large documents in a chunked map-reduce pass ([bb2464c](https://github.com/open-neko/openneko/commit/bb2464cc5c81c71d010ce3c1791f71b37db5081b))
+* **library:** opt-in Docling extractor with structured output ([5d8d174](https://github.com/open-neko/openneko/commit/5d8d174bf6c8229faa682cc649da611fa09bc303))
+* **library:** resumable distillation + outline-then-zoom ([6797a87](https://github.com/open-neko/openneko/commit/6797a87077e795ab45e744e8c617e2f7d5ffbeb5))
+
+
+### Bug Fixes
+
+* **ci:** cover librarian queue and image budget ([f0d7456](https://github.com/open-neko/openneko/commit/f0d7456e77cdf8ec23d0bfd49768af92a19f2f85))
+* **compose:** add librarian service to packaged core.yml for parity ([1ae09fb](https://github.com/open-neko/openneko/commit/1ae09fba2395259bdb279320ce5337178ffc3d78))
+
 ## [2.38.1](https://github.com/open-neko/openneko/compare/v2.38.0...v2.38.1) (2026-09-03)
 
 
