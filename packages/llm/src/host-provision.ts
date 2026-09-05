@@ -151,8 +151,9 @@ import {
  * 2. The packaged demo is known to run this JWT template, so reconcile its
  *    AdventureWorks row directly (including upgrades driven by the older
  *    v2.25 CLI). Other modes keep capability detection: probe the default
- *    source with a service token and only flip auth_mode to 'jwt' when it
- *    answers gj_catalog. Legacy servers remain 'none'.
+ *    source with a service token and only flip auth_mode 'none' to 'jwt' when
+ *    it answers gj_catalog. Explicit development-header auth remains owned by
+ *    the configured source; legacy servers remain 'none'.
  */
 async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
   const cfgPath = process.env.OPENNEKO_GRAPHJIN_CONFIG?.trim();
@@ -224,6 +225,12 @@ async function provisionGraphjinSourcesMode(orgId: string): Promise<void> {
       "[host-provision] reconciled packaged demo data source auth_mode=jwt",
     );
   }
+  // `development` is an explicit transport contract, not an unknown legacy
+  // mode. A public gj_catalog response does not prove that the supplied JWT
+  // was verified, so using it to rewrite development -> jwt makes subsequent
+  // actor-scoped calls anonymous. Only the packaged JWT demo reconciliation
+  // above may intentionally replace an explicit mode.
+  if (authMode === "development") return;
   if (authMode === "jwt" && !wroteConfig) return;
 
   const { mintGraphjinToken } = await import("./graphjin/token");

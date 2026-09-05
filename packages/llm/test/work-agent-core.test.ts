@@ -5,6 +5,10 @@ import type {
   AgentWorkspace,
 } from "../src/agent-backend";
 import type { AgentControlPlane } from "../src/work/control-plane";
+import {
+  GRAPHJIN_DIRECT_GOVERNED_POLICY,
+  GRAPHJIN_TOOL_POLICY_ENV,
+} from "../src/work/graphjin-tool-policy";
 import { runAgentBackend } from "../src/work/agent-core";
 
 const workspace: AgentWorkspace = {
@@ -65,6 +69,43 @@ describe("runAgentBackend", () => {
       OPENNEKO_MCP_RUN_ID: "run-1",
       OPENNEKO_MCP_WANTS_CARDS: "1",
     });
+  });
+
+  it("applies and serializes the same per-run GraphJin policy", async () => {
+    let captured: AgentRunOptions | undefined;
+    const backend: AgentBackend = {
+      id: "hermes",
+      capabilities: {
+        mcpTools: true,
+        sessionResume: false,
+        nativeDelegation: "hermes-delegate-task",
+      },
+      async run(opts) {
+        captured = opts;
+        return { status: "completed", finalText: "done" };
+      },
+    };
+
+    await runAgentBackend({
+      backend,
+      prompt: "prompt",
+      userMessage: "answer directly",
+      orgId: "org-1",
+      threadId: "thread-1",
+      runId: "run-1",
+      workspace,
+      controlPlane,
+      pluginActions: [],
+      graphjinToolPolicy: GRAPHJIN_DIRECT_GOVERNED_POLICY,
+      emit: async () => {},
+    });
+
+    expect(captured?.mcpServers).toEqual(
+      expect.objectContaining({ neko_graphjin: expect.anything() }),
+    );
+    expect(captured?.mcpBridgeEnv?.[GRAPHJIN_TOOL_POLICY_ENV]).toBe(
+      "direct-governed",
+    );
   });
 
   it("does not mount customer data-source tools in records mode", async () => {

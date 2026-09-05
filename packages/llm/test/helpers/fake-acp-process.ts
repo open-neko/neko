@@ -271,7 +271,16 @@ export function thoughtNotification(sessionId: string, text: string) {
   };
 }
 
-export function toolCallNotification(sessionId: string, toolCallId: string, opts: { kind?: string; title?: string; locations?: Array<{ path: string }> } = {}) {
+export function toolCallNotification(
+  sessionId: string,
+  toolCallId: string,
+  opts: {
+    kind?: string;
+    title?: string;
+    locations?: Array<{ path: string }>;
+    rawInput?: unknown;
+  } = {},
+) {
   return {
     jsonrpc: "2.0",
     method: "session/update",
@@ -283,6 +292,7 @@ export function toolCallNotification(sessionId: string, toolCallId: string, opts
         kind: opts.kind ?? "read",
         title: opts.title ?? `read: ${toolCallId}`,
         locations: opts.locations ?? [],
+        ...(opts.rawInput !== undefined ? { rawInput: opts.rawInput } : {}),
       },
     },
   };

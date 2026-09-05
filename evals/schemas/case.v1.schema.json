@@ -3,18 +3,90 @@
   "type": "object",
   "properties": {
     "schema_version": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "id": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "version": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "family": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "product_path": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "dataset": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "capability_tags": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "difficulty": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "semantics": {
+      "$ref": "#/$defs/__schema5"
+    },
+    "input": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "comparison": {
+      "$ref": "#/$defs/__schema8"
+    },
+    "oracle": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "oracles": {
+      "$ref": "#/$defs/__schema11"
+    },
+    "phases": {
+      "$ref": "#/$defs/__schema12"
+    },
+    "timeout": {
+      "$ref": "#/$defs/__schema13"
+    },
+    "allowed_side_effects": {
+      "$ref": "#/$defs/__schema14"
+    },
+    "assertions": {
+      "$ref": "#/$defs/__schema15"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "family",
+    "product_path",
+    "dataset",
+    "capability_tags",
+    "difficulty",
+    "semantics",
+    "input",
+    "phases",
+    "allowed_side_effects",
+    "assertions"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
       "type": "string",
       "const": "openneko.eval.case/v1"
     },
-    "id": {
-      "$ref": "#/$defs/__schema0"
+    "__schema1": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
     },
-    "version": {
+    "__schema2": {
       "type": "string",
       "minLength": 1,
       "maxLength": 64
     },
-    "family": {
+    "__schema3": {
       "type": "string",
       "enum": [
         "read",
@@ -24,41 +96,57 @@
         "contract"
       ]
     },
-    "product_path": {
-      "$ref": "#/$defs/__schema0"
-    },
-    "dataset": {
-      "$ref": "#/$defs/__schema0"
-    },
-    "capability_tags": {
-      "minItems": 1,
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/__schema0"
-      }
-    },
-    "difficulty": {
-      "$ref": "#/$defs/__schema0"
-    },
-    "semantics": {
+    "__schema4": {
       "minItems": 1,
       "type": "array",
       "items": {
         "$ref": "#/$defs/__schema1"
       }
     },
-    "input": {
+    "__schema5": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema6"
+      }
+    },
+    "__schema6": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Z0-9][A-Z0-9._-]*$"
+    },
+    "__schema7": {
       "type": "object",
       "propertyNames": {
         "type": "string"
       },
       "additionalProperties": {}
     },
-    "oracle": {
+    "__schema8": {
+      "type": "object",
+      "properties": {
+        "pair_id": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "treatment": {
+          "$ref": "#/$defs/__schema1"
+        }
+      },
+      "required": [
+        "pair_id",
+        "treatment"
+      ],
+      "additionalProperties": false
+    },
+    "__schema9": {
+      "$ref": "#/$defs/__schema10"
+    },
+    "__schema10": {
       "type": "object",
       "properties": {
         "kind": {
-          "$ref": "#/$defs/__schema0"
+          "$ref": "#/$defs/__schema1"
         },
         "ref": {
           "type": "string",
@@ -77,70 +165,48 @@
       ],
       "additionalProperties": false
     },
-    "phases": {
+    "__schema11": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/__schema1"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema10"
+      }
+    },
+    "__schema12": {
       "default": [
         "initial"
       ],
       "minItems": 1,
       "type": "array",
       "items": {
-        "$ref": "#/$defs/__schema0"
+        "$ref": "#/$defs/__schema1"
       }
     },
-    "timeout": {
+    "__schema13": {
       "type": "string",
       "pattern": "^\\d+(?:ms|s|m|h)$"
     },
-    "allowed_side_effects": {
+    "__schema14": {
       "default": [],
       "type": "array",
       "items": {
-        "$ref": "#/$defs/__schema0"
+        "$ref": "#/$defs/__schema1"
       }
     },
-    "assertions": {
+    "__schema15": {
       "minItems": 1,
       "type": "array",
       "items": {
-        "$ref": "#/$defs/__schema2"
+        "$ref": "#/$defs/__schema16"
       }
-    }
-  },
-  "required": [
-    "schema_version",
-    "id",
-    "version",
-    "family",
-    "product_path",
-    "dataset",
-    "capability_tags",
-    "difficulty",
-    "semantics",
-    "input",
-    "oracle",
-    "phases",
-    "allowed_side_effects",
-    "assertions"
-  ],
-  "additionalProperties": false,
-  "$defs": {
-    "__schema0": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128,
-      "pattern": "^[a-z0-9][a-z0-9._-]*$"
     },
-    "__schema1": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128,
-      "pattern": "^[A-Z0-9][A-Z0-9._-]*$"
-    },
-    "__schema2": {
+    "__schema16": {
       "type": "object",
       "properties": {
         "id": {
-          "$ref": "#/$defs/__schema0"
+          "$ref": "#/$defs/__schema1"
         },
         "dimension": {
           "type": "string",
@@ -153,11 +219,14 @@
           ]
         },
         "kind": {
-          "$ref": "#/$defs/__schema0"
+          "$ref": "#/$defs/__schema1"
         },
         "gate": {
           "default": false,
           "type": "boolean"
+        },
+        "phase": {
+          "$ref": "#/$defs/__schema1"
         },
         "params": {
           "type": "object",

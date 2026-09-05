@@ -145,6 +145,21 @@ export function graphjinReadPrincipal(actor: {
   throw new Error("GraphJin read actor has an invalid role");
 }
 
+export function graphjinDevelopmentAuthHeaders(
+  principal: ReturnType<typeof graphjinReadPrincipal>,
+  nodeEnv = process.env.NODE_ENV,
+): Record<string, string> {
+  if (nodeEnv === "production") {
+    throw new Error(
+      "GraphJin development header auth is forbidden in production",
+    );
+  }
+  return {
+    "X-User-ID": principal.userId ?? "openneko-service",
+    "X-User-Role": principal.role,
+  };
+}
+
 async function graphjinMcpAccess(input: {
   orgId: string;
   runId?: string | null;
@@ -197,6 +212,18 @@ async function graphjinMcpAccess(input: {
       userId: principal.userId,
       role: principal.role,
     })}`;
+  } else if (source.authMode === "development") {
+    let principal: ReturnType<typeof graphjinReadPrincipal> = {
+      userId: null,
+      role: "service",
+    };
+    if (input.runId) {
+      const { getWorkRunActor } = await import("./personas");
+      principal = graphjinReadPrincipal(
+        await getWorkRunActor(input.runId, input.orgId),
+      );
+    }
+    Object.assign(headers, graphjinDevelopmentAuthHeaders(principal));
   }
   return { mcpUrl: source.mcpUrl, headers };
 }

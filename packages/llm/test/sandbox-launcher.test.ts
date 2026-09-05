@@ -13,6 +13,7 @@ import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentEvent, AgentWorkspace } from "../src/agent-backend";
 import type { RunAgentBackendInput } from "../src/work/agent-core";
+import { GRAPHJIN_DIRECT_GOVERNED_POLICY } from "../src/work/graphjin-tool-policy";
 import type { RunWorkflowAgentBackendInput } from "../src/workflows/agent-core";
 
 /**
@@ -125,6 +126,7 @@ const {
   buildModelEgressArgs,
   buildSandboxPolicy,
   buildScopedEgressArgs,
+  deleteOpenShellProvider,
   ensureOpenShellProvider,
   sandboxLauncherOptionsFromConfig,
   sandboxLauncherOptionsFromEnv,
@@ -446,6 +448,45 @@ describe("makeSandboxRunCore", () => {
     const runCore = makeSandboxRunCore({ agentImage: "ghcr.io/open-neko/agent:test", onLog: () => {} });
     await runCore(fakeInput(async () => {}));
     expect(jobCapture.jobs.at(-1)?.model).toBeUndefined();
+  });
+
+  it("carries configured model identity into the sandbox for attestation", async () => {
+    const runCore = makeSandboxRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+    await runCore(
+      fakeInput(async () => {}, {
+        id: "hermes",
+        configuredIdentity: {
+          provider: "gemini",
+          model: "gemini-3.6-flash",
+        },
+        model: "gemini-3.6-flash",
+        capabilities: { mcpTools: true, sessionResume: false },
+        run: async () => ({ finalText: "", status: "completed" }),
+      }),
+    );
+
+    expect(jobCapture.jobs.at(-1)?.configuredIdentity).toEqual({
+      provider: "gemini",
+      model: "gemini-3.6-flash",
+    });
+    expect(jobCapture.jobs.at(-1)?.model).toBeUndefined();
+  });
+
+  it("carries the per-run GraphJin policy into the OpenShell job", async () => {
+    const runCore = makeSandboxRunCore({
+      agentImage: "ghcr.io/open-neko/agent:test",
+      onLog: () => {},
+    });
+    await runCore({
+      ...fakeInput(async () => {}),
+      graphjinToolPolicy: GRAPHJIN_DIRECT_GOVERNED_POLICY,
+    });
+    expect(jobCapture.jobs.at(-1)?.graphjinToolPolicy).toEqual({
+      mode: "direct-governed",
+    });
   });
 
   it("never injects direct GraphJin credentials into records turns", async () => {
@@ -883,6 +924,30 @@ describe("ensureOpenShellProvider", () => {
     expect(create).toContain("--name org-x");
     expect(create).toContain("--type openneko-agent");
     expect(create).toContain("--credential api_key=SECRET-KEY");
+  });
+});
+
+describe("deleteOpenShellProvider", () => {
+  beforeEach(() => {
+    h.calls.length = 0;
+  });
+
+  it("deletes only the explicitly named provider", async () => {
+    await deleteOpenShellProvider({
+      providerName: "openneko-agent-eval-org",
+      gatewayName: "openneko",
+    });
+    expect(h.calls).toEqual([
+      {
+        args: [
+          "--gateway",
+          "openneko",
+          "provider",
+          "delete",
+          "openneko-agent-eval-org",
+        ],
+      },
+    ]);
   });
 });
 

@@ -254,8 +254,7 @@
           "$ref": "#/$defs/__schema0"
         },
         "backend": {
-          "type": "string",
-          "const": "hermes"
+          "$ref": "#/$defs/__schema0"
         },
         "outer_model": {
           "$ref": "#/$defs/__schema6"

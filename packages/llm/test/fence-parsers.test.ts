@@ -6,8 +6,20 @@ import {
   extractWorkflowOutputFences,
   extractWorkflowSaveFence,
 } from "../src/workflows/fence-parsers";
+import { WORKFLOW_SAVE_SCHEMA } from "../src/workflows/fence-schemas";
 
 describe("extractWorkflowSaveFence", () => {
+  it("documents executable GraphJin watch queries and dot-separated value paths", () => {
+    const watch = WORKFLOW_SAVE_SCHEMA.shape.triggers
+      .unwrap()
+      .shape.watch.unwrap();
+    expect(watch.shape.query.description).toContain("executed successfully");
+    expect(watch.shape.value_path.description).toContain("numeric array");
+    expect(watch.shape.value_path.description).toContain(
+      "bracket notation is not supported",
+    );
+  });
+
   it("returns null payload when no fence is present", () => {
     const r = extractWorkflowSaveFence("just chatting with the operator");
     expect(r.payload).toBeNull();

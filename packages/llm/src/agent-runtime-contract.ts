@@ -6,3 +6,12 @@
  * compares it with Hermes' resolved interpreter inside the published image.
  */
 export const VENDORED_HERMES_MODEL_BINARY = "/usr/bin/python3.11";
+
+/**
+ * Process-local switch honored by OpenNeko's pinned Hermes compatibility
+ * patch. It removes `delegate_task` from the model-visible tool schema and
+ * rejects direct dispatches for that Hermes process.
+ */
+export const HERMES_NATIVE_DELEGATION_ENV =
+  "OPENNEKO_HERMES_NATIVE_DELEGATION";
+export const HERMES_NATIVE_DELEGATION_DISABLED = "disabled";

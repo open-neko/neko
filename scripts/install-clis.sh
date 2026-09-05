@@ -122,6 +122,10 @@ if ! $SKIP_HERMES && ! hermes_matches_version; then
     patch --batch --forward --fuzz=0 -d "$hermes_source_root" -p1 \
       < "$REPO_ROOT/scripts/patches/hermes-acp-anthropic-reasoning.patch"
   fi
+  if ! grep -q 'OPENNEKO_HERMES_NATIVE_DELEGATION' "$hermes_source_root/acp_adapter/session.py"; then
+    patch --batch --forward --fuzz=0 -d "$hermes_source_root" -p1 \
+      < "$REPO_ROOT/scripts/patches/hermes-acp-native-delegation-policy.patch"
+  fi
   uv venv --clear "$hermes_tool_root" --python 3.11
   UV_PROJECT_ENVIRONMENT="$hermes_tool_root" \
     uv sync --project "$hermes_source_root" --locked --no-dev --extra acp --extra mcp --extra anthropic
@@ -159,6 +163,10 @@ if ! $SKIP_HERMES; then
     patch --batch --forward --fuzz=0 -d "$hermes_site" -p1 \
       < "$REPO_ROOT/scripts/patches/hermes-acp-anthropic-reasoning.patch"
   fi
+  if ! grep -q 'OPENNEKO_HERMES_NATIVE_DELEGATION' "$hermes_session"; then
+    patch --batch --forward --fuzz=0 -d "$hermes_site" -p1 \
+      < "$REPO_ROOT/scripts/patches/hermes-acp-native-delegation-policy.patch"
+  fi
   "$hermes_python" -c \
     "import hermes_cli; assert hermes_cli.__version__ == '${HERMES_AGENT_VERSION}'"
   "$hermes_python" -c \
@@ -175,6 +183,8 @@ if ! $SKIP_HERMES; then
     "from acp_adapter.events import make_interim_message_cb; from acp_adapter.server import HermesACPAgent; import inspect; source = inspect.getsource(HermesACPAgent.prompt); assert 'interim_assistant_callback' in source and 'pending_streamed_message.append(text)' in source and 'raw_interim_cb(text, already_streamed=False)' in source and 'not streamed_message' not in source; assert callable(make_interim_message_cb), 'Hermes ACP buffered interim callback missing'"
   "$hermes_python" -c \
     "from agent import chat_completion_helpers; from pathlib import Path; source = Path(chat_completion_helpers.__file__).read_text(); assert '_emit_unstreamed_anthropic_reasoning' in source and 'reasoning_was_streamed' in source, 'Hermes ACP Anthropic reasoning fallback missing'"
+  "$hermes_python" -c \
+    "from acp_adapter.session import _openneko_disabled_toolsets; import os; os.environ['OPENNEKO_HERMES_NATIVE_DELEGATION']='disabled'; assert _openneko_disabled_toolsets() == ['delegation'], 'Hermes ACP native delegation policy missing'"
 fi
 
 log "done. installed:"

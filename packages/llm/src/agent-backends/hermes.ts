@@ -10,10 +10,16 @@ import {
   agentTurnTimeoutMs,
   type AgentBackend,
   type AgentEvent,
+  type AgentModelIdentity,
+  type AgentNativeDelegationPolicy,
   type AgentRunOptions,
   type AgentRunResult,
   type AgentTokenUsage,
 } from "../agent-backend";
+import {
+  HERMES_NATIVE_DELEGATION_DISABLED,
+  HERMES_NATIVE_DELEGATION_ENV,
+} from "../agent-runtime-contract";
 import { registerAgentCanceller } from "../agent-shutdown";
 import { hermesHomeForOrg } from "../hermes-home";
 import {
@@ -34,6 +40,16 @@ import { extractSurfaceMessages } from "./surface";
 export { extractSurfaceMessages } from "./surface";
 
 export type ProviderSummarySource = "google-gemini" | "anthropic";
+
+function canonicalAcpMcpToolName(title: unknown): string | null {
+  if (typeof title !== "string") return null;
+  const trimmed = title.trim();
+  if (!/^mcp_+/u.test(trimmed)) return null;
+  // ACP clients may render the same MCP identity as either
+  // mcp_server_tool or mcp__server__tool. AgentEvent consumers need one
+  // stable, precise name instead of the coarse ACP kind (`other`).
+  return trimmed.replace(/_+/gu, "_");
+}
 
 /**
  * ACP calls every provider reasoning stream an `agent_thought_chunk`, so the
@@ -136,6 +152,9 @@ const FENCE_RE = /^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/;
 
 const FENCE_CLOSE = "\n```";
 
+const HERMES_RESPONSE_TRUNCATED_SENTINEL =
+  "Response truncated due to output length limit";
+
 // Fences the runtime parses out-of-band: a2ui drives surface cards,
 // and the three workflow fences are the Hermes-shaped tool surfaces.
 // All four are noise in the chat stream — hide them while we wait for
@@ -233,6 +252,8 @@ const DEFAULT_TIMEOUT_MS = agentTurnTimeoutMs();
 
 export class HermesBackend implements AgentBackend {
   readonly id = "hermes" as const;
+  readonly configuredIdentity?: AgentModelIdentity;
+  readonly model?: string;
   readonly capabilities = {
     // ACP mounts MCP servers as stdio children (session/new mcpServers) — the
     // neko servers ride a bridge process (OPENNEKO_MCP_BRIDGE) that rebuilds
@@ -242,6 +263,11 @@ export class HermesBackend implements AgentBackend {
     sessionResume: false,
     nativeDelegation: "hermes-delegate-task",
   } as const;
+
+  constructor(configuredIdentity?: AgentModelIdentity) {
+    this.configuredIdentity = configuredIdentity;
+    this.model = configuredIdentity?.model;
+  }
 
   async run(opts: AgentRunOptions): Promise<AgentRunResult> {
     const {
@@ -258,6 +284,7 @@ export class HermesBackend implements AgentBackend {
       onEvent,
       wantsCards = false,
       backendState = {},
+      nativeDelegation = "enabled",
     } = opts;
 
     const fullPrompt = userMessage
@@ -283,6 +310,8 @@ export class HermesBackend implements AgentBackend {
           signal,
           onEvent,
           wantsCards,
+          configuredIdentity: this.configuredIdentity,
+          nativeDelegation,
           mcpServerNames: Object.keys(opts.mcpServers ?? {}),
           mcpBridgeEnv: opts.mcpBridgeEnv,
         });
@@ -340,6 +369,8 @@ type RunOnceArgs = {
   signal: AbortSignal | undefined;
   onEvent: AgentRunOptions["onEvent"];
   wantsCards: boolean;
+  configuredIdentity: AgentModelIdentity | undefined;
+  nativeDelegation: AgentNativeDelegationPolicy;
   mcpServerNames: string[];
   mcpBridgeEnv: Record<string, string> | undefined;
 };
@@ -362,6 +393,8 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
     signal,
     onEvent,
     wantsCards,
+    configuredIdentity,
+    nativeDelegation,
     mcpServerNames,
     mcpBridgeEnv,
   } = args;
@@ -400,6 +433,13 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
   // declared MCP capability surface with a hand-written HTTP request.
   delete env.OPENNEKO_BROKER_URL;
   delete env.OPENNEKO_BROKER_TOKEN;
+  // This is a process-local policy. Clear any ambient value first so normal
+  // production turns retain Hermes' native delegation unless the caller
+  // explicitly disables it for this run (for example, backend parity evals).
+  delete env[HERMES_NATIVE_DELEGATION_ENV];
+  if (nativeDelegation === "disabled") {
+    env[HERMES_NATIVE_DELEGATION_ENV] = HERMES_NATIVE_DELEGATION_DISABLED;
+  }
   if (orgId) {
     env.HERMES_HOME = hermesHomeForOrg(orgId);
   }
@@ -537,11 +577,15 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
           : []
         : [];
     const mcpServers = bridgeServers;
-    const fresh = await client.request<{ sessionId: string }>("session/new", {
+    const fresh = await client.request<{
+      sessionId: string;
+      models?: unknown;
+    }>("session/new", {
       cwd,
       mcpServers,
     });
     const sessionId = fresh.sessionId;
+    const observedIdentity = parseHermesSessionIdentity(fresh);
 
     let accumulatedText = "";
     let emittedOutsideLen = 0;
@@ -607,6 +651,13 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
           flushProviderSummary();
           accumulatedText += text;
           if (onEvent) {
+            const trimmed = accumulatedText.trim();
+            if (
+              trimmed.length > 0 &&
+              HERMES_RESPONSE_TRUNCATED_SENTINEL.startsWith(trimmed)
+            ) {
+              return;
+            }
             const outside = outsideFenceText(accumulatedText);
             const delta = outside.slice(emittedOutsideLen);
             if (delta) {
@@ -632,10 +683,11 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
           toolActivityObserved = true;
           flushProviderSummary();
           if (!onEvent) return;
+          const mcpToolName = canonicalAcpMcpToolName(update.title);
           // The brokered neko_ui server is the sole surface emitter. Suppress
           // a successful render's tool pill, but preserve the exact rejected
           // input as tool_start telemetry so envelope failures are diagnosable.
-          if (update.title === A2UI_RENDER_ACP_TITLE) {
+          if (mcpToolName === A2UI_RENDER_ACP_TITLE) {
             const validation = validateRenderCardsInput(update.rawInput);
             if (validation.success) {
               pendingValidRenderToolCalls.set(update.toolCallId, update.rawInput);
@@ -656,12 +708,17 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
           emitQueued({
             type: "tool_start",
             id: update.toolCallId,
-            name: update.kind || "tool",
-            input: {
-              ...(update.title ? { title: update.title } : {}),
-              ...(update.locations ? { locations: update.locations } : {}),
-              ...(update.rawInput !== undefined ? { rawInput: update.rawInput } : {}),
-            },
+            name: mcpToolName ?? update.kind ?? "tool",
+            input:
+              mcpToolName && update.rawInput !== undefined
+                ? update.rawInput
+                : {
+                    ...(update.title ? { title: update.title } : {}),
+                    ...(update.locations ? { locations: update.locations } : {}),
+                    ...(update.rawInput !== undefined
+                      ? { rawInput: update.rawInput }
+                      : {}),
+                  },
           });
           return;
         }
@@ -760,10 +817,36 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
       };
     }
 
-    if (promptUsage) {
-      emitQueued({ type: "usage", source: "outer", usage: promptUsage });
+    if (promptUsage || configuredIdentity || observedIdentity) {
+      const modelIdentity =
+        configuredIdentity || observedIdentity
+          ? {
+              ...(configuredIdentity ? { configured: configuredIdentity } : {}),
+              ...(observedIdentity ? { observed: observedIdentity } : {}),
+            }
+          : undefined;
+      emitQueued({
+        type: "usage",
+        source: "outer",
+        ...(observedIdentity ?? {}),
+        ...(modelIdentity ? { modelIdentity } : {}),
+        usage: promptUsage ?? {
+          coverage: "unavailable",
+          missingReasons: ["Hermes ACP session/prompt omitted usage"],
+        },
+      });
       await eventQueue;
       if (eventError) throw eventError;
+    }
+
+    if (accumulatedText.trim() === HERMES_RESPONSE_TRUNCATED_SENTINEL) {
+      return {
+        finalText: "",
+        error:
+          `hermes response truncated due to output length limit` +
+          ` (stopReason=${promptStopReason ?? "unknown"})`,
+        retryable: !toolActivityObserved,
+      };
     }
 
     let finalText = accumulatedText;
@@ -832,6 +915,33 @@ async function runOnce(args: RunOnceArgs): Promise<RunOnceOutcome> {
     }
     await cleanup();
   }
+}
+
+/**
+ * Hermes reports the live session identity as `<provider>:<model>` in
+ * session/new.models.currentModelId. This is process-observed evidence, not a
+ * copy of OpenNeko's configured identity. Split only on the first colon so
+ * provider-qualified model ids remain intact.
+ */
+export function parseHermesSessionIdentity(
+  response: unknown,
+): AgentModelIdentity | undefined {
+  if (!response || typeof response !== "object" || Array.isArray(response)) {
+    return undefined;
+  }
+  const models = (response as { models?: unknown }).models;
+  if (!models || typeof models !== "object" || Array.isArray(models)) {
+    return undefined;
+  }
+  const modelState = models as Record<string, unknown>;
+  const raw = modelState.currentModelId ?? modelState.current_model_id;
+  if (typeof raw !== "string") return undefined;
+  const separator = raw.indexOf(":");
+  if (separator <= 0 || separator >= raw.length - 1) return undefined;
+  const provider = raw.slice(0, separator).trim();
+  const model = raw.slice(separator + 1).trim();
+  if (!provider || !model) return undefined;
+  return { provider, model };
 }
 
 export function normalizeHermesUsage(value: unknown): AgentTokenUsage | undefined {

@@ -28,6 +28,9 @@ import {
   buildWorkflowActionServer,
   buildWorkflowBuilderServer,
   buildWorkflowOutputServer,
+  GRAPHJIN_TOOL_POLICY_ENV,
+  parseGraphjinMcpToolPolicy,
+  type GraphjinMcpToolPolicy,
   type PluginActionDescriptor,
 } from "@neko/llm/sandbox-runtime";
 import { BrokerControlPlane, postAgentEvents } from "./broker-client";
@@ -66,6 +69,7 @@ export type BridgeServerContext = {
   triggeredByObservationId?: string | null;
   recordScope?: { appId: string; objectApiName: string };
   wantsCards?: boolean;
+  graphjinToolPolicy?: GraphjinMcpToolPolicy;
 };
 
 export function buildBridgeServer(
@@ -93,6 +97,9 @@ export function buildBridgeServer(
         orgId,
         ...(ctx.runKind === "agent-job" ? {} : { runId }),
         controlPlane,
+        ...(ctx.graphjinToolPolicy
+          ? { toolPolicy: ctx.graphjinToolPolicy }
+          : {}),
       });
     case "neko_graphjin_agent":
       return buildGraphjinAgentServer({ orgId, runId, controlPlane });
@@ -362,6 +369,9 @@ async function main(): Promise<void> {
         })
       : undefined,
     wantsCards: process.env.OPENNEKO_MCP_WANTS_CARDS === "1",
+    graphjinToolPolicy: parseGraphjinMcpToolPolicy(
+      process.env[GRAPHJIN_TOOL_POLICY_ENV],
+    ),
   });
   await server.instance.connect(new StdioServerTransport());
 }

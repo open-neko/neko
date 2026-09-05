@@ -153,10 +153,10 @@ entries:
       - packages/llm/src/work
   - id: DATA-SOURCE-OPENAPI
     category: data-calculation
-    description: Managed OpenAPI ingestion/configuration exposes allowed operations
-      without overgranting
+    description: Managed OpenAPI ingestion/configuration exposes allowed reads and
+      explicitly opted-in API `call` mutations without overgranting
     verification: fake-server E2E
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/graphjin
       - packages/llm/src/work
@@ -219,16 +219,16 @@ entries:
     description: GraphJin tokens carry the correct org/user/role; row and source
       restrictions are enforced
     verification: cross-principal negative E2E
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/graphjin
       - packages/llm/src/work
   - id: DATA-QUERY-GUARD
     category: data-calculation
-    description: Read-only guards reject mutation/bypass syntax while allowing valid
-      reads and repairs
-    verification: adversarial contract
-    disposition: declared
+    description: "GraphJin applies source-aware policy: read-only targets reject
+      writes while explicitly exposed API `call` mutations remain executable"
+    verification: adversarial contract + fake-server E2E
+    disposition: eval
     owners:
       - packages/llm/src/graphjin
       - packages/llm/src/work
@@ -446,7 +446,7 @@ entries:
     description: Thread/run/message/event persistence, ordering, deletion,
       truncation, and replay are correct
     verification: DB state machine
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/work
   - id: WORK-CONTEXT-BRIEFING
@@ -468,7 +468,7 @@ entries:
     description: Semantic memory retrieves relevant allowed memories and reports
       misses honestly
     verification: seeded retrieval eval
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/work
   - id: WORK-MEMORY-WRITE
@@ -476,7 +476,7 @@ entries:
     description: Agent/fence-driven memory writes validate scope, attribution,
       confidence, and dedupe
     verification: state oracle
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/work
   - id: WORK-MEMORY-LAYERS
@@ -512,6 +512,23 @@ entries:
     disposition: declared
     owners:
       - packages/llm/src/work
+  - id: WORK-LIBRARY-SEARCH
+    category: work-context
+    description: The agent retrieves the current identity-scoped library concept,
+      rejects stale or adversarial decoys, and applies the retrieved procedure
+      to its answer
+    verification: planted retrieval + answer + trusted trace
+    disposition: eval
+    owners:
+      - packages/llm/src/work
+  - id: WORK-WORKFLOW-RETRIEVE
+    category: work-context
+    description: The agent lists saved workflows, selects the intended definition
+      rather than a similarly named decoy, and applies its exact goal or steps
+    verification: planted workflow + answer + trusted trace
+    disposition: eval
+    owners:
+      - packages/llm/src/work
   - id: WORK-PERSONA
     category: work-context
     description: Operator role/profile changes prompt emphasis without weakening
@@ -525,7 +542,7 @@ entries:
     description: Long-thread compaction retains decisions, figures, actions, and
       open tasks without cross-thread leakage
     verification: multi-turn oracle
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/work
   - id: WORK-SKILLS
@@ -533,7 +550,7 @@ entries:
     description: Skill discovery, dependency aggregation, install/use, and
       allowed-tool implications are correct
     verification: trace + artifact contract
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/work
   - id: WORK-CONFIG-VCS
@@ -549,7 +566,7 @@ entries:
     description: Natural-language workflow creation/update/delete produces a valid
       definition with provenance
     verification: DB + schema oracle
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/workflows
       - apps/worker/src/jobs
@@ -567,7 +584,7 @@ entries:
     description: Cron trigger creation, due selection, and sweep scheduling fire at
       the intended times once
     verification: fake clock + state
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/workflows
       - apps/worker/src/jobs
@@ -603,7 +620,7 @@ entries:
     description: Workflow turns use the runner tool policy, persist state, and
       produce outputs/actions correctly
     verification: state + trace oracle
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/workflows
       - apps/worker/src/jobs
@@ -621,7 +638,7 @@ entries:
     description: Output persistence, evidence, delivery hooks, and source-write
       attribution are correct
     verification: DB/event oracle
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/workflows
       - apps/worker/src/jobs
@@ -810,7 +827,7 @@ entries:
     description: Output messages, cards/degradation, receipts, errors, and
       follow-ups deliver to the originating channel
     verification: fake channel transcript
-    disposition: declared
+    disposition: eval
     owners:
       - packages/channels
       - packages/plugin-types
@@ -946,7 +963,7 @@ entries:
     description: Schema proposals, previews, counterproposals, DDL saga, and audit
       are deterministic and recoverable
     verification: state-machine E2E
-    disposition: declared
+    disposition: eval
     owners:
       - packages/records
   - id: RECORDS-READ
@@ -978,7 +995,7 @@ entries:
     description: App/object/field/row permissions and actor synchronization match
       GraphJin enforcement
     verification: cross-role differential
-    disposition: declared
+    disposition: eval
     owners:
       - packages/records
   - id: RECORDS-IMPORT
@@ -1018,7 +1035,7 @@ entries:
     description: Records action execution obeys policy and produces the intended
       record mutation/receipt
     verification: action + state oracle
-    disposition: declared
+    disposition: eval
     owners:
       - packages/records
   - id: RECORDS-OPS
@@ -1043,7 +1060,7 @@ entries:
     description: Org boundaries hold across data, records, threads, memory, files,
       actions, channels, and telemetry
     verification: cross-tenant adversarial
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/work
       - packages/records/src/policy
@@ -1087,7 +1104,7 @@ entries:
     description: Untrusted data/tool content cannot override data, action, identity,
       or exfiltration policy
     verification: adversarial corpus
-    disposition: declared
+    disposition: eval
     owners:
       - packages/llm/src/work
       - packages/records/src/policy

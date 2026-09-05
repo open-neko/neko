@@ -36,6 +36,7 @@ export {
 } from "./agent-error";
 export {
   ensureHostConfigProvisioned,
+  gatewayProviderName,
   provisionHostConfig,
   VENDORED_HERMES_MODEL_BINARY,
   verifyAgentRuntimeReady,

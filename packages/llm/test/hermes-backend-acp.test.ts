@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentEvent } from "../src/agent-backend";
 import {
   chunkNotification,
   createMockSpawn,
@@ -50,7 +51,9 @@ afterEach(async () => {
   );
 });
 
-const { HermesBackend } = await import("../src/agent-backends/hermes");
+const { HermesBackend, parseHermesSessionIdentity } = await import(
+  "../src/agent-backends/hermes",
+);
 
 const FAKE_WORKSPACE = {
   orgRoot: "/tmp/neko-test/org",
@@ -157,6 +160,204 @@ describe("HermesBackend ACP behavior", () => {
       .map((e) => e.content);
     expect(messageContents).toEqual(["a", "b", "c"]);
     expect(result.finalText).toBe("abc");
+  });
+
+  it("keeps configured identity separate from the live Hermes session identity", async () => {
+    const sessionId = "sess-identity";
+    controller.setScript({
+      responders: {
+        "session/new": () => ({
+          sessionId,
+          models: {
+            currentModelId: "gemini:gemini-3.6-flash-observed",
+          },
+        }),
+        "session/prompt": (_p, ctx) => {
+          ctx.emitNotification(chunkNotification(sessionId, "answer"));
+          return {
+            stopReason: "end_turn",
+            usage: {
+              input_tokens: 12,
+              outputTokens: 5,
+              cachedReadTokens: 3,
+              thought_tokens: 2,
+              total_tokens: 17,
+            },
+          };
+        },
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    const backend = new HermesBackend({
+      provider: "gemini",
+      model: "gemini-3.6-flash-configured",
+    });
+
+    await backend.run({
+      prompt: "p",
+      workspace: FAKE_WORKSPACE,
+      onEvent: (event) => events.push(event as unknown as Record<string, unknown>),
+    });
+
+    expect(backend.configuredIdentity).toEqual({
+      provider: "gemini",
+      model: "gemini-3.6-flash-configured",
+    });
+    expect(backend.model).toBe("gemini-3.6-flash-configured");
+    expect(events.find((event) => event.type === "usage")).toEqual({
+      type: "usage",
+      source: "outer",
+      provider: "gemini",
+      model: "gemini-3.6-flash-observed",
+      modelIdentity: {
+        configured: {
+          provider: "gemini",
+          model: "gemini-3.6-flash-configured",
+        },
+        observed: {
+          provider: "gemini",
+          model: "gemini-3.6-flash-observed",
+        },
+      },
+      usage: {
+        inputTokens: 12,
+        outputTokens: 5,
+        cacheReadTokens: 3,
+        reasoningTokens: 2,
+        totalTokens: 17,
+        coverage: "complete",
+      },
+    });
+  });
+
+  it("parses Hermes model choices without truncating qualified model ids", () => {
+    expect(
+      parseHermesSessionIdentity({
+        models: { current_model_id: "custom:publisher:model-v2" },
+      }),
+    ).toEqual({ provider: "custom", model: "publisher:model-v2" });
+    expect(
+      parseHermesSessionIdentity({ models: { currentModelId: "missing-model:" } }),
+    ).toBeUndefined();
+  });
+
+  it("does not relabel configured identity as observed when ACP omits model state", async () => {
+    const sessionId = "sess-configured-only";
+    controller.setScript({
+      responders: {
+        "session/new": () => ({ sessionId }),
+        "session/prompt": (_p, ctx) => {
+          ctx.emitNotification(chunkNotification(sessionId, "answer"));
+          return {
+            stopReason: "end_turn",
+            usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
+          };
+        },
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+
+    await new HermesBackend({ provider: "gemini", model: "configured-model" }).run({
+      prompt: "p",
+      workspace: FAKE_WORKSPACE,
+      onEvent: (event) => events.push(event as unknown as Record<string, unknown>),
+    });
+
+    expect(events.find((event) => event.type === "usage")).toMatchObject({
+      modelIdentity: {
+        configured: { provider: "gemini", model: "configured-model" },
+      },
+    });
+    expect(events.find((event) => event.type === "usage")).not.toHaveProperty(
+      "provider",
+    );
+    expect(events.find((event) => event.type === "usage")).not.toHaveProperty(
+      "model",
+    );
+  });
+
+  it("preserves observed model identity when ACP omits usage", async () => {
+    const sessionId = "sess-identity-without-usage";
+    controller.setScript({
+      responders: {
+        "session/new": () => ({
+          sessionId,
+          models: { currentModelId: "gemini:gemini-3.6-flash" },
+        }),
+        "session/prompt": (_p, ctx) => {
+          ctx.emitNotification(chunkNotification(sessionId, "answer"));
+          return { stopReason: "end_turn" };
+        },
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+
+    await new HermesBackend({ provider: "gemini", model: "gemini-3.6-flash" }).run({
+      prompt: "p",
+      workspace: FAKE_WORKSPACE,
+      onEvent: (event) => events.push(event as unknown as Record<string, unknown>),
+    });
+
+    expect(events.find((event) => event.type === "usage")).toEqual({
+      type: "usage",
+      source: "outer",
+      provider: "gemini",
+      model: "gemini-3.6-flash",
+      modelIdentity: {
+        configured: { provider: "gemini", model: "gemini-3.6-flash" },
+        observed: { provider: "gemini", model: "gemini-3.6-flash" },
+      },
+      usage: {
+        coverage: "unavailable",
+        missingReasons: ["Hermes ACP session/prompt omitted usage"],
+      },
+    });
+  });
+
+  it("fails a Hermes output-truncation sentinel without streaming it as an answer", async () => {
+    const sessionId = "sess-output-truncated";
+    controller.setScript({
+      responders: {
+        "session/new": () => ({
+          sessionId,
+          models: { currentModelId: "gemini:gemini-3.6-flash" },
+        }),
+        "session/prompt": (_p, ctx) => {
+          ctx.emitNotification(
+            chunkNotification(
+              sessionId,
+              "Response truncated due to output length limit",
+            ),
+          );
+          return { stopReason: "max_tokens" };
+        },
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+
+    const result = await new HermesBackend({
+      provider: "gemini",
+      model: "gemini-3.6-flash",
+    }).run({
+      prompt: "p",
+      retries: 0,
+      workspace: FAKE_WORKSPACE,
+      onEvent: (event) => events.push(event as unknown as Record<string, unknown>),
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      finalText: "",
+      error:
+        "hermes response truncated due to output length limit (stopReason=max_tokens)",
+    });
+    expect(events.filter((event) => event.type === "message")).toEqual([]);
+    expect(events.find((event) => event.type === "usage")).toMatchObject({
+      modelIdentity: {
+        observed: { provider: "gemini", model: "gemini-3.6-flash" },
+      },
+      usage: { coverage: "unavailable" },
+    });
   });
 
   it("keeps Hermes interim commentary separate from the final answer", async () => {
@@ -478,6 +679,45 @@ describe("HermesBackend ACP behavior", () => {
     expect(toolEnd).toBeDefined();
     expect(toolEnd?.id).toBe("tc-1");
     expect(toolEnd?.result).toBe("file contents");
+  });
+
+  it("emits a precise canonical MCP name with the actual tool arguments", async () => {
+    const sessionId = "sess-mcp-tool-event";
+    controller.setScript({
+      responders: {
+        "session/new": () => ({ sessionId }),
+        "session/prompt": (_p, ctx) => {
+          ctx.emitNotification(
+            toolCallNotification(sessionId, "tc-blueprint", {
+              kind: "other",
+              title: "mcp__neko__records_browse_blueprints",
+              rawInput: { blueprint: "crm" },
+            }),
+          );
+          ctx.emitNotification(
+            toolCallUpdateNotification(sessionId, "tc-blueprint", {
+              status: "completed",
+              rawOutput: '{"blueprints":[]}',
+            }),
+          );
+          return { stopReason: "end_turn" };
+        },
+      },
+    });
+    const events: AgentEvent[] = [];
+
+    await new HermesBackend().run({
+      prompt: "p",
+      workspace: FAKE_WORKSPACE,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(events).toContainEqual({
+      type: "tool_start",
+      id: "tc-blueprint",
+      name: "mcp_neko_records_browse_blueprints",
+      input: { blueprint: "crm" },
+    });
   });
 
   it("does not accept a legacy fence as a second live render path", async () => {

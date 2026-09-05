@@ -2,7 +2,9 @@
  * Per-org agent backend resolution.
  *
  * Hermes is the sole runtime. The agent row only stores concurrency settings;
- * provider credentials are provisioned independently for Hermes.
+ * provider credentials are provisioned independently. The non-secret primary
+ * provider/model selection is retained so callers can attest it against the
+ * identity reported by the live Hermes ACP session.
  */
 
 import { and, db, eq, llm_provider_config } from "@neko/db";
@@ -10,15 +12,17 @@ import {
   AGENT_DEFAULT_GLOBAL_CAP,
   type AgentBackend,
   type AgentBackendId,
+  type AgentModelIdentity,
 } from "./agent-backend";
 import { makeAgentBackend } from "./agent-runtime";
+import { isPrimaryProvider } from "./config";
+import { resolveHermesProviderRuntime } from "./provider-runtime";
 
 type StoredRow = {
   provider: string;
   model: string | null;
   enabled: boolean;
   config: Record<string, unknown> | null;
-  secrets: Record<string, unknown> | null;
 };
 
 async function loadRow(orgId: string, scope: string): Promise<StoredRow | null> {
@@ -29,7 +33,6 @@ async function loadRow(orgId: string, scope: string): Promise<StoredRow | null> 
         model: llm_provider_config.model,
         enabled: llm_provider_config.enabled,
         config: llm_provider_config.config,
-        secrets: llm_provider_config.secrets,
       })
       .from(llm_provider_config)
       .where(
@@ -82,12 +85,35 @@ export async function resolveAgentConcurrency(orgId: string): Promise<AgentConcu
   };
 }
 
+function configuredHermesModelIdentity(
+  row: StoredRow | null,
+): AgentModelIdentity | undefined {
+  const model = row?.model?.trim();
+  if (!row?.enabled || !model || !isPrimaryProvider(row.provider)) {
+    return undefined;
+  }
+  const runtime = resolveHermesProviderRuntime({
+    provider: row.provider,
+    model,
+    config: row.config,
+  });
+  return { provider: runtime.provider, model: runtime.model };
+}
+
 /**
- * Construct a backend from already-resolved config — no DB. Used both by
- * resolveAgentBackend (host, after the DB read) and by the agent sandbox's
- * entry.ts (from the launcher-passed config, with a PLACEHOLDER apiKey — the
- * real key is injected by the OpenShell egress proxy, never in the sandbox).
+ * Resolve the sole backend and its non-secret configured model identity. The
+ * real provider key remains independently provisioned through OpenShell and is
+ * never returned with the backend.
  */
 export async function resolveAgentBackend(orgId: string): Promise<AgentBackend> {
-  return makeAgentBackend({ id: await resolveAgentBackendId(orgId) });
+  const [id, primary] = await Promise.all([
+    resolveAgentBackendId(orgId),
+    loadRow(orgId, "primary"),
+  ]);
+  return makeAgentBackend({
+    id,
+    ...(primary
+      ? { configuredIdentity: configuredHermesModelIdentity(primary) }
+      : {}),
+  });
 }

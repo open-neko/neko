@@ -64,8 +64,22 @@ export const WORKFLOW_SAVE_SCHEMA = z.object({
       // result, fire the workflow when the condition holds.
       watch: z
         .object({
-          query: z.string().trim().min(3).max(8000),
-          value_path: z.string().trim().min(1).max(400),
+          query: z
+            .string()
+            .trim()
+            .min(3)
+            .max(8000)
+            .describe(
+              "The exact GraphQL query already executed successfully through GraphJin. Copy it without rewriting it.",
+            ),
+          value_path: z
+            .string()
+            .trim()
+            .min(1)
+            .max(400)
+            .describe(
+              "Dot-separated path under the successful GraphJin response data. Include numeric array segments, for example orders.0.count; bracket notation is not supported.",
+            ),
           op: z.enum(["gt", "gte", "lt", "lte", "eq", "ne", "changed"]),
           threshold: z.union([z.number(), z.string()]).optional(),
           cadence_seconds: z.number().int().min(60).max(86_400).optional(),

@@ -140,7 +140,7 @@ describe("records agent scenario transcripts", () => {
     await callTool(transcript, "app_create", {
       intent:
         "Create the reviewed CRM app so accounts, contacts, deals, and activity share one governed workspace.",
-      payload: blueprint.payload,
+      blueprint: "crm",
       risk_level: "high",
     });
     transcript.push({
@@ -159,21 +159,14 @@ describe("records agent scenario transcripts", () => {
       transcript.filter((entry) => entry.role === "tool").map((entry) => entry.name),
     ).toEqual(["browse_blueprints", "browse_blueprints", "app_create"]);
     expect(createActionRequest).toHaveBeenCalledTimes(1);
+    expect(controlPlane.listRecordBlueprints).toHaveBeenCalledTimes(3);
     expect(createActionRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         orgId: "org-a",
         scope: "internal",
         kind: "app_create",
         status: "pending_approval",
-        payload: expect.objectContaining({
-          app: "crm",
-          objects: expect.arrayContaining([
-            expect.objectContaining({ api_name: "account" }),
-            expect.objectContaining({ api_name: "opportunity" }),
-          ]),
-          permissions: expect.any(Array),
-          pages: expect.any(Array),
-        }),
+        payload: blueprint.payload,
       }),
     );
     expect(events).toEqual([

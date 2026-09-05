@@ -65,6 +65,24 @@ export type AgentVital = {
 /** Provider-reported usage normalized once at the backend boundary. */
 export type AgentTokenUsage = NormalizedUsage;
 
+/**
+ * Provider/model selected by the trusted OpenNeko runtime configuration.
+ * This is intentionally separate from the provider/model carried by a usage
+ * event: that event describes what the backend process reported for the live
+ * session, so callers can compare configured and observed identity.
+ */
+export type AgentModelIdentity = {
+  provider: string;
+  model: string;
+};
+
+export type AgentModelIdentityAttestation = {
+  /** Selected by trusted OpenNeko configuration before process launch. */
+  configured?: AgentModelIdentity;
+  /** Reported by the live backend session, independently of configuration. */
+  observed?: AgentModelIdentity;
+};
+
 export type AgentEvent =
   // Delta of real prose since the last message event. Backends MUST NOT emit
   // structured-output payloads (a2ui fences, tool-call JSON, etc.) here — use
@@ -96,6 +114,7 @@ export type AgentEvent =
       source: "outer" | "inner";
       provider?: string;
       model?: string;
+      modelIdentity?: AgentModelIdentityAttestation;
       usage: AgentTokenUsage;
     }
   /** Content-free operational summary persisted for clients and operators. */
@@ -227,6 +246,9 @@ export function agentTurnTimeoutMs(): number {
   return Number.isFinite(env) && env > 0 ? env : 9 * 60_000;
 }
 
+/** Per-run policy for a backend's own sub-agent primitive. */
+export type AgentNativeDelegationPolicy = "enabled" | "disabled";
+
 export type AgentRunOptions = {
   prompt: string;
   userMessage?: string;
@@ -246,6 +268,12 @@ export type AgentRunOptions = {
    *  entry (OPENNEKO_MCP_BRIDGE) rebuilds each named server from this env;
    *  broker coords are copied into the clean bridge-child env only. */
   mcpBridgeEnv?: Record<string, string>;
+  /**
+   * Whether the backend may expose its own sub-agent primitive for this run.
+   * Omitted means the production default (`enabled`). Backends without native
+   * delegation ignore this setting.
+   */
+  nativeDelegation?: AgentNativeDelegationPolicy;
   /** Web turn ⇒ the agent renders a2ui cards. Backends that can't take the
    *  in-process SDK card server (hermes) wire their own render tool when set.
    *  See docs/PER_CHANNEL_RENDERING.md. */
@@ -286,7 +314,9 @@ export interface AgentBackendCapabilities {
 export interface AgentBackend {
   readonly id: AgentBackendId;
   readonly capabilities: AgentBackendCapabilities;
-  /** Hermes resolves its model from config.yaml. */
+  /** Trusted runtime configuration, before the backend process is launched. */
+  readonly configuredIdentity?: AgentModelIdentity;
+  /** Compatibility accessor for configuredIdentity.model. */
   readonly model?: string;
   run(opts: AgentRunOptions): Promise<AgentRunResult>;
 }

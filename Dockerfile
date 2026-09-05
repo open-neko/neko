@@ -171,6 +171,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY scripts/patches/hermes-acp-reasoning-config.patch /tmp/hermes-acp-reasoning-config.patch
 COPY scripts/patches/hermes-acp-interim-messages.patch /tmp/hermes-acp-interim-messages.patch
 COPY scripts/patches/hermes-acp-anthropic-reasoning.patch /tmp/hermes-acp-anthropic-reasoning.patch
+COPY scripts/patches/hermes-acp-native-delegation-policy.patch /tmp/hermes-acp-native-delegation-policy.patch
 RUN --mount=type=cache,id=hermes-uv,target=/tmp/uv-cache \
     curl -LsSf --retry 5 --retry-delay 5 --retry-all-errors https://astral.sh/uv/install.sh \
       | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh \
@@ -183,7 +184,8 @@ RUN --mount=type=cache,id=hermes-uv,target=/tmp/uv-cache \
     && patch --batch --forward --fuzz=0 -d /usr/local/lib/hermes-agent -p1 < /tmp/hermes-acp-reasoning-config.patch \
     && patch --batch --forward --fuzz=0 -d /usr/local/lib/hermes-agent -p1 < /tmp/hermes-acp-interim-messages.patch \
     && patch --batch --forward --fuzz=0 -d /usr/local/lib/hermes-agent -p1 < /tmp/hermes-acp-anthropic-reasoning.patch \
-    && rm /tmp/hermes-acp-reasoning-config.patch /tmp/hermes-acp-interim-messages.patch /tmp/hermes-acp-anthropic-reasoning.patch \
+    && patch --batch --forward --fuzz=0 -d /usr/local/lib/hermes-agent -p1 < /tmp/hermes-acp-native-delegation-policy.patch \
+    && rm /tmp/hermes-acp-reasoning-config.patch /tmp/hermes-acp-interim-messages.patch /tmp/hermes-acp-anthropic-reasoning.patch /tmp/hermes-acp-native-delegation-policy.patch \
     && cd /usr/local/lib/hermes-agent \
     && UV_PROJECT_ENVIRONMENT=/usr/local/uv/tools/hermes-agent \
        UV_CACHE_DIR=/tmp/uv-cache \
@@ -199,6 +201,7 @@ RUN --mount=type=cache,id=hermes-uv,target=/tmp/uv-cache \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.server import HermesACPAgent; import inspect; source = inspect.getsource(HermesACPAgent.prompt); assert 'usage=usage' in source, 'Hermes ACP prompt response must expose exact turn usage'" \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.events import make_interim_message_cb; from acp_adapter.server import HermesACPAgent; import inspect; source = inspect.getsource(HermesACPAgent.prompt); assert 'interim_assistant_callback' in source and 'pending_streamed_message.append(text)' in source and 'raw_interim_cb(text, already_streamed=False)' in source and 'not streamed_message' not in source; assert callable(make_interim_message_cb), 'Hermes ACP buffered interim callback missing'" \
     && /usr/local/uv/tools/hermes-agent/bin/python -c "from agent import chat_completion_helpers; from pathlib import Path; source = Path(chat_completion_helpers.__file__).read_text(); assert '_emit_unstreamed_anthropic_reasoning' in source and 'reasoning_was_streamed' in source, 'Hermes ACP Anthropic reasoning fallback missing'" \
+    && /usr/local/uv/tools/hermes-agent/bin/python -c "from acp_adapter.session import _openneko_disabled_toolsets; import os; os.environ['OPENNEKO_HERMES_NATIVE_DELEGATION']='disabled'; assert _openneko_disabled_toolsets() == ['delegation'], 'Hermes ACP native delegation policy missing'" \
     && rm -rf \
       /usr/local/lib/hermes-agent/.git \
       /usr/local/lib/hermes-agent/.github \
@@ -349,6 +352,15 @@ RUN apk add --no-cache ca-certificates curl postgresql-client unzip
 WORKDIR /app
 COPY --from=adventureworks-loader-deploy /out/load-adventureworks.js /app/load-adventureworks.js
 ENTRYPOINT ["node", "/app/load-adventureworks.js"]
+
+# Stateless upstream used only by the backend eval to prove that GraphJin
+# forwards an explicitly exposed API `call` mutation. It keeps no mutable
+# state, so repeated/cancelled episodes are deterministic and require no reset.
+FROM node-alpine-runtime AS eval-api-fixture
+WORKDIR /app
+COPY evals/environment/adventureworks/api/server.mjs /app/server.mjs
+EXPOSE 8090
+ENTRYPOINT ["node", "/app/server.mjs"]
 
 # ─── 4b. embedding-model prewarm ───────────────────────────────────────
 # Download Xenova/all-MiniLM-L6-v2 (q8 quantized, ~22MB) into a stable
@@ -511,7 +523,9 @@ RUN cd apps/worker && pnpm exec esbuild src/agent-sandbox/mcp-bridge.ts \
       --bundle --platform=node --format=esm \
       --external:onnxruntime-node --external:@huggingface/transformers \
       --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
-      --outfile=/out/agent-app/dist/agent-sandbox/mcp-bridge.js
+      --outfile=/out/agent-app/dist/agent-sandbox/mcp-bridge.js \
+    && rm -rf /out/agent-app/scripts \
+    && test ! -e /out/agent-app/scripts
 
 FROM cli AS agent
 USER root
@@ -528,6 +542,8 @@ RUN groupadd -g 1000660000 sandbox \
     && install -d -o sandbox -g sandbox /sandbox
 # The deployed workspace is readable by the sandbox user and contains the
 # runtime source, production node_modules closure, built-in assets, and bridge.
+# Worker operational/eval scripts are pruned in agent-deploy so candidates
+# cannot inspect benchmark prompts, sentinels, or oracle implementation.
 COPY --from=agent-deploy --chown=1000660000:1000660000 /out/agent-app /app
 WORKDIR /sandbox
 # Supervisor-replaced; launcher runs:

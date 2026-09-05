@@ -136,6 +136,19 @@ describe("native records read tools", () => {
     expect(find?.description).toContain("never guess");
   });
 
+  it("makes exact blueprint discovery and transfer explicit", () => {
+    buildRecordsReadServer({
+      orgId: "org-1",
+      runId: "run-1",
+      controlPlane: {} as AgentControlPlane,
+    });
+    const browse = sdk.tools.get("browse_blueprints");
+    expect(browse?.description).toContain("Call without `blueprint`");
+    expect(browse?.description).toContain("complete approval-ready");
+    expect(browse?.description).toContain("unchanged");
+    expect(browse?.description).toContain("Never reconstruct");
+  });
+
   it("enforces the trusted records UI app/object scope", async () => {
     const listRecordCatalog = vi.fn(async () => ({
       apps: [

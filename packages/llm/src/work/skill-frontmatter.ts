@@ -92,9 +92,12 @@ export function parseSkillFrontmatter(content: string): SkillFrontmatter {
         if (prereq.commands?.length || prereq.envVars?.length) {
           result.prerequisites = prereq;
         }
-      } else if (key === "name" || key === "description" || key === "license") {
-        // Block scalar form of a simple field.
-        (result as Record<string, unknown>)[key] = inner.trim();
+      } else if (key === "name") {
+        result.name = inner.trim();
+      } else if (key === "description") {
+        result.description = inner.trim();
+      } else if (key === "license") {
+        result.license = inner.trim();
       } else if (key === "compatibility") {
         result.compatibility = inner.trim();
       } else if (key === "allowed-tools") {

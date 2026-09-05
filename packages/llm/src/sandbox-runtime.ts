@@ -34,6 +34,13 @@ export {
   type PluginActionDescriptor,
 } from "./work/tools";
 export {
+  GRAPHJIN_DIRECT_GOVERNED_POLICY,
+  GRAPHJIN_TOOL_POLICY_ENV,
+  parseGraphjinMcpToolPolicy,
+  serializeGraphjinMcpToolPolicy,
+  type GraphjinMcpToolPolicy,
+} from "./work/graphjin-tool-policy";
+export {
   getBuiltinSkillsRoot,
   materializeBuiltinSkills,
 } from "./work/workspace";

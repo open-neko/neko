@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { assertReadOnlyGraphql } from "../src/work/control-plane";
+import {
+  assertReadOnlyGraphql,
+  graphjinDevelopmentAuthHeaders,
+} from "../src/work/control-plane";
 
 describe("GraphJin job broker read gate", () => {
   it("accepts explicit and shorthand query operations", () => {
@@ -23,5 +26,37 @@ describe("GraphJin job broker read gate", () => {
     expect(() => assertReadOnlyGraphql("fragment Fields on Order { id }")).toThrow(
       /explicit query operation/,
     );
+  });
+});
+
+describe("GraphJin development auth", () => {
+  it("forwards the Work actor identity used for source-aware API authorization", () => {
+    expect(
+      graphjinDevelopmentAuthHeaders(
+        { userId: "user-1", role: "member" },
+        "test",
+      ),
+    ).toEqual({
+      "X-User-ID": "user-1",
+      "X-User-Role": "member",
+    });
+    expect(
+      graphjinDevelopmentAuthHeaders(
+        { userId: null, role: "service" },
+        "development",
+      ),
+    ).toEqual({
+      "X-User-ID": "openneko-service",
+      "X-User-Role": "service",
+    });
+  });
+
+  it("cannot be enabled in production", () => {
+    expect(() =>
+      graphjinDevelopmentAuthHeaders(
+        { userId: "user-1", role: "member" },
+        "production",
+      ),
+    ).toThrow(/forbidden in production/);
   });
 });

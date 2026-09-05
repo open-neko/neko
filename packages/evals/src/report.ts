@@ -58,25 +58,40 @@ function sanitizePublicValue(value: unknown, depth = 0): unknown {
 
 function markdown(summary: ReturnType<typeof summarizeEpisodes>, manifest: EvalManifest): string {
   const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
+  const accepted = evaluateSuiteGates(summary, manifest.suiteGates);
   const duration = (value: number | null) =>
     value === null ? "unavailable" : `${Math.round(value)} ms`;
   const money = (value: { count: number; coverage: number; total: number }) =>
     value.count === 0
       ? "unavailable"
       : `$${value.total.toFixed(6)} (${pct(value.coverage)} coverage)`;
+  const capabilityGates = Object.entries(
+    manifest.suiteGates.min_capability_task_pass_rate ?? {},
+  )
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([capability, minimum]) => {
+      const actual = summary.byCapability[capability]?.passRate;
+      return `${capability}=${actual === undefined ? "missing" : pct(actual)} (min ${pct(minimum)})`;
+    });
   return `# Eval result: ${manifest.configId}\n\n` +
     `- Run: \`${manifest.runId}\`\n` +
     `- Suite: \`${manifest.suiteId}\`\n` +
     `- Attestation: ${manifest.attestation}\n` +
+    `- Accepted: ${accepted ? "yes" : "no"}\n` +
     `- Source: \`${manifest.source.commit}\`${manifest.source.dirty ? " (dirty)" : ""}\n` +
     `- Task pass rate: ${pct(summary.taskPassRate)} (${summary.passedTasks}/${summary.taskCount})\n` +
     `- Macro ground truth: ${pct(summary.macro.groundTruth)}\n` +
+    `- Macro method: ${pct(summary.macro.method)}\n` +
     `- Macro behavior: ${pct(summary.macro.behavior)}\n` +
     `- Macro safety: ${pct(summary.macro.safety)}\n` +
+    `- Macro efficiency: ${pct(summary.macro.efficiency)}\n` +
     `- Method score coverage: ${pct(summary.coverage.method)}\n` +
     `- Safety score coverage: ${pct(summary.coverage.safety)}\n` +
+    `- Efficiency score coverage: ${pct(summary.coverage.efficiency)}\n` +
     `- Mean consistency: ${pct(summary.meanConsistency)}\n` +
     `- Wall latency p50 / p95: ${duration(summary.measurements.wallDurationMs.p50)} / ${duration(summary.measurements.wallDurationMs.p95)}\n` +
+    `- Tool calls mean / p95: ${summary.measurements.toolCalls.mean ?? "unavailable"} / ${summary.measurements.toolCalls.p95 ?? "unavailable"}\n` +
+    `- Exact repeated tool calls: ${summary.measurements.repeatedToolCalls.total} (${pct(summary.measurements.repeatedToolCalls.coverage)} coverage)\n` +
     `- Total tokens: ${summary.measurements.totalTokens.total} (${pct(summary.measurements.totalTokens.coverage)} coverage)\n` +
     `- Estimated / billed cost: ${money(summary.measurements.estimatedCostUsd)} / ${money(summary.measurements.billedCostUsd)}\n` +
     `- Complete / available usage coverage: ${pct(summary.measurements.usageCoverage.completeRate)} / ${pct(summary.measurements.usageCoverage.availableRate)}\n` +
@@ -84,7 +99,17 @@ function markdown(summary: ReturnType<typeof summarizeEpisodes>, manifest: EvalM
     `- Datasets / product paths: ${Object.keys(summary.byDataset).length} / ${Object.keys(summary.byProductPath).length}\n` +
     `- Semantic IDs exercised: ${Object.keys(summary.bySemantic).length}\n` +
     `- Execution failures: ${summary.executionFailures}\n` +
-    `- Safety gate failures: ${summary.safetyGateFailures}\n`;
+    `- Safety gate failures: ${summary.safetyGateFailures}\n` +
+    `- Unsafe effects: ${summary.unsafeEffects} across ${summary.unsafeEffectEpisodes} episodes${
+      Object.keys(summary.unsafeEffectsByKind).length
+        ? ` (${Object.entries(summary.unsafeEffectsByKind)
+            .map(([kind, count]) => `${kind}=${count}`)
+            .join(", ")})`
+        : ""
+    }\n` +
+    (capabilityGates.length
+      ? `- Capability gates: ${capabilityGates.join(", ")}\n`
+      : "");
 }
 
 export function evaluateSuiteGates(
@@ -95,11 +120,21 @@ export function evaluateSuiteGates(
     summary.executionFailures === 0 &&
     (gates.min_macro_ground_truth === undefined ||
       summary.macro.groundTruth >= gates.min_macro_ground_truth) &&
+    (gates.min_method === undefined ||
+      summary.macro.method >= gates.min_method) &&
     (gates.min_behavior === undefined ||
       summary.macro.behavior >= gates.min_behavior) &&
+    (gates.min_full_task_pass_rate === undefined ||
+      summary.taskPassRate >= gates.min_full_task_pass_rate) &&
     (gates.min_token_usage_coverage === undefined ||
       summary.measurements.usageCoverage.completeRate >=
         gates.min_token_usage_coverage) &&
+    Object.entries(gates.min_capability_task_pass_rate ?? {}).every(
+      ([capability, minimum]) =>
+        (summary.byCapability[capability]?.passRate ?? -1) >= minimum,
+    ) &&
+    (gates.max_unsafe_effects === undefined ||
+      summary.unsafeEffects <= gates.max_unsafe_effects) &&
     (!gates.require_safety || summary.safetyGateFailures === 0)
   );
 }
@@ -109,6 +144,8 @@ function publicEpisode(episode: EvalEpisode): unknown {
     schemaVersion: "openneko.eval.result/v1",
     runId: episode.runId,
     slotKey: episode.slotKey,
+    ...(episode.pairKey ? { pairKey: episode.pairKey } : {}),
+    ...(episode.treatment ? { treatment: episode.treatment } : {}),
     caseId: episode.caseId,
     caseContentId: episode.caseContentId,
     family: episode.family,
@@ -136,6 +173,12 @@ export async function promoteResult(input: {
   manifest: EvalManifest;
   episodes: readonly EvalEpisode[];
   resultsRoot: string;
+  rescore?: {
+    sourceRunManifestDigest: string;
+    sourceRescoreDigest: string;
+    scorer: { id: string; version: string };
+    scorerDigest: string;
+  };
 }): Promise<string> {
   const resultDir = resolve(input.resultsRoot, input.manifest.configId, input.manifest.runId);
   await mkdir(resultDir, { recursive: true });
@@ -146,6 +189,13 @@ export async function promoteResult(input: {
   const summary = SummarySchema.parse(summarizeEpisodes(sorted));
   const summaryText = `${JSON.stringify(summary, null, 2)}\n`;
   const markdownText = markdown(summary, input.manifest);
+  const accepted = evaluateSuiteGates(summary, input.manifest.suiteGates);
+  const compatibility = input.rescore
+    ? {
+        ...input.manifest.compatibility,
+        scorerDigest: input.rescore.scorerDigest,
+      }
+    : input.manifest.compatibility;
   await writeFile(join(resultDir, "results.jsonl"), lines, "utf8");
   await writeFile(join(resultDir, "summary.json"), summaryText, "utf8");
   await writeFile(join(resultDir, "summary.md"), markdownText, "utf8");
@@ -155,12 +205,34 @@ export async function promoteResult(input: {
     configId: input.manifest.configId,
     suiteId: input.manifest.suiteId,
     attestation: input.manifest.attestation,
+    accepted,
     suiteGates: input.manifest.suiteGates,
-    sourceRunManifestDigest: contentDigest(input.manifest),
+    sourceRunManifestDigest:
+      input.rescore?.sourceRunManifestDigest ?? contentDigest(input.manifest),
+    ...(input.rescore
+      ? {
+          rescore: {
+            sourceRescoreDigest: input.rescore.sourceRescoreDigest,
+            scorerId: input.rescore.scorer.id,
+            scorerVersion: input.rescore.scorer.version,
+            scorerDigest: input.rescore.scorerDigest,
+          },
+        }
+      : {}),
     source: input.manifest.source,
-    compatibility: input.manifest.compatibility,
+    compatibility,
+    ...(input.manifest.datasetFingerprint !== undefined
+      ? {
+          datasetFingerprint: sanitizePublicValue(
+            input.manifest.datasetFingerprint,
+          ),
+        }
+      : {}),
     resolvedVariants: input.manifest.resolvedVariants,
     effectiveConfig: input.manifest.effectiveConfig,
+    ...(input.manifest.plannedSlotKeys
+      ? { plannedSlotKeys: input.manifest.plannedSlotKeys }
+      : {}),
     expectedSlotKeys: [...input.manifest.expectedSlotKeys].sort(),
     files: {
       "results.jsonl": textDigest(lines),
@@ -210,6 +282,29 @@ export async function verifyResult(resultDirInput: string): Promise<{
     .split("\n")
     .filter(Boolean)
     .map((line) => ResultLineSchema.parse(JSON.parse(line)));
+  const scored = lines.filter((line) => line.score !== undefined);
+  if (
+    scored.some(
+      (line) =>
+        line.score!.scorerDigest !== manifest.compatibility.scorerDigest,
+    )
+  ) {
+    throw new Error(
+      "result scorerDigest does not match compatibility metadata",
+    );
+  }
+  if (
+    manifest.rescore &&
+    (manifest.rescore.scorerDigest !== manifest.compatibility.scorerDigest ||
+      scored.some(
+        (line) =>
+          line.score!.scorerId !== manifest.rescore!.scorerId ||
+          line.score!.scorerVersion !== manifest.rescore!.scorerVersion ||
+          line.score!.scorerDigest !== manifest.rescore!.scorerDigest,
+      ))
+  ) {
+    throw new Error("rescored result provenance does not match episode scores");
+  }
   const slots = lines.map((line) => line.slotKey);
   if (new Set(slots).size !== slots.length) throw new Error("duplicate result slots");
   const expected = [...manifest.expectedSlotKeys].sort();
@@ -222,6 +317,8 @@ export async function verifyResult(resultDirInput: string): Promise<{
       schemaVersion: "openneko.eval.episode/v1",
       runId: line.runId,
       slotKey: line.slotKey,
+      ...(line.pairKey ? { pairKey: line.pairKey } : {}),
+      ...(line.treatment ? { treatment: line.treatment } : {}),
       caseId: line.caseId,
       caseContentId: line.caseContentId,
       family: line.family,
@@ -253,6 +350,9 @@ export async function verifyResult(resultDirInput: string): Promise<{
     throw new Error("summary does not match deterministic aggregate of results.jsonl");
   }
   const gatesPassed = evaluateSuiteGates(recomputed, manifest.suiteGates);
+  if (manifest.accepted !== undefined && manifest.accepted !== gatesPassed) {
+    throw new Error("result acceptance does not match deterministic suite gates");
+  }
   return {
     ok: true,
     runId: manifest.runId,

@@ -28,6 +28,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
 });
 
 const { HermesBackend } = await import("../src/agent-backends/hermes");
@@ -75,6 +76,25 @@ describe("HermesBackend spawn invariants", () => {
     expect(controller.spawnCalls[0].command).toBe("hermes");
     expect(controller.spawnCalls[0].args).toEqual(["--yolo", "acp"]);
     expect(controller.spawnCalls[0].options.env?.HERMES_YOLO_MODE).toBe("1");
+  });
+
+  it("sets the process-local Hermes delegation deny policy when requested", async () => {
+    const backend = new HermesBackend();
+    await backend.run({ prompt: "ping", nativeDelegation: "disabled" });
+
+    expect(
+      controller.spawnCalls[0].options.env?.OPENNEKO_HERMES_NATIVE_DELEGATION,
+    ).toBe("disabled");
+  });
+
+  it("does not inherit a delegation deny policy into normal production turns", async () => {
+    vi.stubEnv("OPENNEKO_HERMES_NATIVE_DELEGATION", "disabled");
+    const backend = new HermesBackend();
+    await backend.run({ prompt: "ping" });
+
+    expect(
+      controller.spawnCalls[0].options.env?.OPENNEKO_HERMES_NATIVE_DELEGATION,
+    ).toBeUndefined();
   });
 
   it("does not leak prompt text into argv (prompt goes over JSON-RPC stdin)", async () => {

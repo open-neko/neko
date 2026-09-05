@@ -1,5 +1,9 @@
 import { getGraphjinConfigSettingsForOrg } from "@neko/db";
-import type { AgentChatMessage, AgentEvent } from "../agent-backend";
+import type {
+  AgentChatMessage,
+  AgentEvent,
+  AgentNativeDelegationPolicy,
+} from "../agent-backend";
 import { resolveAgentBackend as defaultResolveAgentBackend } from "../agent-backend-resolver";
 import { extractMemoryFences } from "../agent-backends/memory-fence";
 import {
@@ -48,6 +52,7 @@ import {
   setWorkRunValue,
   setWorkThreadBackendState,
 } from "./store";
+import type { GraphjinMcpToolPolicy } from "./graphjin-tool-policy";
 import type { PluginActionDescriptor } from "./tools";
 import { createToolOutputRecorder } from "./tool-output/metrics";
 import { runAgentBackend } from "./agent-core";
@@ -96,6 +101,14 @@ export type RunChatTurnOptions = {
    * uses the in-process plane; the agent sandbox injects a broker client.
    */
   controlPlane?: AgentControlPlane;
+  /** Optional backend-neutral restriction for this run's GraphJin MCP. */
+  graphjinToolPolicy?: GraphjinMcpToolPolicy;
+  /**
+   * Per-run backend-native sub-agent policy. Omitted preserves the production
+   * default; parity evals set `disabled` so backend delegation is not a hidden
+   * source of extra model calls.
+   */
+  nativeDelegation?: AgentNativeDelegationPolicy;
   /** Metadata-only observation stream shared by production and eval runs. */
   observer?: HarnessObserver;
 };
@@ -377,10 +390,12 @@ export async function runChatTurn(
     let priorSummary: string | undefined;
     let transcriptRows: typeof bundle.messages = bundle.messages;
     let newCompaction: ThreadCompaction | undefined;
+    let retainedCompaction: ThreadCompaction | undefined;
     if (inlineTranscript) {
       const prior = (
         bundle.thread.backendState as { compaction?: ThreadCompaction }
       ).compaction;
+      retainedCompaction = prior;
       const compacted = await compactIfNeeded({
         messages: bundle.messages,
         prior,
@@ -467,6 +482,9 @@ export async function runChatTurn(
       supportsSourceConfigTool,
       supportsClarificationTool,
       supportsPluginManagerTool,
+      supportsNativeDelegation:
+        backend.capabilities.nativeDelegation !== undefined &&
+        opts.nativeDelegation !== "disabled",
       pluginCatalog,
       inlineTranscript,
       pluginActions: customerSurface ? (opts.pluginActions ?? []) : [],
@@ -492,6 +510,12 @@ export async function runChatTurn(
       pluginActions: customerSurface ? (opts.pluginActions ?? []) : [],
       sourceConfigEnabled: supportsSourceConfigTool,
       dataSurface,
+      ...(opts.graphjinToolPolicy
+        ? { graphjinToolPolicy: opts.graphjinToolPolicy }
+        : {}),
+      ...(opts.nativeDelegation
+        ? { nativeDelegation: opts.nativeDelegation }
+        : {}),
       controlPlane: opts.controlPlane ?? inProcessControlPlane,
       // The clarification server can render its deterministic form in any web
       // Work chat, including records-scoped app chat. Generated answer-card
@@ -518,10 +542,14 @@ export async function runChatTurn(
         ...(appContext ? { appContext } : {}),
         ...(recordContext ? { recordContext } : {}),
       };
+      // Transcript compaction is host-owned state. Inline backends commonly
+      // return a fresh backend-state object every turn; replacing the stored
+      // object must not silently discard an existing rolling summary.
+      const compaction = newCompaction ?? retainedCompaction;
       await setWorkThreadBackendState(
         threadId,
-        newCompaction
-          ? { ...protectedBase, compaction: newCompaction }
+        compaction
+          ? { ...protectedBase, compaction }
           : protectedBase,
       );
     }

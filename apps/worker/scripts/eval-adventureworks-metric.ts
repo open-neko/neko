@@ -459,7 +459,7 @@ export function createAdventureWorksMetricDriver(context: {
       };
     },
     async resolveOracle(evalCase: LoadedCase) {
-      if (evalCase.oracle.kind !== "sql.metric" || !evalCase.oraclePath) {
+      if (evalCase.oracle?.kind !== "sql.metric" || !evalCase.oraclePath) {
         throw new EvalEnvironmentError(
           `${evalCase.id} requires a sql.metric oracle ref`,
           "oracle_invalid",

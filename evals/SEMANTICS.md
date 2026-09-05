@@ -58,7 +58,7 @@ state transition, delivery, denial, audit record, or user-visible contract.
 | `DATA-SOURCE-SELECT` | The correct enabled/default source is selected; disabled or ambiguous sources are handled explicitly | registry/state oracle |
 | `DATA-SOURCE-ADMIN` | Register/preview/apply/enable/disable/default-source changes follow admin approval and preserve credentials | state + approval oracle |
 | `DATA-SOURCE-FILE` | File-backed source ingestion, config generation, and refresh expose the intended data | dataset pack E2E |
-| `DATA-SOURCE-OPENAPI` | Managed OpenAPI ingestion/configuration exposes allowed operations without overgranting | fake-server E2E |
+| `DATA-SOURCE-OPENAPI` | Managed OpenAPI ingestion/configuration exposes allowed reads and explicitly opted-in API `call` mutations without overgranting | fake-server E2E |
 | `DATA-DISCOVERY` | Catalog/schema discovery finds relevant tables, columns, relationships, and query patterns | answer + trace method |
 | `DATA-KNOWLEDGE` | Knowledge-pack prefetch, freshness, fallback, and agentic catalog modes are correct | digest + fault injection |
 | `DATA-DIRECT` | Direct GraphJin execution returns grounded read-only results through the brokered path | runtime oracle |
@@ -66,7 +66,7 @@ state transition, delivery, denial, audit record, or user-visible contract.
 | `DATA-PLANNER-EXECUTE` | A delegated planner may propose, but the trusted host executes and verifies the final query | plan/query/oracle |
 | `DATA-MULTISOURCE` | One answer can select and reconcile several registered sources without confusing identities or dates | cross-source oracle |
 | `DATA-AUTH` | GraphJin tokens carry the correct org/user/role; row and source restrictions are enforced | cross-principal negative E2E |
-| `DATA-QUERY-GUARD` | Read-only guards reject mutation/bypass syntax while allowing valid reads and repairs | adversarial contract |
+| `DATA-QUERY-GUARD` | GraphJin applies source-aware policy: read-only targets reject writes while explicitly exposed API `call` mutations remain executable | adversarial contract + fake-server E2E |
 | `DATA-SCHEMA-DRIFT` | Catalog refresh and repair recover from supported schema changes and fail honestly otherwise | drift fixture |
 | `DATA-PAGINATION` | Answers do not treat a truncated page as a complete dataset | method + ground truth |
 | `CALC-SCALAR` | Exact counts, sums, averages, distinct counts, ratios, and unit conversions match ground truth | numeric oracle |
@@ -116,6 +116,8 @@ All current `AgentEvent` variants map here or to runtime/action semantics:
 | `WORK-MEMORY-INTEGRITY` | Seal verification, expiry/TTL, and tamper handling prevent poisoned context | adversarial state test |
 | `LIBRARY-DISTILL` | Uploaded documents triage, extract, and distill into OKF concepts on the uploader's personal layer — update-not-append, content-hash dedupe, forced retry, clean failure reasons | distiller fixture oracle |
 | `LIBRARY-LAYERS` | Library concepts honor personal/team layering, share/approve/deprecate transitions, staleness sweep, and bundle export/import round-trip with trust state intact | versioned state oracle |
+| `WORK-LIBRARY-SEARCH` | The agent retrieves the current identity-scoped library concept, rejects stale or adversarial decoys, and applies the retrieved procedure to its answer | planted retrieval + answer + trusted trace |
+| `WORK-WORKFLOW-RETRIEVE` | The agent lists saved workflows, selects the intended definition rather than a similarly named decoy, and applies its exact goal or steps | planted workflow + answer + trusted trace |
 | `WORK-PERSONA` | Operator role/profile changes prompt emphasis without weakening authorization | matched persona cases |
 | `WORK-COMPACTION` | Long-thread compaction retains decisions, figures, actions, and open tasks without cross-thread leakage | multi-turn oracle |
 | `WORK-SKILLS` | Skill discovery, dependency aggregation, install/use, and allowed-tool implications are correct | trace + artifact contract |

@@ -179,13 +179,25 @@ assertExactInventory(
 );
 
 const resultManifests = await filesBelow(resultsRoot, "manifest.json");
+let acceptedResults = 0;
+let rejectedResults = 0;
 for (const manifestPath of resultManifests) {
   const verification = await verifyResult(dirname(manifestPath));
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+    accepted?: unknown;
+  };
   if (!verification.gatesPassed) {
-    throw new Error(`${dirname(manifestPath)} is valid but its suite gates failed`);
+    if (manifest.accepted !== false) {
+      throw new Error(
+        `${dirname(manifestPath)} failed its suite gates but is not explicitly marked accepted: false`,
+      );
+    }
+    rejectedResults += 1;
+  } else {
+    acceptedResults += 1;
   }
 }
 
 process.stdout.write(
-  `eval repository valid: ${configPaths.length} configs, ${cases} selected case references, ${calls} planned calls, ${coveredSemantics.size}/${registry.entries.length} semantic IDs covered, ${Object.keys(inventory.agent_events).length} agent events, ${Object.keys(inventory.worker_queues).length} worker queues, ${Object.keys(inventory.observation_kinds).length} observation kinds mapped, ${resultManifests.length} checked-in results verified\n`,
+  `eval repository valid: ${configPaths.length} configs, ${cases} selected case references, ${calls} planned calls, ${coveredSemantics.size}/${registry.entries.length} semantic IDs covered, ${Object.keys(inventory.agent_events).length} agent events, ${Object.keys(inventory.worker_queues).length} worker queues, ${Object.keys(inventory.observation_kinds).length} observation kinds mapped, ${resultManifests.length} checked-in results verified (${acceptedResults} accepted, ${rejectedResults} rejected)\n`,
 );

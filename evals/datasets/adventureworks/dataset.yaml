@@ -1,6 +1,6 @@
 schema_version: openneko.eval.dataset/v1
 id: adventureworks
-version: 1.0.0
+version: 1.1.0
 description: AdventureWorks OLTP sample data for grounded OpenNeko harness evaluations.
 license: Microsoft AdventureWorks sample database
 
@@ -8,6 +8,7 @@ capabilities:
   - aggregate.count
   - aggregate.average
   - aggregate.distinct
+  - aggregate.max
   - aggregate.rank
   - aggregate.ratio
   - aggregate.sum
@@ -15,14 +16,18 @@ capabilities:
   - date.window
   - filter.boolean
   - filter.numeric
+  - production.categories
   - production.products
   - production.work-orders
   - purchasing.order-lines
   - purchasing.orders
+  - purchasing.ship-methods
+  - purchasing.vendors
   - relation.join
   - sales.customers
   - sales.order-lines
   - sales.orders
+  - sales.salespeople
   - sales.territories
 
 snapshots:

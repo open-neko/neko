@@ -49,7 +49,7 @@ export const VariantSchema = z
   .object({
     id: Id,
     extends: Id.optional(),
-    backend: z.literal("hermes"),
+    backend: Id,
     outer_model: ModelConfigSchema,
     data_path: z.enum([
       "graphjin-direct",
@@ -169,7 +169,25 @@ export const AssertionSchema = z
     dimension: z.enum(["ground_truth", "method", "behavior", "safety", "efficiency"]),
     kind: Id,
     gate: z.boolean().default(false),
+    // Binds the assertion to one phase of a multi-phase case. Absent =
+    // the assertion applies to every phase.
+    phase: Id.optional(),
     params: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+
+export const OracleSpecSchema = z
+  .object({
+    kind: Id,
+    ref: z.string().min(1).optional(),
+    params: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+
+export const CaseComparisonSchema = z
+  .object({
+    pair_id: Id,
+    treatment: Id,
   })
   .strict();
 
@@ -200,19 +218,45 @@ export const CaseSchema = z
       )
       .min(1),
     input: z.record(z.string(), z.unknown()),
-    oracle: z
-      .object({
-        kind: Id,
-        ref: z.string().min(1).optional(),
-        params: z.record(z.string(), z.unknown()).optional(),
-      })
-      .strict(),
+    comparison: CaseComparisonSchema.optional(),
+    // Exactly one of `oracle` (whole-episode ground truth) or `oracles`
+    // (a phase-keyed bundle for multi-phase cases) must be present.
+    oracle: OracleSpecSchema.optional(),
+    oracles: z.record(Id, OracleSpecSchema).optional(),
     phases: z.array(Id).min(1).default(["initial"]),
     timeout: Duration.optional(),
     allowed_side_effects: z.array(Id).default([]),
     assertions: z.array(AssertionSchema).min(1),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (Boolean(value.oracle) === Boolean(value.oracles)) {
+      context.addIssue({
+        code: "custom",
+        path: ["oracle"],
+        message: "declare exactly one of oracle or oracles",
+      });
+    }
+    const phases = new Set(value.phases);
+    for (const phase of Object.keys(value.oracles ?? {})) {
+      if (!phases.has(phase)) {
+        context.addIssue({
+          code: "custom",
+          path: ["oracles", phase],
+          message: `oracle phase ${phase} is not in phases`,
+        });
+      }
+    }
+    for (const [index, assertion] of value.assertions.entries()) {
+      if (assertion.phase && !phases.has(assertion.phase)) {
+        context.addIssue({
+          code: "custom",
+          path: ["assertions", index, "phase"],
+          message: `assertion phase ${assertion.phase} is not in phases`,
+        });
+      }
+    }
+  });
 
 export const SuiteSchema = z
   .object({
@@ -224,8 +268,14 @@ export const SuiteSchema = z
     gates: z
       .object({
         min_macro_ground_truth: z.number().min(0).max(1).optional(),
+        min_method: z.number().min(0).max(1).optional(),
         min_behavior: z.number().min(0).max(1).optional(),
+        min_full_task_pass_rate: z.number().min(0).max(1).optional(),
         min_token_usage_coverage: z.number().min(0).max(1).optional(),
+        min_capability_task_pass_rate: z
+          .record(Id, z.number().min(0).max(1))
+          .optional(),
+        max_unsafe_effects: z.number().int().nonnegative().optional(),
         require_safety: z.boolean().default(true),
       })
       .strict()
@@ -287,6 +337,18 @@ export const ScoreCoverageSchema = z
   })
   .strict();
 
+export const UnsafeEffectSchema = z
+  .object({
+    kind: Id,
+    capability: Id,
+    target: Id,
+    assertionId: Id,
+    source: z.enum(["trusted-broker", "trusted-host"]),
+    operation: Id,
+    sequence: z.number().int().positive(),
+  })
+  .strict();
+
 export const ScoreSchema = z
   .object({
     schemaVersion: z.literal("openneko.eval.score/v1"),
@@ -297,6 +359,9 @@ export const ScoreSchema = z
     vector: ScoreVectorSchema,
     coverage: ScoreCoverageSchema,
     checks: z.array(ScoreCheckSchema),
+    // Optional keeps score/v1 checkpoints written before explicit unsafe-effect
+    // classification parseable without changing their integrity digests.
+    unsafeEffects: z.array(UnsafeEffectSchema).optional(),
   })
   .strict();
 
@@ -314,11 +379,49 @@ export const AttemptSchema = z
   })
   .strict();
 
+/**
+ * Private, scorer-facing evidence captured at trusted product boundaries.
+ *
+ * Evidence belongs only in the resumable state store. Producers should retain
+ * stable identifiers and digests instead of raw customer content; promoted
+ * result artifacts omit the complete document regardless.
+ */
+export const EvalSemanticEvidenceEventSchema = z
+  .object({
+    schemaVersion: z.literal("openneko.work.semantic-trace/v1"),
+    sequence: z.number().int().positive(),
+    timestamp: z.string().datetime(),
+    runId: z.string().min(1),
+    orgId: z.string().min(1),
+    runKind: z.enum(["work", "workflow", "agent-job"]),
+    source: z.enum(["trusted-broker", "trusted-host"]),
+    operation: Id,
+    status: z.enum(["ok", "error"]),
+    durationMs: z.number().nonnegative(),
+    requestDigest: z.string().startsWith("sha256:"),
+    responseDigest: z.string().startsWith("sha256:").optional(),
+    errorType: z.string().min(1).max(128).optional(),
+    errorDigest: z.string().startsWith("sha256:").optional(),
+    evidence: z.record(z.string(), z.unknown()),
+  })
+  .strict();
+
+export const EvalSemanticEvidenceSchema = z
+  .object({
+    schemaVersion: z.literal("openneko.eval.semantic-evidence/v1"),
+    events: z.array(EvalSemanticEvidenceEventSchema),
+  })
+  .strict();
+
 export const EpisodeSchema = z
   .object({
     schemaVersion: z.literal("openneko.eval.episode/v1"),
     runId: Id,
     slotKey: z.string().min(1),
+    // Optional for compatibility with episode/v1 checkpoints written before
+    // candidate-neutral comparison identities were introduced.
+    pairKey: z.string().min(1).optional(),
+    treatment: Id.optional(),
     caseId: Id,
     caseContentId: z.string().startsWith("sha256:"),
     family: z.enum(["read", "watcher", "mutation", "resilience", "contract"]),
@@ -337,6 +440,9 @@ export const EpisodeSchema = z
     output: z.unknown().optional(),
     measurements: z.record(z.string(), z.unknown()).default({}),
     observations: z.array(z.unknown()).default([]),
+    // Optional preserves the integrity digest of episodes written before
+    // semantic evidence was introduced. Do not add a default here.
+    semanticEvidence: EvalSemanticEvidenceSchema.optional(),
     score: ScoreSchema.optional(),
     errorType: z.string().max(128).optional(),
     error: z.string().max(2048).optional(),
@@ -369,8 +475,14 @@ export const ManifestSchema = z
       variantDigest: z.string().startsWith("sha256:"),
       sourceDigest: z.string().startsWith("sha256:"),
     }),
+    // Optional preserves old v1 checkpoints. New runs retain the sanitized
+    // runtime identity used to derive compatibility.datasetDigest.
+    datasetFingerprint: z.unknown().optional(),
     resolvedVariants: z.record(z.string(), z.unknown()).default({}),
     effectiveConfig: EvalConfigSchema,
+    // Unlike expectedSlotKeys (a canonical sorted set), this preserves the
+    // actual declared/counterbalanced execution sequence.
+    plannedSlotKeys: z.array(z.string()).optional(),
     expectedSlotKeys: z.array(z.string()),
     completedSlotKeys: z.array(z.string()),
     failedSlotKeys: z.array(z.string()),
@@ -451,6 +563,16 @@ const MeasurementAggregateSchema = z
   })
   .strict();
 
+const EmptyMeasurementAggregate = {
+  count: 0,
+  coverage: 0,
+  total: 0,
+  mean: null,
+  p50: null,
+  p95: null,
+  max: null,
+} as const;
+
 export const SummarySchema = z
   .object({
     schemaVersion: z.literal("openneko.eval.summary/v1"),
@@ -474,6 +596,15 @@ export const SummarySchema = z
       .object({
         wallDurationMs: MeasurementAggregateSchema,
         firstOutputMs: MeasurementAggregateSchema,
+        // Defaults preserve v1 result documents written before backend
+        // tool-efficiency aggregation was introduced.
+        toolCalls: MeasurementAggregateSchema.default(EmptyMeasurementAggregate),
+        repeatedToolCalls: MeasurementAggregateSchema.default(
+          EmptyMeasurementAggregate,
+        ),
+        maxToolCalls: MeasurementAggregateSchema.default(
+          EmptyMeasurementAggregate,
+        ),
         inputTokens: MeasurementAggregateSchema,
         outputTokens: MeasurementAggregateSchema,
         cacheReadTokens: MeasurementAggregateSchema,
@@ -505,6 +636,11 @@ export const SummarySchema = z
     macroGroundTruth95CI: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1)]),
     safetyGateFailures: z.number().int().nonnegative(),
     behaviorGateFailures: z.number().int().nonnegative(),
+    unsafeEffects: z.number().int().nonnegative().default(0),
+    unsafeEffectEpisodes: z.number().int().nonnegative().default(0),
+    unsafeEffectsByKind: z
+      .record(z.string(), z.number().int().nonnegative())
+      .default({}),
     tasks: z.array(
       z.object({
         key: z.string().min(1),
@@ -521,6 +657,7 @@ export const SummarySchema = z
         passes: z.number().int().nonnegative(),
         majorityPass: z.boolean(),
         consistency: z.number().min(0).max(1),
+        unsafeEffects: z.number().int().nonnegative().default(0),
         vector: ScoreVectorSchema,
         passAtK: z.record(z.string(), z.number().min(0).max(1).nullable()),
         passPowerK: z.record(z.string(), z.number().min(0).max(1).nullable()),
@@ -542,6 +679,9 @@ export const ResultLineSchema = z
     schemaVersion: z.literal("openneko.eval.result/v1"),
     runId: Id,
     slotKey: z.string().min(1),
+    // Optional so previously promoted result/v1 artifacts remain verifiable.
+    pairKey: z.string().min(1).optional(),
+    treatment: Id.optional(),
     caseId: Id,
     caseContentId: z.string().startsWith("sha256:"),
     family: z.enum(["read", "watcher", "mutation", "resilience", "contract"]),
@@ -572,12 +712,30 @@ export const ResultManifestSchema = z
     configId: Id,
     suiteId: Id,
     attestation: z.enum(["self-reported", "ci-attested"]),
+    // Optional preserves verification of result/v1 artifacts promoted before
+    // acceptance was recorded explicitly.
+    accepted: z.boolean().optional(),
     suiteGates: SuiteSchema.shape.gates,
     sourceRunManifestDigest: z.string().startsWith("sha256:"),
+    // Present when a completed run was deterministically re-scored and the
+    // sanitized result was promoted without invoking the candidate again.
+    // Optional preserves result-manifest/v1 artifacts promoted before this
+    // provenance was recorded.
+    rescore: z
+      .object({
+        sourceRescoreDigest: z.string().startsWith("sha256:"),
+        scorerId: Id,
+        scorerVersion: Version,
+        scorerDigest: z.string().startsWith("sha256:"),
+      })
+      .strict()
+      .optional(),
     source: ManifestSchema.shape.source,
     compatibility: ManifestSchema.shape.compatibility,
+    datasetFingerprint: ManifestSchema.shape.datasetFingerprint,
     resolvedVariants: ManifestSchema.shape.resolvedVariants,
     effectiveConfig: EvalConfigSchema,
+    plannedSlotKeys: ManifestSchema.shape.plannedSlotKeys,
     expectedSlotKeys: z.array(z.string()),
     files: z.record(z.string(), z.string().startsWith("sha256:")),
   })
@@ -590,8 +748,13 @@ export type EvalDataset = z.infer<typeof DatasetSchema>;
 export type EvalCase = z.infer<typeof CaseSchema>;
 export type EvalSuite = z.infer<typeof SuiteSchema>;
 export type SemanticRegistry = z.infer<typeof SemanticRegistrySchema>;
+export type EvalUnsafeEffect = z.infer<typeof UnsafeEffectSchema>;
 export type EvalScore = z.infer<typeof ScoreSchema>;
 export type EvalAttempt = z.infer<typeof AttemptSchema>;
+export type EvalSemanticEvidenceEvent = z.infer<
+  typeof EvalSemanticEvidenceEventSchema
+>;
+export type EvalSemanticEvidence = z.infer<typeof EvalSemanticEvidenceSchema>;
 export type EvalEpisode = z.infer<typeof EpisodeSchema>;
 export type EvalManifest = z.infer<typeof ManifestSchema>;
 export type EvalOracleJournal = z.infer<typeof OracleJournalSchema>;

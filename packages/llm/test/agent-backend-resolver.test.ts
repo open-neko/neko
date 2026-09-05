@@ -33,7 +33,10 @@ describeIfDb("Hermes-only agent resolution", () => {
   });
 
   afterEach(async () => {
-    await clearProvider(orgId, "agent");
+    await Promise.all([
+      clearProvider(orgId, "agent"),
+      clearProvider(orgId, "primary"),
+    ]);
   });
 
   afterAll(async () => {
@@ -44,6 +47,34 @@ describeIfDb("Hermes-only agent resolution", () => {
   it("always resolves the Hermes runtime", async () => {
     expect(await resolveAgentBackendId(orgId)).toBe("hermes");
     expect((await resolveAgentBackend(orgId)).id).toBe("hermes");
+  });
+
+  it("exposes the exact provider and model configured for the Hermes runtime", async () => {
+    await seedProvider(orgId, {
+      scope: "primary",
+      provider: "google-gemini",
+      model: "gemini-3.6-flash",
+    });
+
+    const backend = await resolveAgentBackend(orgId);
+    expect(backend.configuredIdentity).toEqual({
+      provider: "gemini",
+      model: "gemini-3.6-flash",
+    });
+    expect(backend.model).toBe("gemini-3.6-flash");
+  });
+
+  it("does not claim configured identity for a disabled provider", async () => {
+    await seedProvider(orgId, {
+      scope: "primary",
+      provider: "google-gemini",
+      model: "gemini-3.6-flash",
+      enabled: false,
+    });
+
+    const backend = await resolveAgentBackend(orgId);
+    expect(backend.configuredIdentity).toBeUndefined();
+    expect(backend.model).toBeUndefined();
   });
 
   it("ignores unrelated values in a stale agent row", async () => {

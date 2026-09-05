@@ -32,6 +32,15 @@ export {
   type PluginActionDescriptor,
 } from "./tools";
 export {
+  GRAPHJIN_DIRECT_GOVERNED_POLICY,
+  GRAPHJIN_TOOL_POLICY_ENV,
+  applyGraphjinMcpToolPolicy,
+  assertGraphjinMcpToolCallAllowed,
+  parseGraphjinMcpToolPolicy,
+  serializeGraphjinMcpToolPolicy,
+  type GraphjinMcpToolPolicy,
+} from "./graphjin-tool-policy";
+export {
   InProcessControlPlane,
   inProcessControlPlane,
   type AgentControlPlane,
@@ -48,6 +57,20 @@ export {
   type RunBinding,
   type StartAgentBrokerOptions,
 } from "./broker";
+export {
+  WORK_SEMANTIC_TRACE_SCHEMA_VERSION,
+  recordWorkSemanticHostEvent,
+  registerWorkSemanticTraceSink,
+  traceAgentControlPlane,
+  workSemanticDigest,
+  type WorkSemanticHostEventInput,
+  type WorkSemanticMemoryEvidence,
+  type WorkSemanticTraceBinding,
+  type WorkSemanticTraceEvent,
+  type WorkSemanticTraceSink,
+  type WorkSemanticTraceSource,
+  type WorkSemanticTraceStatus,
+} from "./semantic-trace";
 export * from "./memory";
 export * from "./library";
 export * from "./store";
@@ -104,6 +127,17 @@ export {
 } from "./secret-scrubber";
 export { KNOWN_SKILL_DEPS, aggregateSkillDeps, type SkillDeps } from "./skill-deps";
 export {
+  normalizeSkillName,
+  upsertWorkSkill,
+  writeWorkSkill,
+  type WorkSkillDraft,
+} from "./skills";
+export {
+  extractFrontmatterBlock,
+  parseSkillFrontmatter,
+  type SkillFrontmatter,
+} from "./skill-frontmatter";
+export {
   COLUMNAR_MARKER,
   TOOL_OUTPUT_METRICS_ENABLED,
   compactJson,
@@ -140,6 +174,7 @@ export {
   buildModelEgressArgs,
   buildSandboxPolicy,
   buildScopedEgressArgs,
+  deleteOpenShellProvider,
   ensureOpenShellProvider,
   verifyOpenShellGateway,
   makeSandboxJobRunCore,

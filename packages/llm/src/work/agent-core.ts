@@ -1,12 +1,18 @@
 import type {
   AgentBackend,
   AgentEvent,
+  AgentNativeDelegationPolicy,
   AgentRunResult,
   AgentWorkspace,
 } from "../agent-backend";
 import { buildWorkflowBuilderServer } from "../workflows/builder-server";
 import { buildRuleBuilderServer } from "../workflows/rule-builder-server";
 import type { AgentControlPlane } from "./control-plane";
+import {
+  GRAPHJIN_TOOL_POLICY_ENV,
+  serializeGraphjinMcpToolPolicy,
+  type GraphjinMcpToolPolicy,
+} from "./graphjin-tool-policy";
 import { buildAskUserQuestionServer } from "./interaction-server";
 import {
   parseAppWorkContext,
@@ -45,6 +51,10 @@ export interface RunAgentBackendInput {
   sourceConfigEnabled?: boolean;
   /** Selects the isolated data plane for this turn. */
   dataSurface?: WorkDataSurface;
+  /** Optional backend-neutral restriction for this run's GraphJin MCP. */
+  graphjinToolPolicy?: GraphjinMcpToolPolicy;
+  /** Optional per-run restriction on the backend's own sub-agent primitive. */
+  nativeDelegation?: AgentNativeDelegationPolicy;
   /** In-process on the host; broker-backed inside the agent sandbox. */
   controlPlane: AgentControlPlane;
   /** Whether this channel renders a2ui cards (web). Default true. Gates the
@@ -78,6 +88,8 @@ export async function runAgentBackend(
     pluginActions,
     sourceConfigEnabled = false,
     dataSurface = "customer",
+    graphjinToolPolicy,
+    nativeDelegation,
     controlPlane,
     wantsCards = true,
     emit,
@@ -140,6 +152,7 @@ export async function runAgentBackend(
           orgId,
           runId,
           controlPlane,
+          ...(graphjinToolPolicy ? { toolPolicy: graphjinToolPolicy } : {}),
         }),
         // Rendering is per-channel: the card server only ships to web turns.
         ...(wantsCards ? { neko_ui: buildRenderCardsServer(emit) } : {}),
@@ -219,6 +232,12 @@ export async function runAgentBackend(
           OPENNEKO_MCP_RUN_ID: runId,
           OPENNEKO_MCP_SKILLS_ROOT: workspace.skillsRoot,
           OPENNEKO_MCP_WANTS_CARDS: wantsCards ? "1" : "0",
+          ...(graphjinToolPolicy
+            ? {
+                [GRAPHJIN_TOOL_POLICY_ENV]:
+                  serializeGraphjinMcpToolPolicy(graphjinToolPolicy),
+              }
+            : {}),
           OPENNEKO_MCP_PLUGIN_ACTIONS: JSON.stringify(
             recordsOnly ? [] : (pluginActions ?? []),
           ),
@@ -227,6 +246,7 @@ export async function runAgentBackend(
             : {}),
         }
       : undefined,
+    ...(nativeDelegation ? { nativeDelegation } : {}),
     wantsCards,
     tag: `work ${runId}`,
     signal,
