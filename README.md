@@ -96,11 +96,14 @@ tools against a frozen AdventureWorks snapshot.
 | Backend | Model | OpenNeko source | Coverage | Full-task pass | Publication status | Evidence |
 |---|---|---|---:|---:|---|---|
 | Harness control | `scripted:deterministic-v1` | [`c666b70`](https://github.com/open-neko/openneko/commit/c666b70f53fb54e947463296c33f2bb0c8e50323) | 59 tasks × 1 (59 episodes) | 59/59 (100%) | Accepted; deterministic control, not a model result | [Full result](evals/results/openneko-backend-scripted-good-v3/run-20260905t051547480z-a6145dfb/summary.md) |
+| Hermes | `google-gemini:gemini-3.6-flash` | [`de7ff04`](https://github.com/open-neko/openneko/commit/de7ff04272b18785186bed1003b698a4b5003004) | 59 tasks × 3 (177 episodes) | 53/59 (89.8%) | Rejected; capability gates failed, 11 execution failures, 0 unsafe effects | [Full result](evals/results/openneko-backend-hermes-v3/run-20260905t052736658z-f6ed98f5/summary.md) |
 
 Provider-backed results are published separately from clean source commits so
-that every reported OpenNeko version is reproducible. Publishing a run preserves
-evidence and does not turn a rejected result into a release qualification. See
-the [evaluation methodology](evals/README.md), the [backend benchmark
+that every reported OpenNeko version is reproducible. Publication validity and
+backend qualification are separate: an integrity-valid run is complete,
+reproducible evidence, while `accepted: true` requires every suite gate to pass.
+Rejected runs remain visible as `accepted: false` and are not passing backends or
+release qualifications. See the [evaluation methodology](evals/README.md), the [backend benchmark
 contract](evals/BACKEND-BENCHMARK.md), and the [contribution
 guide](evals/CONTRIBUTING.md).
 
