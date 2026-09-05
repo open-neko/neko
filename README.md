@@ -93,6 +93,10 @@ an isolated model call. The suite exercises skills, memories, library retrieval,
 workflows, Records, governed actions, channel delivery, compaction, and GraphJin
 tools against a frozen AdventureWorks snapshot.
 
+| Backend | Model | OpenNeko source | Coverage | Full-task pass | Publication status | Evidence |
+|---|---|---|---:|---:|---|---|
+| Harness control | `scripted:deterministic-v1` | [`c666b70`](https://github.com/open-neko/openneko/commit/c666b70f53fb54e947463296c33f2bb0c8e50323) | 59 tasks × 1 (59 episodes) | 59/59 (100%) | Accepted; deterministic control, not a model result | [Full result](evals/results/openneko-backend-scripted-good-v3/run-20260905t051547480z-a6145dfb/summary.md) |
+
 Provider-backed results are published separately from clean source commits so
 that every reported OpenNeko version is reproducible. Publishing a run preserves
 evidence and does not turn a rejected result into a release qualification. See
