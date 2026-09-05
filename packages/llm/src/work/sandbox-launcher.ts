@@ -129,6 +129,7 @@ type SerializableAgentRunOptions = Pick<
   | "tag"
   | "skills"
   | "backendState"
+  | "nativeDelegation"
   | "wantsCards"
 >;
 
@@ -143,6 +144,9 @@ function serializableAgentRunOptions(
     ...(run.tag !== undefined ? { tag: run.tag } : {}),
     ...(run.skills !== undefined ? { skills: run.skills } : {}),
     ...(run.backendState !== undefined ? { backendState: run.backendState } : {}),
+    ...(run.nativeDelegation !== undefined
+      ? { nativeDelegation: run.nativeDelegation }
+      : {}),
     ...(run.wantsCards !== undefined ? { wantsCards: run.wantsCards } : {}),
   };
 }
@@ -396,6 +400,7 @@ export async function sandboxAgentBackendForJob(opts: {
 
   return {
     id: opts.backend.id,
+    configuredIdentity: opts.backend.configuredIdentity,
     model: opts.backend.model,
     capabilities: opts.backend.capabilities,
     async run(run): Promise<AgentRunResult> {
@@ -497,6 +502,7 @@ function makeSandboxCore(
       message,
       prompt: toBox(inputPrompt),
       backendId: input.backend.id,
+      configuredIdentity: input.backend.configuredIdentity,
       // Hermes reads its model from the staged config.yaml.
       workspace: boxWorkspace,
       ...(kind === "work"
@@ -507,6 +513,18 @@ function makeSandboxCore(
               (input as RunAgentBackendInput).sourceConfigEnabled ?? false,
             dataSurface:
               (input as RunAgentBackendInput).dataSurface ?? "customer",
+            ...((input as RunAgentBackendInput).graphjinToolPolicy
+              ? {
+                  graphjinToolPolicy: (input as RunAgentBackendInput)
+                    .graphjinToolPolicy,
+                }
+              : {}),
+            ...((input as RunAgentBackendInput).nativeDelegation
+              ? {
+                  nativeDelegation: (input as RunAgentBackendInput)
+                    .nativeDelegation,
+                }
+              : {}),
             // Channel render intent — gates the in-box render tool (see
             // docs/PER_CHANNEL_RENDERING.md). Default true if absent.
             wantsCards: (input as RunAgentBackendInput).wantsCards ?? true,
@@ -939,6 +957,28 @@ export async function ensureOpenShellProvider(opts: {
       throw profileImportError ?? updateError ?? createError;
     }
   }
+}
+
+/** Remove one explicitly named gateway-side provider. Eval fixtures use this
+ * after each isolated org so copied model credentials do not accumulate in
+ * OpenShell after the corresponding metadata row has been deleted. */
+export async function deleteOpenShellProvider(opts: {
+  providerName: string;
+  cli?: string;
+  gatewayName?: string;
+  gatewayEndpoint?: string;
+}): Promise<void> {
+  const cli = opts.cli ?? "openshell";
+  const gatewayArgs = opts.gatewayName
+    ? ["--gateway", opts.gatewayName]
+    : opts.gatewayEndpoint
+      ? ["--gateway-endpoint", opts.gatewayEndpoint]
+      : [];
+  await runProcessOnce(
+    cli,
+    [...gatewayArgs, "provider", "delete", opts.providerName],
+    60_000,
+  );
 }
 
 /**

@@ -36,6 +36,7 @@ function build(
     supportsSourceConfigTool?: boolean;
     supportsClarificationTool?: boolean;
     supportsPluginManagerTool?: boolean;
+    supportsNativeDelegation?: boolean;
     pluginCatalog?: PluginCatalog;
     installedSkills?: Array<{ name: string; description: string }>;
     pluginActions?: Array<{
@@ -62,6 +63,7 @@ function build(
     supportsSourceConfigTool: overrides.supportsSourceConfigTool ?? false,
     supportsClarificationTool: overrides.supportsClarificationTool ?? false,
     supportsPluginManagerTool: overrides.supportsPluginManagerTool ?? false,
+    supportsNativeDelegation: overrides.supportsNativeDelegation ?? true,
     pluginCatalog: overrides.pluginCatalog,
     installedSkills: overrides.installedSkills,
     pluginActions: overrides.pluginActions,
@@ -389,4 +391,9 @@ describe("buildWorkPrompt native delegation guidance", () => {
     expect(prompt).not.toContain("coder");
   });
 
+  it("omits native delegation guidance when the run disables it", () => {
+    const prompt = build("hermes", { supportsNativeDelegation: false });
+    expect(prompt).not.toContain("<delegation>");
+    expect(prompt).not.toContain("delegate_task");
+  });
 });

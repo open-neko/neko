@@ -215,6 +215,61 @@ describeIfDb("runChatTurn", () => {
     expect(final[0]?.error).toBeNull();
   });
 
+  it("preserves host-owned transcript compaction when the backend replaces its state", async () => {
+    const thread = await insertWorkThread(orgId);
+    const run = await insertWorkRun({ orgId, threadId: thread.id });
+    const [watermark] = await db()
+      .insert(work_message)
+      .values({
+        org_id: orgId,
+        thread_id: thread.id,
+        run_id: null,
+        role: "user",
+        content: "Earlier decision captured by compaction.",
+      })
+      .returning({ id: work_message.id });
+    const compaction = {
+      summary: "The exact resume code is AW-RESUME-CODE-7Q4M.",
+      throughMessageId: watermark!.id,
+      updatedAt: "2026-09-05T00:00:00.000Z",
+      version: 1 as const,
+    };
+    await db()
+      .update(work_thread)
+      .set({ backend_state: { compaction } })
+      .where(eq(work_thread.id, thread.id));
+
+    mockBackendRun.mockImplementation(async (opts: { prompt: string }) => {
+      expect(opts.prompt).toContain("AW-RESUME-CODE-7Q4M");
+      return {
+        finalText: "Resume code: AW-RESUME-CODE-7Q4M",
+        status: "completed",
+        backendState: { sessionId: "replacement-state" },
+      };
+    });
+
+    const emit = buildEmit({ orgId, threadId: thread.id, runId: run.id });
+    await runChatTurn(
+      {
+        orgId,
+        threadId: thread.id,
+        runId: run.id,
+        message: "What was the resume code?",
+        emit,
+      },
+      makeDeps(),
+    );
+
+    const [stored] = await db()
+      .select({ backendState: work_thread.backend_state })
+      .from(work_thread)
+      .where(eq(work_thread.id, thread.id));
+    expect(stored?.backendState).toEqual({
+      sessionId: "replacement-state",
+      compaction,
+    });
+  });
+
   it("AskUserQuestion pauses Work chat, persists the question, and suppresses trailing answer content", async () => {
     const thread = await insertWorkThread(orgId);
     const run = await insertWorkRun({ orgId, threadId: thread.id });

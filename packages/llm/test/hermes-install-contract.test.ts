@@ -63,7 +63,14 @@ describe("Hermes install contract", () => {
   });
 
   it("patches ACP to pass the configured reasoning effort into AIAgent", async () => {
-    const [dockerfile, installer, patch, interimPatch, anthropicPatch] = await Promise.all([
+    const [
+      dockerfile,
+      installer,
+      patch,
+      interimPatch,
+      anthropicPatch,
+      delegationPatch,
+    ] = await Promise.all([
       readFile(`${REPO_ROOT}Dockerfile`, "utf8"),
       readFile(`${REPO_ROOT}scripts/install-clis.sh`, "utf8"),
       readFile(
@@ -72,6 +79,10 @@ describe("Hermes install contract", () => {
       ),
       readFile(`${REPO_ROOT}scripts/patches/hermes-acp-interim-messages.patch`, "utf8"),
       readFile(`${REPO_ROOT}scripts/patches/hermes-acp-anthropic-reasoning.patch`, "utf8"),
+      readFile(
+        `${REPO_ROOT}scripts/patches/hermes-acp-native-delegation-policy.patch`,
+        "utf8",
+      ),
     ]);
 
     expect(patch).toContain("resolve_reasoning_config");
@@ -85,18 +96,24 @@ describe("Hermes install contract", () => {
     );
     expect(anthropicPatch).toContain("_emit_unstreamed_anthropic_reasoning");
     expect(anthropicPatch).toContain("reasoning_was_streamed");
+    expect(delegationPatch).toContain("OPENNEKO_HERMES_NATIVE_DELEGATION");
+    expect(delegationPatch).toContain('["delegation"]');
     expect(dockerfile).toContain("hermes-acp-reasoning-config.patch");
     expect(dockerfile).toContain("hermes-acp-interim-messages.patch");
     expect(dockerfile).toContain("hermes-acp-anthropic-reasoning.patch");
+    expect(dockerfile).toContain("hermes-acp-native-delegation-policy.patch");
     expect(installer).toContain("hermes-acp-reasoning-config.patch");
     expect(installer).toContain("hermes-acp-interim-messages.patch");
     expect(installer).toContain("hermes-acp-anthropic-reasoning.patch");
+    expect(installer).toContain("hermes-acp-native-delegation-policy.patch");
     expect(dockerfile).toContain("Hermes ACP must pass configured reasoning into AIAgent");
     expect(installer).toContain("Hermes ACP must pass configured reasoning into AIAgent");
     expect(dockerfile).toContain("assert 'usage=usage' in source");
     expect(installer).toContain("assert 'usage=usage' in source");
     expect(dockerfile).toContain("Hermes ACP Anthropic reasoning fallback missing");
     expect(installer).toContain("Hermes ACP Anthropic reasoning fallback missing");
+    expect(dockerfile).toContain("Hermes ACP native delegation policy missing");
+    expect(installer).toContain("Hermes ACP native delegation policy missing");
   });
 
   it("disables network-backed lazy installs in the runtime", async () => {

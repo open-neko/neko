@@ -3,6 +3,7 @@ import {
   ScoreSchema,
   type EvalEpisode,
   type EvalScore,
+  type EvalUnsafeEffect,
 } from "./schemas";
 
 export type ScoreCheckInput = Omit<
@@ -24,11 +25,25 @@ function mean(values: readonly number[], fallback: number): number {
     : fallback;
 }
 
+/**
+ * The assertions that apply to one phase of a case: assertions bound to the
+ * phase via `phase:` plus unbound assertions, which apply to every phase.
+ */
+export function assertionsForPhase<T extends { phase?: string }>(
+  assertions: readonly T[],
+  phase: string,
+): T[] {
+  return assertions.filter(
+    (assertion) => !assertion.phase || assertion.phase === phase,
+  );
+}
+
 export function createScore(input: {
   scorerId: string;
   scorerVersion: string;
   scorerDefinition: unknown;
   checks: readonly ScoreCheckInput[];
+  unsafeEffects?: readonly EvalUnsafeEffect[];
 }): EvalScore {
   const checks = input.checks.map((check) => ({
     ...check,
@@ -63,6 +78,7 @@ export function createScore(input: {
       efficiency: dimensionChecks("efficiency").length > 0,
     },
     checks,
+    unsafeEffects: input.unsafeEffects ?? [],
   });
 }
 
@@ -162,6 +178,18 @@ function bootstrapCI(values: readonly number[], seed: string): [number, number] 
   return [quantile(samples, 0.025), quantile(samples, 0.975)];
 }
 
+function bootstrapTaskSeed(
+  tasks: readonly { unsafeEffects: number; [key: string]: unknown }[],
+): string {
+  // Unsafe-effect counts were added to the public task summary after result/v1
+  // artifacts already existed. Keep the statistical seed tied to the original
+  // task outcome document so adding reporting-only fields cannot rewrite a
+  // historical confidence interval.
+  return contentDigest(
+    tasks.map(({ unsafeEffects: _unsafeEffects, ...task }) => task),
+  );
+}
+
 export type EvalSummary = ReturnType<typeof summarizeEpisodes>;
 
 export function summarizeEpisodes(episodes: readonly EvalEpisode[]) {
@@ -180,6 +208,10 @@ export function summarizeEpisodes(episodes: readonly EvalEpisode[]) {
       (episode) => episode.score?.verdict === "pass",
     ).length;
     const majorityPass = passes > group.length / 2;
+    const unsafeEffects = group.reduce(
+      (total, episode) => total + (episode.score?.unsafeEffects?.length ?? 0),
+      0,
+    );
     return {
       key,
       variantId: group[0]?.variantId ?? "unknown",
@@ -195,6 +227,7 @@ export function summarizeEpisodes(episodes: readonly EvalEpisode[]) {
       passes,
       majorityPass,
       consistency: group.length ? Math.max(passes, group.length - passes) / group.length : 0,
+      unsafeEffects,
       // Execution/environment failures are real failed attempts, not missing
       // data. Counting them as zero prevents a broken variant from looking
       // perfect merely because its failed tasks had no score document.
@@ -267,6 +300,9 @@ export function summarizeEpisodes(episodes: readonly EvalEpisode[]) {
     const value = episode.measurements.costCoverage;
     return value === "complete" || value === "partial" ? value : "unavailable";
   });
+  const unsafeEffects = scored.flatMap(
+    (episode) => episode.score.unsafeEffects ?? [],
+  );
   const coverage = Object.fromEntries(
     ["groundTruth", "method", "behavior", "safety", "efficiency"].map((field) => [
       field,
@@ -295,6 +331,9 @@ export function summarizeEpisodes(episodes: readonly EvalEpisode[]) {
     measurements: {
       wallDurationMs: aggregateMeasurement(episodes, "wallDurationMs"),
       firstOutputMs: aggregateMeasurement(episodes, "firstOutputMs"),
+      toolCalls: aggregateMeasurement(episodes, "toolCalls"),
+      repeatedToolCalls: aggregateMeasurement(episodes, "repeatedToolCalls"),
+      maxToolCalls: aggregateMeasurement(episodes, "maxToolCalls"),
       inputTokens: aggregateMeasurement(episodes, "inputTokens"),
       outputTokens: aggregateMeasurement(episodes, "outputTokens"),
       cacheReadTokens: aggregateMeasurement(episodes, "cacheReadTokens"),
@@ -334,13 +373,28 @@ export function summarizeEpisodes(episodes: readonly EvalEpisode[]) {
           : 0,
       },
     },
-    macroGroundTruth95CI: bootstrapCI(macroGroundTruth, contentDigest(tasks)),
+    macroGroundTruth95CI: bootstrapCI(
+      macroGroundTruth,
+      bootstrapTaskSeed(tasks),
+    ),
     safetyGateFailures: scored.flatMap((episode) => episode.score.checks).filter(
       (check) => check.dimension === "safety" && check.gate && !check.passed,
     ).length,
     behaviorGateFailures: scored.flatMap((episode) => episode.score.checks).filter(
       (check) => check.dimension === "behavior" && check.gate && !check.passed,
     ).length,
+    unsafeEffects: unsafeEffects.length,
+    unsafeEffectEpisodes: scored.filter(
+      (episode) => (episode.score.unsafeEffects?.length ?? 0) > 0,
+    ).length,
+    unsafeEffectsByKind: Object.fromEntries(
+      [...new Set(unsafeEffects.map((effect) => effect.kind))]
+        .sort()
+        .map((kind) => [
+          kind,
+          unsafeEffects.filter((effect) => effect.kind === kind).length,
+        ]),
+    ),
     tasks,
     byDifficulty: grouped(
       difficulties,

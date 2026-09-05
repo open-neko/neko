@@ -18,6 +18,11 @@ import {
   validateRenderCardsInput,
 } from "./a2ui-contract";
 import { OPENNEKO_GRAPHJIN_MCP_SERVER_NAME } from "../graphjin/mcp-names";
+import {
+  applyGraphjinMcpToolPolicy,
+  assertGraphjinMcpToolCallAllowed,
+  type GraphjinMcpToolPolicy,
+} from "./graphjin-tool-policy";
 
 function requireControlPlane(
   controlPlane: AgentControlPlane | undefined,
@@ -962,6 +967,8 @@ export function buildGraphjinMcpServer(opts: {
   orgId: string;
   runId?: string;
   controlPlane?: AgentControlPlane;
+  /** Optional per-run restriction applied identically in-process and over ACP. */
+  toolPolicy?: GraphjinMcpToolPolicy;
 }) {
   const controlPlane = requireControlPlane(opts.controlPlane);
   const identity = {
@@ -971,13 +978,19 @@ export function buildGraphjinMcpServer(opts: {
   return createDynamicMcpServer({
     name: OPENNEKO_GRAPHJIN_MCP_SERVER_NAME,
     version: "1.0.0",
-    listTools: () => controlPlane.listGraphjinTools(identity),
-    callTool: (input) =>
-      controlPlane.callGraphjinTool({
+    listTools: async () =>
+      applyGraphjinMcpToolPolicy(
+        await controlPlane.listGraphjinTools(identity),
+        opts.toolPolicy,
+      ),
+    callTool: async (input) => {
+      assertGraphjinMcpToolCallAllowed(opts.toolPolicy, input);
+      return controlPlane.callGraphjinTool({
         ...identity,
         name: input.name,
         ...(input.arguments ? { arguments: input.arguments } : {}),
-      }),
+      });
+    },
   });
 }
 
@@ -1102,12 +1115,24 @@ export function buildRecordsReadServer(opts: {
   const browseBlueprints = defineMcpTool(
     "browse_blueprints",
     [
-      "List shipped records-app blueprints, or load one complete",
-      "approval-ready app_create payload by id. Blueprints are starting",
-      "priors: adapt them to the user's workflow instead of applying blindly.",
+      "Call without `blueprint` to list shipped records-app blueprint ids.",
+      "Call again with one exact id to load its complete approval-ready",
+      "`app_create` payload. Never reconstruct a payload from the id, name,",
+      "description, or a prose summary. If the operator asks for the shipped",
+      "payload unchanged, pass the returned `payload` object unchanged to the",
+      "`app_create` action. Otherwise blueprints are starting priors and may",
+      "be adapted to the operator's workflow.",
     ].join(" "),
     {
-      blueprint: z.string().trim().min(1).max(63).optional(),
+      blueprint: z
+        .string()
+        .trim()
+        .min(1)
+        .max(63)
+        .optional()
+        .describe(
+          "Exact id returned by the listing call. Omit only when listing available blueprints.",
+        ),
     },
     async (args) => ({
       content: [
@@ -1597,8 +1622,21 @@ export function buildPluginActionServer(
         .record(z.string(), z.unknown())
         .default({})
         .describe(
-          "Action-specific payload. See the tool description for the expected shape.",
+          "Action-specific payload. See the tool description for the expected shape. When a trusted discovery tool returns a payload for this action, preserve that complete object exactly unless the operator requested specific changes.",
         ),
+      ...(d.kind === "app_create"
+        ? {
+            blueprint: z
+              .string()
+              .trim()
+              .min(1)
+              .max(63)
+              .optional()
+              .describe(
+                "Exact shipped blueprint id already loaded with records browse_blueprints. For an unchanged blueprint proposal, set this and omit payload; the trusted host will reuse the authoritative complete payload without model-side copying.",
+              ),
+          }
+        : {}),
     };
     // `intent` lives in both schemas so handler-side narrowing is
     // trivial (one optional property). Ask-mode kinds require it
@@ -1644,9 +1682,14 @@ export function buildPluginActionServer(
               ? " — set `intent` whenever the call might land in ask-mode."
               : "");
 
+    const trustedBlueprintHint =
+      d.kind === "app_create"
+        ? "\n\nFor an unchanged shipped Records blueprint, first list and load it with records browse_blueprints, then set `blueprint` to that exact id and omit `payload`. The trusted host resolves the complete payload again before creating the approval request. Use `payload` only when the operator asked you to adapt the blueprint."
+        : "";
+
     return defineMcpTool(
       d.kind,
-      `${d.description}\n\n${modeHint}`,
+      `${d.description}\n\n${modeHint}${trustedBlueprintHint}`,
       schema,
       async (args) => {
         const decision = await controlPlane.evaluateActionPolicy({
@@ -1695,8 +1738,27 @@ export function buildPluginActionServer(
           typeof args.intent === "string" && args.intent.length > 0
             ? args.intent
             : `Auto-fired ${d.kind} (no explicit intent supplied).`;
-        const payload =
+        let payload =
           (args.payload as Record<string, unknown> | undefined) ?? {};
+        const blueprintId =
+          d.kind === "app_create" &&
+          "blueprint" in args &&
+          typeof args.blueprint === "string"
+            ? args.blueprint.trim()
+            : "";
+        if (blueprintId) {
+          const catalog = await controlPlane.listRecordBlueprints({
+            orgId: opts.orgId,
+            blueprintId,
+          });
+          const blueprint = catalog.blueprints.find(
+            (candidate) => candidate.id === blueprintId,
+          );
+          if (!blueprint?.payload) {
+            throw new Error(`records blueprint ${blueprintId} has no payload`);
+          }
+          payload = blueprint.payload;
+        }
         const target =
           typeof args.target === "string" && args.target.length > 0
             ? args.target

@@ -4,6 +4,9 @@ import type { EvalDataset, EvalVariant } from "./schemas";
 
 export type EvalSlot = {
   key: string;
+  /** Candidate-neutral identity used to match backend and ablation episodes. */
+  pairKey: string;
+  treatment: string;
   suiteId: string;
   datasetId: string;
   variantId: string;
@@ -27,12 +30,33 @@ export type EvalPlan = {
   estimatedMaxCostUsd?: number;
 };
 
-function stableSlotKey(input: Omit<EvalSlot, "key" | "case" | "dataset" | "variant">): string {
+type SlotIdentity = Pick<
+  EvalSlot,
+  "suiteId" | "datasetId" | "variantId" | "caseId" | "repetition" | "phase"
+>;
+
+function stableSlotKey(input: SlotIdentity): string {
   return [
     input.suiteId,
     input.datasetId,
     input.variantId,
     input.caseId,
+    String(input.repetition),
+    input.phase,
+  ].join("/");
+}
+
+function stablePairKey(input: {
+  suiteId: string;
+  datasetId: string;
+  pairId: string;
+  repetition: number;
+  phase: string;
+}): string {
+  return [
+    input.suiteId,
+    input.datasetId,
+    input.pairId,
     String(input.repetition),
     input.phase,
   ].join("/");
@@ -102,6 +126,14 @@ export function createEvalPlan(loaded: LoadedEval): EvalPlan {
           slots.push({
             ...identity,
             key: stableSlotKey(identity),
+            pairKey: stablePairKey({
+              suiteId: loaded.suite.id,
+              datasetId: dataset.id,
+              pairId: evalCase.comparison?.pair_id ?? evalCase.id,
+              repetition,
+              phase,
+            }),
+            treatment: evalCase.comparison?.treatment ?? "default",
             case: evalCase,
             dataset,
             variant,

@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { GRAPHJIN_DIRECT_GOVERNED_POLICY } from "@neko/llm/sandbox-runtime";
 import {
   buildBridgeServer,
   buildMultiplexedBridgeServer,
@@ -159,6 +160,72 @@ describe("mcp-bridge buildBridgeServer", () => {
       name: "query_catalog",
       arguments: { search: "recent orders" },
     });
+  });
+
+  it("rebuilds the GraphJin server with the per-run direct-governed policy", async () => {
+    const listGraphjinTools = vi.fn(async () => [
+      {
+        name: "execute_graphql",
+        description: "Execute GraphQL",
+        inputSchema: {
+          type: "object" as const,
+          properties: { query: { type: "string" } },
+          required: ["query"],
+        },
+        annotations: { readOnlyHint: false, destructiveHint: true },
+      },
+      {
+        name: "ask_graphjin_agent",
+        description: "Delegate to GraphJin",
+        inputSchema: { type: "object" as const, properties: {} },
+      },
+    ]);
+    const callGraphjinTool = vi.fn(async () => ({
+      content: [{ type: "text" as const, text: "ok" }],
+    }));
+    const logical = buildBridgeServer("neko_graphjin", {
+      ...ctx(),
+      graphjinToolPolicy: GRAPHJIN_DIRECT_GOVERNED_POLICY,
+      controlPlane: {
+        listGraphjinTools,
+        callGraphjinTool,
+      } as unknown as BrokerControlPlane,
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await logical.instance.connect(serverTransport);
+    const client = new Client({ name: "graphjin-policy-bridge-test", version: "1.0.0" });
+    await client.connect(clientTransport);
+    try {
+      const listed = await client.listTools();
+      expect(listed.tools.map((tool) => tool.name)).toEqual(["execute_graphql"]);
+      expect(listed.tools[0]?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+      });
+      await client.callTool({
+        name: "execute_graphql",
+        arguments: {
+          query:
+            'mutation { external_create_resource(call: {body: {name: "Example"}}) { ok status_code } }',
+        },
+      });
+      await client.callTool({
+        name: "execute_graphql",
+        arguments: {
+          query:
+            "query EvalHealth { salesorderheader(limit: 1) { salesorderid } }",
+        },
+      });
+      await expect(
+        client.callTool({
+          name: "ask_graphjin_agent",
+          arguments: { instruction: "delegate" },
+        }),
+      ).rejects.toThrow(/direct-governed policy blocked tool/);
+      expect(callGraphjinTool).toHaveBeenCalledTimes(2);
+    } finally {
+      await client.close();
+    }
   });
 
   it("preserves every native GraphJin tool and schema through the multiplexer", async () => {

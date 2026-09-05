@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   type AgentBackendId,
   type AgentEvent,
+  type AgentModelIdentity,
   type AgentRunOptions,
   type AgentRunResult,
   type AgentWorkspace,
@@ -43,11 +44,14 @@ interface SandboxJob {
   message: string;
   prompt: string;
   backendId: AgentBackendId;
+  configuredIdentity?: AgentModelIdentity;
   model?: string;
   backendState?: Record<string, unknown>;
   pluginActions?: RunAgentBackendInput["pluginActions"];
   sourceConfigEnabled?: boolean;
   dataSurface?: RunAgentBackendInput["dataSurface"];
+  graphjinToolPolicy?: RunAgentBackendInput["graphjinToolPolicy"];
+  nativeDelegation?: RunAgentBackendInput["nativeDelegation"];
   wantsCards?: boolean;
   workflowRunId?: string;
   mode?: "live" | "headless";
@@ -68,6 +72,7 @@ interface SandboxJob {
     | "tag"
     | "skills"
     | "backendState"
+    | "nativeDelegation"
     | "wantsCards"
   >;
 }
@@ -110,6 +115,7 @@ export async function main(): Promise<void> {
 
   const backend = makeAgentBackend({
     id: job.backendId,
+    configuredIdentity: job.configuredIdentity,
   });
 
   // MCP tools reach the control plane through stdio bridge children that
@@ -225,6 +231,12 @@ export async function main(): Promise<void> {
       pluginActions: job.pluginActions ?? [],
       sourceConfigEnabled: job.sourceConfigEnabled ?? false,
       dataSurface: job.dataSurface ?? "customer",
+      ...(job.graphjinToolPolicy
+        ? { graphjinToolPolicy: job.graphjinToolPolicy }
+        : {}),
+      ...(job.nativeDelegation
+        ? { nativeDelegation: job.nativeDelegation }
+        : {}),
       wantsCards: job.wantsCards ?? true,
       controlPlane,
       emit,

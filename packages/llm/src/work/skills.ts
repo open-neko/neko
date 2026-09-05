@@ -14,12 +14,14 @@ export {
 export async function writeWorkSkill(
   skillsRoot: string,
   draft: WorkSkillDraft,
+  options: { orgId?: string } = {},
 ): Promise<{ name: string; skillPath: string }> {
   const { name, skillPath } = await writeWorkSkillFiles(skillsRoot, draft);
 
   // CV0: auto-version the write. Best-effort — never fails the save.
   await recordConfigChange({
     workspaceRoot: dirname(resolve(skillsRoot)),
+    ...(options.orgId ? { orgId: options.orgId } : {}),
     paths: [`skills/${name}`],
     message: `Updated skill: ${name}`,
   });

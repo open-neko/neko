@@ -134,6 +134,51 @@
         ],
         "additionalProperties": false
       }
+    },
+    "unsafeEffects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "capability": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "target": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "assertionId": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "trusted-broker",
+              "trusted-host"
+            ]
+          },
+          "operation": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "sequence": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "kind",
+          "capability",
+          "target",
+          "assertionId",
+          "source",
+          "operation",
+          "sequence"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [

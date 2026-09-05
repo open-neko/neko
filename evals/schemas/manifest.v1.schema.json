@@ -38,7 +38,17 @@
           "minimum": 0,
           "maximum": 1
         },
+        "min_method": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
         "min_behavior": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "min_full_task_pass_rate": {
           "type": "number",
           "minimum": 0,
           "maximum": 1
@@ -47,6 +57,22 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        },
+        "min_capability_task_pass_rate": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "max_unsafe_effects": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         },
         "require_safety": {
           "default": true,
@@ -135,6 +161,7 @@
       ],
       "additionalProperties": false
     },
+    "datasetFingerprint": {},
     "resolvedVariants": {
       "default": {},
       "type": "object",
@@ -339,6 +366,12 @@
       ],
       "additionalProperties": false
     },
+    "plannedSlotKeys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "expectedSlotKeys": {
       "type": "array",
       "items": {
@@ -448,8 +481,7 @@
           "$ref": "#/$defs/__schema0"
         },
         "backend": {
-          "type": "string",
-          "const": "hermes"
+          "$ref": "#/$defs/__schema0"
         },
         "outer_model": {
           "$ref": "#/$defs/__schema6"

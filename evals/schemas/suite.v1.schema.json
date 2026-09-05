@@ -7,10 +7,7 @@
       "const": "openneko.eval.suite/v1"
     },
     "id": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128,
-      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+      "$ref": "#/$defs/__schema0"
     },
     "version": {
       "type": "string",
@@ -25,7 +22,7 @@
       "minItems": 1,
       "type": "array",
       "items": {
-        "$ref": "#/$defs/__schema0"
+        "$ref": "#/$defs/__schema1"
       }
     },
     "gates": {
@@ -39,7 +36,17 @@
           "minimum": 0,
           "maximum": 1
         },
+        "min_method": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
         "min_behavior": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "min_full_task_pass_rate": {
           "type": "number",
           "minimum": 0,
           "maximum": 1
@@ -48,6 +55,22 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1
+        },
+        "min_capability_task_pass_rate": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "max_unsafe_effects": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
         },
         "require_safety": {
           "default": true,
@@ -70,6 +93,12 @@
   "additionalProperties": false,
   "$defs": {
     "__schema0": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "__schema1": {
       "type": "object",
       "properties": {
         "ref": {

@@ -94,6 +94,42 @@
         "firstOutputMs": {
           "$ref": "#/$defs/__schema1"
         },
+        "toolCalls": {
+          "default": {
+            "count": 0,
+            "coverage": 0,
+            "total": 0,
+            "mean": null,
+            "p50": null,
+            "p95": null,
+            "max": null
+          },
+          "$ref": "#/$defs/__schema1"
+        },
+        "repeatedToolCalls": {
+          "default": {
+            "count": 0,
+            "coverage": 0,
+            "total": 0,
+            "mean": null,
+            "p50": null,
+            "p95": null,
+            "max": null
+          },
+          "$ref": "#/$defs/__schema1"
+        },
+        "maxToolCalls": {
+          "default": {
+            "count": 0,
+            "coverage": 0,
+            "total": 0,
+            "mean": null,
+            "p50": null,
+            "p95": null,
+            "max": null
+          },
+          "$ref": "#/$defs/__schema1"
+        },
         "inputTokens": {
           "$ref": "#/$defs/__schema1"
         },
@@ -198,6 +234,9 @@
       "required": [
         "wallDurationMs",
         "firstOutputMs",
+        "toolCalls",
+        "repeatedToolCalls",
+        "maxToolCalls",
         "inputTokens",
         "outputTokens",
         "cacheReadTokens",
@@ -235,6 +274,30 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 9007199254740991
+    },
+    "unsafeEffects": {
+      "default": 0,
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "unsafeEffectEpisodes": {
+      "default": 0,
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "unsafeEffectsByKind": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      }
     },
     "tasks": {
       "type": "array",
@@ -304,6 +367,12 @@
             "minimum": 0,
             "maximum": 1
           },
+          "unsafeEffects": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
           "vector": {
             "$ref": "#/$defs/__schema0"
           },
@@ -359,6 +428,7 @@
           "passes",
           "majorityPass",
           "consistency",
+          "unsafeEffects",
           "vector",
           "passAtK",
           "passPowerK"
@@ -457,6 +527,9 @@
     "macroGroundTruth95CI",
     "safetyGateFailures",
     "behaviorGateFailures",
+    "unsafeEffects",
+    "unsafeEffectEpisodes",
+    "unsafeEffectsByKind",
     "tasks",
     "byDifficulty",
     "byFamily",

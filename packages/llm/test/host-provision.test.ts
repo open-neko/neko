@@ -431,6 +431,22 @@ describeIfDb("provisionHostConfig", () => {
     });
   });
 
+  it("preserves an explicitly configured development-header auth mode", async () => {
+    await seedDataSource(orgId);
+    await db()
+      .update(data_source)
+      .set({ auth_mode: "development" })
+      .where(eq(data_source.org_id, orgId));
+
+    await provisionHostConfig(orgId);
+
+    const [source] = await db()
+      .select({ authMode: data_source.auth_mode })
+      .from(data_source)
+      .where(eq(data_source.org_id, orgId));
+    expect(source?.authMode).toBe("development");
+  });
+
   it("repairs an existing packaged-demo AdventureWorks source deterministically", async () => {
     const configPath = join(tempHome, "agentic.yml");
     await writeFile(

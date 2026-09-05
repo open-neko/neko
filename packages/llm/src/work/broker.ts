@@ -8,6 +8,16 @@ import { randomUUID } from "node:crypto";
 import type { AgentEvent } from "../agent-backend";
 import { inProcessControlPlane, type AgentControlPlane } from "./control-plane";
 import { sandboxBrokerHost } from "./sandbox-net";
+import {
+  traceGraphjinQuery,
+  traceGraphjinToolCall,
+  traceGraphjinToolsList,
+  traceLibrarySearch,
+  traceMemorySearch,
+  traceRecordBlueprints,
+  traceWorkflowList,
+  unwrapWorkSemanticTraceControlPlane,
+} from "./semantic-trace";
 
 /** What a per-run bearer token resolves to — the trust binding. */
 export interface RunBinding {
@@ -82,7 +92,10 @@ async function handle(
 
   const body = (await readJson(req)) as Record<string, unknown>;
   const path = (req.url ?? "").split("?")[0];
-  const cp = deps.controlPlane;
+  // A trusted in-process eval may pass an already-decorated control plane.
+  // The broker is the authoritative outer boundary here, so unwrap it before
+  // applying the broker trace below and avoid recording every call twice.
+  const cp = unwrapWorkSemanticTraceControlPlane(deps.controlPlane);
 
   // SEC5: every authenticated gateway call is audited with the dual
   // identity (human principal + agent backend). Best-effort — auditing
@@ -140,68 +153,111 @@ async function handle(
           runId: binding.runId,
         } as Parameters<AgentControlPlane["rememberWorkMemory"]>[0]),
       );
-    case "/v1/memory/search":
+    case "/v1/memory/search": {
       delete body.userId;
+      const query = String(body.query ?? "");
+      const limit = typeof body.limit === "number" ? body.limit : undefined;
       return send(
         res,
         200,
-        await cp.searchWorkMemoryByContext({
-          ...body,
-          orgId: binding.orgId,
-          runId: binding.runId,
-        } as Parameters<AgentControlPlane["searchWorkMemoryByContext"]>[0]),
+        await traceMemorySearch({
+          binding,
+          request: { query, ...(limit !== undefined ? { limit } : {}) },
+          execute: () =>
+            cp.searchWorkMemoryByContext({
+              ...body,
+              orgId: binding.orgId,
+              runId: binding.runId,
+            } as Parameters<
+              AgentControlPlane["searchWorkMemoryByContext"]
+            >[0]),
+        }),
       );
-    case "/v1/library/search":
+    }
+    case "/v1/library/search": {
       // Same rule as memory: the personal layer comes from the bound
       // run's owner, never from agent-supplied identity.
       delete body.userId;
+      const query = String(body.query ?? "");
+      const limit = typeof body.limit === "number" ? body.limit : undefined;
       return send(
         res,
         200,
-        await cp.searchLibraryForRun({
-          ...body,
-          orgId: binding.orgId,
-          runId: binding.runId,
-        } as Parameters<AgentControlPlane["searchLibraryForRun"]>[0]),
-      );
-    case "/v1/graphjin/query":
-      return send(
-        res,
-        200,
-        await cp.queryGraphjinRead({
-          query: String(body.query ?? ""),
-          ...(body.variables && typeof body.variables === "object"
-            ? { variables: body.variables as Record<string, unknown> }
-            : {}),
-          ...(typeof body.operationName === "string"
-            ? { operationName: body.operationName }
-            : {}),
-          orgId: binding.orgId,
-          ...(binding.kind === "agent-job" ? {} : { runId: binding.runId }),
+        await traceLibrarySearch({
+          binding,
+          request: { query, ...(limit !== undefined ? { limit } : {}) },
+          execute: () =>
+            cp.searchLibraryForRun({
+              ...body,
+              orgId: binding.orgId,
+              runId: binding.runId,
+            } as Parameters<AgentControlPlane["searchLibraryForRun"]>[0]),
         }),
       );
+    }
+    case "/v1/graphjin/query": {
+      const query = String(body.query ?? "");
+      const variables =
+        body.variables && typeof body.variables === "object"
+          ? (body.variables as Record<string, unknown>)
+          : undefined;
+      const operationName =
+        typeof body.operationName === "string" ? body.operationName : undefined;
+      return send(
+        res,
+        200,
+        await traceGraphjinQuery({
+          binding,
+          query,
+          ...(variables !== undefined ? { variables } : {}),
+          ...(operationName !== undefined ? { operationName } : {}),
+          execute: () =>
+            cp.queryGraphjinRead({
+              query,
+              ...(variables !== undefined ? { variables } : {}),
+              ...(operationName !== undefined ? { operationName } : {}),
+              orgId: binding.orgId,
+              ...(binding.kind === "agent-job" ? {} : { runId: binding.runId }),
+            }),
+        }),
+      );
+    }
     case "/v1/graphjin/tools/list":
       return send(
         res,
         200,
-        await cp.listGraphjinTools({
-          orgId: binding.orgId,
-          ...(binding.kind === "agent-job" ? {} : { runId: binding.runId }),
+        await traceGraphjinToolsList({
+          binding,
+          execute: () =>
+            cp.listGraphjinTools({
+              orgId: binding.orgId,
+              ...(binding.kind === "agent-job" ? {} : { runId: binding.runId }),
+            }),
         }),
       );
-    case "/v1/graphjin/tools/call":
+    case "/v1/graphjin/tools/call": {
+      const name = String(body.name ?? "");
+      const args =
+        body.arguments && typeof body.arguments === "object"
+          ? (body.arguments as Record<string, unknown>)
+          : undefined;
       return send(
         res,
         200,
-        await cp.callGraphjinTool({
-          orgId: binding.orgId,
-          ...(binding.kind === "agent-job" ? {} : { runId: binding.runId }),
-          name: String(body.name ?? ""),
-          ...(body.arguments && typeof body.arguments === "object"
-            ? { arguments: body.arguments as Record<string, unknown> }
-            : {}),
+        await traceGraphjinToolCall({
+          binding,
+          toolName: name,
+          ...(args !== undefined ? { arguments: args } : {}),
+          execute: () =>
+            cp.callGraphjinTool({
+              orgId: binding.orgId,
+              ...(binding.kind === "agent-job" ? {} : { runId: binding.runId }),
+              name,
+              ...(args !== undefined ? { arguments: args } : {}),
+            }),
         }),
       );
+    }
     case "/v1/graphjin/agent":
       return send(
         res,
@@ -300,17 +356,25 @@ async function handle(
           recordId: String(body.recordId ?? ""),
         }),
       );
-    case "/v1/records/blueprints":
+    case "/v1/records/blueprints": {
+      const blueprintId =
+        typeof body.blueprintId === "string" ? body.blueprintId : undefined;
       return send(
         res,
         200,
-        await cp.listRecordBlueprints({
-          orgId: binding.orgId,
-          ...(typeof body.blueprintId === "string"
-            ? { blueprintId: body.blueprintId }
-            : {}),
+        await traceRecordBlueprints({
+          binding,
+          request: {
+            ...(blueprintId !== undefined ? { blueprintId } : {}),
+          },
+          execute: () =>
+            cp.listRecordBlueprints({
+              orgId: binding.orgId,
+              ...(blueprintId !== undefined ? { blueprintId } : {}),
+            }),
         }),
       );
+    }
     case "/v1/workflow/save":
       return send(
         res,
@@ -327,15 +391,22 @@ async function handle(
         200,
         await cp.emitWorkflowOutput(workflowOutputInputFromBody(body, binding)),
       );
-    case "/v1/workflow/list":
+    case "/v1/workflow/list": {
+      const limit = typeof body.limit === "number" ? body.limit : undefined;
       return send(
         res,
         200,
-        await cp.listWorkflowsWithTriggers({
-          orgId: binding.orgId,
-          limit: typeof body.limit === "number" ? body.limit : undefined,
+        await traceWorkflowList({
+          binding,
+          request: { ...(limit !== undefined ? { limit } : {}) },
+          execute: () =>
+            cp.listWorkflowsWithTriggers({
+              orgId: binding.orgId,
+              limit,
+            }),
         }),
       );
+    }
     case "/v1/workflow/delete":
       // orgId comes from the token binding, never the body — a sandbox
       // can't delete another org's workflow by passing its id.

@@ -226,8 +226,8 @@ Never invent a package name and never request credentials in chat.
 </plugin_management>`;
 }
 
-function buildNativeDelegationSection(backend: AgentBackendId): string {
-  void backend;
+function buildNativeDelegationSection(supportedForRun: boolean): string {
+  if (!supportedForRun) return "";
   return `<delegation>
 You have Hermes native subagent delegation through \`delegate_task\`. Use it
 when a focused subtask would benefit from a fresh context, parallel work, or
@@ -787,6 +787,8 @@ export function buildWorkPrompt(args: {
   supportsSourceConfigTool: boolean;
   supportsClarificationTool?: boolean;
   supportsPluginManagerTool?: boolean;
+  /** True only when this run may expose the backend's native sub-agent tool. */
+  supportsNativeDelegation: boolean;
   pluginCatalog?: PluginCatalog;
   // True when prior turns must be inlined into the system prompt because the
   // backend can't reload them out-of-band (i.e. no session resume).
@@ -817,6 +819,7 @@ export function buildWorkPrompt(args: {
     supportsSourceConfigTool,
     supportsClarificationTool = false,
     supportsPluginManagerTool = false,
+    supportsNativeDelegation,
     pluginCatalog,
     inlineTranscript,
     pluginActions,
@@ -869,7 +872,7 @@ that flags churn risk every Monday."
     dataSurface === "customer"
       ? buildPluginManagementSection(supportsPluginManagerTool, pluginCatalog)
       : "",
-    buildNativeDelegationSection(backend),
+    buildNativeDelegationSection(supportsNativeDelegation),
     dataSurface === "records"
       ? buildRecordsAccessSection(appContext, recordContext)
       : buildDataAccessSection({

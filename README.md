@@ -86,6 +86,24 @@ openneko install @open-neko/plugin-scalekit
 - **Agent in a sandbox by default.** The agent loop itself runs inside an OpenShell policy sandbox — default-deny egress, and the model API key never enters the box (the gateway proxy injects it on the wire). See [OPENSHELL.md](OPENSHELL.md).
 - **Apache-2.0.** Read the source, self-host, fork, and build on it. OpenNeko trademarks are separately controlled — see [LICENSING.md](LICENSING.md) and [TRADEMARKS.md](TRADEMARKS.md).
 
+## Evaluations
+
+OpenNeko evaluates an agent backend through the production Work runtime, not as
+an isolated model call. The suite exercises skills, memories, library retrieval,
+workflows, Records, governed actions, channel delivery, compaction, and GraphJin
+tools against a frozen AdventureWorks snapshot.
+
+| Backend | Model | OpenNeko source | Coverage | Full-task pass | Publication status | Evidence |
+|---|---|---|---:|---:|---|---|
+| Harness control | `scripted:deterministic-v1` | [`c666b70`](https://github.com/open-neko/openneko/commit/c666b70f53fb54e947463296c33f2bb0c8e50323) | 59 tasks × 1 (59 episodes) | 59/59 (100%) | Accepted; deterministic control, not a model result | [Full result](evals/results/openneko-backend-scripted-good-v3/run-20260905t051547480z-a6145dfb/summary.md) |
+
+Provider-backed results are published separately from clean source commits so
+that every reported OpenNeko version is reproducible. Publishing a run preserves
+evidence and does not turn a rejected result into a release qualification. See
+the [evaluation methodology](evals/README.md), the [backend benchmark
+contract](evals/BACKEND-BENCHMARK.md), and the [contribution
+guide](evals/CONTRIBUTING.md).
+
 ## Stack modes
 
 `openneko start|setup|upgrade --mode prod|dev|demo` picks which Compose layers the

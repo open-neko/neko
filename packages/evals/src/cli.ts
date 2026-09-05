@@ -1,8 +1,14 @@
-import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { contentDigest } from "./canonical";
 import { loadEval, type LoadedEval } from "./load";
 import { createEvalPlan, type EvalPlan } from "./plan";
 import { renderStoredReport, verifyResult } from "./report";
+import {
+  ResultLineSchema,
+  ResultManifestSchema,
+  type EvalResultLine,
+} from "./schemas";
 import {
   rescoreEvaluation,
   runEvaluation,
@@ -41,9 +47,10 @@ function usage(): string {
     `Commands:\n` +
     `  validate --config <path>\n` +
     `  plan --config <path> [--json]\n` +
+    `  oracles --config <path> [--json] [--out <path>]\n` +
     `  run --config <path> [--resume <run-id> | --restart] [--promote | --no-promote]\n` +
     `  resume --config <path> --run <run-id>\n` +
-    `  rescore --config <path> --run <run-id>\n` +
+    `  rescore --config <path> --run <run-id> [--promote | --no-promote]\n` +
     `  verify --result <directory>\n` +
     `  report --result <directory>\n` +
     `  compare --result <directory> --baseline <directory>\n`;
@@ -130,25 +137,27 @@ function planDocument(loaded: LoadedEval, plan: EvalPlan): unknown {
 async function compareResults(resultDir: string, baselineDir: string): Promise<unknown> {
   await verifyResult(resultDir);
   await verifyResult(baselineDir);
-  const [resultManifest, baselineManifest] = await Promise.all(
+  const manifests = await Promise.all(
     [resultDir, baselineDir].map(async (directory) =>
-      JSON.parse(await readFile(join(resolve(directory), "manifest.json"), "utf8")) as {
-        compatibility?: Record<string, string>;
-      },
+      ResultManifestSchema.parse(
+        JSON.parse(
+          await readFile(join(resolve(directory), "manifest.json"), "utf8"),
+        ),
+      ),
     ),
   );
+  const resultManifest = manifests[0]!;
+  const baselineManifest = manifests[1]!;
   const comparableFields = [
-    "configDigest",
     "suiteDigest",
     "datasetDigest",
     "oracleDigest",
     "scorerDigest",
-    "variantDigest",
   ] as const;
   const incompatible = comparableFields.filter(
     (field) =>
-      resultManifest?.compatibility?.[field] !==
-      baselineManifest?.compatibility?.[field],
+      resultManifest.compatibility[field] !==
+      baselineManifest.compatibility[field],
   );
   if (incompatible.length) {
     throw new Error(
@@ -162,6 +171,7 @@ async function compareResults(resultDir: string, baselineDir: string): Promise<u
         macro: Record<string, number>;
         executionFailures: number;
         safetyGateFailures: number;
+        unsafeEffects?: number;
         tasks: Array<{
           key: string;
           majorityPass: boolean;
@@ -172,23 +182,164 @@ async function compareResults(resultDir: string, baselineDir: string): Promise<u
   );
   const current = summaries[0]!;
   const baseline = summaries[1]!;
-  const baselineTasks = new Map(baseline.tasks.map((task) => [task.key, task]));
-  const pairedTasks = current.tasks.flatMap((task) => {
-    const previous = baselineTasks.get(task.key);
-    if (!previous) return [];
-    return [
+  const episodeSets = await Promise.all(
+    [resultDir, baselineDir].map(async (directory) =>
+      (await readFile(join(resolve(directory), "results.jsonl"), "utf8"))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => ResultLineSchema.parse(JSON.parse(line))),
+    ),
+  );
+  const resultEpisodes = episodeSets[0]!;
+  const baselineEpisodes = episodeSets[1]!;
+  const resultCandidates = new Set(
+    resultEpisodes.map((episode) => episode.variantId),
+  );
+  const baselineCandidates = new Set(
+    baselineEpisodes.map((episode) => episode.variantId),
+  );
+  const preserveVariantIdentity =
+    resultCandidates.size > 1 || baselineCandidates.size > 1;
+  if (
+    preserveVariantIdentity &&
+    (resultCandidates.size !== baselineCandidates.size ||
+      [...resultCandidates].some(
+        (variantId) => !baselineCandidates.has(variantId),
+      ))
+  ) {
+    throw new Error(
+      "multi-candidate result cohorts must contain the same variant IDs; compare separate single-candidate cohorts to match different backends",
+    );
+  }
+  if (preserveVariantIdentity) {
+    const legacyMismatches = (["configDigest", "variantDigest"] as const).filter(
+      (field) =>
+        resultManifest.compatibility[field] !==
+        baselineManifest.compatibility[field],
+    );
+    if (legacyMismatches.length) {
+      throw new Error(
+        `multi-candidate results are not in the same comparison cohort: ${legacyMismatches.join(", ")}`,
+      );
+    }
+  }
+
+  const episodeIdentity = (
+    episode: EvalResultLine,
+    suiteId: string,
+  ): { identity: string; pairKey: string; treatment: string } => {
+    const pairKey =
+      episode.pairKey ??
+      [
+        suiteId,
+        episode.datasetId,
+        episode.caseId,
+        String(episode.repetition),
+        episode.phase,
+      ].join("/");
+    const treatment = episode.treatment ?? "default";
+    return {
+      identity: JSON.stringify([
+        pairKey,
+        treatment,
+        ...(preserveVariantIdentity ? [episode.variantId] : []),
+      ]),
+      pairKey,
+      treatment,
+    };
+  };
+  const indexEpisodes = (
+    episodes: readonly EvalResultLine[],
+    suiteId: string,
+    label: string,
+  ) => {
+    const indexed = new Map<
+      string,
       {
-        key: task.key,
-        verdictDelta: Number(task.majorityPass) - Number(previous.majorityPass),
+        episode: EvalResultLine;
+        pairKey: string;
+        treatment: string;
+      }
+    >();
+    for (const episode of episodes) {
+      const { identity, pairKey, treatment } = episodeIdentity(
+        episode,
+        suiteId,
+      );
+      if (indexed.has(identity)) {
+        throw new Error(
+          `${label} contains duplicate comparison episode ${pairKey}/${treatment}`,
+        );
+      }
+      indexed.set(identity, { episode, pairKey, treatment });
+    }
+    return indexed;
+  };
+  const resultIndex = indexEpisodes(
+    resultEpisodes,
+    resultManifest.suiteId,
+    "result",
+  );
+  const baselineIndex = indexEpisodes(
+    baselineEpisodes,
+    baselineManifest.suiteId,
+    "baseline",
+  );
+  const unmatchedResult = [...resultIndex.keys()].filter(
+    (identity) => !baselineIndex.has(identity),
+  );
+  const unmatchedBaseline = [...baselineIndex.keys()].filter(
+    (identity) => !resultIndex.has(identity),
+  );
+  if (unmatchedResult.length || unmatchedBaseline.length) {
+    throw new Error(
+      `results do not have one-to-one candidate-neutral episode coverage: result-only ${unmatchedResult.length}, baseline-only ${unmatchedBaseline.length}`,
+    );
+  }
+
+  const zeroVector = {
+    groundTruth: 0,
+    method: 0,
+    behavior: 0,
+    safety: 0,
+    efficiency: 0,
+  };
+  const pairedTasks = [...resultIndex.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([identity, resultEntry]) => {
+      const baselineEntry = baselineIndex.get(identity)!;
+      const resultVector = resultEntry.episode.score?.vector ?? zeroVector;
+      const baselineVector = baselineEntry.episode.score?.vector ?? zeroVector;
+      return {
+        key: `${resultEntry.pairKey}/${resultEntry.treatment}${
+          preserveVariantIdentity
+            ? `/${resultEntry.episode.variantId}`
+            : ""
+        }`,
+        pairKey: resultEntry.pairKey,
+        treatment: resultEntry.treatment,
+        result: {
+          variantId: resultEntry.episode.variantId,
+          caseId: resultEntry.episode.caseId,
+          repetition: resultEntry.episode.repetition,
+        },
+        baseline: {
+          variantId: baselineEntry.episode.variantId,
+          caseId: baselineEntry.episode.caseId,
+          repetition: baselineEntry.episode.repetition,
+        },
+        verdictDelta:
+          Number(resultEntry.episode.score?.verdict === "pass") -
+          Number(baselineEntry.episode.score?.verdict === "pass"),
         vectorDelta: Object.fromEntries(
-          Object.keys(task.vector).map((key) => [
+          Object.keys(zeroVector).map((key) => [
             key,
-            (task.vector[key] ?? 0) - (previous.vector[key] ?? 0),
+            (resultVector[key as keyof typeof zeroVector] ?? 0) -
+              (baselineVector[key as keyof typeof zeroVector] ?? 0),
           ]),
         ),
-      },
-    ];
-  });
+      };
+    });
   const meanPairedGroundTruthDelta = pairedTasks.length
     ? pairedTasks.reduce(
         (sum, task) => sum + Number(task.vectorDelta.groundTruth ?? 0),
@@ -209,8 +360,13 @@ async function compareResults(resultDir: string, baselineDir: string): Promise<u
       ),
       executionFailures: current.executionFailures - baseline.executionFailures,
       safetyGateFailures: current.safetyGateFailures - baseline.safetyGateFailures,
+      unsafeEffects: (current.unsafeEffects ?? 0) - (baseline.unsafeEffects ?? 0),
     },
     paired: {
+      // Kept as `tasks` and `taskDeltas` for comparison/v1 compatibility;
+      // entries are now repetition-specific episode pairs.
+      granularity: "episode",
+      episodes: pairedTasks.length,
       tasks: pairedTasks.length,
       meanGroundTruthDelta: meanPairedGroundTruthDelta,
       taskDeltas: pairedTasks,
@@ -263,6 +419,57 @@ export async function runEvalCli(
     }
     return 0;
   }
+  if (command === "oracles") {
+    const { loaded, plan } = await loadContext(args, cwd);
+    const factory = options.adapters[loaded.config.adapter];
+    if (!factory) throw new Error(`unknown eval adapter ${loaded.config.adapter}`);
+    const driver = await factory({ loaded, plan });
+    try {
+      const values: Record<string, unknown> = {};
+      for (const evalCase of loaded.cases) {
+        values[evalCase.id] = await driver.resolveOracle(evalCase, {
+          loaded,
+          plan,
+        });
+      }
+      const document = {
+        schemaVersion: "openneko.eval.oracles/v1",
+        configId: plan.configId,
+        suiteId: plan.suiteId,
+        adapter: plan.adapter,
+        datasetDigest: loaded.digests.datasets,
+        digest: contentDigest(values),
+        values,
+      };
+      const outPath = flag(args, "--out");
+      if (outPath) {
+        const target = resolve(cwd, outPath);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, `${JSON.stringify(document, null, 2)}\n`);
+      }
+      if (has(args, "--json") || !outPath) {
+        if (has(args, "--json")) {
+          stdout.write(`${JSON.stringify(document, null, 2)}\n`);
+        } else {
+          stdout.write(
+            `${plan.configId}: resolved ${loaded.cases.length} oracles (digest ${document.digest})\n`,
+          );
+          for (const evalCase of loaded.cases) {
+            stdout.write(
+              `  ${evalCase.id}: ${JSON.stringify(values[evalCase.id])}\n`,
+            );
+          }
+        }
+      } else {
+        stdout.write(
+          `${plan.configId}: resolved ${loaded.cases.length} oracles (digest ${document.digest}) -> ${outPath}\n`,
+        );
+      }
+      return 0;
+    } finally {
+      await driver.close?.();
+    }
+  }
   if (command === "run" || command === "resume" || command === "rescore") {
     const { loaded, plan } = await loadContext(args, cwd);
     const factory = options.adapters[loaded.config.adapter];
@@ -276,10 +483,16 @@ export async function runEvalCli(
         plan,
         driver,
         stateRoot,
+        resultsRoot,
         runId: requireFlag(args, "--run"),
+        promote: has(args, "--promote"),
       });
-      stdout.write(`rescored without model calls: ${result.path}\n`);
-      return 0;
+      stdout.write(
+        `rescored without model calls: ${result.path}${
+          result.resultDir ? `; result ${result.resultDir}` : ""
+        }\n`,
+      );
+      return result.gatesPassed ? 0 : 2;
     }
     const resumeRunId =
       command === "resume" ? requireFlag(args, "--run") : flag(args, "--resume");

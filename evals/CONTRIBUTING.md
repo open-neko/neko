@@ -74,6 +74,18 @@ pnpm openneko eval validate --config evals/configs/<config>.yaml
 pnpm openneko eval plan --config evals/configs/<config>.yaml --json
 ```
 
+When authoring or reviewing oracles, resolve every case's ground truth
+against the host-only oracle connection without any provider traffic:
+
+```sh
+pnpm openneko eval oracles --config evals/configs/<config>.yaml
+pnpm openneko eval oracles --config evals/configs/<config>.yaml --out /tmp/oracles.json
+```
+
+Values are anchored to the live snapshot, so treat the output as an authoring
+sanity check, never as a stored answer key — the runner re-resolves oracles at
+run time (see `evals/GROUND-TRUTH.md`).
+
 Review the expanded providers, models, data paths, case count, repetitions, and
 budget. Credentials must be `env:NAME` references; literal secrets are rejected.
 Dataset oracle connections are host-only and must not be exposed to the agent.
@@ -131,11 +143,15 @@ pricing does not fail verification and is rendered as `unavailable`, while any
 reported estimated and provider-billed costs remain separate.
 The PR workflow regenerates the semantic registry and JSON Schemas, validates
 every configuration, checks that every semantic marked `eval` has configured
-coverage, and verifies every checked-in result including its suite gates.
+coverage, and verifies every checked-in result including its deterministic suite
+gate classification. Accepted and rejected runs may both be submitted as
+append-only evidence. A rejected run must retain the generated
+`"accepted": false`; publishing it does not make it a passing qualification.
 
 In the PR description, state whether the result is self-reported or CI-attested,
-how the dataset was provisioned, and any environment failures. Never add a new
-result by editing an older result directory.
+how the dataset was provisioned, any environment failures, and any capability or
+safety gates that failed. Never add a new result by editing an older result
+directory.
 
 ## Add coverage
 

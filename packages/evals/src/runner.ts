@@ -13,11 +13,13 @@ import type { LoadedCase, LoadedEval } from "./load";
 import type { EvalPlan, EvalSlot } from "./plan";
 import { evaluateSuiteGates, promoteResult } from "./report";
 import { summarizeEpisodes } from "./scoring";
-import type {
-  EvalEpisode,
-  EvalManifest,
-  EvalScore,
-  EvalVariant,
+import {
+  EvalSemanticEvidenceSchema,
+  type EvalSemanticEvidence,
+  type EvalEpisode,
+  type EvalManifest,
+  type EvalScore,
+  type EvalVariant,
 } from "./schemas";
 import { EvalStateStore } from "./state-store";
 
@@ -27,6 +29,11 @@ export const EVAL_RUNNER_VERSION = "0.1.0";
 export type EvalExecution = {
   output?: unknown;
   measurements?: Record<string, unknown>;
+  /**
+   * Private semantic evidence used for method and safety scoring. It is
+   * checkpointed with the episode and never included in promoted results.
+   */
+  semanticEvidence?: EvalSemanticEvidence;
 };
 
 export type EvalDriverContext = {
@@ -60,6 +67,9 @@ export interface EvalDriver {
     variant: EvalVariant;
     oracle: unknown;
     execution: EvalExecution;
+    /** Phase of the scored slot; binds phase-keyed oracle bundles and phase-bound assertions. */
+    phase: string;
+    repetition: number;
   }): Promise<EvalScore> | EvalScore;
   close?(): Promise<void>;
 }
@@ -78,6 +88,8 @@ export class EvalTaskError extends Error {
   constructor(
     message: string,
     readonly errorType = "task_error",
+    /** Private partial execution data retained for terminal task failures. */
+    readonly execution?: EvalExecution,
   ) {
     super(message);
     this.name = "EvalTaskError";
@@ -322,8 +334,10 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
         updatedAt: now,
         source: { commit: source.commit, dirty: source.dirty },
         compatibility,
+        datasetFingerprint: preflight.datasetFingerprint,
         resolvedVariants: preflight.resolvedVariants ?? {},
         effectiveConfig: options.loaded.config,
+        plannedSlotKeys: options.plan.slots.map((slot) => slot.key),
         expectedSlotKeys: options.plan.slots.map((slot) => slot.key).sort(),
         completedSlotKeys: [],
         failedSlotKeys: [],
@@ -442,16 +456,27 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
               }
               await options.driver.reset(resetContext);
             }
-            const execution = await options.driver.execute({
+            const rawExecution = await options.driver.execute({
               ...resetContext,
               observer,
               signal: AbortSignal.timeout(timeout),
             });
+            const execution: EvalExecution =
+              rawExecution.semanticEvidence === undefined
+                ? rawExecution
+                : {
+                    ...rawExecution,
+                    semanticEvidence: EvalSemanticEvidenceSchema.parse(
+                      rawExecution.semanticEvidence,
+                    ),
+                  };
             const score = await options.driver.score({
               case: slot.case,
               variant: slot.variant,
               oracle,
               execution,
+              phase: slot.phase,
+              repetition: slot.repetition,
             });
             const finishedAt = new Date().toISOString();
             await store.writeAttempt({
@@ -467,6 +492,8 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
               schemaVersion: "openneko.eval.episode/v1",
               runId: manifest.runId,
               slotKey: slot.key,
+              pairKey: slot.pairKey,
+              treatment: slot.treatment,
               caseId: slot.caseId,
               caseContentId: slot.case.contentId,
               family: slot.case.family,
@@ -487,10 +514,20 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
                 : {}),
               measurements: execution.measurements ?? {},
               observations: memorySink.observations,
+              ...(execution.semanticEvidence !== undefined
+                ? { semanticEvidence: execution.semanticEvidence }
+                : {}),
               score,
             });
           } catch (cause) {
             const info = errorInfo(cause);
+            const failedExecution =
+              cause instanceof EvalTaskError ? cause.execution : undefined;
+            const failedEvidence = failedExecution?.semanticEvidence
+              ? EvalSemanticEvidenceSchema.parse(
+                  failedExecution.semanticEvidence,
+                )
+              : undefined;
             const finishedAt = new Date().toISOString();
             await store.writeAttempt({
               schemaVersion: "openneko.eval.attempt/v1",
@@ -511,6 +548,8 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
                 schemaVersion: "openneko.eval.episode/v1",
                 runId: manifest.runId,
                 slotKey: slot.key,
+                pairKey: slot.pairKey,
+                treatment: slot.treatment,
                 caseId: slot.caseId,
                 caseContentId: slot.case.contentId,
                 family: slot.case.family,
@@ -526,8 +565,11 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<{
                 startedAt,
                 finishedAt,
                 status: info.environment ? "environment_failure" : "failed",
-                measurements: {},
+                measurements: failedExecution?.measurements ?? {},
                 observations: memorySink.observations,
+                ...(failedEvidence !== undefined
+                  ? { semanticEvidence: failedEvidence }
+                  : {}),
                 errorType: info.type,
                 error: info.message,
               });
@@ -606,8 +648,15 @@ export async function rescoreEvaluation(input: {
   plan: EvalPlan;
   driver: EvalDriver;
   stateRoot: string;
+  resultsRoot?: string;
   runId: string;
-}): Promise<{ path: string; episodes: EvalEpisode[] }> {
+  promote?: boolean;
+}): Promise<{
+  path: string;
+  episodes: EvalEpisode[];
+  gatesPassed: boolean;
+  resultDir?: string;
+}> {
   try {
     const store = new EvalStateStore(input.stateRoot);
     const manifest = await store.readManifest(input.runId);
@@ -625,12 +674,17 @@ export async function rescoreEvaluation(input: {
       const execution: EvalExecution = {
         ...(episode.output !== undefined ? { output: episode.output } : {}),
         measurements: episode.measurements,
+        ...(episode.semanticEvidence !== undefined
+          ? { semanticEvidence: episode.semanticEvidence }
+          : {}),
       };
       const score = await input.driver.score({
         case: slot.case,
         variant: slot.variant,
         oracle: oracles[slot.caseId],
         execution,
+        phase: slot.phase,
+        repetition: slot.repetition,
       });
       rescored.push({ ...episode, score });
     }
@@ -644,15 +698,45 @@ export async function rescoreEvaluation(input: {
       scorerDigest,
       summary: summarizeEpisodes(rescored),
       episodes: rescored.map(
-        ({ output: _output, observations: _observations, ...episode }) =>
-          episode,
+        ({
+          output: _output,
+          observations: _observations,
+          semanticEvidence: _semanticEvidence,
+          ...episode
+        }) => episode,
       ),
     };
     const { mkdir, writeFile } = await import("node:fs/promises");
     const { dirname } = await import("node:path");
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`, "utf8");
-    return { path, episodes: rescored };
+    const documentText = `${JSON.stringify(document, null, 2)}\n`;
+    await writeFile(path, documentText, "utf8");
+    let resultDir: string | undefined;
+    if (input.promote) {
+      if (!input.resultsRoot) {
+        throw new Error("resultsRoot is required to promote a re-score");
+      }
+      resultDir = await promoteResult({
+        manifest,
+        episodes: rescored,
+        resultsRoot: input.resultsRoot,
+        rescore: {
+          sourceRunManifestDigest: contentDigest(manifest),
+          sourceRescoreDigest: contentDigest(document),
+          scorer: input.driver.scorer,
+          scorerDigest,
+        },
+      });
+    }
+    return {
+      path,
+      episodes: rescored,
+      gatesPassed: evaluateSuiteGates(
+        summarizeEpisodes(rescored),
+        manifest.suiteGates,
+      ),
+      ...(resultDir ? { resultDir } : {}),
+    };
   } finally {
     await input.driver.close?.();
   }
