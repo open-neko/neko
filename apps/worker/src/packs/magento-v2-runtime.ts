@@ -22,6 +22,7 @@ import {
   registerActionRequestCreatedHook,
   updateActionRequestPayload,
   type ActionAdapter,
+  hasHumanActionApproval,
   type ActionRequestRecord,
 } from "@neko/llm/workflows";
 import {
@@ -68,6 +69,7 @@ type MagentoActionDefinition = {
 type MagentoChangeRowInput = {
   entity_ref: string;
   path?: Record<string, unknown>;
+  /** Read-selection parameters only; never forwarded to a mutation. */
   query?: Record<string, unknown>;
   body?: Record<string, unknown> | Array<Record<string, unknown>>;
 };
@@ -283,29 +285,72 @@ async function boundedJson(response: Response): Promise<unknown> {
   }
 }
 
-async function readMagentoEntity(input: {
+function assertOrderUpdateIdentity(path: Record<string, unknown>, body: unknown) {
+  const entity = isRecord(body) ? body.entity : undefined;
+  const id = Number(path.id);
+  if (!Number.isSafeInteger(id) || id < 1 || !isRecord(entity) || entity.entity_id !== id) {
+    throw new Error("Magento order update requires entity.entity_id to match the positive order path id");
+  }
+}
+
+export async function readMagentoEntity(input: {
   runtime: MagentoRuntime;
   operation: MagentoOperation;
   path: Record<string, unknown>;
   query: Record<string, unknown>;
+  body?: unknown;
 }): Promise<Record<string, unknown> | null> {
+  if (input.operation.operationId === "magentoUpdateOrder") {
+    assertOrderUpdateIdentity(input.path, input.body);
+  }
   if (!input.operation.readPath) return null;
   const url = new URL(
     resolvedReadPath(input.runtime, input.operation.readPath, input.path),
   );
-  addSearchParams(url, input.query);
+  let query = input.query;
+  let sourceItem: Record<string, unknown> | undefined;
+  if (input.operation.entityType === "source_item") {
+    const items = expectedAfterImage(input.operation, input.body);
+    if (!Array.isArray(items) || items.length !== 1 || !isRecord(items[0]) ||
+        typeof items[0].sku !== "string" || !items[0].sku.trim() ||
+        typeof items[0].source_code !== "string" || !items[0].source_code.trim()) {
+      throw new Error("Magento inventory rows require exactly one source item with sku and source_code");
+    }
+    sourceItem = items[0];
+    // MSI identity is (sku, source_code). Caller-supplied search filters must
+    // not select a different before-image from the item the body will mutate.
+    query = {};
+    for (const [index, field] of ["sku", "source_code"].entries()) {
+      const prefix = `searchCriteria[filter_groups][${index}][filters][0]`;
+      query[`${prefix}[field]`] = field;
+      query[`${prefix}[value]`] = sourceItem[field];
+      query[`${prefix}[condition_type]`] = "eq";
+    }
+  }
+  addSearchParams(url, query);
   const response = await fetch(url, {
     headers: { authorization: `Bearer ${input.runtime.integrationToken}` },
     signal: AbortSignal.timeout(15_000),
   });
-  if (response.status === 404) return null;
+  if (response.status === 404) {
+    if (input.operation.operationId === "magentoUpdateOrder") {
+      throw new Error("Magento order update requires an existing order");
+    }
+    return null;
+  }
   const body = await boundedJson(response);
   if (!response.ok) {
     throw new Error(`Magento precondition read failed: HTTP ${response.status}`);
   }
-  if (input.operation.entityType === "source_item" && isRecord(body) && Array.isArray(body.items)) {
-    const first = body.items.find(isRecord);
-    if (first) return first;
+  if (sourceItem) {
+    if (!isRecord(body) || !Array.isArray(body.items)) {
+      throw new Error("Magento source-item read returned an invalid collection");
+    }
+    if (body.items.length > 1 || body.items.some((item) =>
+      !isRecord(item) || item.sku !== sourceItem!.sku || item.source_code !== sourceItem!.source_code)) {
+      throw new Error("Magento source-item read did not uniquely match the requested SKU and source");
+    }
+    return body.items[0] ?? null;
   }
   return isRecord(body) ? body : { value: body };
 }
@@ -338,6 +383,18 @@ async function domainControl(orgId: string, domain: MagentoDomain) {
     throw new Error(`Magento ${domain} changes are disabled by the administrator`);
   }
   return control;
+}
+
+export function magentoCooldownQuery(orgId: string, entityRefs: string[], cooldownSeconds: number) {
+  return sql`
+      SELECT DISTINCT r.entity_ref
+        FROM action_changeset_row r
+        JOIN action_changeset c ON c.id = r.changeset_id
+       WHERE c.org_id = ${orgId}
+         AND r.entity_ref IN (${sql.join(entityRefs.map((ref) => sql`${ref}`), sql`, `)})
+         AND r.status = 'applied'
+         AND r.finished_at >= now() - (${cooldownSeconds} * interval '1 second')
+    `;
 }
 
 async function assertAutoRule(input: {
@@ -373,15 +430,9 @@ async function assertAutoRule(input: {
   const ruleActionsToday = Number(count.rows[0]?.rule_count ?? 0);
   const cooldownBreaches: string[] = [];
   if (rule.cooldown_seconds > 0 && input.entityRefs.length > 0) {
-    const recent = await db().execute<{ entity_ref: string }>(sql`
-      SELECT DISTINCT r.entity_ref
-        FROM action_changeset_row r
-        JOIN action_changeset c ON c.id = r.changeset_id
-       WHERE c.org_id = ${input.request.orgId}
-         AND r.entity_ref = ANY(${input.entityRefs})
-         AND r.status = 'applied'
-         AND r.finished_at >= now() - (${rule.cooldown_seconds} * interval '1 second')
-    `);
+    const recent = await db().execute<{ entity_ref: string }>(
+      magentoCooldownQuery(input.request.orgId, input.entityRefs, rule.cooldown_seconds),
+    );
     cooldownBreaches.push(...recent.rows.map((row) => row.entity_ref));
   }
   if (ruleActionsToday >= rule.daily_cap) {
@@ -427,7 +478,7 @@ function stringField(value: unknown, field: string): string | null {
   return null;
 }
 
-function reconciliationConfirmed(
+export function reconciliationConfirmed(
   operation: MagentoOperation,
   reconciled: Record<string, unknown> | null,
   expected: unknown,
@@ -435,6 +486,24 @@ function reconciliationConfirmed(
   if (!operation.readPath) return true;
   if (isDeleteOperation(operation)) return reconciled === null;
   if (!reconciled) return false;
+  if (operation.operationId === "magentoMoveCategory" && isRecord(expected)) {
+    return reconciled.parent_id === expected.parentId && reconciled.position === expected.position;
+  }
+  if (operation.entityType === "sales_rule" && isRecord(expected)) {
+    const couponTypes: Record<string, string> = { "1": "NO_COUPON", "2": "SPECIFIC_COUPON", "3": "AUTO" };
+    expected = { ...expected, ...(expected.coupon_type !== undefined
+      ? { coupon_type: couponTypes[String(expected.coupon_type)] ?? expected.coupon_type } : {}) };
+  }
+  if (operation.entityType === "customer" && isRecord(expected)) {
+    const { updated_at: _updatedAt, ...writable } = expected;
+    expected = writable;
+  }
+  if (["magentoCreateInvoice", "magentoCreateShipment"].includes(operation.operationId) && isRecord(expected)) {
+    return reconciled.order_id === expected.order_id && Array.isArray(reconciled.items) && reconciled.items.length > 0 &&
+      (expected.items === undefined || (Array.isArray(expected.items) && expected.items.length > 0 && expected.items.every((item) => isRecord(item) &&
+        (reconciled.items as unknown[]).some((actual) => isRecord(actual) &&
+          actual.order_item_id === item.order_item_id && actual.qty === item.qty))));
+  }
   if (operation.operationId === "magentoAddOrderComment") {
     const comment = stringField(expected, "comment");
     const histories = Array.isArray(reconciled.status_histories)
@@ -550,6 +619,7 @@ async function prepareChangeset(request: ActionRequestRecord, definition: Magent
           operation,
           path: row.path ?? {},
           query: row.query ?? {},
+          body: row.body,
         }) ?? {};
     const classification = classifyMagentoChange({
       domain: definition.domain,
@@ -578,6 +648,7 @@ async function prepareChangeset(request: ActionRequestRecord, definition: Magent
   });
   const caps = evaluateMagentoCaps({
     domain: definition.domain,
+    operationId: operation.operationId,
     riskClass: classifiedRisk,
     rows: preparedRows.map((row) => ({
       beforeImage: row.beforeImage,
@@ -590,7 +661,7 @@ async function prepareChangeset(request: ActionRequestRecord, definition: Magent
     cooldownBreaches: auto.cooldownBreaches,
   });
   if (!caps.allowed) throw new Error(`Magento caps rejected the change: ${caps.violations.join("; ")}`);
-  if (request.status === "approved" && caps.riskClass === 1 && !request.approvedByUserId) {
+  if (request.status === "approved" && caps.riskClass === 1 && !(await hasHumanActionApproval(request))) {
     throw new Error("This Magento change requires approval from a human administrator");
   }
 
@@ -788,6 +859,7 @@ async function prepareUndo(request: ActionRequestRecord) {
       operation: currentOperation.operation,
       path: row.path,
       query: row.query,
+      body: row.after_image,
     }) ?? {};
     const expected = row.reconciled_image ?? expectedAfterImage(currentOperation.operation, row.after_image);
     if (Object.keys(current).length > 0 && !deepContains(current, expected)) {
@@ -889,18 +961,19 @@ export function magentoGraphjinMutationField(mutationRoot: string): string {
   return field;
 }
 
-async function executeGraphjinMutation(input: {
+export async function executeGraphjinMutation(input: {
   request: ActionRequestRecord;
   runtime: MagentoRuntime;
   operation: MagentoOperation;
   path: Record<string, unknown>;
-  query: Record<string, unknown>;
   body: unknown;
   role: "magento_ops_executor" | "magento_sensitive_executor";
 }) {
   // Pack definitions retain the stable source/spec namespace so installer
   // validation can prove where a write comes from. GraphJin's config assigns
   // the stripped value as expose_as, and that alias is the actual GraphQL root.
+  const orderUpdate = input.operation.operationId === "magentoUpdateOrder";
+  if (orderUpdate) assertOrderUpdateIdentity(input.path, input.body);
   const field = magentoGraphjinMutationField(input.operation.mutationRoot);
   const result = await graphjinQuery<Record<string, {
     ok?: boolean;
@@ -922,8 +995,8 @@ async function executeGraphjinMutation(input: {
     query: `mutation ExecuteMagentoV2($call: JSON!) { ${field}(call: $call) { ok status_code operation_id request_id response_json } }`,
     variables: {
       call: {
-        path: normalizePath(input.operation, input.path, input.runtime.storeCode),
-        ...(Object.keys(input.query).length > 0 ? { query: input.query } : {}),
+        // Order save identifies its entity in the body; id belongs only to the read route.
+        path: normalizePath(input.operation, orderUpdate ? {} : input.path, input.runtime.storeCode),
         ...(input.body !== undefined && (Array.isArray(input.body) || !isRecord(input.body) || Object.keys(input.body).length > 0)
           ? { body: input.body }
           : {}),
@@ -1020,7 +1093,7 @@ async function executeChangeset(request: ActionRequestRecord) {
   if (!changeset || changeset.action_request_id !== request.id) {
     throw new Error("Magento change-set does not belong to this approved request");
   }
-  if (changeset.risk_class === 1 && !request.approvedByUserId) {
+  if (changeset.risk_class === 1 && !(await hasHumanActionApproval(request))) {
     throw new Error("This Magento change requires approval from a human administrator");
   }
   if (!["approved", "pending_approval"].includes(changeset.status)) {
@@ -1045,6 +1118,7 @@ async function executeChangeset(request: ActionRequestRecord) {
         operation,
         path: row.path,
         query: row.query,
+        body: row.after_image,
       });
       if (Object.keys(row.expected_current).length > 0 && !compareCanonical(current ?? {}, row.expected_current)) {
         drifted = true;
@@ -1084,7 +1158,6 @@ async function executeChangeset(request: ActionRequestRecord) {
       runtime,
       operation,
       path: {},
-      query: {},
       body: rows.map((row) => {
         const body = row.after_image;
         return Array.isArray(body.items) && Object.keys(body).length === 1 ? body.items : body;
@@ -1127,11 +1200,12 @@ async function executeChangeset(request: ActionRequestRecord) {
           continue;
         }
       }
-      const current = await readMagentoEntity({
+      const current = isCreateOperation(operation) ? null : await readMagentoEntity({
         runtime,
         operation,
         path: row.path,
         query: row.query,
+        body: row.after_image,
       });
       if (
         operation.resultMode !== "async_bulk" &&
@@ -1162,7 +1236,6 @@ async function executeChangeset(request: ActionRequestRecord) {
           runtime,
           operation,
           path: row.path,
-          query: row.query,
           body: row.after_image,
           role,
         });
@@ -1176,13 +1249,29 @@ async function executeChangeset(request: ActionRequestRecord) {
           updated_at: new Date(),
         }).where(eq(action_changeset_row.id, row.id));
       }
+      const fulfillment = ["magentoCreateInvoice", "magentoCreateShipment"].includes(operation.operationId);
+      const documentId = fulfillment ? Number(response?.response) : null;
+      if (fulfillment && (!Number.isSafeInteger(documentId) || Number(documentId) < 1)) {
+        throw new Error("Magento fulfillment response did not identify the created document");
+      }
       const reconciled = await readMagentoEntity({
         runtime,
-        operation,
+        operation: fulfillment ? { ...operation, readPath: `/V1/${operation.operationId === "magentoCreateInvoice" ? "invoices" : "shipment"}/${documentId}` } : operation,
         path,
         query: row.query,
+        body: row.after_image,
       });
-      const expected = expectedAfterImage(operation, row.after_image);
+      let expected = expectedAfterImage(operation, row.after_image);
+      if (fulfillment && isRecord(expected)) {
+        expected = { ...expected, order_id: Number(path.orderId) };
+      }
+      if (operation.operationId === "magentoMoveCategory" && isRecord(expected)) {
+        const sibling = expected.afterId ? await readMagentoEntity({ runtime,
+          operation: { ...operation, readPath: "/V1/categories/{categoryId}" },
+          path: { categoryId: expected.afterId }, query: {},
+        }) : null;
+        expected = { ...expected, position: expected.afterId ? Number(sibling?.position) + 1 : 1 };
+      }
       const confirmed = reconciliationConfirmed(operation, reconciled, expected);
       await db().update(action_changeset_row).set({
         status: confirmed ? "applied" : "reconcile_required",

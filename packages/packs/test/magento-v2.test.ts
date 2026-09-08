@@ -111,3 +111,21 @@ describe("Magento V2 caps", () => {
     }).projectedExposure).toBeNull();
   });
 });
+
+describe("Promotion operation caps", () => {
+  it.each(["magentoDeleteSalesRule", "magentoGenerateCoupons"])("does not require rule dates on %s", (operationId) => {
+    expect(evaluateMagentoCaps({ domain: "promotions", operationId, riskClass: 1,
+      rows: [{ afterImage: { couponSpec: { quantity: 2 } } }],
+    }).allowed).toBe(true);
+  });
+  it("still enforces coupon limits without requiring expiry", () => {
+    expect(evaluateMagentoCaps({ domain: "promotions", operationId: "magentoGenerateCoupons", riskClass: 1,
+      rows: [{ afterImage: { couponSpec: { quantity: 1000000 } } }],
+    }).violations).toEqual([expect.stringContaining("Coupon count exceeds")]);
+  });
+  it("uses existing expiry for partial rule updates but rejects removal", () => {
+    const base = { domain: "promotions" as const, operationId: "magentoUpdateSalesRule", riskClass: 1 as const };
+    expect(evaluateMagentoCaps({ ...base, rows: [{ beforeImage: { to_date: "2026-10-01" }, afterImage: { rule: { description: "Updated" } } }] }).allowed).toBe(true);
+    expect(evaluateMagentoCaps({ ...base, rows: [{ beforeImage: { to_date: "2026-10-01" }, afterImage: { rule: { to_date: "" } } }] }).violations).toContain("Promotion expiry is required");
+  });
+});
