@@ -163,11 +163,11 @@ paths:
         - { $ref: "#/components/parameters/StoreCode" }
         - { $ref: "#/components/parameters/Id" }
       responses: { "200": { $ref: "#/components/responses/Object" } }
-    put:
+  /rest/{storeCode}/V1/orders:
+    post:
       operationId: magentoUpdateOrder
       parameters:
         - { $ref: "#/components/parameters/StoreCode" }
-        - { $ref: "#/components/parameters/Id" }
       requestBody: { $ref: "#/components/requestBodies/Object" }
       responses: { "200": { $ref: "#/components/responses/Object" } }
   /rest/{storeCode}/V1/orders/{id}/comments:

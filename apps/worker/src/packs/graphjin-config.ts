@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { readFile, rename, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { parse, parseDocument } from "yaml";
 import {
   acquireGraphjinConfigLock,
@@ -154,6 +154,7 @@ export async function applyPackGraphjinConfig(input: {
   configFile: string;
   update: Record<string, unknown>;
   ownedSourceNames?: Set<string>;
+  ownedTableNames?: Set<string>;
   sectionMode?: "merge" | "replace";
   restartAfterPersist?: boolean;
 }): Promise<AppliedGraphjinConfig> {
@@ -168,7 +169,21 @@ export async function applyPackGraphjinConfig(input: {
       roles?: unknown;
       tables?: unknown;
       relationships?: unknown;
+      secrets?: { keystore?: { path?: string } };
     };
+    const configuredKeystore = durableConfig.secrets?.keystore?.path?.trim() || "secrets.enc.yml";
+    const keystore = configuredKeystore.startsWith("/config/")
+      ? resolve(dirname(input.configFile), configuredKeystore.slice("/config/".length))
+      : resolve(dirname(input.configFile), configuredKeystore);
+    const keystoreRelative = relative(dirname(input.configFile), keystore);
+    if ((keystoreRelative === ".." || keystoreRelative.startsWith("../")) || isAbsolute(keystoreRelative)) throw new Error("pack credential keystore must be inside the shared GraphJin config directory");
+    const readKeystore = () => readFile(keystore).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    // Stable gjsecret:// references are overwritten when credentials change.
+    // Restoring YAML alone would leave a failed replacement token active.
+    const previousKeystore = await readKeystore();
     const headers = {
       authorization: `Bearer ${mintGraphjinToken({
         orgId: input.orgId,
@@ -216,6 +231,12 @@ export async function applyPackGraphjinConfig(input: {
         const name = String(source.name ?? "");
         if (name && currentSourceNames.has(name) && !input.ownedSourceNames?.has(name)) {
           throw new Error(`GraphJin source ${name} already exists and is not owned by this pack`);
+        }
+      }
+      if (input.ownedTableNames) {
+        const existingNames = new Set([...configArray(durableConfig.tables), ...configArray(current.data?.gj_config?.tables)].map(table => String(table.name)));
+        for (const table of requestedTables) {
+          if (existingNames.has(String(table.name)) && !input.ownedTableNames.has(String(table.name))) throw new Error(`GraphJin table ${table.name} already exists and is not owned by this pack`);
         }
       }
       const update = {
@@ -346,15 +367,30 @@ export async function applyPackGraphjinConfig(input: {
     if (input.restartAfterPersist) {
       await requestGraphjinRestart(input.configFile, input.endpoint);
     }
+    const appliedConfig = await readFile(input.configFile);
+    const appliedKeystore = await readKeystore();
     return {
       catalogRevision,
       restore: async () => {
-        const temporary = `${input.configFile}.${randomUUID()}.pack-rollback`;
-        await writeFile(temporary, previous, { mode: previousMode });
-        await rename(temporary, input.configFile);
-        if (input.restartAfterPersist) {
-          await requestGraphjinRestart(input.configFile, input.endpoint);
-        }
+        const unlock = await acquireGraphjinConfigLock({ configFile: input.configFile });
+        try {
+          const currentKeystore = await readKeystore();
+          if (!(await readFile(input.configFile)).equals(appliedConfig) ||
+              !((currentKeystore === null && appliedKeystore === null) || (currentKeystore && appliedKeystore && currentKeystore.equals(appliedKeystore)))) {
+            throw new Error("GraphJin configuration changed after pack apply; rollback preserved the newer state");
+          }
+          if (previousKeystore) {
+            const temporaryKeystore = `${keystore}.${randomUUID()}.pack-rollback`;
+            await writeFile(temporaryKeystore, previousKeystore, { mode: 0o600 });
+            await rename(temporaryKeystore, keystore);
+          } else await rm(keystore, { force: true });
+          const temporary = `${input.configFile}.${randomUUID()}.pack-rollback`;
+          await writeFile(temporary, previous, { mode: previousMode });
+          await rename(temporary, input.configFile);
+          if (input.restartAfterPersist) {
+            await requestGraphjinRestart(input.configFile, input.endpoint);
+          }
+        } finally { await unlock(); }
       },
     };
   } finally {

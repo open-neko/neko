@@ -580,9 +580,11 @@ const server = createServer(
       },
     },
     packs: {
+      upload: (bytes, input) => packService.upload(bytes, input),
+      review: (packId, input, operation) => packService.review(packId, input, operation),
       list: () => packService.list(),
-      inspect: (packId) => packService.inspect(packId),
-      plan: (packId) => packService.plan(packId),
+      inspect: (packId, version) => packService.inspect(packId, version),
+      plan: (packId, version) => packService.plan(packId, version),
       status: (packId) => packService.status(packId),
       doctor: (packId) => packService.doctor(packId),
       install: (packId, input) => packService.install(packId, input),

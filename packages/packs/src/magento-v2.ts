@@ -339,6 +339,7 @@ export type MagentoCapEvaluation = {
 
 export function evaluateMagentoCaps(input: {
   domain: MagentoDomain;
+  operationId?: string;
   riskClass: MagentoRiskClass;
   rows: Array<{ beforeImage?: unknown; afterImage: unknown }>;
   caps?: Partial<MagentoCaps>;
@@ -385,14 +386,18 @@ export function evaluateMagentoCaps(input: {
       violations.push(`Promotion discount exceeds the ${caps.maxDiscountPercent}% ceiling`);
     }
     const couponCounts = input.rows.flatMap((row) =>
-      valuesForKeys(row.afterImage, new Set(["qty", "coupon_count"])),
+      valuesForKeys(row.afterImage, new Set(["quantity", "qty", "coupon_count"])),
     );
     if (couponCounts.some((value) => value > caps.maxCouponCount)) {
       violations.push(`Coupon count exceeds the ${caps.maxCouponCount} ceiling`);
     }
     for (const row of input.rows) {
-      const start = stringForKeys(row.afterImage, new Set(["from_date"]));
-      const end = stringForKeys(row.afterImage, new Set(["to_date"]));
+      if (["magentoDeleteSalesRule", "magentoGenerateCoupons"].includes(input.operationId ?? "")) continue;
+      const effectiveRule = { ...(row.beforeImage && typeof row.beforeImage === "object" ? row.beforeImage : {}),
+        ...(row.afterImage && typeof row.afterImage === "object" && "rule" in row.afterImage
+          ? row.afterImage.rule as Record<string, unknown> : row.afterImage as Record<string, unknown>) };
+      const start = stringForKeys(effectiveRule, new Set(["from_date"]));
+      const end = stringForKeys(effectiveRule, new Set(["to_date"]));
       if (!end) violations.push("Promotion expiry is required");
       if (start && end) {
         const duration = (Date.parse(end) - Date.parse(start)) / 86_400_000;

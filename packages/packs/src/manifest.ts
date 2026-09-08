@@ -50,7 +50,7 @@ const compatibilitySchema = z
       })
       .strict(),
     applications: z.array(applicationCompatibilitySchema).min(1),
-    databases: z.array(databaseCompatibilitySchema).min(1),
+    databases: z.array(databaseCompatibilitySchema),
   })
   .strict();
 
@@ -99,7 +99,7 @@ const artifactsSchema = z
     watchers: relativePath,
     actions: relativePath,
     policies: relativePath,
-    skills: z.array(relativePath).min(1),
+    skills: z.array(relativePath),
   })
   .strict();
 

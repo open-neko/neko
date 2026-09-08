@@ -17,6 +17,7 @@ type ArtifactMetadata = Record<string, unknown>;
 
 export type PackArtifactLocator = {
   source?: string;
+  ignorePackAliases?: boolean;
   role?: string;
   slug?: string;
   name?: string;
@@ -141,14 +142,14 @@ async function graphjinConfigState(
   }
   const source = locator.source ?? targetRef;
   const tables = (config.tables ?? []).filter(
-    (value) => value.source === source || value.database === source,
+    (value) => (value.source === source || value.database === source) && !(locator.ignorePackAliases && /^pack_[a-f0-9]{20}$/.test(String(value.name))),
   );
   const relationships = (config.relationships ?? []).filter(
     (value) =>
       String(value.from ?? "").startsWith(`${source}:`) ||
       String(value.to ?? "").startsWith(`${source}:`),
   );
-  return tables.length || relationships.length
+  return tables.length || relationships.length || config.sources?.some(value => value.name === source)
     ? canonicalHash({ tables, relationships })
     : null;
 }

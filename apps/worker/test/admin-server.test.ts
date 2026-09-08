@@ -270,6 +270,8 @@ describe("worker solution-pack admin routes", () => {
         status: "removed",
         input,
       })),
+      upload: vi.fn(async () => ({ packId: "service-health", version: "0.1.0" })),
+      review: vi.fn(async () => ({ reviewHash: "reviewed" })),
       magentoStoreManagement: vi.fn(async () => ({ controls: [{ domain: "catalog" }] })),
       updateMagentoStoreManagement: vi.fn(async (input: Record<string, unknown>) => ({ input })),
     };
@@ -320,6 +322,21 @@ describe("worker solution-pack admin routes", () => {
         expect(surface[action]).toHaveBeenCalledWith("magento", input);
       }
 
+      const upload = await fetch(`http://127.0.0.1:${srv.port}/admin/packs/upload`, {
+        method: "POST", headers: { "content-type": "application/zip", "x-openneko-actor": "admin-1" }, body: Buffer.from("fixture ZIP"),
+      });
+      expect(upload.status).toBe(200);
+      expect(surface.upload).toHaveBeenCalledWith(Buffer.from("fixture ZIP"), expect.objectContaining({ actorUserId: "admin-1" }));
+      const tooLarge = await fetch(`http://127.0.0.1:${srv.port}/admin/packs/upload`, {
+        method: "POST", headers: { "content-type": "application/zip" }, body: Buffer.alloc(16 * 1024 * 1024 + 1),
+      });
+      expect(tooLarge.status).toBe(413);
+      expect(surface.upload).toHaveBeenCalledTimes(1);
+      const review = await fetch(`http://127.0.0.1:${srv.port}/admin/packs/service-health/review`, {
+        method: "POST", body: JSON.stringify({ operation: "upgrade", version: "0.2.0" }),
+      });
+      expect(review.status).toBe(200);
+      expect(surface.review).toHaveBeenCalledWith("service-health", { operation: "upgrade", version: "0.2.0" }, "upgrade");
       const management = await fetch(
         `http://127.0.0.1:${srv.port}/admin/packs/magento/store-management`,
       );
@@ -365,6 +382,8 @@ describe("worker solution-pack admin routes", () => {
         configure: async () => ({}),
         upgrade: async () => ({}),
         uninstall: async () => ({}),
+        upload: async () => ({}),
+        review: async () => ({}),
         magentoStoreManagement: async () => ({}),
         updateMagentoStoreManagement: async () => ({}),
       },

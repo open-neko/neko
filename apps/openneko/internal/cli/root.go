@@ -23,12 +23,13 @@ import (
 	"github.com/open-neko/neko/apps/openneko/internal/version"
 )
 
-// MaybeProxyToWorker is set by plugin-op commands; if a worker container is
+// MaybeProxyToWorker is used by worker-backed commands; if a worker container is
 // running and --local wasn't passed, the command re-executes inside the
 // worker via docker exec. Defined here so subcommand files can call it
 // consistently. Returns (exitCode, true) when proxied, (0, false) when the
-// caller should fall through to the local implementation.
-func MaybeProxyToWorker(cmd *cobra.Command) (int, bool) {
+// caller should fall through to the local implementation. An optional handler
+// lets host-file uploads stream to that same selected worker without copying.
+func MaybeProxyToWorker(cmd *cobra.Command, run ...func(container string) int) (int, bool) {
 	if local, _ := cmd.Flags().GetBool("local"); local {
 		return 0, false
 	}
@@ -72,6 +73,9 @@ func MaybeProxyToWorker(cmd *cobra.Command) (int, bool) {
 			fmt.Fprintf(cmd.ErrOrStderr(), "openneko: worker %s belongs to named instance %q; re-run with --instance %s\n", container, name, name)
 			return 1, true
 		}
+	}
+	if len(run) > 0 {
+		return run[0](container), true
 	}
 	return dockerproxy.ProxyToWorker(container, os.Args[1:]), true
 }

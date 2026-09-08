@@ -1,3 +1,4 @@
+import { resolveWatcherVariables } from "@neko/llm/workflows";
 import type { MetricAgentResult } from "@neko/llm";
 
 type MetricDefinition = {
@@ -14,6 +15,7 @@ type MetricDefinition = {
     document: string;
     result: Record<string, unknown>;
     freshnessSeconds: number;
+    variables?: Record<string, unknown>;
     runtime?: {
       storeIds?: number[];
       windowDays?: number;
@@ -72,6 +74,7 @@ export function buildSavedQueryVariables(
   now = new Date(),
 ): Record<string, unknown> {
   const definition = parseMetricDefinition(definitionValue);
+  if (definition.execution.variables) return resolveWatcherVariables(definition.execution.variables, now);
   const runtime = definition.execution.runtime ?? {};
   const windowDays = positive(runtime.windowDays, 30);
   const staleAfterSeconds = positive(runtime.staleAfterSeconds, 2 * 60 * 60);

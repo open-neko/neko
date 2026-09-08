@@ -19,3 +19,4 @@ export * from "./file-source";
 export * from "./file-source-assets";
 export * from "./mcp-client";
 export * from "./mcp-names";
+export * from "./pack-source";

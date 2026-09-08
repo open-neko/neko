@@ -1,4 +1,5 @@
 import {
+  audit_chain,
   action_execution,
   action_policy,
   action_request,
@@ -9,6 +10,8 @@ import {
   eq,
   work_run,
 } from "@neko/db";
+
+import { resolveDeploymentProfile } from "../work/deployment-profile";
 
 export type ActionScope = "internal" | "external";
 
@@ -563,9 +566,22 @@ export async function approveActionRequest(args: {
     entityKind: "action_request",
     entityId: record.id,
     event: "approved",
-    payload: { approvedBy: args.approverUserId, kind: record.kind },
+    payload: { approvedBy: args.approverUserId, kind: record.kind,
+      soloOperator: args.approver?.userId === null && args.approver.role === "admin" && resolveDeploymentProfile() === "solo",
+    },
   });
   return record;
+}
+
+/** Explicit solo operator decisions are human approvals even without an SSO user row. */
+export async function hasHumanActionApproval(request: ActionRequestRecord): Promise<boolean> {
+  if (request.approvedByUserId) return true;
+  if (!request.approvedAt) return false;
+  const events = await db().select({ payload: audit_chain.payload }).from(audit_chain).where(and(
+    eq(audit_chain.org_id, request.orgId), eq(audit_chain.entity_kind, "action_request"),
+    eq(audit_chain.entity_id, request.id), eq(audit_chain.event, "approved"),
+  ));
+  return events.some(({ payload }) => (payload as Record<string, unknown>).soloOperator === true);
 }
 
 /**

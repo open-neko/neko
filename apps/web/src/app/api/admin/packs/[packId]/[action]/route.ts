@@ -5,6 +5,7 @@ import {
   isPackReadAction,
   isPackWriteAction,
   requestPackWorker,
+  readPackRequest,
   validPackId,
 } from "@/lib/solution-packs";
 
@@ -14,7 +15,7 @@ type RouteContext = {
 
 const MAX_BODY_BYTES = 64 * 1024;
 
-export async function GET(_request: NextRequest, context: RouteContext) {
+export async function GET(request: NextRequest, context: RouteContext) {
   const allowed = await requireAdminActor();
   if (isDenied(allowed)) return allowed;
   const { packId, action } = await context.params;
@@ -22,8 +23,9 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     return NextResponse.json({ error: "unknown pack operation" }, { status: 404 });
   }
   try {
+    const version = request.nextUrl.searchParams.get("version");
     const result = await requestPackWorker(
-      `/admin/packs/${encodeURIComponent(packId)}/${action}`,
+      `/admin/packs/${encodeURIComponent(packId)}/${action}${version ? `?version=${encodeURIComponent(version)}` : ""}`,
     );
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {
@@ -47,12 +49,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
   let parsed: unknown;
   try {
-    const raw = await request.text();
-    if (Buffer.byteLength(raw, "utf8") > MAX_BODY_BYTES) {
-      return NextResponse.json({ error: "request is too large" }, { status: 413 });
-    }
+    const raw = (await readPackRequest(request, MAX_BODY_BYTES)).toString("utf8");
     parsed = raw ? JSON.parse(raw) as unknown : {};
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === "request is too large") return NextResponse.json({ error: error.message }, { status: 413 });
     return NextResponse.json({ error: "request body must be valid JSON" }, { status: 400 });
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {

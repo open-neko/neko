@@ -73,6 +73,8 @@ func newPackCmd() *cobra.Command {
 		Short: "Install and manage application-specific solution packs",
 	}
 	cmd.AddCommand(
+		newPackUploadCmd(),
+		newPackReviewCmd(),
 		newPackListCmd(),
 		newPackInspectCmd(),
 		newPackPlanCmd(),
@@ -163,17 +165,21 @@ func newPackDoctorCmd() *cobra.Command {
 }
 
 func newPackConfigureCmd() *cobra.Command {
+	var generic packRequestOptions
 	var analyticsUserRef string
 	var analyticsPassRef string
 	var integrationRef string
 	var output string
 	cmd := &cobra.Command{
 		Use:   "configure <pack>",
-		Short: "Replace stored pack credential references and re-run readiness checks",
+		Short: "Update pack configuration or credentials and re-run readiness checks",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if code, proxied := MaybeProxyToWorker(cmd); proxied {
 				return WithExit(code, nil)
+			}
+			if args[0] != "magento" || generic.used(cmd) {
+				return runReviewedPack(cmd, args[0], "configure", generic, output)
 			}
 			secretRefs := map[string]string{}
 			for key, value := range map[string]string{
@@ -206,21 +212,26 @@ func newPackConfigureCmd() *cobra.Command {
 	cmd.Flags().StringVar(&analyticsUserRef, "analytics-username-ref", "", "Stored key in the pack.magento secret section")
 	cmd.Flags().StringVar(&analyticsPassRef, "analytics-password-ref", "", "Stored key in the pack.magento secret section")
 	cmd.Flags().StringVar(&integrationRef, "integration-token-ref", "", "Stored Magento integration token key")
+	addPackRequestFlags(cmd, &generic)
 	addPackOutputFlag(cmd, &output)
 	return cmd
 }
 
 func newPackUpgradeCmd() *cobra.Command {
+	var generic packRequestOptions
 	var output string
 	cmd := &cobra.Command{
 		Use:   "upgrade <pack>",
-		Short: "Apply the embedded pack version while preserving owned-artifact drift",
+		Short: "Apply an available pack version while preserving operator changes",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if code, proxied := MaybeProxyToWorker(cmd); proxied {
 				return WithExit(code, nil)
 			}
 			body := map[string]any{"idempotencyKey": uuid.NewString()}
+			if args[0] != "magento" || generic.used(cmd) {
+				return runReviewedPack(cmd, args[0], "upgrade", generic, output)
+			}
 			var response packStatusResponse
 			raw, err := requestPackAPI(cmd.Context(), http.MethodPost, "/admin/packs/"+url.PathEscape(args[0])+"/upgrade", body, &response)
 			if err != nil {
@@ -235,6 +246,7 @@ func newPackUpgradeCmd() *cobra.Command {
 			return nil
 		},
 	}
+	addPackRequestFlags(cmd, &generic)
 	addPackOutputFlag(cmd, &output)
 	return cmd
 }
@@ -271,7 +283,7 @@ func newPackListCmd() *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List solution packs available in this OpenNeko release",
+		Short: "List first-party and uploaded solution packs",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if code, proxied := MaybeProxyToWorker(cmd); proxied {
@@ -446,6 +458,7 @@ func newPackStatusCmd() *cobra.Command {
 }
 
 func newPackInstallCmd() *cobra.Command {
+	var generic packRequestOptions
 	opts := packInstallOptions{storeCode: "all", databaseMode: "external_network", databasePort: 3306, output: "text"}
 	cmd := &cobra.Command{
 		Use:   "install <pack>",
@@ -455,8 +468,8 @@ func newPackInstallCmd() *cobra.Command {
 			if code, proxied := MaybeProxyToWorker(cmd); proxied {
 				return WithExit(code, nil)
 			}
-			if args[0] != "magento" {
-				return fmt.Errorf("pack install: unsupported embedded pack %q", args[0])
+			if args[0] != "magento" || generic.used(cmd) {
+				return runReviewedPack(cmd, args[0], "install", generic, opts.output)
 			}
 			if err := completeMagentoInstallOptions(&opts); err != nil {
 				return err
@@ -532,6 +545,7 @@ func newPackInstallCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.analyticsPassRef, "analytics-password-ref", "", "Stored key in the pack.magento secret section")
 	cmd.Flags().StringVar(&opts.integrationRef, "integration-token-ref", "", "Optional stored Magento integration token key")
 	cmd.Flags().BoolVar(&opts.nonInteractive, "non-interactive", false, "Never prompt; fail if required configuration is missing")
+	addPackRequestFlags(cmd, &generic)
 	addPackOutputFlag(cmd, &opts.output)
 	return cmd
 }
@@ -666,11 +680,15 @@ func requestPackAPI(ctx context.Context, method, path string, body any, destinat
 	endpoint := base + path
 	var reader io.Reader
 	if body != nil {
-		encoded, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
+		if archive, ok := body.([]byte); ok {
+			reader = bytes.NewReader(archive)
+		} else {
+			encoded, err := json.Marshal(body)
+			if err != nil {
+				return nil, err
+			}
+			reader = bytes.NewReader(encoded)
 		}
-		reader = bytes.NewReader(encoded)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -680,6 +698,9 @@ func requestPackAPI(ctx context.Context, method, path string, body any, destinat
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+		if _, ok := body.([]byte); ok {
+			req.Header.Set("Content-Type", "application/zip")
+		}
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {

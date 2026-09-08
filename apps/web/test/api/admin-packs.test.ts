@@ -31,6 +31,22 @@ afterEach(() => {
 });
 
 describe("/api/admin/packs", () => {
+  it("bounds ZIP uploads and assigns the authenticated uploader", async () => {
+    const { POST } = await import("@/app/api/admin/packs/upload/route");
+    const request = (body: BodyInit) => new Request("http://localhost/api/admin/packs/upload", {
+      method: "POST", headers: { "content-type": "application/zip", "x-openneko-actor": "forged" }, body,
+    });
+    mockRequireAdminActor.mockResolvedValueOnce(NextResponse.json({ error: "admin only" }, { status: 403 }));
+    expect((await POST(request("ZIP"))).status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await POST(request(new Uint8Array(16 * 1024 * 1024 + 1)))).status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValue(jsonResponse(200, { packId: "service-health" }));
+    expect((await POST(request("ZIP"))).status).toBe(200);
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers).get("x-openneko-actor")).toBe("admin-1");
+    expect(Buffer.from(init.body as Uint8Array).toString()).toBe("ZIP");
+  });
   it("proxies the embedded pack list", async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { packs: [{ id: "magento" }] }));
     const { GET } = await import("@/app/api/admin/packs/route");
@@ -77,6 +93,18 @@ describe("/api/admin/packs/[packId]/[action]", () => {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect(body.actorUserId).toBe("admin-1");
     expect(body.idempotencyKey).toEqual(expect.any(String));
+  });
+
+  it("uses the same authenticated actor for review and forwards exact approval on install", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { reviewHash: "exact-review" }));
+    const { POST } = await import("@/app/api/admin/packs/[packId]/[action]/route");
+    for (const action of ["review", "install"]) {
+      const result = await callRoute(request => POST(request, { params: Promise.resolve({ packId: "service-health", action }) }), {
+        method: "POST", body: { actorUserId: "forged", operation: "install", version: "0.1.0", reviewHash: "exact-review" },
+      });
+      expect(result.status).toBe(200);
+      expect(JSON.parse(String((fetchMock.mock.lastCall?.[1] as RequestInit).body))).toMatchObject({ actorUserId: "admin-1", version: "0.1.0", reviewHash: "exact-review" });
+    }
   });
 
   it("rejects unknown operations before contacting the worker", async () => {

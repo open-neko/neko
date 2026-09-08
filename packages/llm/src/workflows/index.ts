@@ -213,6 +213,7 @@ export {
 } from "./cycle-detection";
 export {
   approveActionRequest,
+  hasHumanActionApproval,
   autoApprovePreparedActionRequest,
   createActionPolicy,
   createActionRequest,

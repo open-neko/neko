@@ -129,6 +129,7 @@ to the customer GraphJin config at runtime.
 
 ## Docs
 
+- [PACKS.md](PACKS.md) — authoring solution packs, directory layout, connectors, validation, and contributions
 - [INSTALL.md](INSTALL.md) — install, [upgrade](INSTALL.md#upgrade), requirements, troubleshooting, connecting your data, full demo trial
 - [PLUGINS.md](PLUGINS.md) — plugin capabilities, sandbox/security model, marketplaces, install policy, host support
 - [OPENSHELL.md](OPENSHELL.md) — preview: running the agent itself in an OpenShell policy sandbox (architecture, security, how to enable)
