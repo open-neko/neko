@@ -213,9 +213,11 @@ export interface InstallPolicyHandlerSurface {
 }
 
 export interface PacksHandlerSurface {
+  upload(bytes: Buffer, input: { actorUserId?: string | null; signal?: AbortSignal }): Promise<unknown>;
+  review(packId: string, input: Record<string, unknown>, operation: "install" | "configure" | "upgrade"): Promise<unknown>;
   list(): Promise<unknown>;
-  inspect(packId: string): Promise<unknown>;
-  plan(packId: string): Promise<unknown>;
+  inspect(packId: string, version?: string): Promise<unknown>;
+  plan(packId: string, version?: string): Promise<unknown>;
   status(packId: string): Promise<unknown>;
   doctor(packId: string): Promise<unknown>;
   install(packId: string, input: Record<string, unknown>): Promise<unknown>;
@@ -352,7 +354,7 @@ export type AdminHandlerOptions = {
   recordsImports?: RecordsImportHandlerSurface | null;
   /** Trusted web→worker action creation so worker-owned preflight hooks run. */
   actionRequests?: ActionRequestHandlerSurface | null;
-  /** Embedded, first-party solution-pack lifecycle. */
+  /** Shared first-party and uploaded solution-pack lifecycle. */
   packs?: PacksHandlerSurface | null;
 };
 
@@ -597,6 +599,10 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
       void handlePacksList(res, packs);
       return;
     }
+    if (req.method === "POST" && req.url === "/admin/packs/upload") {
+      void handlePackUpload(req, res, packs);
+      return;
+    }
     if (req.method === "GET" && req.url === "/admin/packs/magento/store-management") {
       void handleMagentoStoreManagementRead(res, packs);
       return;
@@ -606,7 +612,7 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
       return;
     }
     const packPath = (req.url ?? "").split(/[?#]/, 1)[0] ?? "";
-    const packRoute = /^\/admin\/packs\/([^/]+)(?:\/(plan|status|doctor|install|configure|upgrade|uninstall))?$/.exec(
+    const packRoute = /^\/admin\/packs\/([^/]+)(?:\/(inspect|plan|status|doctor|review|install|configure|upgrade|uninstall))?$/.exec(
       packPath,
     );
     if (packRoute) {
@@ -618,17 +624,17 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
         return;
       }
       const action = packRoute[2] ?? "inspect";
-      if (req.method === "GET" && !["install", "configure", "upgrade", "uninstall"].includes(action)) {
-        void handlePackRead(res, packs, packId, action as "inspect" | "plan" | "status" | "doctor");
+      if (req.method === "GET" && !["review", "install", "configure", "upgrade", "uninstall"].includes(action)) {
+        void handlePackRead(res, packs, packId, action as "inspect" | "plan" | "status" | "doctor", new URL(req.url!, "http://localhost").searchParams.get("version") ?? undefined);
         return;
       }
-      if (req.method === "POST" && ["install", "configure", "upgrade", "uninstall"].includes(action)) {
+      if (req.method === "POST" && ["review", "install", "configure", "upgrade", "uninstall"].includes(action)) {
         void handlePackApply(
           req,
           res,
           packs,
           packId,
-          action as "install" | "configure" | "upgrade" | "uninstall",
+          action as "review" | "install" | "configure" | "upgrade" | "uninstall",
         );
         return;
       }
@@ -653,6 +659,25 @@ export function createAdminHandler(opts: AdminHandlerOptions = {}) {
     }
     res.writeHead(404).end();
   };
+}
+
+async function handlePackUpload(req: IncomingMessage, res: ServerResponse, packs: PacksHandlerSurface | null): Promise<void> {
+  if (!packs) { json(res, 503, { error: "solution-pack service unavailable" }); return; }
+  if (req.headers["content-type"]?.split(";", 1)[0]?.trim() !== "application/zip") {
+    json(res, 415, { error: "upload a ZIP with Content-Type application/zip" }); return;
+  }
+  const controller = new AbortController();
+  const abort = () => { if (!res.writableEnded) controller.abort(); };
+  res.once("close", abort);
+  try {
+    const bytes = await readBody(req, 16 * 1024 * 1024);
+    const actor = req.headers["x-openneko-actor"];
+    if (Array.isArray(actor)) throw new Error("invalid upload actor");
+    json(res, 200, await packs.upload(bytes, { actorUserId: actor ? decodeURIComponent(actor) : null, signal: controller.signal }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    json(res, message === "body too large" ? 413 : 400, { error: message });
+  } finally { res.off("close", abort); }
 }
 
 async function handlePacksList(
@@ -711,13 +736,14 @@ async function handlePackRead(
   packs: PacksHandlerSurface | null,
   packId: string,
   action: "inspect" | "plan" | "status" | "doctor",
+  version?: string,
 ): Promise<void> {
   if (!packs) {
     json(res, 503, { error: "solution-pack service unavailable" });
     return;
   }
   try {
-    const result = await packs[action](packId);
+    const result = version && (action === "inspect" || action === "plan") ? await packs[action](packId, version) : await packs[action](packId);
     if (action === "status" && result === null) {
       json(res, 404, { error: `pack ${packId} is not installed` });
       return;
@@ -733,7 +759,7 @@ async function handlePackApply(
   res: ServerResponse,
   packs: PacksHandlerSurface | null,
   packId: string,
-  action: "install" | "configure" | "upgrade" | "uninstall",
+  action: "review" | "install" | "configure" | "upgrade" | "uninstall",
 ): Promise<void> {
   if (!packs) {
     json(res, 503, { error: "solution-pack service unavailable" });
@@ -745,7 +771,12 @@ async function handlePackApply(
     return;
   }
   try {
-    json(res, 200, await packs[action](packId, body as Record<string, unknown>));
+    const input = body as Record<string, unknown>;
+    if (action === "review") {
+      const operation = input.operation ?? "install";
+      if (operation !== "install" && operation !== "configure" && operation !== "upgrade") throw new Error("invalid pack review operation");
+      json(res, 200, await packs.review(packId, input, operation));
+    } else json(res, 200, await packs[action](packId, input));
   } catch (error) {
     json(res, 400, { error: error instanceof Error ? error.message : String(error) });
   }
@@ -1682,16 +1713,22 @@ function json(res: ServerResponse, status: number, body: unknown) {
 }
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
+  const text = (await readBody(req, 64 * 1024)).toString("utf8");
+  return text ? JSON.parse(text) : {};
+}
+
+async function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
-    // Cap body size to defend against runaway uploads against the
-    // worker admin port (loopback, but still).
-    if (Buffer.concat(chunks).length > 64 * 1024) {
+  let size = 0;
+  // Keep the response socket available for a useful 413, including chunked bodies.
+  for await (const chunk of req.iterator({ destroyOnReturn: false })) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+    size += bytes.length;
+    if (size > limit) {
+      req.resume();
       throw new Error("body too large");
     }
+    chunks.push(bytes);
   }
-  const text = Buffer.concat(chunks).toString("utf8");
-  if (!text) return {};
-  return JSON.parse(text);
+  return Buffer.concat(chunks, size);
 }

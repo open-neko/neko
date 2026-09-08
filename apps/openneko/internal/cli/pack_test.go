@@ -3,12 +3,113 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestPackUploadReadsHostArchive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "custom.zip")
+	if err := os.WriteFile(path, []byte("ZIP fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	output, err := runPackCommand(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if r.URL.Path != "/admin/packs/upload" || r.Header.Get("Content-Type") != "application/zip" || string(body) != "ZIP fixture" {
+			t.Fatal("archive transport changed")
+		}
+		io.WriteString(w, `{"packId":"service-health","version":"0.1.0"}`)
+	}), "upload", path)
+	if err != nil || !strings.Contains(output, "Nothing was installed") {
+		t.Fatalf("%s: %v", output, err)
+	}
+}
+
+func TestPackUploadStreamsHostFileToSelectedWorker(t *testing.T) {
+	directory := t.TempDir()
+	archive := filepath.Join(directory, "host-only.zip")
+	if err := os.WriteFile(archive, []byte("host ZIP bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := `#!/bin/sh
+if [ "$1" = "ps" ]; then
+  echo openneko-pack-upload-worker-1
+else
+  printf '%s\n' "$@" > "$PACK_TEST_CAPTURE/args"
+  cat > "$PACK_TEST_CAPTURE/body"
+  echo '{"packId":"service-health","version":"0.1.0"}'
+fi
+`
+	if err := os.WriteFile(filepath.Join(directory, "docker"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PACK_TEST_CAPTURE", directory)
+	t.Setenv("XDG_CONFIG_HOME", directory)
+	t.Setenv("OPENNEKO_PROXIED", "")
+	command := newPackCmd()
+	command.SetArgs([]string{"upload", archive})
+	var output bytes.Buffer
+	command.SetOut(&output)
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := os.ReadFile(filepath.Join(directory, "args"))
+	body, _ := os.ReadFile(filepath.Join(directory, "body"))
+	if !strings.Contains(string(args), "exec\n-i\nopenneko-pack-upload-worker-1\ncurl") || strings.Contains(string(args), archive) || string(body) != "host ZIP bytes" {
+		t.Fatalf("host transport was not streamed: %s", args)
+	}
+}
+
+func TestPackCustomReviewAndApproval(t *testing.T) {
+	for _, approve := range []bool{false, true} {
+		t.Run(fmt.Sprint(approve), func(t *testing.T) {
+			applies := 0
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					io.WriteString(w, `{"manifest":{"metadata":{"version":"0.1.0"},"inputs":[{"key":"count","type":"integer"},{"key":"active","type":"boolean"},{"key":"choice","type":"enum","values":[1,2]}]}}`)
+					return
+				}
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				inputs := body["inputs"].(map[string]any)
+				if inputs["count"] != float64(7) || inputs["active"] != true || inputs["choice"] != float64(2) || body["version"] != "0.1.0" {
+					t.Fatalf("bad declared configuration: %#v", body)
+				}
+				if body["secretRefs"].(map[string]any)["token"] != "stored_token" || body["dataSourceId"] != "source-1" {
+					t.Fatal("bindings were not forwarded")
+				}
+				if strings.HasSuffix(r.URL.Path, "/review") {
+					io.WriteString(w, `{"reviewHash":"exact-approval","plan":{"entries":[]}}`)
+					return
+				}
+				applies++
+				if body["reviewHash"] != "exact-approval" {
+					t.Fatal("install did not use reviewed approval")
+				}
+				io.WriteString(w, `{"packId":"service-health","version":"0.1.0","status":"installed"}`)
+			})
+			args := []string{"install", "service-health", "--input", "count=7", "--input", "active=true", "--input", "choice=2", "--secret-ref", "token=stored_token", "--source-id", "source-1"}
+			if approve {
+				args = append(args, "--yes")
+			}
+			_, err := runPackCommand(t, handler, args...)
+			if approve && (err != nil || applies != 1) {
+				t.Fatalf("approved install failed: %v", err)
+			}
+			if !approve && (err == nil || applies != 0) {
+				t.Fatal("unapproved pack was applied")
+			}
+		})
+	}
+}
 
 func runPackCommand(t *testing.T, handler http.Handler, args ...string) (string, error) {
 	t.Helper()

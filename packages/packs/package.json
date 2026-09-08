@@ -20,10 +20,12 @@
   },
   "dependencies": {
     "yaml": "^2.8.1",
+    "yauzl": "^3.4.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^20",
+    "@types/yauzl": "^3.4.0",
     "typescript": "^5",
     "vitest": "^2.1.8"
   }

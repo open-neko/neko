@@ -21,7 +21,7 @@ import {
   persistProcessingJobTelemetry,
 } from "../telemetry.js";
 import { observeSafely } from "@neko/telemetry";
-import { graphjinQuery, mintGraphjinToken } from "@neko/llm/graphjin";
+import { graphjinQuery, mintGraphjinToken, packArtifactSource } from "@neko/llm/graphjin";
 import {
   buildSavedQueryVariables,
   mapSavedQueryMetric,
@@ -43,7 +43,7 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
   const jobRows = await db()
     .select({ trigger_payload: processing_job.trigger_payload })
     .from(processing_job)
-    .where(eq(processing_job.id, jobId))
+    .where(and(eq(processing_job.id, jobId), eq(processing_job.org_id, orgId)))
     .limit(1);
   const payload = jobRows[0]?.trigger_payload as
     | {
@@ -87,7 +87,7 @@ export async function runMetricRefresh(jobId: string, orgId: string) {
         definition_hash: metric.definition_hash,
       })
       .from(metric)
-      .where(eq(metric.id, payload.metricId))
+      .where(and(eq(metric.id, payload.metricId), eq(metric.org_id, orgId)))
       .limit(1);
     const card = cards[0];
     if (!card) throw new Error(`metric ${payload.metricId} not found`);
@@ -369,7 +369,8 @@ async function runDeterministicMetricRefresh(input: {
   try {
     const definition = parseMetricDefinition(input.definition);
     await updateProgress(input.jobId, "Running reviewed saved query");
-    const [source] = await db()
+    const boundSource = await packArtifactSource(input.orgId, "metric", input.metricId);
+    const [fallbackSource] = boundSource ? [] : await db()
       .select({
         graphqlUrl: data_source.graphql_url,
         authMode: data_source.auth_mode,
@@ -378,6 +379,7 @@ async function runDeterministicMetricRefresh(input: {
       .where(and(eq(data_source.org_id, input.orgId), eq(data_source.enabled, true)))
       .orderBy(desc(data_source.is_default), data_source.created_at)
       .limit(1);
+    const source = boundSource ?? fallbackSource;
     if (!source?.graphqlUrl) throw new Error("saved-query metric has no enabled GraphJin source");
 
     const [previous] = await db()

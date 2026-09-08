@@ -14,7 +14,7 @@ import {
   pack_install,
   sql,
 } from "@neko/db";
-import { graphjinQuery, mintGraphjinToken } from "@neko/llm/graphjin";
+import { graphjinQuery, mintGraphjinToken, resolvePackSource, type PackSourceSelection } from "@neko/llm/graphjin";
 import {
   autoApprovePreparedActionRequest,
   recordAuditEvent,
@@ -217,12 +217,15 @@ async function loadRuntime(orgId: string): Promise<MagentoRuntime> {
     .orderBy(desc(pack_install.created_at))
     .limit(1);
   if (!installation) throw new Error("Magento pack is not installed");
-  const [source] = await db()
+  const selection = (installation.config?._runtime as { source?: PackSourceSelection } | undefined)?.source;
+  const bound = selection ? await resolvePackSource(orgId, selection) : null;
+  const [fallback] = bound ? [] : await db()
     .select({ graphqlUrl: data_source.graphql_url })
     .from(data_source)
     .where(and(eq(data_source.org_id, orgId), eq(data_source.enabled, true)))
     .orderBy(desc(data_source.is_default), data_source.created_at)
     .limit(1);
+  const source = bound ?? fallback;
   if (!source?.graphqlUrl) throw new Error("Magento GraphJin source is unavailable");
   const secrets = await readSecretsStore();
   const token = secrets[PACK_SECRET_SECTION]?.[TOKEN_KEY];

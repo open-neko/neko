@@ -40,6 +40,7 @@ const metricSchema = z
         query: z.string().min(1),
         result: z.record(z.string(), z.unknown()),
         freshnessSeconds: z.number().int().positive(),
+        variables: z.record(z.string(), z.unknown()).optional(),
       })
       .strict(),
   })
@@ -89,6 +90,7 @@ const watcherSchema = z
     severity: z.enum(["low", "medium", "high", "critical"]),
     dedupeKey: z.string().min(1),
     readinessSignals: z.array(z.string()).optional(),
+    variables: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
@@ -253,8 +255,7 @@ const relationshipsSchema = z
             cardinality: z.enum(["one_to_one", "one_to_many", "many_to_one", "many_to_many"]),
           })
           .strict(),
-      )
-      .min(1),
+      ),
   })
   .strict();
 

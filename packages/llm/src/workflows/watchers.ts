@@ -1,4 +1,5 @@
 import { and, data_source, db, desc, eq, watcher } from "@neko/db";
+import { packArtifactSource } from "../graphjin/pack-source";
 import { graphjinQuery } from "../graphjin/client";
 import { mintGraphjinToken } from "../graphjin/token";
 
@@ -309,19 +310,20 @@ export async function sweepWatchers(
   );
   if (due.length === 0) return { checked: 0, fired: [] };
 
-  const [src] = await db()
+  const [fallbackSource] = await db()
     .select({ graphqlUrl: data_source.graphql_url, authMode: data_source.auth_mode })
     .from(data_source)
     .where(and(eq(data_source.org_id, orgId), eq(data_source.enabled, true)))
     .orderBy(desc(data_source.is_default), data_source.created_at)
     .limit(1);
-  if (!src?.graphqlUrl) return { checked: 0, fired: [] };
 
   const fired: WatcherSweepResult["fired"] = [];
   for (const row of due) {
     let value: unknown;
     let error: string | null = null;
     try {
+      const src = await packArtifactSource(orgId, "watcher", row.id) ?? fallbackSource;
+      if (!src?.graphqlUrl) throw new Error("watcher has no enabled GraphJin source");
       const result = await query({
         baseUrl: graphjinEndpoint(src.graphqlUrl),
         query: row.query,

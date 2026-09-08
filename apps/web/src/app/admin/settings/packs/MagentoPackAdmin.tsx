@@ -13,6 +13,7 @@ import { Disclosure } from "@/components/ui/Disclosure";
 import { Field, Input, NativeSelect, Textarea } from "@/components/ui/Field";
 import { LocalDateTime } from "@/components/ui/LocalDateTime";
 import { Pill, type PillVariant } from "@/components/ui/Pill";
+import CustomPacksAdmin from "./CustomPacksAdmin";
 
 type PackStatus = {
   packId: string;
@@ -501,9 +502,11 @@ export default function MagentoPackAdmin({ fixture }: { fixture?: MagentoPackAdm
       </AppHeader>
       <PageHeading
         eyebrow="Settings · Packs"
-        title="Magento"
-        description="Connect the store once, then keep its health, metrics, automations, and credentials in one place."
+        title="Packs"
+        description="Install and manage packs for your business."
       />
+
+      <CustomPacksAdmin />
 
       {loading && !status ? (
         <section className="settings-card"><p className="settings-card-copy">Checking Magento…</p></section>

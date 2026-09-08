@@ -1,4 +1,9 @@
-import { randomUUID } from "node:crypto";
+import { listUploadedPacks, loadUploadedPack, storePackUpload, snapshotUploadedPack, type AvailablePack } from "./uploads.js";
+import { parse as parseYaml } from "yaml";
+import { extractValueAtPath, resolveWatcherVariables } from "@neko/llm/workflows";
+import { mapSavedQueryMetric } from "../jobs/deterministic-metric.js";
+import { bindPackQueries, declarativeGraphjinUpdate, packVariables } from "./declarative.js";
+import { createHmac, randomUUID } from "node:crypto";
 import {
   cp,
   lstat,
@@ -11,6 +16,7 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import {
+  localConfigPath,
   action_policy,
   action_changeset,
   action_changeset_row,
@@ -35,7 +41,7 @@ import {
   workflow_definition,
 } from "@neko/db";
 import { ensureOrgWorkspace } from "@neko/llm/work";
-import { graphjinQuery, mintGraphjinToken } from "@neko/llm/graphjin";
+import { graphjinQuery, graphjinSigningSecret, mintGraphjinToken, resolvePackSource, verifyPackQueryTables, graphjinConfigPatchHash, type PackSourceSelection } from "@neko/llm/graphjin";
 import {
   canonicalHash,
   DEFAULT_MAGENTO_ATTRIBUTE_CLASSIFICATIONS,
@@ -72,7 +78,11 @@ const PACK_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const PACK_SECRET_PREFIX = "pack.";
 
 type PackInstallRequest = {
+  version?: string;
+  reviewHash?: string;
   inputs?: Record<string, unknown>;
+  dataSourceId?: string;
+  sourceBindings?: Record<string, string>;
   secrets?: Record<string, string>;
   secretRefs?: Record<string, string>;
   idempotencyKey?: string;
@@ -91,6 +101,7 @@ type PackStatus = {
   readiness: Record<string, { status: string; reason: string | null }>;
   installedAt: string | null;
   lastError: string | null;
+  configuration: { inputs: Record<string, unknown>; dataSourceId?: string; sourceBindings: Record<string, string> };
 };
 
 type PackDoctorResult = {
@@ -102,6 +113,27 @@ type PackDoctorResult = {
     detail: string;
   }>;
 };
+
+type PackRuntime = {
+  source: PackSourceSelection;
+  bindings: Record<string, string>;
+  bindingHashes: Record<string, string>;
+  readiness: string[];
+  tables?: Array<Record<string, string>>;
+};
+
+function storedRuntime(config: Record<string, unknown>): PackRuntime | undefined {
+  return config._runtime as PackRuntime | undefined;
+}
+
+function boundPackLocator(bundle: SolutionPackBundle, artifact: PackArtifact, bindings: Record<string, string>): Record<string, unknown> {
+  if (bindings[artifact.key]) return { name: bindings[artifact.key] };
+  if (artifact.kind === "relationships") {
+    const source = bundle.artifacts.find(value => value.kind === "source" && artifactRecord(value).name === artifactRecord(artifact).source);
+    if (source && bindings[source.key]) return { source: bindings[source.key], ignorePackAliases: true };
+  }
+  return packArtifactLocator(artifact);
+}
 
 function operatorReadinessDetail(
   reason: MagentoPreflightResult["operatorReadiness"] | null,
@@ -201,6 +233,46 @@ async function runMagentoAnalyticsSmoke(endpoint: string, orgId: string): Promis
     throw new Error(
       "Magento secret-data check failed: GraphJin did not enforce the sales_order protect_code blocklist",
     );
+  }
+}
+
+async function runPackReadPreflight(bundle: SolutionPackBundle, endpoint: string, orgId: string, inputs: Record<string, unknown>): Promise<void> {
+  const results = new Map<string, unknown>();
+  const exercised = new Set<string>();
+  const now = new Date();
+  const run = async (name: string, variables?: unknown): Promise<unknown> => {
+    const resolved = resolveWatcherVariables(packVariables(variables, inputs), now);
+    const key = canonicalHash({ name, resolved });
+    if (results.has(key)) return results.get(key);
+    const result = await graphjinQuery({
+      baseUrl: graphjinEndpoint(endpoint), query: findSavedQuery(bundle, name), variables: resolved,
+      headers: { authorization: `Bearer ${mintGraphjinToken({ orgId, userId: "pack-preflight", role: "service", ttlSeconds: 60 })}` },
+      role: "service", signal: AbortSignal.timeout(30_000),
+    });
+    if (result.errors?.length || !result.data) throw new Error(`pack query ${name} failed preflight`);
+    exercised.add(name);
+    results.set(key, result.data);
+    return result.data;
+  };
+  for (const artifact of bundle.artifacts) {
+    if (artifact.kind !== "metric" && artifact.kind !== "watcher") continue;
+    const value = artifactRecord(artifact);
+    if (artifact.kind === "metric") {
+      const execution = value.execution as Record<string, unknown>;
+      const data = await run(String(execution.query), execution.variables);
+      const mapping = execution.result as Record<string, unknown>;
+      if (mapping.kind === "scalar" && typeof mapping.path === "string" && extractValueAtPath(data, mapping.path) == null) {
+        throw new Error(`pack metric ${artifact.key} result path is missing or null`);
+      }
+      mapSavedQueryMetric({ definition: { ...value, execution: { ...execution, document: findSavedQuery(bundle, String(execution.query)) } }, data, baseline: null });
+    } else {
+      const data = await run(String(value.query), value.variables);
+      if (extractValueAtPath(data, String(value.valuePath)) === undefined) throw new Error(`pack watcher ${artifact.key} result path is missing`);
+    }
+  }
+  for (const artifact of bundle.artifacts.filter(value => value.kind === "saved_query")) {
+    const name = basename(artifact.path, extname(artifact.path));
+    if (!exercised.has(name)) await run(name);
   }
 }
 
@@ -773,11 +845,110 @@ export class PackService {
   constructor(
     private readonly orgId: string,
     private readonly embeddedRoot = packRoot(),
+    private readonly uploadedRoot?: string,
   ) {}
 
-  private async bundle(packId: string): Promise<SolutionPackBundle> {
+  private uploadsRoot(): string { return this.uploadedRoot ?? join(dirname(localConfigPath()), "agents", "orgs", encodeURIComponent(this.orgId).replaceAll(".", "%2E"), "packs"); }
+
+  private async bundle(packId: string, version?: string): Promise<AvailablePack> {
     if (!PACK_ID.test(packId)) throw new Error("invalid pack id");
-    return loadSolutionPack(join(this.embeddedRoot, packId));
+    const bundle: AvailablePack = await pathExists(join(this.embeddedRoot, packId, "pack.yaml"))
+      ? await loadSolutionPack(join(this.embeddedRoot, packId))
+      : await loadUploadedPack(this.uploadsRoot(), this.orgId, packId, version);
+    if (packId !== "magento") {
+      for (const artifact of bundle.artifacts) {
+        const value = artifact.kind === "source" ? artifactRecord(artifact) : {};
+        if (artifact.kind === "source" && value.kind === "database" && !value.host) {
+          artifact.targetRef = `${packId}.binding.${String(value.name)}`;
+        }
+      }
+    }
+    return bundle;
+  }
+
+  private async installedBundle(installation: typeof pack_install.$inferSelect): Promise<AvailablePack> {
+    const bundle = await this.bundle(installation.pack_id, installation.source === "uploaded" ? installation.version : undefined);
+    if (installation.source === "uploaded") {
+      const pinned = installation.config._bundle as { contentHash?: string } | undefined;
+      if (!bundle.upload || bundle.upload.contentHash !== pinned?.contentHash) throw new Error("installed pack contents do not match the approved version");
+    }
+    return bundle;
+  }
+
+  async upload(bytes: Buffer, request: { actorUserId?: string | null; signal?: AbortSignal } = {}) {
+    const embedded = await readdir(this.embeddedRoot, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return []; throw error; });
+    const reservedIds = ["magento", ...embedded.filter(entry => entry.isDirectory() && PACK_ID.test(entry.name)).map(entry => entry.name)];
+    return storePackUpload({ root: this.uploadsRoot(), orgId: this.orgId, bytes, reservedIds, actorUserId: request.actorUserId, signal: request.signal });
+  }
+
+  private reviewHash(bundle: AvailablePack, plan: PackPlan, operation: string, request: PackInstallRequest, inputs: Record<string, unknown>, secrets: Record<string, string>, runtime: PackRuntime): string {
+    return createHmac("sha256", graphjinSigningSecret(this.orgId)).update("pack-review/v1:").update(canonicalHash({
+      orgId: this.orgId, actor: request.actorUserId ?? null, operation, plan,
+      contentHash: bundle.upload?.contentHash ?? bundle.bundleHash, inputs, secrets, runtime,
+      secretRefs: request.secretRefs ?? {},
+    })).digest("hex");
+  }
+
+  async review(packId: string, request: PackInstallRequest = {}, operation: "install" | "configure" | "upgrade" = "install") {
+    const [existing] = await db().select().from(pack_install).where(and(eq(pack_install.org_id, this.orgId), eq(pack_install.pack_id, packId))).orderBy(desc(pack_install.created_at)).limit(1);
+    if (operation !== "install" && existing?.status !== "installed") throw new Error("pack must be installed before reviewing this operation");
+    if (operation === "configure" && request.version && request.version !== existing?.version) throw new Error("configure cannot change the installed pack version");
+    const bundle = operation === "configure" && existing ? await this.installedBundle(existing) : await this.bundle(packId, request.version);
+    const prior = Object.fromEntries(Object.entries(existing?.config ?? {}).filter(([key]) => bundle.manifest.inputs.some(input => input.key === key)));
+    const inputs = resolveInputs(bundle, { ...prior, ...request.inputs });
+    const secrets = await resolveSecrets(bundle, request);
+    const runtime = await this.runtime(bundle, request, storedRuntime(existing?.config ?? {}));
+    if (packId !== "magento") {
+      const bound = bindPackQueries(bundle, runtime.bindings);
+      runtime.tables = [...new Map([...(storedRuntime(existing?.config ?? {})?.tables ?? []), ...bound.tables].map(table => [table.name, table])).values()];
+      declarativeGraphjinUpdate(bound.bundle, inputs, secrets.values, [], runtime.bindings);
+    }
+    const plan = await this.planBundle(bundle);
+    await assertNativeTargetsAvailable({ orgId: this.orgId, bundle, plan });
+    return { ...await this.inspect(packId, bundle.manifest.metadata.version), operation, inputs, runtime, plan,
+      secrets: Object.keys(secrets.values), reviewHash: this.reviewHash(bundle, plan, operation, request, inputs, secrets.values, runtime) };
+  }
+
+  private async runtime(bundle: SolutionPackBundle, request: PackInstallRequest, prior?: PackRuntime): Promise<PackRuntime> {
+    await verifyPackQueryTables(prior?.tables);
+    let source: PackSourceSelection;
+    if (!request.dataSourceId && prior) source = await resolvePackSource(this.orgId, prior.source);
+    else {
+      if (!request.dataSourceId && bundle.manifest.metadata.id !== "magento") throw new Error("select an enabled organization dataSourceId before installing a custom pack");
+      const [selected] = await db().select({ id: data_source.id, graphqlUrl: data_source.graphql_url, authMode: data_source.auth_mode }).from(data_source)
+        .where(and(eq(data_source.org_id, this.orgId), eq(data_source.enabled, true), ...(request.dataSourceId ? [eq(data_source.id, request.dataSourceId)] : [])))
+        .orderBy(desc(data_source.is_default), data_source.created_at).limit(1);
+      if (!selected) throw new Error("selected pack data source is unavailable in this organization");
+      source = selected;
+    }
+    const bindingHashes: Record<string, string> = {};
+    const references = bundle.artifacts.filter(artifact => artifact.kind === "source" && artifact.targetRef.startsWith(`${bundle.manifest.metadata.id}.binding.`));
+    const bindings = request.sourceBindings ?? Object.fromEntries(Object.entries(prior?.bindings ?? {}).filter(([key]) => references.some(artifact => artifact.key === key)));
+    if (Object.keys(bindings).some(key => !references.some(artifact => artifact.key === key))) throw new Error("unknown pack source binding");
+    if (references.length) {
+      const configFile = process.env.OPENNEKO_GRAPHJIN_CONFIG?.trim();
+      if (!configFile) throw new Error("GraphJin configuration is unavailable");
+      const config = parseYaml(await readFile(configFile, "utf8")) as { sources?: Array<Record<string, unknown>> };
+      const live = await graphjinQuery<{ gj_config?: { sources?: Array<Record<string, unknown>> } }>({
+        baseUrl: graphjinEndpoint(source.graphqlUrl), headers: { authorization: `Bearer ${mintGraphjinToken({ orgId: this.orgId, userId: "pack-binding", role: "admin", ttlSeconds: 60 })}` },
+        query: "query { gj_config(id: \"current\") { sources } }", signal: AbortSignal.timeout(30_000),
+      });
+      if (live.errors?.length || !Array.isArray(live.data?.gj_config?.sources)) throw new Error("cannot verify selected GraphJin sources");
+      for (const artifact of references) {
+        const name = bindings[artifact.key];
+        const current = config.sources?.find(value => value.name === name);
+        const running = live.data!.gj_config!.sources!.find(value => value.name === name);
+        if (!name || !current || !running || current.kind !== "database" || current.read_only !== true || running.kind !== "database" || running.read_only !== true) throw new Error(`binding ${artifact.key} requires an existing read-only database source`);
+        for (const key of ["name", "kind", "type", "host", "port", "dbname"]) {
+          if (String(current[key] ?? "") !== String(running[key] ?? "")) throw new Error(`binding ${artifact.key} differs from the selected live source`);
+        }
+        const engines = bundle.manifest.compatibility.databases.map(value => value.engine);
+        if (engines.length && !engines.includes(current.type as "postgres")) throw new Error(`binding ${artifact.key} database engine is incompatible`);
+        bindingHashes[artifact.key] = graphjinConfigPatchHash(current);
+        if (!request.sourceBindings && prior?.bindingHashes[artifact.key] && prior.bindingHashes[artifact.key] !== bindingHashes[artifact.key]) throw new Error(`binding ${artifact.key} changed; explicitly reconfigure it`);
+      }
+    }
+    return { source, bindings, bindingHashes, readiness: Object.keys(bundle.manifest.health.readiness) };
   }
 
   private async replayIdempotentOperation(
@@ -816,7 +987,7 @@ export class PackService {
   }
 
   async list(): Promise<Array<{ id: string; name: string; version: string; installed: boolean }>> {
-    const entries = await readdir(this.embeddedRoot, { withFileTypes: true });
+    const entries = await readdir(this.embeddedRoot, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return []; throw error; });
     const installed = await db()
       .select({ packId: pack_install.pack_id })
       .from(pack_install)
@@ -832,7 +1003,7 @@ export class PackService {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
     }
-    const bundles = await Promise.all(packDirectories.map((packId) => this.bundle(packId)));
+    const bundles = [...await Promise.all(packDirectories.map((packId) => this.bundle(packId))), ...await listUploadedPacks(this.uploadsRoot(), this.orgId)];
     return bundles.map((bundle) => ({
       id: bundle.manifest.metadata.id,
       name: bundle.manifest.metadata.name,
@@ -841,13 +1012,16 @@ export class PackService {
     }));
   }
 
-  async inspect(packId: string): Promise<Record<string, unknown>> {
-    const bundle = await this.bundle(packId);
+  async inspect(packId: string, version?: string): Promise<Record<string, unknown>> {
+    const bundle = await this.bundle(packId, version);
     return {
+      source: bundle.upload ? "uploaded" : "embedded",
+      ...(bundle.upload ? { upload: bundle.upload } : {}),
       manifest: bundle.manifest,
       manifestHash: bundle.manifestHash,
       bundleHash: bundle.bundleHash,
-      permissions: {
+      bindingRequirements: bundle.artifacts.filter(artifact => artifact.kind === "source" && artifactRecord(artifact).kind === "database" && !artifactRecord(artifact).host).map(artifact => ({ key: artifact.key, name: String(artifactRecord(artifact).name) })),
+      permissions: packId !== "magento" ? { database: "read-only", apiWrite: "blocked" } : {
         database: "view-only reporting",
         apiWrite: "specific Magento changes require approval and must be enabled individually",
         customerPii: "available to authenticated read-only queries",
@@ -856,8 +1030,12 @@ export class PackService {
     };
   }
 
-  async plan(packId: string): Promise<PackPlan> {
-    const bundle = await this.bundle(packId);
+  async plan(packId: string, version?: string): Promise<PackPlan> {
+    return this.planBundle(await this.bundle(packId, version));
+  }
+
+  private async planBundle(bundle: SolutionPackBundle): Promise<PackPlan> {
+    const packId = bundle.manifest.metadata.id;
     const [installation] = await db()
       .select({ id: pack_install.id })
       .from(pack_install)
@@ -960,6 +1138,9 @@ export class PackService {
         };
       }
     }
+    for (const capability of storedRuntime(installation.config)?.readiness ?? []) {
+      readiness[capability] = { status: installation.status === "installed" ? "ready" : "blocked", reason: installation.status === "installed" ? null : "pack_not_active" };
+    }
     return {
       packId,
       version: installation.version,
@@ -967,11 +1148,15 @@ export class PackService {
       readiness,
       installedAt: installation.installed_at?.toISOString() ?? null,
       lastError: installation.last_error,
+      configuration: {
+        inputs: Object.fromEntries(Object.entries(installation.config).filter(([key]) => !key.startsWith("_"))),
+        dataSourceId: storedRuntime(installation.config)?.source.id,
+        sourceBindings: storedRuntime(installation.config)?.bindings ?? {},
+      },
     };
   }
 
   async doctor(packId: string): Promise<PackDoctorResult> {
-    const bundle = await this.bundle(packId);
     const [installation] = await db()
       .select()
       .from(pack_install)
@@ -984,6 +1169,21 @@ export class PackService {
         status: "blocked",
         checks: [{ id: "installation", status: "blocked", detail: "pack is not installed" }],
       };
+    }
+
+    const bundle = await this.installedBundle(installation);
+    if (packId !== "magento") {
+      try {
+        const inputs = resolveInputs(bundle, Object.fromEntries(Object.entries(installation.config).filter(([key]) => bundle.manifest.inputs.some(input => input.key === key))));
+        const secrets = await resolveSecrets(bundle, {});
+        const runtime = await this.runtime(bundle, {}, storedRuntime(installation.config));
+        declarativeGraphjinUpdate(bundle, inputs, secrets.values, [], runtime.bindings);
+        const source = runtime.source;
+        await runPackReadPreflight(bindPackQueries(bundle, runtime.bindings).bundle, source.graphqlUrl, this.orgId, inputs);
+        return { packId, status: "ready", checks: [{ id: "queries", status: "ready", detail: "Pack queries and response mappings passed." }] };
+      } catch {
+        return { packId, status: "blocked", checks: [{ id: "queries", status: "blocked", detail: "Pack configuration or query preflight failed." }] };
+      }
     }
 
     const checks: PackDoctorResult["checks"] = [];
@@ -1026,12 +1226,15 @@ export class PackService {
       });
     }
 
-    const [source] = await db()
+    const selection = storedRuntime(installation.config)?.source;
+    const bound = selection ? await resolvePackSource(this.orgId, selection) : null;
+    const [fallback] = bound ? [] : await db()
       .select({ graphqlUrl: data_source.graphql_url })
       .from(data_source)
       .where(and(eq(data_source.org_id, this.orgId), eq(data_source.enabled, true)))
       .orderBy(desc(data_source.is_default), data_source.created_at)
       .limit(1);
+    const source = bound ?? fallback;
     const configFile = process.env.OPENNEKO_GRAPHJIN_CONFIG?.trim();
     if (!source?.graphqlUrl || !configFile || !(await pathExists(configFile))) {
       checks.push({
@@ -1456,7 +1659,6 @@ export class PackService {
   }
 
   async uninstall(packId: string, request: PackUninstallRequest = {}): Promise<PackStatus> {
-    const bundle = await this.bundle(packId);
     const replay = await this.replayIdempotentOperation(packId, request.idempotencyKey);
     if (replay) return replay;
     let [installation] = await db().select().from(pack_install).where(and(
@@ -1470,6 +1672,7 @@ export class PackService {
       return removed;
     }
 
+    const bundle = await this.installedBundle(installation);
     const client = await pool().connect();
     let operationId: string | null = null;
     let graphjinRestore: (() => Promise<void>) | null = null;
@@ -1495,7 +1698,7 @@ export class PackService {
       if (["installing", "upgrading", "removing"].includes(installation.status)) {
         throw new Error(`pack ${packId} already has an operation in progress`);
       }
-      const plan = await this.plan(packId);
+      const plan = await this.planBundle(bundle);
       const conflicts = plan.entries.filter((entry) => entry.action === "conflict");
       if (conflicts.length > 0) {
         const conflictKeys = new Set(conflicts.map((entry) => `${entry.kind}:${entry.key}`));
@@ -1532,11 +1735,15 @@ export class PackService {
       await db().update(pack_install).set({ operation_id: operationId })
         .where(eq(pack_install.id, installation.id));
 
-      const [source] = await db().select({ graphqlUrl: data_source.graphql_url })
+      await verifyPackQueryTables(storedRuntime(installation.config)?.tables);
+      const selection = storedRuntime(installation.config)?.source;
+      const bound = selection ? await resolvePackSource(this.orgId, selection) : null;
+      const [fallback] = bound ? [] : await db().select({ graphqlUrl: data_source.graphql_url })
         .from(data_source)
         .where(and(eq(data_source.org_id, this.orgId), eq(data_source.enabled, true)))
         .orderBy(desc(data_source.is_default), data_source.created_at)
         .limit(1);
+      const source = bound ?? fallback;
       const configFile = process.env.OPENNEKO_GRAPHJIN_CONFIG?.trim();
       if (!source?.graphqlUrl || !configFile) {
         throw new Error("customer GraphJin endpoint/config volume is unavailable");
@@ -1547,7 +1754,7 @@ export class PackService {
         bundle.artifacts.map((artifact) => [`${artifact.kind}:${artifact.key}`, artifact]),
       );
       const sourceNames = provenance
-        .filter((artifact) => artifact.artifact_kind === "source")
+        .filter((artifact) => artifact.artifact_kind === "source" && !artifact.metadata?.borrowedSource)
         .map((artifact) => artifact.target_ref);
       // GraphJin 3.18 cannot remove a source while tables still reference it,
       // does not expose remove_tables through gj_config, and treats tables: []
@@ -1759,12 +1966,12 @@ export class PackService {
     request: PackInstallRequest,
     operationType: "install" | "configure" | "upgrade",
   ): Promise<PackStatus> {
-    const bundle = await this.bundle(packId);
     const replay = await this.replayIdempotentOperation(packId, request.idempotencyKey);
     if (replay) return replay;
-    if (packId !== "magento") throw new Error(`no installer adapter for pack ${packId}`);
+    const firstPartyMagento = packId === "magento";
     const secretSection = `${PACK_SECRET_PREFIX}${packId}`;
     const client = await pool().connect();
+    let cleanupBundle: (() => Promise<void>) | undefined;
     let priorInstallation: typeof pack_install.$inferSelect | undefined;
     let installationId: string | null = null;
     let operationId: string | null = null;
@@ -1793,6 +2000,24 @@ export class PackService {
         throw new Error(`pack ${packId} already has an operation in progress`);
       }
 
+      if (operationType === "configure" && request.version && request.version !== existing?.version) throw new Error("configure cannot change the installed pack version; review an upgrade instead");
+      let authoredBundle = operationType === "configure" && existing ? await this.installedBundle(existing) : await this.bundle(packId, request.version);
+      if (authoredBundle.upload) {
+        const snapshot = await snapshotUploadedPack(this.uploadsRoot(), authoredBundle);
+        // Keep normalized binding targets from the validated catalog bundle.
+        snapshot.bundle.artifacts.forEach(artifact => { artifact.targetRef = authoredBundle.artifacts.find(value => value.kind === artifact.kind && value.key === artifact.key)!.targetRef; });
+        authoredBundle = snapshot.bundle;
+        cleanupBundle = snapshot.cleanup;
+      }
+      let bundle: SolutionPackBundle = authoredBundle;
+      const runtime = await this.runtime(bundle, request, storedRuntime(existing?.config ?? {}));
+      if (!firstPartyMagento) {
+        const bound = bindPackQueries(bundle, runtime.bindings);
+        bundle = bound.bundle;
+        // Retain alias ownership across upgrades, like the existing source/table metadata.
+        runtime.tables = [...new Map([...(storedRuntime(existing?.config ?? {})?.tables ?? []), ...bound.tables].map(table => [table.name, table])).values()];
+      }
+      const source = runtime.source;
       const declaredInputs = new Set(bundle.manifest.inputs.map((input) => input.key));
       const priorInputs = Object.fromEntries(
         Object.entries((existing?.config ?? {}) as Record<string, unknown>)
@@ -1800,7 +2025,10 @@ export class PackService {
       );
       const inputs = resolveInputs(bundle, { ...priorInputs, ...(request.inputs ?? {}) });
       const resolvedSecrets = await resolveSecrets(bundle, request);
-      const preflight = await runMagentoPreflight({
+      const plan = await this.planBundle(authoredBundle);
+      const reviewHash = this.reviewHash(authoredBundle, plan, operationType, request, inputs, resolvedSecrets.values, runtime);
+      if ((authoredBundle.upload || request.reviewHash) && request.reviewHash !== reviewHash) throw new Error("pack review is missing or stale; review the exact bundle, configuration, and plan before installing");
+      const preflight = firstPartyMagento ? await runMagentoPreflight({
         host: String(inputs["database.host"]),
         port: Number(inputs["database.port"]),
         database: String(inputs["database.name"]),
@@ -1811,13 +2039,16 @@ export class PackService {
         storeCode: String(inputs["magento.store_code"] ?? "all"),
         integrationToken: resolvedSecrets.values["magento.integration_token"] ?? null,
         customersEnabled: Boolean(inputs["magento.customers_enabled"]),
-      });
-      inputs["database.type"] = preflight.databaseType;
-      inputs["magento.table_prefix"] = preflight.tablePrefix;
-      inputs["magento.base_currency"] = inputs["magento.base_currency"] ?? preflight.baseCurrency;
-      inputs["magento.timezone"] = inputs["magento.timezone"] ?? preflight.timezone;
+      }) : null;
+      if (preflight) {
+        inputs["database.type"] = preflight.databaseType;
+        inputs["magento.table_prefix"] = preflight.tablePrefix;
+        inputs["magento.base_currency"] = inputs["magento.base_currency"] ?? preflight.baseCurrency;
+        inputs["magento.timezone"] = inputs["magento.timezone"] ?? preflight.timezone;
+      }
+      // Validate declarations before writing installation or secret state.
+      if (!preflight) declarativeGraphjinUpdate(bundle, inputs, resolvedSecrets.values, [], runtime.bindings);
 
-      const plan = await this.plan(packId);
       const conflicts = plan.entries.filter((entry) => entry.action === "conflict");
       if (conflicts.length > 0) {
         throw new Error(`pack install has ${conflicts.length} drift conflict(s); run pack plan for details`);
@@ -1828,7 +2059,8 @@ export class PackService {
       ) || [...resolvedSecrets.cleared].some((key) => storedSecrets[secretEnvKey(key)] !== undefined);
       const priorNormalizedInputs = existing ? resolveInputs(bundle, priorInputs) : null;
       const configChanged = !priorNormalizedInputs ||
-        canonicalHash(priorNormalizedInputs) !== canonicalHash(inputs);
+        canonicalHash(priorNormalizedInputs) !== canonicalHash(inputs) ||
+        canonicalHash(storedRuntime(existing?.config ?? {}) ?? null) !== canonicalHash(runtime);
       if (
         existing?.status === "installed" &&
         existing.version === bundle.manifest.metadata.version &&
@@ -1883,7 +2115,8 @@ export class PackService {
           version: bundle.manifest.metadata.version,
           status: operationType === "upgrade" ? "upgrading" : "installing",
           manifest_hash: bundle.manifestHash,
-          config: inputs,
+          source: authoredBundle.upload ? "uploaded" : "embedded",
+          config: { ...inputs, _runtime: runtime, ...(authoredBundle.upload ? { _bundle: authoredBundle.upload } : {}) },
           last_error: null,
           removed_at: null,
           updated_at: new Date(),
@@ -1895,7 +2128,8 @@ export class PackService {
           version: bundle.manifest.metadata.version,
           status: "installing",
           manifest_hash: bundle.manifestHash,
-          config: inputs,
+          source: authoredBundle.upload ? "uploaded" : "embedded",
+          config: { ...inputs, _runtime: runtime, ...(authoredBundle.upload ? { _bundle: authoredBundle.upload } : {}) },
           installed_by_user_id: request.actorUserId ?? null,
         }).returning({ id: pack_install.id });
         installationId = created!.id;
@@ -1908,8 +2142,8 @@ export class PackService {
         status: "running",
         requested_version: bundle.manifest.metadata.version,
         idempotency_key: request.idempotencyKey ?? randomUUID(),
-        plan: plan as unknown as Record<string, unknown>,
-        plan_hash: plan.hash,
+        plan: { ...plan, inputs, runtime, reviewHash },
+        plan_hash: canonicalHash({ ...plan, inputs, runtime, reviewHash }),
         phase: "preflight_complete",
         started_at: new Date(),
       }).returning({ id: pack_operation.id });
@@ -1928,12 +2162,6 @@ export class PackService {
       await writeSecretsStore(nextSecrets);
       secretsRestore = () => writeSecretsStore(resolvedSecrets.store);
 
-      const [source] = await db()
-        .select({ graphqlUrl: data_source.graphql_url })
-        .from(data_source)
-        .where(and(eq(data_source.org_id, this.orgId), eq(data_source.enabled, true)))
-        .orderBy(desc(data_source.is_default), data_source.created_at)
-        .limit(1);
       const configFile = process.env.OPENNEKO_GRAPHJIN_CONFIG?.trim();
       if (!source?.graphqlUrl || !configFile) {
         throw new Error("customer GraphJin endpoint/config volume is unavailable");
@@ -1974,7 +2202,7 @@ export class PackService {
         bundle.artifacts.filter((artifact) => artifact.kind === "source").map((artifact) => artifact.targetRef),
       );
       const retiredSourceNames = retiredArtifacts
-        .filter((artifact) => artifact.kind === "source" && !desiredSourceNames.has(artifact.targetRef))
+        .filter((artifact) => artifact.kind === "source" && !artifact.metadata?.borrowedSource && !desiredSourceNames.has(artifact.targetRef))
         .map((artifact) => artifact.targetRef);
       await db().update(pack_operation).set({ phase: "graphjin_files", updated_at: new Date() }).where(eq(pack_operation.id, operationId));
       const files = await installGraphjinFiles({
@@ -1985,16 +2213,21 @@ export class PackService {
       });
       filesRestore = files.restore;
 
+      await this.runtime(authoredBundle, {}, { ...runtime, tables: storedRuntime(existing?.config ?? {})?.tables });
       const applied = await applyPackGraphjinConfig({
         endpoint: graphjinEndpoint(source.graphqlUrl),
         orgId: this.orgId,
         configFile,
-        update: graphjinUpdate(inputs, resolvedSecrets.values, preflight, bundle, retiredSourceNames),
+        update: preflight
+          ? graphjinUpdate(inputs, resolvedSecrets.values, preflight, bundle, retiredSourceNames)
+          : { ...declarativeGraphjinUpdate(bundle, inputs, resolvedSecrets.values, retiredSourceNames, runtime.bindings), tables: (runtime.tables ?? []).map(table => ({ ...table, database: table.source })) },
         ownedSourceNames,
+        ...(!preflight ? { ownedTableNames: new Set((storedRuntime(existing?.config ?? {})?.tables ?? []).map(table => table.name!)) } : {}),
         restartAfterPersist: true,
       });
       graphjinRestore = applied.restore;
-      await runMagentoAnalyticsSmoke(graphjinEndpoint(source.graphqlUrl), this.orgId);
+      if (preflight) await runMagentoAnalyticsSmoke(graphjinEndpoint(source.graphqlUrl), this.orgId);
+      else await runPackReadPreflight(bundle, source.graphqlUrl, this.orgId, inputs);
 
       const retiredHashes = new Map<string, string>();
       for (const artifact of retiredArtifacts.filter(
@@ -2027,13 +2260,14 @@ export class PackService {
         const currentHash = await inspectPackArtifactCurrent({
           orgId: this.orgId,
           artifact,
-          metadata: { materializedTarget: target, locator: packArtifactLocator(artifact) },
+          metadata: { materializedTarget: target, locator: boundPackLocator(bundle, artifact, runtime.bindings), borrowedSource: Boolean(runtime.bindings[artifact.key]) },
           graphjinConfigFile: configFile,
         });
         if (!currentHash) throw new Error(`pack artifact ${artifact.key} was not materialized`);
         materializedHashes.set(`${artifact.kind}:${artifact.key}`, currentHash);
       }
 
+      await this.runtime(authoredBundle, {}, runtime);
       await db().transaction(async (tx) => {
         for (const artifact of retiredArtifacts) {
           const identity = `${artifact.kind}:${artifact.key}`;
@@ -2120,56 +2354,59 @@ export class PackService {
           }).where(eq(pack_artifact.id, artifact.id));
         }
 
-        const caps = magentoCapsFromInputs(inputs);
-        for (const control of DEFAULT_MAGENTO_DOMAIN_CONTROLS) {
-          const enabled = control.domain === "customers"
-            ? Boolean(inputs["magento.customers_enabled"])
-            : control.enabled;
-          await tx.insert(magento_store_control).values({
-            org_id: this.orgId,
-            domain: control.domain,
-            risk_class: control.riskClass,
-            enabled,
-            auto_execute: false,
-            caps,
-            scope: { stores: preflight.scopes },
-          }).onConflictDoUpdate({
-            target: [magento_store_control.org_id, magento_store_control.domain],
-            set: {
+        if (preflight) {
+          const caps = magentoCapsFromInputs(inputs);
+          for (const control of DEFAULT_MAGENTO_DOMAIN_CONTROLS) {
+            const enabled = control.domain === "customers"
+              ? Boolean(inputs["magento.customers_enabled"])
+              : control.enabled;
+            await tx.insert(magento_store_control).values({
+              org_id: this.orgId,
+              domain: control.domain,
+              risk_class: control.riskClass,
               enabled,
+              auto_execute: false,
               caps,
               scope: { stores: preflight.scopes },
-              updated_at: new Date(),
-            },
-          });
-        }
-        for (const classification of DEFAULT_MAGENTO_ATTRIBUTE_CLASSIFICATIONS) {
-          await tx.insert(magento_attribute_classification).values({
-            org_id: this.orgId,
-            domain: classification.domain,
-            entity_type: classification.entityType,
-            attribute: classification.attribute,
-            risk_class: classification.riskClass,
-            category: classification.category,
-            rationale: classification.rationale,
-            reviewed: true,
-            pack_default: true,
-          }).onConflictDoUpdate({
-            target: [
-              magento_attribute_classification.org_id,
-              magento_attribute_classification.domain,
-              magento_attribute_classification.entity_type,
-              magento_attribute_classification.attribute,
-            ],
-            set: {
+            }).onConflictDoUpdate({
+              target: [magento_store_control.org_id, magento_store_control.domain],
+              set: {
+                enabled,
+                caps,
+                scope: { stores: preflight.scopes },
+                updated_at: new Date(),
+              },
+            });
+          }
+          for (const classification of DEFAULT_MAGENTO_ATTRIBUTE_CLASSIFICATIONS) {
+            await tx.insert(magento_attribute_classification).values({
+              org_id: this.orgId,
+              domain: classification.domain,
+              entity_type: classification.entityType,
+              attribute: classification.attribute,
               risk_class: classification.riskClass,
               category: classification.category,
               rationale: classification.rationale,
               reviewed: true,
               pack_default: true,
-              updated_at: new Date(),
-            },
-          });
+            }).onConflictDoUpdate({
+              target: [
+                magento_attribute_classification.org_id,
+                magento_attribute_classification.domain,
+                magento_attribute_classification.entity_type,
+                magento_attribute_classification.attribute,
+              ],
+              set: {
+                risk_class: classification.riskClass,
+                category: classification.category,
+                rationale: classification.rationale,
+                reviewed: true,
+                pack_default: true,
+                updated_at: new Date(),
+              },
+            });
+          }
+
         }
 
         const workflows = new Map<string, string>();
@@ -2185,7 +2422,7 @@ export class PackService {
             status: String(value.status),
             goal: String(value.goal),
             cron: schedule ? String(schedule.cron) : null,
-            cron_timezone: String(inputs["magento.timezone"] ?? "UTC"),
+            cron_timezone: String(inputs[String(schedule?.timezoneInput)] ?? schedule?.timezoneInput ?? "UTC"),
             cron_enabled: Boolean(schedule?.enabled),
             output_contract: value.outputContract as Record<string, unknown>,
             updated_at: new Date(),
@@ -2208,7 +2445,8 @@ export class PackService {
             execution: {
               ...execution,
               document: findSavedQuery(bundle, String(execution.query)),
-              runtime: {
+              ...(!preflight ? { variables: packVariables(execution.variables, inputs) } : {}),
+              runtime: preflight ? {
                 storeIds: preflight.storeIds,
                 windowDays: 30,
                 staleAfterSeconds: 2 * 60 * 60,
@@ -2216,7 +2454,7 @@ export class PackService {
                 stockThreshold: 5,
                 currency: String(inputs["magento.base_currency"] ?? "USD"),
                 timezone: String(inputs["magento.timezone"] ?? "UTC"),
-              },
+              } : {},
             },
           };
           const set = {
@@ -2268,14 +2506,14 @@ export class PackService {
             cooldown_seconds: Number(value.cooldownSeconds),
             dedupe_key: String(value.dedupeKey),
             activation: String(value.activation),
-            variables_json: {
+            variables_json: preflight ? {
               from: { kind: "seconds_ago", seconds: 30 * 24 * 60 * 60 },
               to: { kind: "now" },
               staleBefore: { kind: "seconds_ago", seconds: 2 * 60 * 60 },
               olderThan: { kind: "seconds_ago", seconds: 2 * 24 * 60 * 60 },
               storeIds: { kind: "literal", value: preflight.storeIds },
               threshold: { kind: "literal", value: 5 },
-            },
+            } : packVariables(value.variables, inputs),
             severity: String(value.severity),
             updated_at: new Date(),
           };
@@ -2324,7 +2562,7 @@ export class PackService {
           const adapter = value.adapter as Record<string, unknown> | undefined;
           const reason = adapter?.kind === "magento_financial_handoff"
             ? "ready"
-            : preflight.operatorDomains[domain] ?? preflight.operatorReadiness;
+            : preflight?.operatorDomains[domain] ?? preflight?.operatorReadiness ?? "unsupported_adapter";
           const actionReady = reason === "ready";
           await tx.insert(pack_action_definition).values({
             org_id: this.orgId,
@@ -2360,11 +2598,11 @@ export class PackService {
         }
 
         for (const artifact of bundle.artifacts) {
-          const operatorArtifact =
+          const operatorArtifact = firstPartyMagento && (
             artifact.key === "source.magento_operator" ||
             artifact.kind === "spec" ||
             artifact.kind === "action" ||
-            (artifact.kind === "saved_query" && basename(artifact.path).startsWith("action_"));
+            (artifact.kind === "saved_query" && basename(artifact.path).startsWith("action_")));
           const value = artifact.kind === "action" ? artifactRecord(artifact) : null;
           const actionDomain = String(
             (value?.readiness as Record<string, unknown> | undefined)?.domain ?? "",
@@ -2373,8 +2611,8 @@ export class PackService {
           const operatorReason = actionAdapter?.kind === "magento_financial_handoff"
             ? "ready"
             : actionDomain
-              ? preflight.operatorDomains[actionDomain]
-              : preflight.operatorReadiness;
+              ? preflight?.operatorDomains[actionDomain]
+              : preflight?.operatorReadiness;
           const readiness = operatorArtifact && operatorReason !== "ready" ? "blocked" : "ready";
           const reason = operatorArtifact
             ? `operator:${actionDomain || "operator"}:${operatorReason}`
@@ -2397,7 +2635,7 @@ export class PackService {
             metadata: {
               path: artifact.path,
               materializedTarget: target,
-              locator: packArtifactLocator(artifact),
+              locator: boundPackLocator(bundle, artifact, runtime.bindings), borrowedSource: Boolean(runtime.bindings[artifact.key]),
               stateHashVersion: 1,
             },
           }).onConflictDoUpdate({
@@ -2413,7 +2651,7 @@ export class PackService {
               metadata: {
                 path: artifact.path,
                 materializedTarget: target,
-                locator: packArtifactLocator(artifact),
+                locator: boundPackLocator(bundle, artifact, runtime.bindings), borrowedSource: Boolean(runtime.bindings[artifact.key]),
                 stateHashVersion: 1,
               },
               updated_at: new Date(),
@@ -2422,7 +2660,7 @@ export class PackService {
         }
         await tx.update(pack_install).set({
           status: "installed",
-          config: { ...inputs, magentoVersion: preflight.magentoVersion },
+          config: { ...inputs, _runtime: runtime, ...(authoredBundle.upload ? { _bundle: authoredBundle.upload } : {}), ...(preflight ? { magentoVersion: preflight.magentoVersion } : {}) },
           installed_at: new Date(),
           updated_at: new Date(),
         }).where(eq(pack_install.id, installationId!));
@@ -2477,6 +2715,7 @@ export class PackService {
         await db().update(pack_install).set(restorePrior ? {
           status: priorInstallation!.status,
           version: priorInstallation!.version,
+          source: priorInstallation!.source,
           manifest_hash: priorInstallation!.manifest_hash,
           config: priorInstallation!.config,
           operation_id: priorInstallation!.operation_id,
@@ -2491,6 +2730,7 @@ export class PackService {
     } finally {
       await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [`pack:${this.orgId}:${packId}`]).catch(() => {});
       client.release();
+      await cleanupBundle?.();
     }
   }
 }
