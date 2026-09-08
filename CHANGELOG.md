@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.40.0](https://github.com/open-neko/openneko/compare/v2.39.1...v2.40.0) (2026-09-08)
+
+
+### Features
+
+* **packs:** install custom packs through the shared lifecycle ([332a481](https://github.com/open-neko/openneko/commit/332a4810b0e919dcc7e7c418ccc05507d230872d))
+* **packs:** support custom pack installation and verified Magento operations ([5f02472](https://github.com/open-neko/openneko/commit/5f0247241e0504495c6690872e03b0a11b2e98ad))
+
+
+### Bug Fixes
+
+* **magento:** reconcile live operations and preserve solo approvals ([53464b2](https://github.com/open-neko/openneko/commit/53464b273e1d200335a6f16df7ef2fc9b89d6618))
+* **packs:** preserve blocked Magento capability readiness ([fe3ddca](https://github.com/open-neko/openneko/commit/fe3ddca2c812dc2f6f5fdd1620e9fa3ba934b07e))
+
 ## [2.39.1](https://github.com/open-neko/openneko/compare/v2.39.0...v2.39.1) (2026-09-04)
 
 
