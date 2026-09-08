@@ -1,5 +1,7 @@
 # Install custom solution packs
 
+For pack authors, see [PACKS.md](../PACKS.md) for layout, artifact contracts, validation, and the Git/PR workflow.
+
 Custom packs and the first-party Magento pack use `PackService` for planning,
 installation, configuration, upgrades, and removal. Connectors belong inside
 the pack as GraphJin source declarations and bundled OpenAPI specifications.
