@@ -84,16 +84,16 @@ through supported UI and CLI paths without copying files or rebuilding images.
 
 ### 6. Prove the complete path and review the diff
 
-- [ ] Run focused archive, authorization, approval, ownership, and lifecycle
+- [x] Run focused archive, authorization, approval, ownership, and lifecycle
   regression checks, including failed-install compensation.
-- [ ] Install the custom proof pack in a real runtime and exercise its connector
+- [x] Install the custom proof pack in a real runtime and exercise its connector
   and dependent artifacts; verify uninstall disables owned automation.
-- [ ] Run Magento regression checks and verify its shared installation path.
-- [ ] Verify upgrade preserves operator changes/data and restart preserves packs.
-- [ ] Run affected typechecks/tests and required web checks; inspect failures.
-- [ ] Review with Ponytail: remove unused dependencies, duplicate paths,
+- [x] Run Magento regression checks and verify its shared installation path.
+- [x] Verify upgrade preserves operator changes/data and restart preserves packs.
+- [x] Run affected typechecks/tests and required web checks; inspect failures.
+- [x] Review with Ponytail: remove unused dependencies, duplicate paths,
   speculative abstractions, and unrelated changes.
-- [ ] Document packaging/install commands and report verified behavior and limits.
+- [x] Document packaging/install commands and report verified behavior and limits.
 
 Done when: evidence supports the narrowed scope, the change is reviewable, and
 this checklist accurately distinguishes completed work from deferred features.
@@ -524,4 +524,64 @@ Reviewed screenshots are preserved in `/tmp/issue290-step5-ui/` and
 `/tmp/issue290-step5-visual/`; the Magento comparison baselines are checked-in
 paths under `apps/web/test/visual/__screenshots__/`.
 
-Step 6 remains pending: final acceptance and diff review for the agreed scope.
+Step 6 acceptance and review are recorded below.
+
+
+## Step 6 complete — 2026-09-08
+
+The narrowed custom-pack scope passes final acceptance. Steps 1–5 were committed
+as `218fc87`; this step adds [packaging and installation documentation](docs/CUSTOM_PACKS.md)
+and records fresh verification. Live Magento-provider installation follows this
+commit as a separate requested acceptance exercise; it is not claimed by the
+substituted Magento regression suite below.
+
+### Fresh verification
+
+- Pack/archive suite: **30 passed**. Worker authorization/transport, declarations,
+  source ownership/config compensation, input validation, and upload storage:
+  **65 passed**. Web authorization/upload/review API: **12 passed**.
+- Shared lifecycle against disposable PostgreSQL 16 with every metadata migration:
+  **4 passed**, including full first-party Magento install/configure/upgrade/remove,
+  custom operator-drift preservation, failure compensation, native history,
+  borrowed-source ownership, and endpoint isolation. External Magento preflight
+  and GraphJin transport are substituted only in this suite.
+- Real packaged GraphJin **3.20.47**, PostgreSQL, and authenticated HTTP provider:
+  **all 3 integration tests passed**. These cover dependent metric snapshots and
+  watcher reads, denied writes, bad-token/unreachable/null-result compensation,
+  restart, uploaded approval identity, encrypted config restore in a fresh process,
+  upgrade with operator-edit rejection, uninstall, and actual CLI/Next/browser
+  upload → review → install → configure → uninstall. Scheduler/workspace test
+  substitutions remain explicitly documented in the test; no plugin lifecycle
+  is loaded by the connector proof.
+- CLI pack/proxy Go tests passed. Packs, worker, and web typechecks passed.
+  Web lint, `pnpm ui:check`, migration-copy comparison, and `git diff --check`
+  passed. Magento desktop/phone/loading visual contracts: **3 passed**.
+- Reviewed fresh custom-pack screenshots at 390px and 1280px, including installed,
+  review and error states, with automated focus/disabled/geometry assertions.
+  Admin Packs is the affected family; Data settings supplies an unchanged API
+  and its page was not opened. No shared chrome changed.
+
+The first live-suite attempt stopped before testing because the local GraphJin
+image had been removed. Pulled the packaged image, confirmed its version, rebuilt
+`neko-backup` from this checkout, and reran all three tests successfully. This was
+an environment prerequisite failure, not a suppressed acceptance failure.
+
+### Ponytail review and limits
+
+Reviewed the shared apply/compensation path, uploaded-content snapshots and
+approval binding, archive boundaries, source routing, CLI transport, and Admin
+callers. No second installer, connector loader, or unused production dependency
+was found. `graphql` parses and rewrites queries using its AST; `yauzl` supplies
+bounded ZIP entry streaming. Both are used directly. No speculative abstraction
+or additional production code was needed for final acceptance. Restored Next's
+incidental generated tsconfig edit; unrelated prototypes remain outside commits.
+
+The guide documents supported connectors, immutable versions, approval, source
+bindings, commands, storage, and limitations. Custom writes/OAuth/executable
+connectors, original-issue Records/application expansion, full database disaster
+recovery, and crash-resumable apply remain outside this agreed scope. Magento
+live-provider acceptance is still to be exercised after this step's commit.
+
+Evidence logs: `/tmp/issue290-step6-{packs,worker,web-api,lifecycle,live,cli,visual}.log`
+and `/tmp/issue290-step6-{packs-types,worker-types,web-types,web-lint,ui-check}.log`.
+Screenshots: `apps/web/test-results/custom-packs-uploads-revie-d2f83-nstalls-through-Admin-Packs/`.
