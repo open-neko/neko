@@ -262,6 +262,15 @@ describe.skipIf(!enabled)("shared pack lifecycle with Postgres", () => {
     await service.configure("magento", { inputs: { "magento.timezone": "Europe/London" } });
     await service.upgrade("magento");
     expect((await service.doctor("magento")).status).toBe("ready");
+    const preflight = await vi.mocked(runMagentoPreflight).mock.results[0]!.value;
+    vi.mocked(runMagentoPreflight).mockResolvedValueOnce({
+      ...preflight,
+      operatorReadiness: "integration_token_missing",
+      operatorDomains: Object.fromEntries(Object.keys(preflight.operatorDomains).map(domain => [domain, "integration_token_missing"])) as typeof preflight.operatorDomains,
+    });
+    const viewOnly = await service.configure("magento", { secrets: { "magento.integration_token": "" } });
+    expect(viewOnly.readiness.analytics?.status).toBe("ready");
+    expect(viewOnly.readiness.catalog).toEqual({ status: "blocked", reason: "integration_token_missing" });
     expect((await service.uninstall("magento")).status).toBe("removed");
     expect((await pool().query("select count(*) from metric where org_id=$1 and source='pack:magento' and active", [org])).rows[0].count).toBe("0");
   });

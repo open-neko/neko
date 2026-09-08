@@ -1139,7 +1139,7 @@ export class PackService {
       }
     }
     for (const capability of storedRuntime(installation.config)?.readiness ?? []) {
-      readiness[capability] = { status: installation.status === "installed" ? "ready" : "blocked", reason: installation.status === "installed" ? null : "pack_not_active" };
+      readiness[capability] ??= { status: installation.status === "installed" ? "ready" : "blocked", reason: installation.status === "installed" ? null : "pack_not_active" };
     }
     return {
       packId,

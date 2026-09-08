@@ -585,3 +585,58 @@ live-provider acceptance is still to be exercised after this step's commit.
 Evidence logs: `/tmp/issue290-step6-{packs,worker,web-api,lifecycle,live,cli,visual}.log`
 and `/tmp/issue290-step6-{packs-types,worker-types,web-types,web-lint,ui-check}.log`.
 Screenshots: `apps/web/test-results/custom-packs-uploads-revie-d2f83-nstalls-through-Admin-Packs/`.
+
+
+## Live Magento installation — 2026-09-08
+
+After the step 6 commit `00aadf3`, exercised the existing Magento store through
+this checkout's actual worker, compiled Go CLI, PostgreSQL metadata/queue, and
+packaged GraphJin 3.20.47. Magento stayed running throughout. The OpenNeko test
+configuration is isolated under `/tmp/issue290-magento-live`; the worker reports
+**no plugins installed**. Records database and its two GraphJin processes satisfy
+the full worker's startup prerequisites; pack installation uses the customer
+GraphJin container. No PackService, provider preflight, scheduler, or transport
+was mocked in this exercise.
+
+- Created a dedicated `issue290_analytics` account with SELECT-only access to
+  Magento. Supplied credentials through the existing encrypted secret store.
+  The real preflight verified MariaDB 12.3.2, store ID 1, USD, and the discovered
+  America/New_York timezone.
+- Installed Magento **0.3.0** through `openneko --local pack install magento`
+  using generic `--input`, `--secret-ref`, and `--yes` review/apply flags.
+  The same worker `PackService.apply` used for custom packs completed successfully.
+- Installed 13 metrics, 19 saved queries, 6 workflows, 6 watchers, 8 skills,
+  8 action definitions, 2 policies, 2 source declarations, 2 specs, and the
+  relationship artifact. All **13 actual pg-boss metric jobs succeeded** and
+  persisted snapshots with no error class. The orders-placed snapshot was **8**,
+  matching a direct MariaDB count for store 1 over the same 30-day window.
+- Restarted the actual worker and customer GraphJin. Status remained installed;
+  doctor again passed SELECT-only grants, Magento discovery, GraphJin catalog,
+  and the real sales-order smoke query. Repeating the reviewed install was a
+  no-op: the database still contains exactly one successful install operation.
+- No Integration token was supplied. Doctor accurately reports overall degraded
+  readiness because write domains are view-only and async bulk consumers are
+  not ready. Watchers remain disabled as authored until an administrator confirms
+  thresholds. Governed writes and AI workflow execution were not exercised.
+- Plaintext analytics credentials are absent from GraphJin config/encrypted
+  keystore, CLI review output, and returned status.
+
+The live run exposed one reporting defect: generic readiness defaults overwrote
+Magento's artifact-derived blocked write-domain status. Changed that assignment
+to fill only absent capabilities, preserving existing failure reasons. Added a
+regression that removes Magento's Integration token after installation and checks
+that analytics remains ready while catalog is blocked. All four shared lifecycle
+tests and the worker typecheck passed again. The restarted live worker now reports
+these same truthful states.
+
+Evidence: `/tmp/issue290-magento-live/{install.log,doctor.json,status.json,doctor-restarted.json,status-restarted.json,reinstall.log,worker-restarted.log}`;
+regression: `/tmp/issue290-step6-readiness.log` and
+`/tmp/issue290-step6-readiness-types.log`. The local worker remains available at
+`http://127.0.0.1:4100`; customer GraphJin is at `http://127.0.0.1:18080`.
+To inspect using the isolated CLI/configuration:
+
+```sh
+source /tmp/issue290-magento-live/env.sh
+/tmp/issue290-magento-live/openneko --local pack status magento
+/tmp/issue290-magento-live/openneko --local pack doctor magento
+```
